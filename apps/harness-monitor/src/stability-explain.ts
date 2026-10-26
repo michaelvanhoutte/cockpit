@@ -10,12 +10,12 @@ export const WHAT = {
   red: {
     shows: 'How long, in the period, at least one workflow on <code>main</code> was red: its latest finished run had failed.',
     read: 'Spells of several workflows at once count once, so it never exceeds the period, and a spell still open runs to now. The note gives its share of the period and how many spells reached into it.',
-    look: 'Zero is the aim. Hours of red mean <code>main</code> stayed broken while people kept merging onto it; the Red spells tab says which workflow and for how long.',
+    look: 'Zero is the aim. Hours of red mean <code>main</code> stayed broken while people kept merging onto it; the Workflow tab says which workflow, and what made it fail.',
   },
   leastReliable: {
     shows: 'The job with the lowest pass rate among those that finished at least three times in the period.',
     read: 'The note gives its rate, its failures out of its finished runs and its workflow. Its name opens its steps.',
-    look: 'A job that fails far more often than the rest is more often fragile than catching that many real breaks; the Failures tab says which step it keeps dying at.',
+    look: 'A job that fails far more often than the rest is more often fragile than catching that many real breaks; the Workflow tab says what makes its workflow fail.',
   },
   slowest: {
     shows: 'The job with the longest median duration in the period.',
@@ -38,18 +38,39 @@ export const WHAT = {
     look: 'The longest bar is the step to speed up first. A p90 far beyond its median is a step that is usually quick but sometimes stalls, such as an install or a download.',
   },
   job: { shows: 'Each row is a job, in the order the sentence names: its last finished run, its pass rate with the counts behind it, how its runs ended, its failures and cancellations, and its median and p90 time. A name opens its steps.' },
-  workflow: { shows: 'Each row is a workflow: its last finished run, its own pass rate (a run with one failed job is a failed run, not an average of its jobs), how its runs ended, its failures, and how many red spells it had and how long they lasted. A name opens its jobs.' },
-  spells: { shows: 'Each row is a red spell: its workflow, with the job and step that failed in the run that opened it, when it went red and green again, how long it lasted and how many commits failed during it. A spell runs from a failing run to the next passing one of the same workflow; consecutive failures are one spell, and a cancelled run between them neither opens nor closes one.' },
-  whereTheyDied: { shows: 'Each row is a job and the step it failed at, the most failures first, with the workflows it failed in and its latest failure. One near the top failing at the same step again and again is the fragile check to fix first.' },
-  recent: { shows: 'Each row is a failed run, newest first: when, its workflow, the jobs that failed in it, the step each died at, and the commit it ran on, each opening on GitHub.' },
-  perDay: {
-    shows: 'For each day of the period, how long each workflow was red, and how long any of them was.',
-    read: 'One line per workflow red in the period, with a dashed line and shaded area for any workflow, which counts time several were red at once only once. Workflows past the eighth ever red are drawn together as Other. Point at a dot for its time, or at a name in the key to pick its line out.',
-    look: 'Spikes are days <code>main</code> was broken for hours. Several lines rising on the same day usually share one cause, such as an outage or a broken dependency, rather than separate breaks.',
+  workflow: {
+    shows:
+      'Each row is a workflow that ran on <code>main</code> or flaked on a feature branch, in the order the sentence names: its pass rate on <code>main</code>, which counts every run on <code>main</code>, scheduled and manual runs included, and every attempt of a re-run as a run of its own; a square for each day, its failures on <code>main</code> with those on feature branches beneath, and its top cause. A square is <code>main</code>&rsquo;s pass rate that day, with a dot under it on a day a feature branch flaked. A feature branch counts only a failure that a later attempt on the same commit passed, since its other failures are usually the change being wrong. A row opens, from its chevron or a click outside its links, to <i>On main</i> beside <i>On feature branches</i>, each with a summary and its top three causes; the name opens the workflow&rsquo;s own view. <b>Copy prompt</b> copies what an agent needs to fix its causes, not retry them.',
   },
-  day: { shows: 'Each row is a day, newest first: its red time split by workflow, how many spells began, how many runs failed, and the red time of any workflow. Workflows red at the same time count once under Any workflow, so it can be less than the row&rsquo;s sum.' },
+  workflowRate: {
+    shows: 'Of the attempts on <code>main</code> that finished in the period, the share that passed, scheduled and manual runs included.',
+    read: 'Every attempt of a re-run is a run of its own. The note gives the counts. The figure is green at 99% or more and red below 90%.',
+    look: 'Every failure on <code>main</code> is a change that landed broken or a check that failed on its own, and everyone who branches from <code>main</code> then inherits it.',
+  },
+  workflowFailed: {
+    shows: 'The attempts on <code>main</code> that failed in the period.',
+    read: 'The note gives how many of them a later attempt on the same commit passed. <code>main</code> is re-run rarely, so every failure counts, flaky or not.',
+    look: 'A failure no re-run turned green is a break: find what broke it. A flaky one is nondeterminism, and the causes below say which test.',
+  },
+  workflowFlaky: {
+    shows: 'The attempts on feature branches that failed and then passed on the same commit.',
+    read: 'A branch&rsquo;s other failures are left out, being usually the change being wrong. The note gives how many commits they were on.',
+    look: 'Each one cost a pull request a re-run. Many with one cause is a test or check to fix before it costs more.',
+  },
+  workflowTop: {
+    shows: 'The cause behind the most failures of this workflow, main&rsquo;s counted before the branches&rsquo;.',
+    read: 'A cause is the failing test where the attempt names one, otherwise the job and step. The note gives its failures on <code>main</code> and its flaky ones on feature branches.',
+    look: 'Fixing the top cause is the one change that removes most of the failures below it.',
+  },
+  workflowPerDay: {
+    shows: 'For each day of the period, the workflow&rsquo;s attempts on <code>main</code> that passed, failed and then passed on the same commit, and failed, with the flaky failures on feature branches in a bar beside.',
+    read: 'Violet passed, orange failed and then passed on the same commit, red failed. The percentage above a bar is <code>main</code>&rsquo;s pass rate that day; the pale orange bar beside it counts the day&rsquo;s flaky failures on feature branches.',
+    look: 'Red days are breaks on <code>main</code>. A run of orange days is nondeterminism worth finding. Pale bars with nothing beside them are flakes only pull requests felt.',
+  },
+  workflowCauses: { shows: 'Each row is a cause of this workflow&rsquo;s failures, most on <code>main</code> first. A cause is the failing test where the attempt names one, otherwise the job and step, with its error where there is one, its failures on <code>main</code> and how many were flaky, its flaky failures on feature branches, and its latest, which opens that job on GitHub.' },
+  workflowEvery: { shows: 'Each row is a failure counted for this workflow, <code>main</code> first and then newest first: when and where it ran, the jobs and steps that failed, the tests named, and whether a later attempt on the same commit passed.' },
 } satisfies Record<string, Explanation>;
 
 /** What follows the question on the page's lead: the words a newcomer will not know. */
 export const LEAD_MORE =
-  'Every figure is GitHub Actions on the <code>main</code> branch: each workflow run, such as CI after a merge or a nightly job, and the jobs inside it. A <b>pass rate</b> is the runs that passed out of those that finished with a verdict, passed or failed. A <b>cancelled</b> run was stopped before it finished, mostly by a newer push overtaking it, so it counts as neither. A <b>red spell</b> is a stretch when a workflow&rsquo;s latest run had failed, from that run to the next one that passed. A <b>fluke</b> is a check that fails and then passes on a re-run with nothing changed; the page keeps only each run&rsquo;s latest verdict, so a fluke re-run to green counts as a pass, and one left red cannot be told from a real break.';
+  'Job counts the runs of GitHub Actions on the <code>main</code> branch; Workflow counts those and every feature branch&rsquo;s. A <b>pass rate</b> is the runs that passed out of those that finished with a verdict, passed or failed, each attempt of a re-run counting as a run of its own. A <b>cancelled</b> run was stopped before it finished, mostly by a newer push overtaking it, so it counts as neither. A failure is <b>flaky</b> when a later attempt on the same commit passed: on <code>main</code> every failure counts, since it is rarely re-run, and on a feature branch only a flaky one, since its other failures are usually the change being wrong. A <b>cause</b> is the failing test where the attempt names one, otherwise the job and step.';

@@ -5,8 +5,6 @@ import {
   redMs,
   redSpells,
   sortJobs,
-  sortSpells,
-  sortWorkflows,
   stabilityAddress,
   tallyOf,
   type FinishedRun,
@@ -76,26 +74,6 @@ describe('Harness Monitor', () => {
       expect(sortJobs(jobs, sort).map((j) => j.name)).toEqual(expected);
     });
 
-    it.each([
-      { situation: 'workflows by least reliable', sort: 'worst', expected: ['B', 'A', 'C'] },
-      { situation: 'workflows by longest red', sort: 'red', expected: ['A', 'B', 'C'] },
-      { situation: 'workflows by most failures', sort: 'failures', expected: ['B', 'A', 'C'] },
-    ])('$situation, one that never finished last', ({ sort, expected }) => {
-      const rows = [
-        { name: 'A', tally: tally(9, 1), red: 5 * HOUR },
-        { name: 'B', tally: tally(5, 5), red: HOUR },
-        { name: 'C', tally: tally(0, 0), red: 0 },
-      ];
-      expect(sortWorkflows(rows, sort).map((r) => r.name)).toEqual(expected);
-    });
-
-    it.each([
-      { situation: 'red spells newest first', sort: 'newest', expected: ['second', 'first'] },
-      { situation: 'red spells longest first', sort: 'longest', expected: ['first', 'second'] },
-    ])('$situation', ({ sort, expected }) => {
-      const spell = (workflow: string, from: number, until: number | null): Spell => ({ workflow, from, fromUrl: '', until, untilUrl: null, ongoing: until === null, commits: 1, openedBy: 1 });
-      expect(sortSpells([spell('first', at('01:00'), at('09:00')), spell('second', at('10:00'), at('11:00'))], sort, at('20:00')).map((s) => s.workflow)).toEqual(expected);
-    });
   });
 
   describe('a view has one address, and its defaults are not in it', () => {
@@ -108,21 +86,26 @@ describe('Harness Monitor', () => {
 
     it.each([
       { situation: 'an unknown period, tab and order', address: 'period=2y&group=nope&sort=sideways', expected: '/stability' },
-      { situation: "a tab's default order", address: 'group=red&sort=newest', expected: '/stability?group=red' },
-      { situation: 'an order the tab does not have', address: 'group=failures&sort=slowest', expected: '/stability?group=failures' },
-      { situation: 'a job opened on a tab that has no jobs', address: 'group=day&steps=CI%7CTest', expected: '/stability?group=day' },
+      { situation: "a tab's default order", address: 'group=workflow&sort=worst', expected: '/stability?group=workflow' },
+      { situation: 'an order the tab does not have', address: 'group=workflow&sort=slowest', expected: '/stability?group=workflow' },
+      { situation: 'a job opened on a tab that has no jobs', address: 'group=workflow&steps=CI%7CTest', expected: '/stability?group=workflow' },
     ])('$situation falls back', ({ address, expected }) => {
       expect(stabilityAddress(parseStabilityQuery(new URLSearchParams(address)))).toBe(expected);
     });
   });
 
-  describe('an address never filters to what the rows already are', () => {
+  describe('the addresses of the tabs that became the Workflow tab still open it', () => {
     it.each([
-      { situation: 'each workflow with a Workflow filter', address: 'group=workflow&workflow=CI&sort=red', expected: '/stability?group=workflow&sort=red' },
-      { situation: 'each job with a Workflow filter', address: 'group=job&workflow=CI', expected: '/stability?workflow=CI' },
-      { situation: 'each red spell with a Workflow filter', address: 'group=red&workflow=CI', expected: '/stability?workflow=CI&group=red' },
+      { situation: 'Red spells', address: 'group=red', expected: '/stability?group=workflow' },
+      { situation: 'Failures', address: 'group=failures&period=30d', expected: '/stability?period=30d&group=workflow' },
+      { situation: 'Over time with a Workflow filter', address: 'group=day&workflow=CI', expected: '/stability?workflow=CI&group=workflow' },
+      { situation: "Red spells' order, which Workflow does not offer", address: 'group=red&sort=longest', expected: '/stability?group=workflow' },
     ])('$situation', ({ address, expected }) => {
       expect(stabilityAddress(parseStabilityQuery(new URLSearchParams(address)))).toBe(expected);
+    });
+
+    it('keeps the Workflow filter on the Workflow tab, which names the workflow whose own view it opens', () => {
+      expect(stabilityAddress(parseStabilityQuery(new URLSearchParams('group=workflow&workflow=CI&sort=failures')))).toBe('/stability?workflow=CI&group=workflow&sort=failures');
     });
   });
 

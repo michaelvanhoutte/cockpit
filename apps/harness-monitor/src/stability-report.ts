@@ -1,5 +1,7 @@
 import { startOfDay } from './belgium';
 import { firstDay as periodFirstDay, PERIODS, type Period } from './costs';
+import { redNowFrom, redNowStatements } from './ci-flakiness-report';
+import type { RedNow } from './ci-flakiness';
 import type { Outcome } from './stability';
 import { stabilityWindows, type Durations, type WindowSpan } from './stability-store';
 
@@ -11,17 +13,17 @@ import { stabilityWindows, type Durations, type WindowSpan } from './stability-s
  * runs, jobs and steps the Stability job stored (src/stability-store.ts).
  */
 
-export const GROUPS = ['job', 'workflow', 'red', 'failures', 'day'] as const;
+export const GROUPS = ['job', 'workflow'] as const;
 export type Group = (typeof GROUPS)[number];
 
-/** The orders each tab can be read in; the first is its default. Failures and days read newest first and need no choice. */
+/** The orders each tab can be read in; the first is its default. */
 export const SORTS: Record<Group, [key: string, label: string][]> = {
   job: [['worst', 'Least reliable'], ['slowest', 'Slowest'], ['failures', 'Most failures']],
-  workflow: [['worst', 'Least reliable'], ['red', 'Longest red'], ['failures', 'Most failures']],
-  red: [['newest', 'Newest'], ['longest', 'Longest']],
-  failures: [],
-  day: [],
+  workflow: [['worst', 'Least reliable'], ['failures', 'Most failures']],
 };
+
+/** Tabs that were merged into Workflow: an address that names one still opens it. */
+const MERGED_INTO_WORKFLOW = ['red', 'failures', 'day'];
 
 export const DEFAULT_PERIOD: Period = '7d';
 
@@ -39,12 +41,11 @@ export interface StabilityQuery {
 export function parseStabilityQuery(params: URLSearchParams): StabilityQuery {
   const period = params.get('period');
   const asked = params.get('group');
-  const group = GROUPS.find((g) => g === asked) ?? 'job';
+  const group = GROUPS.find((g) => g === asked) ?? (MERGED_INTO_WORKFLOW.includes(asked ?? '') ? 'workflow' : 'job');
   const sort = params.get('sort');
   return {
     period: period !== null && Object.hasOwn(PERIODS, period) ? (period as Period) : DEFAULT_PERIOD,
-    // A filter that repeats the rows is dropped, as its control is not offered.
-    workflow: group === 'workflow' ? null : params.get('workflow') || null,
+    workflow: params.get('workflow') || null,
     group,
     sort: sort !== null && SORTS[group].some(([k]) => k === sort) && sort !== SORTS[group][0]![0] ? sort : null,
     steps: group === 'job' ? params.get('steps') || null : null,
@@ -205,23 +206,6 @@ export function sortJobs<T extends { job: Ranked }>(rows: T[], sort: string): T[
   );
 }
 
-/** Least reliable first, longest red first, or most failures first; a workflow with no verdict always last. */
-export function sortWorkflows<T extends { tally: Tally; red: number }>(rows: T[], sort: string): T[] {
-  return [...rows].sort(
-    (a, b) =>
-      (a.tally.rate === null ? 1 : 0) - (b.tally.rate === null ? 1 : 0) ||
-      (sort === 'red' ? b.red - a.red : sort === 'failures' ? b.tally.fail - a.tally.fail : 0) ||
-      nullLast(a.tally.rate, b.tally.rate) ||
-      b.tally.completed - a.tally.completed,
-  );
-}
-
-/** Newest first, or longest first. */
-export function sortSpells(spells: Spell[], sort: string, now: number): Spell[] {
-  const length = (s: Spell) => spellSpan(s, now)[1] - spellSpan(s, now)[0];
-  return [...spells].sort((a, b) => (sort === 'longest' ? length(b) - length(a) : b.from - a.from));
-}
-
 // ---- Reading the stored runs
 
 export interface Step {
@@ -249,21 +233,6 @@ export interface Last {
   url: string;
 }
 
-export interface FailedJob {
-  name: string;
-  failedStep: string | null;
-  url: string | null;
-}
-
-export interface Failure {
-  runId: number;
-  workflow: string;
-  createdAt: number;
-  headSha: string;
-  url: string;
-  jobs: FailedJob[];
-}
-
 export interface StabilityData {
   /** The first instant of the period, or the oldest stored run when that is later. */
   from: number;
@@ -283,8 +252,8 @@ export interface StabilityData {
   lastRuns: { workflow: string; last: Last | null; jobs: { name: string; last: Last }[] }[];
   /** Every spell stored, newest first; the page keeps those that reach into the period. */
   spells: Spell[];
-  /** Every failing run stored, newest first, with the jobs that failed in it. */
-  failures: Failure[];
+  /** The workflows whose newest attempt on main failed, read from the stored attempts. */
+  redNow: RedNow[];
   /** Runs and jobs whose conclusion the report does not recognise, in the period: said, not counted. */
   unrecognised: { conclusion: string; count: number }[];
 }
@@ -313,10 +282,6 @@ const LAST_JOBS = `SELECT workflow, job, outcome, at, url FROM (
 const FINISHED_RUNS = `SELECT run_id AS id, workflow, outcome, created_at AS createdAt, url, head_sha AS headSha
 FROM stability_runs WHERE outcome IN ('pass', 'fail') ORDER BY created_at`;
 
-const FAILED_JOBS = `SELECT j.run_id AS runId, j.name, j.failed_step AS failedStep, j.url
-FROM stability_jobs j JOIN stability_runs r ON r.run_id = j.run_id
-WHERE r.outcome = 'fail' AND j.outcome = 'fail' ORDER BY j.run_id, j.job_index`;
-
 const UNRECOGNISED = `SELECT conclusion, COUNT(*) AS n FROM (
   SELECT conclusion FROM stability_runs WHERE outcome = 'unknown' AND created_at >= ?1
   UNION ALL
@@ -331,7 +296,7 @@ export async function loadStability(db: D1Database, period: Period, now: number)
   const start = first === null ? 0 : startOfDay(first);
   const span: WindowSpan = { days: PERIODS[period], firstDay: first };
 
-  const [windows, [jobTallies, runTallies, lastRuns, lastJobs, finished, failedJobs, unrecognised, oldest]] = await Promise.all([
+  const [windows, [jobTallies, runTallies, lastRuns, lastJobs, finished, unrecognised, oldest, ...red]] = await Promise.all([
     stabilityWindows(db, [span]),
     db.batch<Row>([
       db.prepare(JOB_TALLIES).bind(start),
@@ -339,9 +304,9 @@ export async function loadStability(db: D1Database, period: Period, now: number)
       db.prepare(LAST_RUNS),
       db.prepare(LAST_JOBS),
       db.prepare(FINISHED_RUNS),
-      db.prepare(FAILED_JOBS),
       db.prepare(UNRECOGNISED).bind(start),
       db.prepare('SELECT MIN(created_at) AS oldest FROM stability_runs'),
+      ...redNowStatements(db),
     ]),
   ]);
   const window = windows[0]!;
@@ -370,15 +335,6 @@ export async function loadStability(db: D1Database, period: Period, now: number)
   }));
 
   const runs = finished!.results.map((r): FinishedRun => r as unknown as FinishedRun);
-  const jobsOf = groupBy(
-    failedJobs!.results.map((r) => ({ runId: r.runId as number, job: { name: r.name as string, failedStep: r.failedStep as string | null, url: r.url as string | null } })),
-    (r) => r.runId,
-  );
-  const failures = runs
-    .filter((r) => r.outcome === 'fail')
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((r): Failure => ({ runId: r.id, workflow: r.workflow, createdAt: r.createdAt, headSha: r.headSha, url: r.url, jobs: (jobsOf.get(r.id) ?? []).map((j) => j.job) }));
-
   const lastJobsOf = groupBy(lastJobs!.results, (r) => r.workflow as string);
   const lastRunOf = new Map(lastRuns!.results.map((r) => [r.workflow as string, asLast(r)]));
   const names = new Set([...lastRunOf.keys(), ...lastJobsOf.keys()]);
@@ -399,7 +355,7 @@ export async function loadStability(db: D1Database, period: Period, now: number)
       jobs: (lastJobsOf.get(workflow) ?? []).map((r) => ({ name: r.job as string, last: asLast(r) })),
     })),
     spells: redSpells(runs),
-    failures,
+    redNow: redNowFrom(red as { results: Row[] }[]),
     unrecognised: unrecognised!.results.map((r) => ({ conclusion: String(r.conclusion), count: r.n as number })),
   };
 }

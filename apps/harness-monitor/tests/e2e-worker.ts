@@ -1,3 +1,5 @@
+import { checkAttempts } from '../src/ci-attempts';
+import { storeAttempts } from '../src/ci-attempts-store';
 import { importClaudeCalls, FEED_PATH } from '../src/claude-calls';
 import worker, { type Env } from '../src/worker';
 import { checkPulls } from '../src/cycle-time';
@@ -26,7 +28,8 @@ import { validateBatch } from '../src/validate';
  *
  * A second route, `/__e2e/seed-stability`, stores CI stability's runs through the
  * same checks and writes a send goes through; a run is stored under its id, so
- * it too can be sent twice. A third, `/__e2e/seed-cycle-time`, does the same for
+ * it too can be sent twice, and `/__e2e/seed-ci-attempts` does the same for the
+ * attempts of every branch, stored under their run and number. A third, `/__e2e/seed-cycle-time`, does the same for
  * cycle time's pull requests, stored under their numbers, and a fourth,
  * `/__e2e/seed-selection`, for test selection's pull requests and bars, and a
  * fifth, `/__e2e/seed-tests`, for `main`'s tests or, given `snapshot`, a pull
@@ -77,6 +80,11 @@ export default {
       const checked = checkRuns(await request.json());
       if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
       return Response.json(await storeRuns(env.DB, checked.runs));
+    }
+    if (pathname === '/__e2e/seed-ci-attempts' && request.method === 'POST') {
+      const checked = checkAttempts(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storeAttempts(env.DB, checked.attempts));
     }
     if (pathname === '/__e2e/seed-cycle-time' && request.method === 'POST') {
       const checked = checkPulls(await request.json());
