@@ -1,19 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { humanMs, pct } from '../../src/report';
-import {
-  parseStabilityQuery,
-  redMs,
-  redSpells,
-  sortJobs,
-  stabilityAddress,
-  tallyOf,
-  type FinishedRun,
-  type Spell,
-  type Tally,
-} from '../../src/stability-report';
-
-const HOUR = 3_600_000;
-const at = (time: string) => Date.parse(`2026-10-20T${time}:00Z`);
+import { parseStabilityQuery, sortJobs, stabilityAddress, tallyOf, type Tally } from '../../src/stability-report';
 
 describe('Harness Monitor', () => {
   describe("a job's pass rate counts its passed runs against its passed and failed runs, with cancelled and skipped runs apart", () => {
@@ -33,37 +20,9 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('time main was red counts overlapping red spells across workflows once, and a spell still open runs to now', () => {
-    const run = (id: number, workflow: string, outcome: 'pass' | 'fail', time: string, headSha = 'a'): FinishedRun => ({ id, workflow, outcome, createdAt: at(time), url: `https://github.com/o/r/actions/runs/${id}`, headSha });
-
-    it('CI red 10:00-12:00 and Nightly red 11:00-13:00 is 3 hours red', () => {
-      const spells = redSpells([run(1, 'CI', 'fail', '10:00'), run(2, 'CI', 'pass', '12:00'), run(3, 'Nightly', 'fail', '11:00'), run(4, 'Nightly', 'pass', '13:00')]);
-
-      expect(spells.map((s) => [s.workflow, s.ongoing])).toEqual([
-        ['Nightly', false],
-        ['CI', false],
-      ]);
-      expect(redMs(spells, at('00:00'), at('23:00'))).toBe(3 * HOUR);
-    });
-
-    it('a spell with no green run after it runs to now and is marked open', () => {
-      const spells = redSpells([run(1, 'CI', 'fail', '10:00'), run(2, 'CI', 'fail', '10:30', 'b')]);
-
-      expect(spells).toHaveLength(1);
-      expect(spells[0]).toMatchObject({ ongoing: true, until: null, commits: 2 });
-      expect(redMs(spells, at('00:00'), at('14:00'))).toBe(4 * HOUR);
-    });
-
-    it('counts only the part of a spell inside the period', () => {
-      const spells = redSpells([run(1, 'CI', 'fail', '10:00'), run(2, 'CI', 'pass', '14:00')]);
-
-      expect(redMs(spells, at('12:00'), at('23:00'))).toBe(2 * HOUR);
-    });
-  });
-
   describe('sort by orders each tab as named', () => {
     const tally = (pass: number, fail: number): Tally => tallyOf({ pass, fail });
-    const job = (name: string, t: Tally, median: number | null) => ({ name, job: { tally: t, durations: median === null ? null : { median } } });
+    const job = (name: string, t: Tally, median: number | null, branchFlaky = 0) => ({ name, branchFlaky, job: { tally: t, durations: median === null ? null : { median } } });
     const jobs = [job('steady', tally(10, 0), 60_000), job('flaky', tally(7, 3), 30_000), job('slow', tally(9, 1), 600_000), job('new', tally(0, 0), null)];
 
     it.each([
@@ -74,6 +33,12 @@ describe('Harness Monitor', () => {
       expect(sortJobs(jobs, sort).map((j) => j.name)).toEqual(expected);
     });
 
+    it('a job with the same failures on main as another is ranked above it for flaking on more feature branches', () => {
+      const tied = [job('quiet', tally(9, 1), 1_000), job('flaky on branches', tally(9, 1), 1_000, 4), job('new on branches', tally(0, 0), null, 2)];
+
+      expect(sortJobs(tied, 'failures').map((j) => j.name)).toEqual(['flaky on branches', 'quiet', 'new on branches']);
+      expect(sortJobs(tied, 'worst').map((j) => j.name)).toEqual(['flaky on branches', 'quiet', 'new on branches']);
+    });
   });
 
   describe('a view has one address, and its defaults are not in it', () => {

@@ -2,7 +2,7 @@ import { SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { withoutExplanations } from './cockpit-support';
 import { GREY, panelOf, RED, slot, swatches } from './series-colours';
-import { ciAttempt, emptyTheDatabase, failedJob, failedTest, selectionPull, sendAttempts, sendRuns, sendSelection, stabilityJob, stabilityRun, stabilityStep, theSentence } from './support';
+import { ciAttempt, emptyTheDatabase, failedJob, failedTest, selectionPull, sendAttempts, sendSelection, stabilityJob, stabilityStep, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -19,9 +19,9 @@ const thePage = async (query = '') => {
 const CONCLUSIONS = { pass: 'success', fail: 'failure', cancelled: 'cancelled', skipped: 'skipped' } as const;
 type Outcome = keyof typeof CONCLUSIONS;
 
-/** A run of `workflow` that ended `outcome`, holding one job, `Test`, that ended the same way and took `seconds`. */
+/** An attempt of `workflow` on main that ended `outcome`, holding one job, `Test`, that ended the same way and took `seconds`. */
 const ran = (id: number, createdAt: string, outcome: Outcome, over: { workflow?: string; seconds?: number; failedStep?: string; steps?: ReturnType<typeof stabilityStep>[] } = {}) =>
-  stabilityRun(id, {
+  ciAttempt(id, 1, {
     workflow: over.workflow ?? 'CI',
     createdAt,
     conclusion: CONCLUSIONS[outcome],
@@ -67,6 +67,7 @@ const sideCauses = (detail: string, kind: 'main' | 'branch') =>
 function rowsOf(html: string, id: string): string[][] {
   const panel = new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '';
   return [...panel.matchAll(/<tr[ >].*?<\/tr>/gs)]
+    .filter((row) => !row[0].startsWith('<tr class="detail"'))
     .map((row) => [...row[0].matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs)].map((cell) => cell[1]!.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim()))
     .filter((cells) => cells.length > 0)
     .slice(1);
@@ -107,7 +108,7 @@ describe('Harness Monitor', () => {
     // (the Workflow tab's own rates are held in 'the Workflow tab draws a row per workflow' below)
     it('8 passed, 2 failed, 3 cancelled and 1 skipped read 80% of 10 finished, 3 cancelled', async () => {
       const outcomes: Outcome[] = [...Array<Outcome>(8).fill('pass'), 'fail', 'fail', 'cancelled', 'cancelled', 'cancelled', 'skipped'];
-      await sendRuns(outcomes.map((outcome, i) => ran(i + 1, `2026-10-30T${String(i + 1).padStart(2, '0')}:00:00Z`, outcome)));
+      await sendAttempts(outcomes.map((outcome, i) => ran(i + 1, `2026-10-30T${String(i + 1).padStart(2, '0')}:00:00Z`, outcome)));
 
       const [row] = rowsOf(await thePage(), 'by-job');
 
@@ -118,8 +119,7 @@ describe('Harness Monitor', () => {
     });
 
     it('colours a rate of 99% or more green and one under 90% red', async () => {
-      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass'), ran(2, '2026-10-30T10:00:00Z', 'pass'), ran(3, '2026-10-30T11:00:00Z', 'fail')]);
-      await sendRuns([stabilityRun(4, { workflow: 'Nightly', createdAt: '2026-10-30T09:00:00Z', jobs: [stabilityJob('Test', 60_000)] })]);
+      await sendAttempts([ran(1, '2026-10-30T09:00:00Z', 'pass'), ran(2, '2026-10-30T10:00:00Z', 'pass'), ran(3, '2026-10-30T11:00:00Z', 'fail'), ran(4, '2026-10-30T09:00:00Z', 'pass', { workflow: 'Nightly' })]);
 
       const html = await thePage();
 
@@ -128,7 +128,7 @@ describe('Harness Monitor', () => {
     });
 
     it('counts a job run still going among the outcomes rather than dropping it', async () => {
-      const sent = await sendRuns([stabilityRun(1, { createdAt: '2026-10-30T09:00:00Z', status: 'in_progress', conclusion: null, outcome: 'running', jobs: [stabilityJob('Test', null, { status: 'in_progress', conclusion: null, outcome: 'running', completedAt: null })] })]);
+      const sent = await sendAttempts([ran(1, '2026-10-30T08:00:00Z', 'pass'), ciAttempt(2, 1, { createdAt: '2026-10-30T09:00:00Z', jobs: [stabilityJob('Test', null, { status: 'in_progress', conclusion: null, outcome: 'running', completedAt: null })] })]);
 
       expect(sent.status).toBe(200);
       expect(await thePage()).toContain('Still running 1');
@@ -137,14 +137,14 @@ describe('Harness Monitor', () => {
 
   describe('Period and Workflow keep only the matching runs, on every tab', () => {
     it('Last 7 days counts the runs inside it and not those either side', async () => {
-      await sendRuns([ran(1, '2026-10-12T10:00:00Z', 'fail'), ran(2, '2026-10-26T10:00:00Z', 'pass'), ran(3, '2026-10-30T10:00:00Z', 'pass')]);
+      await sendAttempts([ran(1, '2026-10-12T10:00:00Z', 'fail'), ran(2, '2026-10-26T10:00:00Z', 'pass'), ran(3, '2026-10-30T10:00:00Z', 'pass')]);
 
       expect(rowsOf(await thePage('?period=7d'), 'by-job')[0]![2]).toBe('100% 2 of 2');
       expect(rowsOf(await thePage('?period=30d'), 'by-job')[0]![2]).toBe('66.6% 2 of 3');
     });
 
     it('Workflow: CI keeps only CI on the jobs', async () => {
-      await sendRuns([
+      await sendAttempts([
         ran(1, '2026-10-30T08:00:00Z', 'fail'),
         ran(2, '2026-10-30T09:00:00Z', 'pass'),
         ran(3, '2026-10-30T08:00:00Z', 'fail', { workflow: 'Nightly' }),
@@ -159,7 +159,7 @@ describe('Harness Monitor', () => {
 
   describe('tiles and overview panels are on the Job tab only', () => {
     it('Job draws the tiles, the outcome bar and the last run of each workflow', async () => {
-      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
+      await sendAttempts([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
 
       const html = await thePage();
 
@@ -183,7 +183,7 @@ describe('Harness Monitor', () => {
   describe("a job opens its steps with each step's median and p90", () => {
     it('a job with three steps shows three rows, in the order the job runs them, with their medians and p90s', async () => {
       const steps = [stabilityStep('Install', 30_000), stabilityStep('Build', 90_000), stabilityStep('Run the tests', 240_000)];
-      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass', { steps }), ran(2, '2026-10-30T10:00:00Z', 'pass', { steps: steps.map((s) => ({ ...s, durationMs: s.durationMs! * 2 })) })]);
+      await sendAttempts([ran(1, '2026-10-30T09:00:00Z', 'pass', { steps }), ran(2, '2026-10-30T10:00:00Z', 'pass', { steps: steps.map((s) => ({ ...s, durationMs: s.durationMs! * 2 })) })]);
 
       const html = await thePage('?steps=CI%7CTest');
 
@@ -198,7 +198,7 @@ describe('Harness Monitor', () => {
     });
 
     it('no steps open until a job is named', async () => {
-      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
+      await sendAttempts([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
 
       expect(hasSection(await thePage(), 'steps')).toBe(false);
     });
@@ -206,34 +206,33 @@ describe('Harness Monitor', () => {
 
   describe('the order is a word of the sentence, and puts the rows in the order it names', () => {
     it('each job, slowest first, puts the slowest job first', async () => {
-      await sendRuns([
-        stabilityRun(1, { createdAt: '2026-10-30T09:00:00Z', jobs: [stabilityJob('Fast', 10_000), stabilityJob('Slow', 900_000), stabilityJob('Middle', 100_000)] }),
-      ]);
+      await sendAttempts([ciAttempt(1, 1, { createdAt: '2026-10-30T09:00:00Z', jobs: [stabilityJob('Fast', 10_000), stabilityJob('Slow', 900_000), stabilityJob('Middle', 100_000)] })]);
 
       const html = await thePage('?sort=slowest');
 
       expect(rowsOf(html, 'by-job').map((r) => r[0]!.split(' ')[0])).toEqual(['Slow', 'Middle', 'Fast']);
-      expect(theSentence(html).text).toBe('Show CI on main for [each job] [slowest first] over [the last 7 days]');
+      expect(theSentence(html).text).toBe('Show CI for [each job] [slowest first] over [the last 7 days]');
     });
   });
 
   describe('the sentence says what the page shows, and offers only what it can', () => {
-    it('the bare address reads each job, least reliable first, over the last 7 days, with the Workflow filter under Only and Open in Actions after it', async () => {
-      await sendRuns([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
+    it('the bare address reads each job, least reliable first, over the last 7 days, with the Workflow filter under Only and Open in Actions after it, unfiltered since it counts every branch', async () => {
+      await sendAttempts([ran(1, '2026-10-30T09:00:00Z', 'pass')]);
 
       const html = await thePage();
       const { text: sentence, choices } = theSentence(html);
 
-      expect(sentence).toBe('Show CI on main for [each job] [least reliable first] over [the last 7 days]');
+      expect(sentence).toBe('Show CI for [each job] [least reliable first] over [the last 7 days]');
       expect(choices.group!.offered).toEqual(['each job', 'each workflow', 'each fragile test']);
       expect(choices.sort!.offered).toEqual(['least reliable first', 'slowest first', 'most failures first']);
       expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 30 days', 'the last 90 days', 'everything held']);
       expect(Object.keys(choices)).toEqual(['group', 'sort', 'period', 'workflow']);
       expect(choices.workflow!.held).toBe(false);
       expect(/<div class="only"><span>Only<\/span>.*Open in Actions<\/a><\/div>/s.test(html)).toBe(true);
+      expect(html).toContain('href="https://github.com/michaelvanhoutte/cockpit/actions"');
     });
 
-    it('each workflow reads without "on main", since it counts every branch, offers the Workflow filter, and opens Actions unfiltered', async () => {
+    it('each workflow reads the same, offers the Workflow filter, and opens Actions unfiltered', async () => {
       await sendAttempts([ciAttempt(1, 1, { createdAt: '2026-10-30T09:00:00Z' })]);
 
       const html = await thePage('?group=workflow');
@@ -264,7 +263,7 @@ describe('Harness Monitor', () => {
     });
 
     it('runs older than the period leave it empty, and a longer period finds them', async () => {
-      await sendRuns([ran(1, '2026-09-20T09:00:00Z', 'pass')]);
+      await sendAttempts([ran(1, '2026-09-20T09:00:00Z', 'pass')]);
 
       expect(text(await thePage('?period=7d'))).toContain('Nothing in this period');
       expect(text(await thePage('?period=90d'))).not.toContain('Nothing in this period');
@@ -274,12 +273,12 @@ describe('Harness Monitor', () => {
   describe('each way a run ended has its own colour', () => {
     it('failed is red, cancelled and skipped are grey and stack last, and the series beside them is blue', async () => {
       const job = (outcome: string, name = 'Test') => stabilityJob(name, 60_000, { outcome, conclusion: outcome === 'pass' ? 'success' : outcome });
-      await sendRuns([
+      await sendAttempts([
         ran(1, '2026-10-30T10:00:00Z', 'pass'),
         ran(2, '2026-10-30T11:00:00Z', 'fail'),
         ran(3, '2026-10-30T12:00:00Z', 'cancelled'),
         ran(4, '2026-10-30T13:00:00Z', 'skipped'),
-        stabilityRun(5, { createdAt: '2026-10-30T14:00:00Z', jobs: [job('running', 'Test'), job('other', 'Odd')] }),
+        ciAttempt(5, 1, { createdAt: '2026-10-30T14:00:00Z', jobs: [job('running', 'Test'), job('other', 'Odd')] }),
       ]);
 
       const html = await thePage();
@@ -294,6 +293,172 @@ describe('Harness Monitor', () => {
       ]);
     });
 
+  });
+
+  describe("the Job tab draws main's figures in each job's row, and opens it to main beside the feature branches", () => {
+    const test = (outcome: Outcome, over: Record<string, unknown> = {}) =>
+      stabilityJob('Test', 60_000, { conclusion: CONCLUSIONS[outcome], outcome, failedStep: outcome === 'fail' ? 'Run the tests' : null, steps: [stabilityStep('Run the tests', 30_000)], ...over });
+    /** Test on main: passed, failed at `x` and was never re-run, passed; a pull request's Test failed at `x` and `y` and passed on a re-run, and Lint failed only there, at once; a third pull request's Test failed and stayed failed. */
+    const SCENARIO = [
+      on(1, 1, '2026-10-30T09:00:00Z', 'pass', { ...sha('a'), jobs: [test('pass')] }),
+      on(2, 1, '2026-10-30T10:00:00Z', 'fail', { ...sha('b'), jobs: [test('fail')], ...died(['x']) }),
+      on(3, 1, '2026-10-30T11:00:00Z', 'pass', { ...sha('c'), jobs: [test('pass')] }),
+      on(10, 1, '2026-10-29T10:00:00Z', 'fail', { ...branch(5), ...sha('d'), failedJobs: [failedJob('Test', [failedTest('x'), failedTest('y')]), failedJob('Lint', [], { step: 'Run pnpm lint' })] }),
+      on(10, 2, '2026-10-29T10:30:00Z', 'pass', { ...branch(5), ...sha('d') }),
+      on(11, 1, '2026-10-29T12:00:00Z', 'fail', { ...branch(6), ...sha('e'), ...died(['z']) }),
+    ];
+    /** Each row of the Job tab: what its cells read and the strip it opens to. */
+    const jobRows = (html: string) =>
+      [...panelOf(html, 'by-job').matchAll(/<tr data-opens="([^"]*)"[^>]*>(.*?)<\/tr><tr class="detail" hidden><td colspan="8">(.*?)<\/td><\/tr>/gs)].map(([, name, row, detail]) => {
+        const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((c) => plain(c[1]!));
+        return { name: name!.split(' in ')[0]!, cells, rate: cells[2]!, failed: cells[4]!, detail: detail! };
+      });
+
+    it("the tiles and panels count main: a feature branch's attempts are in none of them, and no tile counts the time main was red", async () => {
+      await sendAttempts(SCENARIO);
+
+      const html = await thePage();
+      const said = text(html);
+
+      expect(said).toContain('Runs passed 66.6% 2 of 3 finished');
+      expect(said).not.toContain('Time main was red');
+      expect(html).not.toContain('id="x-t-red"');
+      expect(said).toContain('3 job runs on main');
+      expect(hasSection(html, 'last-runs')).toBe(true);
+    });
+
+    it("a row keeps main's pass rate and failures, with the flaky failures on feature branches beneath, and a job that only flaked on a branch has a row with nothing on main", async () => {
+      await sendAttempts(SCENARIO);
+
+      const rows = jobRows(await thePage());
+
+      expect(rows.map((r) => [r.name, r.rate, r.failed])).toEqual([
+        ['Test', '66.6% 2 of 3', '1 +1 on branches'],
+        ['Lint', 'no data 0 finished', '— +1 on branches'],
+      ]);
+    });
+
+    it('a row opens to main beside its feature branches, each with its summary and its top causes', async () => {
+      await sendAttempts(SCENARIO);
+
+      const [theTest, lint] = jobRows(await thePage());
+
+      expect(plain(theTest!.detail)).toContain('On main 3 runs · 66.6% passed · 1 failure, 0 passed on a re-run');
+      expect(sideCauses(theTest!.detail, 'main')).toEqual(['1 x']);
+      expect(plain(theTest!.detail)).toContain('On feature branches 1 failure a later attempt on the same commit passed · 1 commit · 1 branch');
+      expect(sideCauses(theTest!.detail, 'branch')).toEqual(['1 x', '1 y']);
+      expect(plain(theTest!.detail)).toContain('time goes on main');
+      expect(plain(lint!.detail)).toContain('On main No finished run on main in this period.');
+      expect(sideCauses(lint!.detail, 'branch')).toEqual(['1 Lint · Run pnpm lint']);
+      expect(plain(lint!.detail)).toContain('No step of this job is stored for main.');
+    });
+
+    it('a job with nothing on main has a name that opens no steps, where a job on main has a link', async () => {
+      await sendAttempts(SCENARIO);
+
+      const rows = [...panelOf(await thePage(), 'by-job').matchAll(/<td class="first">(.*?)<div class="sub">/gs)].map((m) => m[1]!);
+
+      expect(rows).toEqual(['<a href="/stability?steps=CI%7CTest">Test</a>', 'Lint']);
+      expect(hasSection(await thePage('?steps=CI%7CLint'), 'steps')).toBe(false);
+    });
+
+    it('a job that did not flake on a branch says so in its strip', async () => {
+      await sendAttempts([on(1, 1, '2026-10-30T09:00:00Z', 'pass', { jobs: [test('pass')] })]);
+
+      const [row] = jobRows(await thePage());
+
+      expect(plain(row!.detail)).toContain('This job did not fail and then pass on a feature branch.');
+      expect(row!.failed).toBe('—');
+    });
+
+    it("a job's steps open beside its row, as main's, and its row stays one that opens", async () => {
+      await sendAttempts(SCENARIO);
+
+      const html = await thePage('?steps=CI%7CTest');
+
+      expect(text(panelOf(html, 'steps'))).toContain('CI · on main · median 1m 00s');
+      expect(panelOf(html, 'by-job')).toContain('<tr data-opens="Test in CI" class="chosen">');
+      expect(plain(jobRows(html)[0]!.detail)).toContain('Hide where Test');
+    });
+
+    it("a branch attempt's jobs and steps are never counted as main's", async () => {
+      await sendAttempts([
+        ...SCENARIO,
+        on(12, 1, '2026-10-30T12:00:00Z', 'pass', { ...branch(7), ...sha('f'), jobs: [stabilityJob('Test', 900_000, { steps: [stabilityStep('A branch-only step', 800_000)] })] }),
+      ]);
+
+      const html = await thePage('?steps=CI%7CTest');
+
+      expect(jobRows(html)[0]!.rate).toBe('66.6% 2 of 3');
+      expect(text(panelOf(html, 'steps'))).not.toContain('A branch-only step');
+      expect(text(html)).toContain('3 job runs on main');
+    });
+
+    it("the Workflow filter keeps only that workflow's jobs and the flakes on its branches", async () => {
+      await sendAttempts([
+        ...SCENARIO,
+        on(20, 1, '2026-10-30T09:00:00Z', 'fail', { workflow: 'Nightly', ...sha('1'), jobs: [test('fail')], ...died(['n']) }),
+        on(21, 1, '2026-10-29T09:00:00Z', 'fail', { workflow: 'Review', ...branch(8), ...sha('2'), failedJobs: [failedJob('Review', [])] }),
+        on(21, 2, '2026-10-29T09:30:00Z', 'pass', { workflow: 'Review', ...branch(8), ...sha('2') }),
+      ]);
+
+      const names = async (query: string) => jobRows(await thePage(query)).map((r) => [r.name, r.cells[0]]);
+
+      expect(await names('?workflow=CI')).toEqual([['Test', 'Test CI · steps'], ['Lint', 'Lint CI']]);
+      expect(await names('?workflow=Review')).toEqual([['Review', 'Review Review']]);
+      expect(await names('?workflow=Nightly')).toEqual([['Test', 'Test Nightly · steps']]);
+    });
+
+    it('the period changed counts only what is in it, on main and on the branches', async () => {
+      await sendAttempts([
+        ...SCENARIO,
+        on(30, 1, '2026-10-10T10:00:00Z', 'fail', { ...sha('3'), jobs: [test('fail')], ...died(['old']) }),
+        on(31, 1, '2026-10-10T11:00:00Z', 'fail', { ...branch(9), ...sha('4'), ...died(['old']) }),
+        on(31, 2, '2026-10-10T11:30:00Z', 'pass', { ...branch(9), ...sha('4') }),
+      ]);
+
+      expect(jobRows(await thePage('?period=7d'))[0]!.failed).toBe('1 +1 on branches');
+      expect(jobRows(await thePage('?period=30d'))[0]!.failed).toBe('2 +2 on branches');
+    });
+
+    it("draws a row's strip in the page, hidden, for the opening script to show, with one script for the table", async () => {
+      await sendAttempts(SCENARIO);
+
+      const html = await thePage();
+
+      expect(html.match(/<tr class="detail" hidden>/g)).toHaveLength(2);
+      expect(html.match(/<table class="openable">/g)).toHaveLength(1);
+      expect(html.match(/function toggle\(row\)/g)).toHaveLength(1);
+    });
+
+    it('most failures puts the job that flaked on more branches first when main failed both as often', async () => {
+      await sendAttempts([
+        on(1, 1, '2026-10-30T09:00:00Z', 'pass', { jobs: [stabilityJob('Quiet', 1_000), stabilityJob('Flaky on branches', 1_000)] }),
+        on(2, 1, '2026-10-30T10:00:00Z', 'fail', { ...branch(5), ...sha('b'), failedJobs: [failedJob('Flaky on branches', [])] }),
+        on(2, 2, '2026-10-30T10:30:00Z', 'pass', { ...branch(5), ...sha('b') }),
+      ]);
+
+      expect(jobRows(await thePage('?sort=failures')).map((r) => r.name)).toEqual(['Flaky on branches', 'Quiet']);
+    });
+
+    it('a job the report does not recognise is said, not counted', async () => {
+      await sendAttempts([on(1, 1, '2026-10-30T09:00:00Z', 'pass', { jobs: [stabilityJob('Test', 1_000), stabilityJob('Odd', 1_000, { conclusion: 'startup_failure', outcome: 'unknown' })] })]);
+
+      expect(text(await thePage())).toContain('Not counted, because the report does not recognise them: 1 run or job concluded startup_failure');
+    });
+
+    it('a job name and a cause are drawn as text, never as markup', async () => {
+      const name = '<img src=x onerror=alert(1)>';
+      await sendAttempts([
+        on(1, 1, '2026-10-30T09:00:00Z', 'fail', { ...sha('b'), jobs: [stabilityJob(name, 1_000, { outcome: 'fail', conclusion: 'failure', steps: [stabilityStep('<b>step</b>', 500)] })], failedJobs: [failedJob(name, [failedTest('<script>alert(1)</script>')])] }),
+      ]);
+
+      for (const query of ['', `?steps=${encodeURIComponent(`CI|${name}`)}`]) {
+        const html = await thePage(query);
+
+        for (const markup of ['<img src=x', '<script>alert(1)', '<b>step']) expect(html).not.toContain(markup);
+      }
+    });
   });
 
   describe('the Workflow tab draws a row per workflow, ranked by main, opening to main beside its feature branches', () => {
