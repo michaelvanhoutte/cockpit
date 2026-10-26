@@ -35,7 +35,7 @@ try {
   const parts = existsSync(inDir) ? readdirSync(inDir).sort().filter((name) => name.endsWith('.json')).map(readPart) : [];
   const record = mergeFailedTests(parts);
   if (record.failedTests.length === 0) {
-    console.log('No test failed, so there is no failed-tests record to upload.');
+    console.log(parts.includes(null) ? 'No failed test could be read, so there is no failed-tests record to upload.' : 'No test failed, so there is no failed-tests record to upload.');
   } else {
     mkdirSync(outDir, { recursive: true });
     writeFileSync(join(outDir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`);

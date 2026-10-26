@@ -114,6 +114,7 @@ describe('the step after the tests gathers what the runs left', () => {
     writeFileSync(join(into, 'b-2.json'), '{"failedTests":[{"file":');
     const gathered = await run([join(repoRoot, 'scripts/ci-failed-tests.mjs')], dir, { COCKPIT_FAILED_TESTS_DIR: into, FAILED_TESTS_RECORD_DIR: out });
     assert.equal(gathered.status, 0);
+    assert.match(gathered.output, /::warning::b-2.json could not be read/);
     assert.deepEqual(JSON.parse(readFileSync(join(out, 'record.json'), 'utf8')).failedTests.map((test) => test.name), ['x']);
   });
 });
