@@ -5,10 +5,10 @@ import { renderClaudeCalls } from './claude-calls-view';
 import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
 import { checkAttempts } from './ci-attempts';
 import { newestAttempt, parseScope, storeAttempts } from './ci-attempts-store';
-import { checkPulls } from './cycle-time';
+import { checkPulls, checkTimelines } from './cycle-time';
 import { renderCycleTime } from './cycle-time-page';
 import { cycleTimeAddress, loadCycleTime, parseCycleTimeQuery } from './cycle-time-report';
-import { cycleTimeAnswer, newestMerge, storePulls } from './cycle-time-store';
+import { cycleTimeAnswer, newestMerge, storePulls, storeTimelines } from './cycle-time-store';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
@@ -122,6 +122,18 @@ async function writeCycleTime(request: Request, env: Env): Promise<Response> {
   const checked = checkPulls(read.body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storePulls(env.DB, checked.pulls));
+}
+
+/** A send of timelines alone, for pull requests already stored: stored whole or refused whole, never touching a pull request. */
+async function writeTimelines(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkTimelines(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  const stored = await storeTimelines(env.DB, checked.timelines);
+  return stored.ok ? json({ stored: stored.stored }) : json({ error: stored.error }, 400);
 }
 
 /** A send of test selection's pull requests, with the bars' thresholds, stored whole or refused whole. */
@@ -559,6 +571,9 @@ export default {
       // Where the next send starts reading: public, as every read here is.
       if (request.method === 'GET') return json({ newestMerge: await newestMerge(env.DB) });
       return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/v1/cycle-time/timelines') {
+      return request.method === 'POST' ? writeTimelines(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/cycle-time' && request.method === 'GET') return cycleTime(request, env, ctx);
     if (pathname === '/v1/selection') {

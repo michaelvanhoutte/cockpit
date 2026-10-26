@@ -3,6 +3,7 @@
  *
  *   collect(repo) -> buildModel(...) -> renderHtml(model) -> a file
  *                 -> monitorRows(...) -> sendPulls(...)   -> the Harness Monitor, with --send
+ *                 -> monitorTimelines(...) -> sendTimelines(...), with --timelines-only instead
  *
  * `--json` stops after the second arrow, so anything else can consume the
  * model. `--send` reads once for both, back to whichever window starts earlier,
@@ -18,8 +19,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { collect, GitHubError } from './github.js';
-import { buildModel, monitorRows } from './model.js';
-import { MonitorError, newestStored, sendPulls, sendWindow } from './monitor.js';
+import { buildModel, monitorRows, monitorTimelines } from './model.js';
+import { MonitorError, newestStored, sendPulls, sendTimelines, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,8 @@ const USAGE = `Usage: node src/cli.js [options]
                       the --days window when it holds none
   --from <YYYY-MM-DD> with --send, send the pull requests merged in this window instead and write nothing (the backfill)
   --to <YYYY-MM-DD>   the window's last day, inclusive (default today)
+  --timelines-only    with --from, send only each pull request's timeline, beside the pull requests the
+                      Monitor holds, and never replace a pull request
   --help
 `;
 
@@ -97,6 +100,7 @@ export function parseArgs(argv) {
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
+    else if (arg === '--timelines-only') args.timelinesOnly = true;
     else if (arg === '--from') args.from = day(value(), '--from', args);
     // The last day is inclusive, so the window ends at the start of the day after it.
     else if (arg === '--to') {
@@ -130,6 +134,7 @@ export function parseArgs(argv) {
   if (args.to && !args.from) args.invalid ??= '--to needs --from';
   if (args.from && !args.send) args.invalid ??= '--from needs --send: a window given by hand is only ever sent';
   if (args.from && args.to && args.to <= args.from) args.invalid ??= '--to cannot be before --from';
+  if (args.timelinesOnly && !args.from) args.invalid ??= '--timelines-only needs --from: only the backfill sends timelines alone';
   return args;
 }
 
@@ -240,7 +245,7 @@ export async function main(argv) {
     process.stderr.write(`${unsent.message}\nNothing was sent; the next send's window reaches back for it.\n`);
     return 1;
   }
-  return monitor ? send(monitor, collected, window, { backfill, branch }) : 0;
+  return monitor ? send(monitor, collected, window, { backfill, branch, timelinesOnly: Boolean(args.timelinesOnly) }) : 0;
 }
 
 /**
@@ -249,9 +254,10 @@ export async function main(argv) {
  * send's overlap picks the rest up. A read the pull budget stopped inside that
  * window fails, naming the backfill that sends the pull requests before it: the
  * next send starts from the newest stored merge, after the gap, so no overlap
- * ever reaches back into it.
+ * ever reaches back into it. With `timelinesOnly` it sends each pull request's
+ * timeline alone, which the Monitor stores beside the pull request it holds.
  */
-async function send(monitor, collected, window, { backfill, branch }) {
+async function send(monitor, collected, window, { backfill, branch, timelinesOnly }) {
   const pulls = collected.pulls
     .filter((pull) => new Date(pull.mergedAt) >= window.since)
     .sort((a, b) => new Date(a.mergedAt) - new Date(b.mergedAt));
@@ -259,24 +265,31 @@ async function send(monitor, collected, window, { backfill, branch }) {
   const cut = collected.truncated && collected.coveredSince > window.since;
   const reached = collected.coveredSince.toISOString().slice(0, 10);
   const gap = cut
-    ? `The pull budget (--max-pulls) stopped the read at ${reached}; the pull requests merged before it were not sent. Send them with ${backfill ? '' : `the Cycle time backfill, --from ${window.since.toISOString().slice(0, 10)} `}--to ${reached}.\n`
+    ? `The pull budget (--max-pulls) stopped the read at ${reached}; the pull requests merged before it were not sent. Send them with ${backfill ? '' : 'the Cycle time backfill, '}--from ${window.since.toISOString().slice(0, 10)} --to ${reached}${timelinesOnly ? ' --timelines-only' : ''}.\n`
     : '';
   const unreadable = collected.failed.length
     ? `${collected.failed.length} pull request${collected.failed.length === 1 ? '' : 's'} could not be read and ${collected.failed.length === 1 ? 'was' : 'were'} not sent: ${collected.failed.map((pull) => `#${pull.number}`).join(', ')}.\n`
     : '';
+  // A timeline-only send carries nothing but the lanes, so a job list the allowance cut short is a send that did not do its work, never "not recorded".
+  const limited = timelinesOnly ? pulls.filter((pull) => pull.commits.some((commit) => commit.checks.some((check) => check.queue?.why === 'rate-limit'))).length : 0;
+  const spent = limited
+    ? `GitHub's rate limit ran out before the job lists of ${limited} pull request${limited === 1 ? '' : 's'} were read, so some of ${limited === 1 ? 'its' : 'their'} rounds were sent without lanes. Run the same window again once it resets: that adds them, and never takes away lanes already stored.\n`
+    : '';
   let result;
   try {
-    result = await sendPulls({ url: monitor.url, key: monitor.key, pulls: monitorRows({ pulls, trunk: branch }) });
+    result = timelinesOnly
+      ? await sendTimelines({ url: monitor.url, key: monitor.key, timelines: monitorTimelines({ pulls, trunk: branch }) })
+      : await sendPulls({ url: monitor.url, key: monitor.key, pulls: monitorRows({ pulls, trunk: branch }) });
   } catch (error) {
     if (!(error instanceof MonitorError)) throw error;
-    process.stderr.write(`${error.message}\n${unreadable}${gap}`);
+    process.stderr.write(`${error.message}\n${unreadable}${gap}${spent}`);
     return 1;
   }
   process.stderr.write(
-    `sent ${result.pulls} pull requests merged from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${unreadable}${gap}`,
+    `sent ${result.pulls} ${timelinesOnly ? "pull requests' timelines" : 'pull requests'} merged from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${unreadable}${gap}${spent}`,
   );
   // A pull request that could not be read is not sent, and once a later merge is stored the next send's window starts past it: the run fails so it is looked at while it still reaches.
-  return cut || collected.failed.length > 0 ? 1 : 0;
+  return cut || collected.failed.length > 0 || limited > 0 ? 1 : 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. */

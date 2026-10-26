@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { renderBlock } from '../../../../scripts/lib/session-record.mjs';
-import { monitorRows } from '../../src/model.js';
+import { monitorRows, monitorTimelines } from '../../src/model.js';
 
 const MIN = 60_000;
 const BASE = Date.UTC(2026, 8, 15, 9, 0);
@@ -338,6 +338,60 @@ describe('Cycle time', () => {
 
       expect(row.runnerMs).toBe(65 * MIN);
       expect(runningOf(row).reduce((total, [, , , minutes]) => total + minutes, 0) * MIN).toBe(row.runnerMs);
+    });
+  });
+
+  describe("each pull request is sent with its timeline: each round's job lanes in order, and the local work between them", () => {
+    const queued = (from) => ({ queue: { state: 'read', createdAt: at(from - 1), startedAt: at(from) } });
+    /** Round one at minutes 2 to 12 with both jobs' lists read; round two at minutes 20 to 25, its job list unread. */
+    const twoRounds = [
+      { sha: 'a'.repeat(40), authoredAt: at(0), parents: 1, checks: [check('Checks', 2, 5, 'success', queued(2)), check('Test', 3, 12, 'success', queued(3))] },
+      { sha: 'b'.repeat(40), authoredAt: at(15), parents: 1, checks: [check('Test', 20, 25)] },
+    ];
+    // A code review before the first push, and a test run in the gap after round one.
+    const localWork = renderBlock([
+      { at: at(0), phase: 'start' },
+      { at: at(0), phase: 'review-start', kind: 'code-review', level: 'high' },
+      { at: at(1), phase: 'review-end', kind: 'code-review', level: 'high' },
+      { run: 'test', scopes: ['api'], start: at(13), end: at(18) },
+    ]);
+    const lanesOf = (timeline) => timeline.lanes.map((lanes) => lanes && lanes.map((lane) => [lane.name, lane.offsetMs / MIN, lane.ms / MIN, lane.leadMs / MIN]));
+
+    it.each([
+      {
+        situation: 'a pull request with lanes on a round, a round whose job list was not read, and local work',
+        body: localWork,
+        lanes: [[['Checks', 0, 3, 0], ['Test', 1, 9, 1]], null],
+        reviewSlices: [{ kind: 'code-review', level: 'high', gap: 0, at: at(0), ms: MIN }],
+        runSlices: [{ kind: 'test', scopes: ['api'], gap: 1, at: at(13), ms: 5 * MIN }],
+      },
+      {
+        situation: 'a pull request with no session record, which keeps its lanes and has no local work',
+        body: '',
+        lanes: [[['Checks', 0, 3, 0], ['Test', 1, 9, 1]], null],
+        reviewSlices: [],
+        runSlices: [],
+      },
+      {
+        situation: 'a review whose level word a hand edit left empty, which is sent with no level',
+        body: localWork.replaceAll(' code-review high', ' code-review :2'),
+        lanes: [[['Checks', 0, 3, 0], ['Test', 1, 9, 1]], null],
+        reviewSlices: [{ kind: 'code-review', gap: 0, at: at(0), ms: MIN }],
+        runSlices: [{ kind: 'test', scopes: ['api'], gap: 1, at: at(13), ms: 5 * MIN }],
+      },
+    ])('$situation', ({ body, lanes, reviewSlices, runSlices }) => {
+      const [row] = monitorRows({ pulls: [pull({ body, commits: twoRounds })] });
+
+      expect(row.timeline.lanes).toHaveLength(row.rounds.length);
+      expect(lanesOf(row.timeline)).toEqual(lanes);
+      expect(row.timeline.reviewSlices).toEqual(reviewSlices);
+      expect(row.timeline.runSlices).toEqual(runSlices);
+    });
+
+    it('sends the same timeline alone, for the backfill, under its pull request', () => {
+      const pulls = [pull({ body: localWork, commits: twoRounds }), pull({ number: 2, commits: twoRounds })];
+
+      expect(monitorTimelines({ pulls })).toEqual(monitorRows({ pulls }).map((row) => ({ number: row.number, timeline: row.timeline })));
     });
   });
 

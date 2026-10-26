@@ -57,6 +57,7 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM cycle_time_rounds'),
     env.DB.prepare('DELETE FROM cycle_time_checks'),
     env.DB.prepare('DELETE FROM cycle_time_failures'),
+    env.DB.prepare('DELETE FROM cycle_time_timelines'),
     env.DB.prepare('DELETE FROM selection_pulls'),
     env.DB.prepare('DELETE FROM selection_packages'),
     env.DB.prepare('DELETE FROM selection_files'),
@@ -268,6 +269,30 @@ export function sendPulls(pulls: unknown[], headers: Record<string, string> = { 
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ pulls }),
   });
+}
+
+/** A pull request's timeline as the Cycle time job sends it: one job lane in each of `rounds` rounds, marked `mark`, and no local work. */
+export const cycleTimeline = (rounds = 1, mark = 'Test') => ({
+  lanes: Array.from({ length: rounds }, () => [
+    { name: mark, attempt: 1, rerun: false, outcome: 'pass', startedAt: '2026-10-01T10:00:30Z', endedAt: '2026-10-01T10:05:00Z', offsetMs: 30_000, ms: 270_000, leadMs: 20_000, queuedMs: 20_000 },
+  ]),
+  reviewSlices: [],
+  runSlices: [],
+});
+
+/** A send of timelines alone, as the backfill makes it, with the right key unless told otherwise. */
+export function sendTimelines(timelines: unknown[], headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/cycle-time/timelines', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ timelines }),
+  });
+}
+
+/** Each stored timeline under its pull request's number, as the document it holds. */
+export async function storedTimelines(): Promise<Record<number, unknown>> {
+  const { results } = await env.DB.prepare('SELECT pull_number, timeline FROM cycle_time_timelines ORDER BY pull_number').all<{ pull_number: number; timeline: string }>();
+  return Object.fromEntries(results.map((r) => [r.pull_number, JSON.parse(r.timeline)]));
 }
 
 /** What is stored: each pull request with how many rounds, checks and failing items sit under it. */

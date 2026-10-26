@@ -1116,7 +1116,7 @@ function checkRows(round) {
 /**
  * The merged pull requests as the Harness Monitor stores them, each cut as `pullModel` cuts it and
  * flattened to what the Monitor keeps: the time split, the rounds and each round's checks, with the
- * steps and test files that failed an attempt. The Monitor derives nothing from them.
+ * steps and test files that failed an attempt, and its timeline. The Monitor derives nothing from them.
  *
  * Time nobody wrote down is `null`, never zero: a pull request with no session record, or no round to
  * weigh it against, has no writing time (`codingMs`) and no local time (`localMs`), and a kind of local
@@ -1172,8 +1172,32 @@ export function monitorRows({ pulls, trunk = 'main' }) {
           queueNotRecorded: round.queueNotRecorded,
           checks: checkRows(round),
         })),
+        timeline: timelineOf(pull),
       };
     });
+}
+
+/**
+ * What a pull request's strip needs that its row, rounds and checks do not hold, as the Monitor
+ * stores it beside them: each round's job lanes in round order, `null` for a round whose job list was
+ * not read (or where no job drew a lane), and the local review and run slices, none without a session record.
+ */
+function timelineOf(pull) {
+  // A hand-edited record can leave a review's level word empty (`code-review :2`), which the Monitor refuses as a level: it is sent as no level, so one body never holds up a send.
+  const reviewSlices = pull.reviewSlices.map(({ level, ...slice }) => (level ? { ...slice, level } : slice));
+  return { lanes: pull.rounds.map((round) => round.lanes), reviewSlices, runSlices: pull.runSlices };
+}
+
+/**
+ * Each merged pull request's timeline alone, as the backfill sends it beside pull requests the Monitor
+ * already holds, cut exactly as `monitorRows` cuts it.
+ *
+ * @param {object} input
+ * @param {import('./github.js').Pull[]} input.pulls
+ * @param {string} [input.trunk]
+ */
+export function monitorTimelines({ pulls, trunk = 'main' }) {
+  return monitorRows({ pulls, trunk }).map((row) => ({ number: row.number, timeline: row.timeline }));
 }
 
 /**

@@ -67,6 +67,7 @@ describe('Cycle time', () => {
       { situation: 'an end with no start', argv: ['--send', '--to', '2026-07-25'], complaint: '--to needs --from' },
       { situation: 'an end before its start', argv: ['--send', '--from', '2026-07-25', '--to', '2026-07-24'], complaint: '--to cannot be before --from' },
       { situation: 'a day that does not exist', argv: ['--send', '--from', '2026-02-30'], complaint: '--from needs a day as YYYY-MM-DD' },
+      { situation: 'timelines alone with no window, which only the backfill sends', argv: ['--send', '--timelines-only'], complaint: '--timelines-only needs --from' },
     ])('refuses $situation', ({ argv, complaint }) => {
       expect(parseArgs(argv).invalid).toContain(complaint);
     });
