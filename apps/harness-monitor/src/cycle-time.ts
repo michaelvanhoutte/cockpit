@@ -1,7 +1,8 @@
 /**
  * Cycle time's merged pull requests as the nightly `Cycle time` job sends them
- * (tools/cycle-time): each with its time split, the rounds of checks it took and
- * every check that held a round, already cut by the tool. The Monitor checks
+ * (tools/cycle-time): each with its time split, the rounds of checks it took,
+ * every check that held a round and its timeline, already cut by the tool; and
+ * the backfill's timelines sent alone. The Monitor checks
  * their shape and stores them; it derives nothing, so a pull request with no
  * session record arrives with its writing and local time null, and stays null.
  */
@@ -12,6 +13,64 @@ export const MAX_PULLS = 50;
 export const MAX_ROUNDS = 100;
 export const MAX_CHECKS = 200;
 export const MAX_ITEMS = 500;
+/** Most job lanes in one round, and local slices of one kind in one timeline: far above any real one. */
+export const MAX_LANES = 300;
+export const MAX_SLICES = 1000;
+
+/** What a job ended as, as the tool classifies it. */
+export const LANE_OUTCOMES = ['pass', 'fail', 'cancelled', 'skipped', 'running', 'other', 'unknown'] as const;
+export type LaneOutcome = (typeof LANE_OUTCOMES)[number];
+/** The local runs that are not a review: test runs and the browser pass. */
+export const RUN_KINDS = ['test', 'browser'] as const;
+export type RunKind = (typeof RUN_KINDS)[number];
+
+/** One CI job that ran in a round: where it started and stopped inside the round, and its wait for a runner before it (`leadMs`, cut at the round's start). */
+export interface TimelineLane {
+  name: string;
+  /** A shard's family and index, or a fan-in's family; absent for a job of neither. */
+  family?: string;
+  shard?: number;
+  fanIn?: true;
+  attempt: number;
+  rerun: boolean;
+  outcome: LaneOutcome;
+  startedAt: string;
+  endedAt: string | null;
+  offsetMs: number;
+  ms: number;
+  leadMs: number;
+  queuedMs: number | null;
+}
+
+/** A local review cut to the gap it sat in: `gap` 0 is before the first push, n after round n. */
+export interface ReviewSlice {
+  kind: ReviewKind;
+  level?: string;
+  endedTogether?: true;
+  gap: number;
+  at: string;
+  ms: number;
+}
+
+/** A test run or the browser pass, cut to its gap as a review is. */
+export interface RunSlice {
+  kind: RunKind;
+  scopes?: string[];
+  gap: number;
+  at: string;
+  ms: number;
+}
+
+/**
+ * What a pull request's strip needs that its row, rounds and checks do not hold:
+ * each round's job lanes, in round order, `null` for a round whose job list was
+ * not read; and its local slices.
+ */
+export interface CycleTimeline {
+  lanes: (TimelineLane[] | null)[];
+  reviewSlices: ReviewSlice[];
+  runSlices: RunSlice[];
+}
 
 export interface CycleCheck {
   name: string;
@@ -91,9 +150,19 @@ export interface CyclePull {
   superseded: Cancelled;
   cancelled: Cancelled;
   rounds: CycleRound[];
+  /** Null where the send carried none: the pull request is then stored without one. */
+  timeline: CycleTimeline | null;
 }
 
 export type CheckedPulls = { ok: true; pulls: CyclePull[] } | { ok: false; error: string };
+
+/** A timeline sent alone, for a pull request the Monitor already holds. */
+export interface TimelineOf {
+  number: number;
+  timeline: CycleTimeline;
+}
+
+export type CheckedTimelines = { ok: true; timelines: TimelineOf[] } | { ok: false; error: string };
 
 /** A four-digit year and an explicit zone, as GitHub writes every time. */
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -265,6 +334,157 @@ function checkRound(raw: unknown): CycleRound | string {
   return { sha, pushedAt: pushedAt, endedAt: endedAt, ms: ms, red, commits: commits, queueNotRecorded, checks };
 }
 
+/** A time GitHub wrote, kept as it was written; a string beginning "has" is the complaint. */
+function isoText(r: Fields, key: string): { at: string } | string {
+  const checked = time(r, key);
+  return typeof checked === 'string' ? checked : { at: r[key] as string };
+}
+
+function checkLane(raw: unknown): TimelineLane | string {
+  if (!isObject(raw)) return 'is not an object.';
+  const name = shortText(raw, 'name', 300);
+  if (!name) return 'has no name.';
+  const lane = { name } as TimelineLane;
+  if (raw.family !== undefined && raw.family !== null) {
+    const family = shortText(raw, 'family', 300);
+    if (!family) return 'has a family that is not a short string.';
+    lane.family = family;
+  }
+  if (raw.shard !== undefined && raw.shard !== null) {
+    const shard = whole(raw, 'shard');
+    if (typeof shard === 'string') return shard;
+    lane.shard = shard;
+  }
+  if (raw.fanIn !== undefined && raw.fanIn !== null && raw.fanIn !== false) {
+    if (raw.fanIn !== true) return `has fanIn ${JSON.stringify(raw.fanIn)}, which is not true or false.`;
+    lane.fanIn = true;
+  }
+  const attempt = whole(raw, 'attempt', { min: 1 });
+  if (typeof attempt === 'string') return attempt;
+  const rerun = flag(raw, 'rerun');
+  if (typeof rerun === 'string') return rerun;
+  const outcome = raw.outcome;
+  if (!LANE_OUTCOMES.includes(outcome as LaneOutcome)) return `has outcome ${JSON.stringify(outcome ?? null)}, which is not ${LANE_OUTCOMES.join(', ')}.`;
+  const startedAt = isoText(raw, 'startedAt');
+  if (typeof startedAt === 'string') return startedAt;
+  let endedAt: string | null = null;
+  if (raw.endedAt !== null && raw.endedAt !== undefined) {
+    const ended = isoText(raw, 'endedAt');
+    if (typeof ended === 'string') return ended;
+    endedAt = ended.at;
+  }
+  for (const key of ['offsetMs', 'ms', 'leadMs'] as const) {
+    const value = whole(raw, key);
+    if (typeof value === 'string') return value;
+    lane[key] = value;
+  }
+  const queuedMs = whole(raw, 'queuedMs', { nullable: true });
+  if (typeof queuedMs === 'string') return queuedMs;
+  return { ...lane, attempt, rerun, outcome: outcome as LaneOutcome, startedAt: startedAt.at, endedAt, queuedMs };
+}
+
+/** The gap, start and length every slice has; a string is the complaint. */
+function sliceTimes(raw: Fields): { gap: number; at: string; ms: number } | string {
+  const gap = whole(raw, 'gap');
+  if (typeof gap === 'string') return gap;
+  const at = isoText(raw, 'at');
+  if (typeof at === 'string') return at;
+  const ms = whole(raw, 'ms');
+  if (typeof ms === 'string') return ms;
+  return { gap, at: at.at, ms };
+}
+
+function checkReviewSlice(raw: unknown): ReviewSlice | string {
+  if (!isObject(raw)) return 'is not an object.';
+  if (!REVIEW_KINDS.includes(raw.kind as ReviewKind)) return `has kind ${JSON.stringify(raw.kind ?? null)}, which is not ${REVIEW_KINDS.join(' or ')}.`;
+  const slice = { kind: raw.kind } as ReviewSlice;
+  if (raw.level !== undefined && raw.level !== null) {
+    const level = shortText(raw, 'level', 100);
+    if (!level) return 'has a level that is not a short string.';
+    slice.level = level;
+  }
+  if (raw.endedTogether !== undefined && raw.endedTogether !== null && raw.endedTogether !== false) {
+    if (raw.endedTogether !== true) return `has endedTogether ${JSON.stringify(raw.endedTogether)}, which is not true or false.`;
+    slice.endedTogether = true;
+  }
+  const times = sliceTimes(raw);
+  return typeof times === 'string' ? times : { ...slice, ...times };
+}
+
+function checkRunSlice(raw: unknown): RunSlice | string {
+  if (!isObject(raw)) return 'is not an object.';
+  if (!RUN_KINDS.includes(raw.kind as RunKind)) return `has kind ${JSON.stringify(raw.kind ?? null)}, which is not ${RUN_KINDS.join(' or ')}.`;
+  const slice = { kind: raw.kind } as RunSlice;
+  if (raw.scopes !== undefined && raw.scopes !== null) {
+    const scopes = strings(raw, 'scopes');
+    if (typeof scopes === 'string') return scopes;
+    slice.scopes = scopes;
+  }
+  const times = sliceTimes(raw);
+  return typeof times === 'string' ? times : { ...slice, ...times };
+}
+
+/** Each of a list of slices checked, or the complaint naming the one that is wrong. */
+function slicesOf<T>(raw: Fields, key: 'reviewSlices' | 'runSlices', check: (slice: unknown) => T | string): T[] | string {
+  const list = raw[key];
+  if (!Array.isArray(list)) return `has no list of ${key}.`;
+  if (list.length > MAX_SLICES) return `has ${list.length} ${key}; the most one timeline takes is ${MAX_SLICES}.`;
+  const slices: T[] = [];
+  for (const [index, rawSlice] of list.entries()) {
+    const slice = check(rawSlice);
+    if (typeof slice === 'string') return `${key} ${index} ${slice}`;
+    slices.push(slice);
+  }
+  return slices;
+}
+
+/** A timeline's own shape, whatever pull request it is for. The complaint follows "timeline". */
+function checkTimeline(raw: unknown): CycleTimeline | string {
+  if (!isObject(raw)) return 'is not an object.';
+  if (!Array.isArray(raw.lanes)) return 'has no list of lanes.';
+  if (raw.lanes.length > MAX_ROUNDS) return `has lanes for ${raw.lanes.length} rounds; the most one pull request takes is ${MAX_ROUNDS}.`;
+  const lanes: (TimelineLane[] | null)[] = [];
+  for (const [index, rawRound] of raw.lanes.entries()) {
+    // A round whose job list was not read has no lanes, which is not recorded, never none.
+    if (rawRound === null) {
+      lanes.push(null);
+      continue;
+    }
+    if (!Array.isArray(rawRound)) return `round ${index} has lanes that are not a list or null.`;
+    if (rawRound.length > MAX_LANES) return `round ${index} has ${rawRound.length} lanes; the most one round takes is ${MAX_LANES}.`;
+    const own: TimelineLane[] = [];
+    for (const [position, rawLane] of rawRound.entries()) {
+      const lane = checkLane(rawLane);
+      if (typeof lane === 'string') {
+        const name = isObject(rawLane) ? text(rawLane.name, 300) : null;
+        return `round ${index} lane ${position}${name ? ` (${name})` : ''} ${lane}`;
+      }
+      own.push(lane);
+    }
+    lanes.push(own);
+  }
+  const reviewSlices = slicesOf(raw, 'reviewSlices', checkReviewSlice);
+  if (typeof reviewSlices === 'string') return reviewSlices;
+  const runSlices = slicesOf(raw, 'runSlices', checkRunSlice);
+  if (typeof runSlices === 'string') return runSlices;
+  return { lanes, reviewSlices, runSlices };
+}
+
+/**
+ * Whether a timeline fits a pull request of `rounds` rounds: lanes for each round
+ * and no more, and every slice in a gap the pull request has (gap n is after
+ * round n, so the last is one before the round count). Null where it fits.
+ */
+export function timelineMisfit(timeline: CycleTimeline, rounds: number, whose: string): string | null {
+  const counted = (n: number) => `${n} round${n === 1 ? '' : 's'}`;
+  if (timeline.lanes.length !== rounds) return `has a timeline of ${counted(timeline.lanes.length)}, but ${whose} ${rounds}.`;
+  for (const key of ['reviewSlices', 'runSlices'] as const) {
+    const index = timeline[key].findIndex((slice) => slice.gap >= rounds);
+    if (index >= 0) return `has a timeline whose ${key} ${index} sits in gap ${timeline[key][index]!.gap}, but ${whose} ${counted(rounds)}.`;
+  }
+  return null;
+}
+
 function checkPull(raw: unknown): CyclePull | string {
   if (!isObject(raw)) return 'is not an object.';
   const number = whole(raw, 'number', { min: 1 });
@@ -343,6 +563,14 @@ function checkPull(raw: unknown): CyclePull | string {
   const attempts = rounds.flatMap((round) => round.checks);
   const withRunning = attempts.filter((check) => check.runningMs !== null).length;
   if (withRunning > 0 && withRunning < attempts.length) return `has runningMs on ${withRunning} of its ${attempts.length} check attempts; it is sent on all of them or none.`;
+  let timeline: CycleTimeline | null = null;
+  if (raw.timeline !== null && raw.timeline !== undefined) {
+    const checked = checkTimeline(raw.timeline);
+    if (typeof checked === 'string') return `timeline ${checked}`;
+    const misfit = timelineMisfit(checked, rounds.length, 'it has');
+    if (misfit) return misfit;
+    timeline = checked;
+  }
   return {
     number,
     title,
@@ -369,6 +597,7 @@ function checkPull(raw: unknown): CyclePull | string {
     superseded,
     cancelled,
     rounds,
+    timeline,
   };
 }
 
@@ -395,4 +624,31 @@ export function checkPulls(body: unknown): CheckedPulls {
     pulls.push(result);
   }
   return { ok: true, pulls };
+}
+
+/**
+ * Checks a timeline-only send's shape: `{"timelines": [{number, timeline}]}`.
+ * Whether each fits the pull request it names is the store's to say, since only
+ * it holds the rounds. One bad timeline refuses all of it, named as `checkPulls`
+ * names a pull request.
+ */
+export function checkTimelines(body: unknown): CheckedTimelines {
+  const list = isObject(body) ? body.timelines : undefined;
+  if (!Array.isArray(list)) return { ok: false, error: 'The body must be {"timelines": [...]}.' };
+  if (list.length === 0) return { ok: false, error: 'The send has no timelines.' };
+  if (list.length > MAX_PULLS) return { ok: false, error: `The send has ${list.length} timelines; the most one send takes is ${MAX_PULLS}.` };
+
+  const timelines: TimelineOf[] = [];
+  const seen = new Set<number>();
+  for (const [index, raw] of list.entries()) {
+    const number = isObject(raw) ? whole(raw, 'number', { min: 1 }) : 'is not an object.';
+    const label = `Timeline ${index}${typeof number === 'number' ? ` (#${number})` : ''}`;
+    if (typeof number === 'string') return { ok: false, error: `${label}: ${number}` };
+    const timeline = checkTimeline((raw as Fields).timeline);
+    if (typeof timeline === 'string') return { ok: false, error: `${label}: timeline ${timeline}` };
+    if (seen.has(number)) return { ok: false, error: `${label}: is in the send twice.` };
+    seen.add(number);
+    timelines.push({ number, timeline });
+  }
+  return { ok: true, timelines };
 }

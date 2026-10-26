@@ -45,6 +45,7 @@ A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without one
 ```bash
 node src/cli.js --send                                  # also sends the merged pull requests to the Harness Monitor
 node src/cli.js --send --from 2026-07-25 --to 2026-08-05   # sends that window instead, and writes nothing
+node src/cli.js --send --from 2026-07-25 --timelines-only  # sends only that window's timelines, beside the pull requests the Monitor holds
 ```
 
 `--send` needs `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY`. It sends each pull request merged since
@@ -65,8 +66,19 @@ A read the pull budget (`--max-pulls`) stopped inside the send's window fails th
 the message, since once a later merge is stored the next send reaches past it. An attempt's failed
 steps and files are cut to their first 500, each to 500 characters, as the Monitor takes no more, and its detail is then marked not recorded.
 
+Each pull request also goes with its `timeline`, what its strip needs that the rows above do not hold:
+`lanes`, each round's job lanes in round order (`null` for a round whose job list was not read), and
+`reviewSlices` and `runSlices`, its local work cut to the gaps between rounds (none without a session
+record). The Monitor stores it beside the pull request and replaces it with it, and refuses a batch whose
+timeline does not have lanes for exactly the pull request's rounds. Batches close at 400,000 characters as
+well as 50 pull requests, timelines counted, and a pull request too large for a batch alone fails the send,
+named. `--timelines-only` sends each pull request's timeline alone, to `POST /v1/cycle-time/timelines`,
+which stores it beside the pull request the Monitor holds and never replaces the pull request: the safe
+way to re-send a window whose first pushes GitHub may no longer hold. A timeline for a pull request the
+Monitor does not hold, or whose rounds differ from the stored ones, refuses the batch, named.
+
 The `Cycle time` job in [`nightly.yml`](../../.github/workflows/nightly.yml) sends every night. The
-backfill is the *Cycle time backfill* workflow, run by hand
+backfill is the *Cycle time backfill* workflow, run by hand, its `timelines-only` box sending `--timelines-only`
 ([deployment.md](../../docs/deployment.md), "The Harness Monitor", says how to cover 90 days). The
 Monitor answers what it holds as JSON at `/cycle-time?format=json`, for a period (`?period=7d`, `30d`,
 `90d` or `all`): each window's figures (7, 14, 30 and 90 days up to the period) and every pull request in

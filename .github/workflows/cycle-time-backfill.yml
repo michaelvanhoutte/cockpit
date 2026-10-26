@@ -4,7 +4,9 @@ name: Cycle time backfill
 # the `Cycle time` job in nightly.yml otherwise feeds from the newest merge it
 # holds. Run by hand from the Actions tab, because the write key lives only in
 # repository secrets (docs/deployment.md, "The Harness Monitor", says how to
-# cover 90 days). Sending a window twice stores each pull request once.
+# cover 90 days). Sending a window twice stores each pull request once. With
+# `timelines-only` it sends each pull request's timeline alone, stored beside the
+# pull request the Monitor holds, which it never replaces.
 on:
   workflow_dispatch:
     inputs:
@@ -14,6 +16,10 @@ on:
       to:
         description: Last day to send, YYYY-MM-DD (empty for today)
         required: false
+      timelines-only:
+        description: Send only each pull request's timeline, beside the pull requests the Monitor holds
+        type: boolean
+        default: false
 
 # Two backfills share the API's hourly allowance; one at a time.
 concurrency:
@@ -40,6 +46,7 @@ jobs:
       # Passed through the environment, never into the script, so an input is only ever data.
       FROM: ${{ inputs.from }}
       TO: ${{ inputs.to }}
+      TIMELINES_ONLY: ${{ inputs.timelines-only }}
     steps:
       - name: Check the key and the address are set
         id: ready
@@ -62,4 +69,5 @@ jobs:
         run: |
           set -- --send --from "$FROM"
           if [ -n "$TO" ]; then set -- "$@" --to "$TO"; fi
+          if [ "$TIMELINES_ONLY" = "true" ]; then set -- "$@" --timelines-only; fi
           node tools/cycle-time/src/cli.js "$@"

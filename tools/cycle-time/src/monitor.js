@@ -7,7 +7,8 @@
  * A send is a series of requests, each one batch the Monitor stores whole or
  * refuses whole. A send cut short leaves the batches before it stored, and the
  * next run's overlap sends the rest again: pull requests are replaced by their
- * number, so nothing is ever doubled.
+ * number, so nothing is ever doubled. The backfill can send timelines alone,
+ * which the Monitor stores beside the pull requests it holds without replacing them.
  */
 
 const DAY_MS = 86_400_000;
@@ -17,7 +18,9 @@ export const OVERLAP_DAYS = 2;
 /**
  * The Monitor's own caps on one send: 50 pull requests, and a body under 1,000,000 characters. The
  * body is kept well clear of it: the Monitor flattens failing steps and files into one JSON string
- * each, which can run to three times the body and must stay under D1's 2 MB a string.
+ * each, which can run to three times the body and must stay under D1's 2 MB a string. Each pull
+ * request's timeline is counted in its size, and the Monitor binds a batch's timelines as one value
+ * of about their own size, so it stays under that cap too.
  */
 export const BATCH_PULLS = 50;
 export const BATCH_CHARS = 400_000;
@@ -76,9 +79,9 @@ export async function newestStored({ url, fetchImpl = globalThis.fetch }) {
 }
 
 /**
- * The pull requests cut into batches of at most `maxPulls` pull requests and
- * `maxChars` characters of body. A pull request too large for a batch on its
- * own is refused here, since the Monitor would refuse it anyway.
+ * The pull requests, or their timelines, cut into batches of at most `maxPulls`
+ * rows and `maxChars` characters of body. A row too large for a batch on its
+ * own is refused here, naming its pull request, since the Monitor would refuse it anyway.
  */
 export function cutBatches(pulls, { maxPulls = BATCH_PULLS, maxChars = BATCH_CHARS } = {}) {
   const batches = [];
@@ -105,17 +108,31 @@ export function cutBatches(pulls, { maxPulls = BATCH_PULLS, maxChars = BATCH_CHA
  *
  * @returns {Promise<{ batches: number, pulls: number }>}
  */
-export async function sendPulls({ url, key, pulls, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
-  const batches = cutBatches(pulls, { maxPulls, maxChars });
+export function sendPulls({ url, key, pulls, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
+  return sendBatches({ url, key, path: '/v1/cycle-time', field: 'pulls', rows: pulls, rest: "the next send's overlap sends the rest again", fetchImpl, maxPulls, maxChars });
+}
+
+/**
+ * Sends each pull request's timeline alone, `{ number, timeline }`, beside the pull requests the
+ * Monitor already holds: the backfill, which never replaces a pull request. Batches as `sendPulls` does.
+ *
+ * @returns {Promise<{ batches: number, pulls: number }>}
+ */
+export function sendTimelines({ url, key, timelines, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
+  return sendBatches({ url, key, path: '/v1/cycle-time/timelines', field: 'timelines', rows: timelines, rest: 'the same backfill run again sends the rest, and stores each timeline once', fetchImpl, maxPulls, maxChars });
+}
+
+async function sendBatches({ url, key, path, field, rows, rest, fetchImpl, maxPulls, maxChars }) {
+  const batches = cutBatches(rows, { maxPulls, maxChars });
   let sent = 0;
   for (const [index, batch] of batches.entries()) {
-    const stored = `${index} batch${index === 1 ? '' : 'es'} of ${batches.length} ${index === 1 ? 'was' : 'were'} stored (${sent} pull requests); the next send's overlap sends the rest again.`;
+    const stored = `${index} batch${index === 1 ? '' : 'es'} of ${batches.length} ${index === 1 ? 'was' : 'were'} stored (${sent} pull requests); ${rest}.`;
     let res;
     try {
-      res = await fetchImpl(address(url, '/v1/cycle-time'), {
+      res = await fetchImpl(address(url, path), {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-        body: JSON.stringify({ pulls: batch }),
+        body: JSON.stringify({ [field]: batch }),
         signal: AbortSignal.timeout(REQUEST_MS),
       });
     } catch (error) {

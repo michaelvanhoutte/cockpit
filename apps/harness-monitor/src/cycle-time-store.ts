@@ -1,6 +1,6 @@
 import { addDays, belgianDay, startOfDay } from './belgium';
 import { PERIODS, type Period } from './costs';
-import type { CyclePull, LocalParts } from './cycle-time';
+import { timelineMisfit, type CyclePull, type LocalParts, type TimelineOf } from './cycle-time';
 
 /** The windows each answer carries, in days, the shortest first: every one no longer than the period, and all of it for all time. 14 is the one `harness-cost-review` reads. */
 const WINDOW_DAYS = [7, 14, 30, 90] as const;
@@ -36,12 +36,21 @@ ON CONFLICT (pull_number) DO UPDATE SET ${PULL_COLUMNS.filter((c) => c !== 'pull
   .map((c) => `${c} = excluded.${c}`)
   .join(', ')}`;
 
+// A timeline is bound inside its row as an object, never as a string of JSON, so
+// the one value a batch binds is about the size of the timelines sent rather than
+// a third larger for escaping, well under D1's 2 MB a value; `->` stores it as text.
+const UPSERT_TIMELINES = `INSERT INTO cycle_time_timelines (pull_number, timeline, received_at)
+SELECT value ->> '$.pull_number', value -> '$.timeline', value ->> '$.received_at' FROM json_each(?1) WHERE true
+ON CONFLICT (pull_number) DO UPDATE SET timeline = excluded.timeline, received_at = excluded.received_at`;
+
 /**
  * Stores a send's pull requests, each replacing the pull request stored under
- * its number with every round, check and failing step or file beneath it, so a
- * re-send or an overlapping one never doubles a row and a fluke found since
- * lands. One D1 batch, one transaction: a send lands whole or not at all, in
- * seven statements whatever its size.
+ * its number with every round, check and failing step or file beneath it, and
+ * its timeline, so a re-send or an overlapping one never doubles a row and a
+ * fluke found since lands. A pull request sent without a timeline is left with
+ * none, so a stored timeline always fits the rounds stored beside it. One D1
+ * batch, one transaction: a send lands whole or not at all, in nine statements
+ * whatever its size.
  */
 export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.now()): Promise<{ stored: number }> {
   const ids = JSON.stringify(pulls.map((p) => p.number));
@@ -82,16 +91,49 @@ export async function storePulls(db: D1Database, pulls: CyclePull[], now = Date.
       ]),
     ),
   );
+  const timelines = pulls.flatMap((p) => (p.timeline ? [{ pull_number: p.number, timeline: p.timeline, received_at: now }] : []));
   await db.batch([
     db.prepare(UPSERT_PULLS).bind(JSON.stringify(pullRows)),
     db.prepare('DELETE FROM cycle_time_failures WHERE pull_number IN (SELECT value FROM json_each(?1))').bind(ids),
     db.prepare('DELETE FROM cycle_time_checks WHERE pull_number IN (SELECT value FROM json_each(?1))').bind(ids),
     db.prepare('DELETE FROM cycle_time_rounds WHERE pull_number IN (SELECT value FROM json_each(?1))').bind(ids),
+    db.prepare('DELETE FROM cycle_time_timelines WHERE pull_number IN (SELECT value FROM json_each(?1))').bind(ids),
     db.prepare(insertFrom('cycle_time_rounds', ROUND_COLUMNS)).bind(JSON.stringify(rounds)),
     db.prepare(insertFrom('cycle_time_checks', CHECK_COLUMNS)).bind(JSON.stringify(checks)),
     db.prepare(insertFrom('cycle_time_failures', FAILURE_COLUMNS)).bind(JSON.stringify(failures)),
+    db.prepare(UPSERT_TIMELINES).bind(JSON.stringify(timelines)),
   ]);
   return { stored: pulls.length };
+}
+
+export type StoredTimelines = { ok: true; stored: number } | { ok: false; error: string };
+
+/**
+ * Stores timelines sent alone (the backfill) beside pull requests the Monitor
+ * already holds, each replacing the one stored under its number, and touches no
+ * pull request, round or check: re-sending a whole pull request could replace it
+ * with less than it had, once GitHub has dropped what it was first read from. A
+ * timeline for a pull request not held, or one that does not fit the rounds
+ * held, refuses the whole send, naming it. One read, then one batch of one statement.
+ */
+export async function storeTimelines(db: D1Database, timelines: TimelineOf[], now = Date.now()): Promise<StoredTimelines> {
+  const { results } = await db
+    .prepare(
+      `SELECT p.pull_number AS number, (SELECT COUNT(*) FROM cycle_time_rounds r WHERE r.pull_number = p.pull_number) AS rounds
+       FROM cycle_time_pulls p WHERE p.pull_number IN (SELECT value FROM json_each(?1))`,
+    )
+    .bind(JSON.stringify(timelines.map((t) => t.number)))
+    .all<{ number: number; rounds: number }>();
+  const held = new Map(results.map((r) => [r.number, r.rounds]));
+  for (const [index, { number, timeline }] of timelines.entries()) {
+    const label = `Timeline ${index} (#${number})`;
+    const rounds = held.get(number);
+    if (rounds === undefined) return { ok: false, error: `${label}: is for a pull request the Monitor does not hold; send the pull request first.` };
+    const misfit = timelineMisfit(timeline, rounds, 'the stored pull request has');
+    if (misfit) return { ok: false, error: `${label}: ${misfit}` };
+  }
+  await db.batch([db.prepare(UPSERT_TIMELINES).bind(JSON.stringify(timelines.map((t) => ({ pull_number: t.number, timeline: t.timeline, received_at: now }))))]);
+  return { ok: true, stored: timelines.length };
 }
 
 /** When the newest stored pull request merged, as ISO time, or null when none is stored: where the next send starts reading. */

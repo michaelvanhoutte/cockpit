@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cutBatches, MonitorError, newestStored, sendPulls, sendWindow } from '../../src/monitor.js';
+import { BATCH_CHARS, cutBatches, MonitorError, newestStored, sendPulls, sendTimelines, sendWindow } from '../../src/monitor.js';
 
 const NOW = new Date('2026-10-23T12:00:00Z');
 
@@ -10,12 +10,13 @@ const pull = (number, over = {}) => ({ number, title: 'A change', rounds: [], ..
 function stubMonitor({ refuse = [] } = {}) {
   const sent = [];
   const fetchImpl = async (url, init) => {
-    const { pulls } = JSON.parse(init.body);
-    sent.push({ url, authorization: init.headers.authorization, numbers: pulls.map((p) => p.number) });
+    const body = JSON.parse(init.body);
+    const rows = body.pulls ?? body.timelines;
+    sent.push({ url, authorization: init.headers.authorization, numbers: rows.map((p) => p.number) });
     if (refuse.includes(sent.length)) {
       return { ok: false, status: 400, json: async () => ({ error: 'Pull request 0 (#9): has no list of rounds.' }) };
     }
-    return { ok: true, status: 200, json: async () => ({ stored: pulls.length }) };
+    return { ok: true, status: 200, json: async () => ({ stored: rows.length }) };
   };
   return { fetchImpl, sent };
 }
@@ -100,6 +101,43 @@ describe('Cycle time', () => {
         'The Harness Monitor refused batch 2 of 3 (400: Pull request 0 (#9): has no list of rounds.). 1 batch of 3 was stored (3 pull requests)',
       );
       expect(sent).toHaveLength(2);
+    });
+  });
+
+  describe("a batch is closed by its pull requests' timelines as well as their count, so the Monitor never nears its cap on one value", () => {
+    /** A pull request whose timeline is about `chars` characters of lanes. */
+    const withTimeline = (number, chars) => pull(number, { timeline: { lanes: [[{ name: 'x'.repeat(chars) }]], reviewSlices: [], runSlices: [] } });
+
+    it.each([
+      { situation: '50 small pull requests', pulls: Array.from({ length: 50 }, (_, i) => withTimeline(i + 1, 5_000)), batches: [50] },
+      { situation: 'timelines adding up past the size a batch takes', pulls: Array.from({ length: 10 }, (_, i) => withTimeline(i + 1, 100_000)), batches: [3, 3, 3, 1] },
+    ])('$situation go in batches of $batches, every pull request once', ({ pulls, batches }) => {
+      const cut = cutBatches(pulls);
+
+      expect(cut.map((batch) => batch.length)).toEqual(batches);
+      expect(cut.flat().map((p) => p.number)).toEqual(pulls.map((p) => p.number));
+    });
+
+    it('one timeline too large for a batch alone fails the send before anything is sent, naming its pull request', async () => {
+      const { fetchImpl, sent } = stubMonitor();
+
+      const sending = sendPulls({ url: 'https://monitor.test', key: 'k', pulls: [withTimeline(1, 5_000), withTimeline(2, BATCH_CHARS)], fetchImpl });
+
+      await expect(sending).rejects.toThrow(/^Pull request 2 is \d+ characters, more than one send takes/);
+      expect(sent).toEqual([]);
+    });
+
+    it('timelines sent alone go to the timeline address, batched the same way', async () => {
+      const { fetchImpl, sent } = stubMonitor();
+      const timelines = Array.from({ length: 4 }, (_, i) => ({ number: i + 1, timeline: withTimeline(i + 1, 10).timeline }));
+
+      const result = await sendTimelines({ url: 'https://monitor.test/', key: 'k', timelines, fetchImpl, maxPulls: 3 });
+
+      expect(result).toEqual({ batches: 2, pulls: 4 });
+      expect(sent).toEqual([
+        { url: 'https://monitor.test/v1/cycle-time/timelines', authorization: 'Bearer k', numbers: [1, 2, 3] },
+        { url: 'https://monitor.test/v1/cycle-time/timelines', authorization: 'Bearer k', numbers: [4] },
+      ]);
     });
   });
 });

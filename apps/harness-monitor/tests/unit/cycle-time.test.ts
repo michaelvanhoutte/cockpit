@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkPulls, MAX_PULLS } from '../../src/cycle-time';
+import { checkPulls, checkTimelines, MAX_PULLS } from '../../src/cycle-time';
 
 const check = (over: Record<string, unknown> = {}) => ({
   name: 'Test',
@@ -136,6 +136,74 @@ describe('Harness Monitor', () => {
       },
     ])('refuses the send for $situation', ({ over, error }) => {
       expect(refusal([pull(15, over)])).toBe(error);
+    });
+  });
+
+  describe("a pull request's timeline that does not fit it is refused, and the whole send with it, naming the pull request", () => {
+    const lane = (over: Record<string, unknown> = {}) => ({
+      name: 'Test',
+      attempt: 1,
+      rerun: false,
+      outcome: 'pass',
+      startedAt: '2026-10-01T10:00:30Z',
+      endedAt: '2026-10-01T10:04:00Z',
+      offsetMs: 30_000,
+      ms: 210_000,
+      leadMs: 20_000,
+      queuedMs: 20_000,
+      ...over,
+    });
+    const review = (over: Record<string, unknown> = {}) => ({ kind: 'code-review', level: 'high', gap: 0, at: '2026-10-01T09:00:00Z', ms: 600_000, ...over });
+    const run = (over: Record<string, unknown> = {}) => ({ kind: 'test', scopes: ['api'], gap: 0, at: '2026-10-01T09:30:00Z', ms: 60_000, ...over });
+    const timeline = (over: Record<string, unknown> = {}) => ({ lanes: [[lane()]], reviewSlices: [review()], runSlices: [run()], ...over });
+
+    it.each([
+      { situation: 'lanes for each round and slices before the first push', timeline: timeline() },
+      { situation: "a round's lanes null, its job list not read", timeline: timeline({ lanes: [null] }) },
+      { situation: 'a shard of a family, re-run', timeline: timeline({ lanes: [[lane({ name: 'E2E (F3) (2)', family: 'E2E (F3)', shard: 2, attempt: 2, rerun: true })]] }) },
+    ])('takes $situation, as sent', ({ timeline: sent }) => {
+      const checked = checkPulls({ pulls: [pull(20, { timeline: sent })] });
+
+      expect(checked.ok && checked.pulls[0]!.timeline).toEqual(sent);
+    });
+
+    it.each([
+      { situation: 'more rounds of lanes than the pull request has rounds', over: { lanes: [[lane()], null] }, error: 'Pull request 1 (#21): has a timeline of 2 rounds, but it has 1.' },
+      { situation: 'fewer rounds of lanes than the pull request has rounds', over: { lanes: [] }, error: 'Pull request 1 (#21): has a timeline of 0 rounds, but it has 1.' },
+      {
+        situation: 'a lane with a negative length',
+        over: { lanes: [[lane(), lane({ name: 'Lint', ms: -1 })]] },
+        error: 'Pull request 1 (#21): timeline round 0 lane 1 (Lint) has ms -1, which is not a whole number of milliseconds, zero or more.',
+      },
+      {
+        situation: 'a slice with a negative length',
+        over: { runSlices: [run({ ms: -60_000 })] },
+        error: 'Pull request 1 (#21): timeline runSlices 0 has ms -60000, which is not a whole number of milliseconds, zero or more.',
+      },
+      {
+        situation: 'a review slice of an unknown kind',
+        over: { reviewSlices: [review(), review({ kind: 'lint-review' })] },
+        error: 'Pull request 1 (#21): timeline reviewSlices 1 has kind "lint-review", which is not code-review or security-review.',
+      },
+      {
+        situation: 'a run slice of an unknown kind',
+        over: { runSlices: [run({ kind: 'review' })] },
+        error: 'Pull request 1 (#21): timeline runSlices 0 has kind "review", which is not test or browser.',
+      },
+      {
+        situation: 'a slice in a gap after a round the pull request does not have',
+        over: { reviewSlices: [review({ gap: 1 })] },
+        error: 'Pull request 1 (#21): has a timeline whose reviewSlices 0 sits in gap 1, but it has 1 round.',
+      },
+      { situation: 'a lane of an unknown outcome', over: { lanes: [[lane({ outcome: 'flaky' })]] }, error: /^Pull request 1 \(#21\): timeline round 0 lane 0 \(Test\) has outcome "flaky", which is not pass, fail/ },
+    ])('refuses $situation', ({ over, error }) => {
+      expect(refusal([pull(1), pull(21, { timeline: timeline(over) })])).toMatch(error);
+    });
+
+    it('refuses a timeline sent alone that is of the wrong shape, naming its pull request', () => {
+      const checked = checkTimelines({ timelines: [{ number: 4, timeline: timeline() }, { number: 22, timeline: timeline({ runSlices: [run({ ms: -1 })] }) }] });
+
+      expect(checked.ok ? null : checked.error).toBe('Timeline 1 (#22): timeline runSlices 0 has ms -1, which is not a whole number of milliseconds, zero or more.');
     });
   });
 
