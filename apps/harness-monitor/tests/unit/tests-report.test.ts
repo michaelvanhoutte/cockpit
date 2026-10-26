@@ -6,6 +6,7 @@ import {
   deepRules,
   DEFAULT_QUERY,
   filesCovered,
+  gapLists,
   indexOf,
   isThin,
   keepOf,
@@ -133,6 +134,27 @@ describe('Harness Monitor', () => {
       { situation: '80% run', covered: 80, thin: false },
     ])('$situation reads red: $thin', ({ covered, thin }) => {
       expect(isThin(coverageOf([statements('apps/web/src/a.ts', 100, covered)]))).toBe(thin);
+    });
+  });
+
+  describe('a file on the not-worth-a-test list is under Decided not to test with its reason, until more of its statements go unrun', () => {
+    const decision = { file: 'apps/web/src/wiring.ts', reason: 'Wiring only', notRun: 3 };
+    /** Where wiring.ts, of 50 statements, is listed with `notRun` of them not run now, beside a file nothing decided. */
+    const listsWith = (notRun: number, decided = [decision]) => {
+      const { next, decided: kept } = gapLists([statements('apps/web/src/wiring.ts', 50, 50 - notRun), statements('apps/web/src/Menu.tsx', 25, 5)], decided);
+      return { next: next.map((x) => [x.file.file, x.changed?.reason ?? null]), decided: kept.map((x) => [x.file.file, x.decision.reason]) };
+    };
+
+    it.each([
+      { situation: 'decided with 3 not run, 3 now: under Decided not to test', notRun: 3, next: [['apps/web/src/Menu.tsx', null]], decided: [['apps/web/src/wiring.ts', 'Wiring only']] },
+      { situation: 'decided with 3 not run, 40 now: back in Files to test next, marked changed since decided', notRun: 40, next: [['apps/web/src/wiring.ts', 'Wiring only'], ['apps/web/src/Menu.tsx', null]], decided: [] },
+      { situation: 'decided with 3 not run, 1 now: stays decided', notRun: 1, next: [['apps/web/src/Menu.tsx', null]], decided: [['apps/web/src/wiring.ts', 'Wiring only']] },
+    ])('$situation', ({ notRun, next, decided }) => {
+      expect(listsWith(notRun)).toEqual({ next, decided });
+    });
+
+    it('nothing decided: every file under 80% is to test next, and nothing is decided', () => {
+      expect(listsWith(40, [])).toEqual({ next: [['apps/web/src/wiring.ts', null], ['apps/web/src/Menu.tsx', null]], decided: [] });
     });
   });
 

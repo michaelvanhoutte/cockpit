@@ -410,54 +410,66 @@ describe('Harness Monitor', () => {
       expect(files).toContain('Unknown, not none');
       expect(files).not.toContain('None:');
     });
+  });
 
-    it('the prompt to copy names the files listed', async () => {
-      await sendTestsModel(COVERED);
+  describe('a file on the not-worth-a-test list is under Decided not to test with its reason, until more of its statements go unrun', () => {
+    /** Offline holds wiring.ts, 40 of its 50 statements not run, and sync.ts, nothing decided. */
+    const withDecision = (notRun: number | null) =>
+      model([area('Offline', rules(1, 'L1', WEB), [], { statements: [statements('apps/web/src/wiring.ts', 50, 10), statements('apps/api/src/sync.ts', 100, 30)], branchesNothingTakes: [] })], {
+        coverageAvailable: true,
+        notWorthATest: notRun === null ? [] : [{ file: 'apps/web/src/wiring.ts', reason: 'Wiring the routes, <b>no logic</b>', notRun }],
+      });
+    const listed = (html: string) => [...sectionOf(html, 'gap-files').matchAll(/<tr><td.*?<\/tr>/gs)].map((m) => plain(m[0]));
 
-      const prompt = /<textarea id="gap-prompt" hidden>(.*?)<\/textarea>/s.exec(sectionOf(await thePage('?group=gaps'), 'gap-files'))![1]!;
+    it('decided with 40 not run, 40 now: under Decided not to test, its reason shown, folded away, and not under Files to test next', async () => {
+      await sendTestsModel(withDecision(40));
 
-      expect(prompt.split('\n').filter((l) => l.startsWith('- '))).toEqual(['- apps/api/src/sync.ts', '- apps/web/src/Grid.tsx', '- apps/web/src/Menu.tsx']);
+      const html = await thePage('?group=gaps');
+      const decided = sectionOf(html, 'gap-decided');
+
+      expect(listed(html)).toEqual(['apps/api/src/sync.ts 70 of 100 30% 0 Offline']);
+      expect(decided).toMatch(/<details class="decided"><summary>/);
+      expect(plain(withoutExplanations(decided))).toContain('Decided not to test 1 file judged not worth a test, each with its reason Show it and why');
+      expect(plain(decided)).toContain('apps/web/src/wiring.ts 40 of 50 20% Wiring the routes,');
+      expect(decided).toContain('&#60;b&#62;no logic&#60;/b&#62;');
+    });
+
+    it('decided with 3 not run, 40 now: back under Files to test next, marked changed since decided, and no Decided not to test', async () => {
+      await sendTestsModel(withDecision(3));
+
+      const html = await thePage('?group=gaps');
+
+      expect(listed(html)).toEqual(['apps/api/src/sync.ts 70 of 100 30% 0 Offline', 'apps/web/src/wiring.ts changed since decided 40 of 50 20% 0 Offline']);
+      expect(hasSection(html, 'gap-decided')).toBe(false);
+    });
+
+    it('nothing decided: no Decided not to test list', async () => {
+      await sendTestsModel(withDecision(null));
+
+      const html = await thePage('?group=gaps');
+
+      expect(listed(html)).toHaveLength(2);
+      expect(hasSection(html, 'gap-decided')).toBe(false);
     });
   });
 
-  describe('Gaps lists the branches nothing takes per file with their lines, and says unknown without coverage', () => {
+  describe('the branch counts read unknown without coverage, and count each file’s untaken branches with it', () => {
     it('a snapshot without coverage says branches nothing takes are unknown, never 0', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      const gaps = plain(sectionOf(await thePage('?group=gaps'), 'gap-branches'));
-      const tiles = plain(await thePage());
+      const html = await thePage();
 
-      expect(gaps).toContain('Unknown, not zero');
-      expect(tiles).toMatch(/Branches nothing takes unknown/);
-      expect(cellsOf(rowOf(await thePage(), 'areas', 'Offline')).at(-1)).toBe('<span class="na">unknown</span>');
+      expect(tilesOf(html)).toMatch(/Branches nothing takes unknown/);
+      expect(cellsOf(rowOf(html, 'areas', 'Offline')).at(-1)).toBe('<span class="na">unknown</span>');
     });
 
-    it('a snapshot with coverage counts the branches per file and lists their lines', async () => {
-      const withCoverage = model(
-        [area('Offline', rules(1, 'L1', WEB), [], { branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }, { file: 'apps/web/src/offline.ts', line: 12 }] })],
-        { coverageAvailable: true },
-      );
-      await sendTestsModel(withCoverage);
+    it('a snapshot with coverage counts the branches in the tile and the row', async () => {
+      await sendTestsModel(model([area('Offline', rules(1, 'L1', WEB), [], { branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }, { file: 'apps/web/src/offline.ts', line: 12 }] })], { coverageAvailable: true }));
 
       const html = await thePage();
-      const gaps = sectionOf(await thePage('?group=gaps'), 'gap-branches');
 
-      expect(plain(html)).toMatch(/Branches nothing takes 2 branches no test takes/);
+      expect(tilesOf(html)).toMatch(/Branches nothing takes 2 branches no test takes/);
       expect(plain(cellsOf(rowOf(html, 'areas', 'Offline')).at(-1)!)).toBe('2');
-      expect(plain(gaps)).toContain('apps/web/src/offline.ts 2 7 , 12 Offline');
-      expect(gaps).toContain('/blob/abc1234/apps/web/src/offline.ts#L12"');
-    });
-
-    it('a file two areas both list is counted once, by the most either holds', async () => {
-      const shared = [{ file: 'apps/web/src/offline.ts', line: 7 }, { file: 'apps/web/src/offline.ts', line: 12 }];
-      await sendTestsModel(
-        model([area('Offline', rules(1, 'L1', WEB), [], { branchesNothingTakes: shared }), area('Sync', rules(1, 'L1', WEB), [], { branchesNothingTakes: shared })], { coverageAvailable: true }),
-      );
-
-      const gaps = sectionOf(await thePage('?group=gaps'), 'gap-branches');
-
-      expect(plain(gaps)).toContain('2 branches in 1 file');
-      expect(plain(gaps)).toContain('apps/web/src/offline.ts 2 7 , 12 Offline , Sync');
     });
   });
 

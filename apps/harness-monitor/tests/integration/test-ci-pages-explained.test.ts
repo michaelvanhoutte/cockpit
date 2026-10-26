@@ -74,15 +74,18 @@ async function selection(bars = selectionBars()) {
   );
 }
 
-// ---- Test coverage: Inbox holds rules at two levels and Capture inside it; Offline holds a file under 80% covered and a branch nothing takes.
+// ---- Test coverage: Inbox holds rules at two levels and Capture inside it; Offline holds a file under 80% covered with a branch nothing takes, and one decided not worth a test.
 const API_INT = 'apps/api/tests/integration/capture.test.ts';
 const TREE = [
   area('Workspaces', [], [area('Inbox', [...rules(2, 'L1', 'apps/api/tests/unit/capture.test.ts'), rule('A captured thought lands in the inbox', 'L2', API_INT, 20, [kase('a note', API_INT, 22)])], [area('Capture', rules(1, 'F3', 'tests/e2e/capture.test.ts'))])]),
-  area('Offline', rules(1, 'L1', 'apps/web/tests/unit/offline.test.ts'), [], { statements: [statements('apps/web/src/offline.ts', 20, 9, ['7-12'])], branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }] }),
+  area('Offline', rules(1, 'L1', 'apps/web/tests/unit/offline.test.ts'), [], {
+    statements: [statements('apps/web/src/offline.ts', 20, 9, ['7-12']), statements('apps/web/src/wiring.ts', 10, 2, ['1-8'])],
+    branchesNothingTakes: [{ file: 'apps/web/src/offline.ts', line: 7 }],
+  }),
 ];
 const tests = async () => {
   await emptyTheDatabase();
-  await sendTestsModel(model(TREE, { coverageAvailable: true }));
+  await sendTestsModel(model(TREE, { coverageAvailable: true, notWorthATest: [{ file: 'apps/web/src/wiring.ts', reason: 'Wiring only', notRun: 8 }] }));
 };
 
 // ---- CI stability: CI passed, failed at a step, then passed again, on 30 Oct.
@@ -207,7 +210,6 @@ describe('Harness Monitor', () => {
 
     it.each([
       { view: 'Gaps, its files to test next', query: '?group=gaps', id: 'gap-files' },
-      { view: 'Gaps, its branches nothing takes', query: '?group=gaps', id: 'gap-branches' },
     ])('$view carries an (i) saying what it shows', async ({ query, id }) => {
       await tests();
 
@@ -246,15 +248,36 @@ describe('Harness Monitor', () => {
 
       const { buttons, panels } = infosOf(await page(`/tests${query}`));
 
-      for (const gone of ['x-where', 'x-worst', 'x-by-level', 'x-by-package', 'x-t-files', 'x-own-rules', 'x-tests', 'x-rule', 'x-cases']) {
+      for (const gone of ['x-where', 'x-worst', 'x-by-level', 'x-by-package', 'x-t-files', 'x-own-rules', 'x-tests', 'x-rule', 'x-cases', 'x-gap-branches']) {
         expect(buttons).not.toContain(gone);
         expect(panels).not.toContain(gone);
       }
     });
   });
 
-  describe('every tile, chart, panel and table on CI stability carries an (i) explaining it', () => {
-    it.each([
+  describe('the spark icon, Files to test next and Decided not to test each carry an explanation', () => {
+    it('Concept area: the spark icon’s (i) sits on the Covered heading, with the three parts', async () => {
+      await tests();
+
+      const html = await page('/tests');
+
+      expect(firstInfo(/<th [^>]*>[^<]*<span class="nw">Covered.*?<\/th>/s.exec(html)?.[0] ?? '')).toBe('ask');
+      expect(partsOf(html, 'ask')).toEqual(THREE_PARTS);
+    });
+
+    it('Gaps: Files to test next and Decided not to test each carry an (i) saying what it shows', async () => {
+      await tests();
+
+      const html = await page('/tests?group=gaps');
+
+      for (const id of ['gap-files', 'gap-decided']) {
+        expect(firstInfo(panelOf(html, id))).toBe(id);
+        expect(partsOf(html, id)).toEqual(['What it shows']);
+      }
+    });
+  });
+
+  describe('every tile, chart, panel and table on CI stability carries an (i) explaining it', () => {    it.each([
       { tile: 'Runs passed', id: 't-passed' },
       { tile: 'Time main was red', id: 't-red' },
       { tile: 'Least reliable job', id: 't-least' },

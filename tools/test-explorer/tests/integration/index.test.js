@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/analyze/index.js';
+import { conceptsCheck } from '../../src/cli.js';
 import { walkTree } from '../../src/model.js';
 import { renderHtml } from '../../src/render/html.js';
 
@@ -213,24 +214,24 @@ describe('analyze (end to end against a fixture repo)', () => {
 });
 
 describe('Harness Monitor', () => {
+  /** The fixture with a coverage run in which thing.ts's first statement ran and its second did not; untouched.ts was never measured. */
+  function withCoverage() {
+    const pkg = path.join(repo, 'packages/demo');
+    mkdirSync(path.join(pkg, 'coverage'), { recursive: true });
+    const thing = path.join(pkg, 'src/thing.ts');
+    const at = (line) => ({ start: { line, column: 0 }, end: { line, column: 20 } });
+    writeFileSync(
+      path.join(pkg, 'coverage/coverage-final.json'),
+      JSON.stringify({ [thing]: { path: thing, statementMap: { 0: at(1), 1: at(2) }, s: { 0: 3, 1: 0 }, fnMap: {}, f: {}, branchMap: {}, b: {} } }),
+    );
+  }
+
+  let repo;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
   describe('the analyzer no longer counts imports, and the static report draws no files nothing runs', () => {
-    /** The fixture with a coverage run in which thing.ts's first statement ran and its second did not; untouched.ts was never measured. */
-    function withCoverage() {
-      const pkg = path.join(repo, 'packages/demo');
-      mkdirSync(path.join(pkg, 'coverage'), { recursive: true });
-      const thing = path.join(pkg, 'src/thing.ts');
-      const at = (line) => ({ start: { line, column: 0 }, end: { line, column: 20 } });
-      writeFileSync(
-        path.join(pkg, 'coverage/coverage-final.json'),
-        JSON.stringify({ [thing]: { path: thing, statementMap: { 0: at(1), 1: at(2) }, s: { 0: 3, 1: 0 }, fnMap: {}, f: {}, branchMap: {}, b: {} } }),
-      );
-    }
-
-    let repo;
-    afterEach(() => {
-      if (repo) rmSync(repo, { recursive: true, force: true });
-    });
-
     it("the fixture's model carries no import count, and each measured area file its figures", () => {
       repo = writeFixtureRepo();
       withCoverage();
@@ -252,6 +253,49 @@ describe('Harness Monitor', () => {
 
       expect(html).not.toMatch(/files nothing runs/i);
       expect(html).not.toContain("'Files ('");
+    });
+  });
+
+  describe('the analyzer carries the not-worth-a-test list into the snapshot, and the concepts check fails on an entry it cannot place', () => {
+    /** The fixture's own list, written beside it, holding `files`. */
+    const listing = (files) => {
+      const file = path.join(repo, 'not-worth-a-test.json');
+      writeFileSync(file, JSON.stringify({ files }));
+      return file;
+    };
+
+    it.each([
+      {
+        situation: 'an entry for a walked file is carried with its reason and count',
+        files: [{ file: 'packages/demo/src/thing.ts', reason: 'A re-export with nothing to decide', notRun: 1 }],
+        carried: [{ file: 'packages/demo/src/thing.ts', reason: 'A re-export with nothing to decide', notRun: 1 }],
+        code: 0,
+        says: '1 file(s) decided not worth a test, each placed',
+      },
+      {
+        situation: 'an entry naming a file the analyzer does not walk fails the check, naming it',
+        files: [{ file: 'packages/demo/src/gone.ts', reason: 'Wiring', notRun: 2 }],
+        carried: [],
+        code: 1,
+        says: '"packages/demo/src/gone.ts" is not a source file the analyzer walks',
+      },
+      {
+        situation: 'an entry with no reason fails the check, naming it',
+        files: [{ file: 'packages/demo/src/untouched.ts', reason: ' ', notRun: 0 }],
+        carried: [],
+        code: 1,
+        says: '"packages/demo/src/untouched.ts" gives no reason',
+      },
+    ])('$situation', ({ files, carried, code, says }) => {
+      repo = writeFixtureRepo();
+      withCoverage();
+
+      const model = analyze(repo, { notWorthATest: listing(files) });
+      const check = conceptsCheck(model);
+
+      expect(model.notWorthATest).toEqual(carried);
+      expect(check.code).toBe(code);
+      expect(check.text).toContain(says);
     });
   });
 });

@@ -34,7 +34,7 @@ pull request's ("The Harness Monitor" in [docs/architecture.md](../../docs/archi
 
 ```bash
 pnpm test:explorer          # from the repo root — writes out/index.html
-pnpm test:explorer:check    # fails if a test names a feature area not in concepts.json
+pnpm test:explorer:check    # fails if a test names a feature area not in concepts.json, or not-worth-a-test.json has an entry it cannot place
 ```
 
 Or directly from this package:
@@ -128,7 +128,20 @@ for diffing one run against another.
 
 `pnpm test:explorer:check` runs the full analysis and fails if any test's outer
 `describe` names a feature area not in `concepts.json` — a typo, or an unregistered area.
-It does **not** fail on a row full of zeros, and it does not gate on report content.
+It also fails on an entry of [`not-worth-a-test.json`](./not-worth-a-test.json) naming a file the
+analyzer does not walk, giving no reason, or with no count of statements not run. It does
+**not** fail on a row full of zeros, and it does not gate on report content.
+
+## Files decided not worth a test
+
+[`not-worth-a-test.json`](./not-worth-a-test.json), beside `concepts.json`, lists the source
+files judged not worth a test (wiring, a type, a log line): each one's path, the reason, and
+how many of its statements CI's coverage run left unrun when it was decided (`notRun`).
+Whoever acts on a prompt copied from the Harness Monitor's Test coverage page writes the
+entry, in the pull request that decides it, so the decision is reviewed like code. The
+analyzer carries the list into the model, where the Monitor's Gaps tab shows the file under
+Decided not to test with its reason, until more than `notRun` of its statements go unrun and
+it returns to Files to test next, marked changed since decided.
 
 ## Coverage
 

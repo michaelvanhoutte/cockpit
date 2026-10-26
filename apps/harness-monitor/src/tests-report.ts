@@ -48,6 +48,12 @@ export interface FileStatements {
   /** The lines no test runs, as ranges ("40-58"); the check accepts a file without them. */
   uncovered?: string[];
 }
+/** A file judged not worth a test, from the list checked in beside the area registry: its reason, and how many of its statements no test ran when it was decided. */
+export interface Decided {
+  file: string;
+  reason: string;
+  notRun: number;
+}
 export interface Model {
   commit: string;
   commitUrl: string | null;
@@ -56,6 +62,8 @@ export interface Model {
   coverageAvailable: boolean;
   /** False for a level the whole repository does not have yet. */
   availableLevels: Record<string, boolean>;
+  /** The files judged not worth a test; empty in a tree from an analyzer older than the list. */
+  notWorthATest: Decided[];
   warnings: string[];
 }
 /** One area's source lines, keyed `file:line`. */
@@ -233,6 +241,7 @@ export function readModel(raw: unknown): Model {
     tree: doc.tree.map(area),
     coverageAvailable: doc.coverageAvailable === true,
     availableLevels: doc.availableLevels ?? {},
+    notWorthATest: doc.notWorthATest ?? [],
     warnings: doc.warnings ?? [],
   };
 }
@@ -345,6 +354,37 @@ export function coverageOf(files: FileStatements[] | null): Coverage | null {
 export const percent = (c: Pick<Coverage, 'total' | 'covered'>) => `${Math.floor((c.covered * 100) / c.total)}%`;
 /** Whether a share is under THIN. */
 export const isThin = (c: Pick<Coverage, 'total' | 'covered'> | null) => c !== null && c.covered * 100 < THIN * c.total;
+
+/** A file Gaps lists under Files to test next, with the decision it was taken off where more of it has gone unrun since. */
+export interface NextFile {
+  file: FileStatements;
+  changed: Decided | null;
+}
+/** A file Gaps lists under Decided not to test, with the decision that put it there. */
+export interface DecidedFile {
+  file: FileStatements;
+  decision: Decided;
+}
+
+/**
+ * Which of Gaps' lists each measured file is on, each list most statements not
+ * run first. A file decided not worth a test stays under Decided not to test
+ * while no more of its statements go unrun than when it was decided; once more
+ * do, it is a file to test next again, if under THIN, carrying the decision as
+ * changed since. Any other file under THIN is to test next.
+ */
+export function gapLists(files: FileStatements[], decided: Decided[]): { next: NextFile[]; decided: DecidedFile[] } {
+  const decisions = new Map(decided.map((d) => [d.file, d]));
+  const notRun = (f: FileStatements) => f.total - f.covered;
+  const next: NextFile[] = [];
+  const kept: DecidedFile[] = [];
+  for (const file of [...files].sort((a, b) => notRun(b) - notRun(a) || (a.file < b.file ? -1 : 1))) {
+    const decision = decisions.get(file.file) ?? null;
+    if (decision !== null && notRun(file) <= decision.notRun) kept.push({ file, decision });
+    else if (isThin(file)) next.push({ file, changed: decision });
+  }
+  return { next, decided: kept };
+}
 
 /** Branches nothing takes across areas, counted once per file by the most any one area holds of it, as the explorer's own totals are. */
 export function branchGaps(areas: Area[], keep: Keep): number {

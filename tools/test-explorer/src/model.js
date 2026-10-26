@@ -122,6 +122,11 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {number} covered      How many of them the run executed.
  * @property {string[]} uncovered  The lines of the statements none ran, merged into ranges ("40-58").
  *
+ * @typedef {Object} NotWorthATest
+ * @property {string} file     Repo-relative path.
+ * @property {string} reason   Why no test is worth writing for it.
+ * @property {number} notRun   How many of its statements no test ran when it was decided.
+ *
  * @typedef {Object} Subtree
  * @property {Record<string, number|null>} counts  Same keys as `counts`; null only when every node in
  *                                                   the subtree is n/a at that level, never a sum that
@@ -144,7 +149,12 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  *                                                        so every node's count for it renders n/a, not zero.
  * @property {string[]} unregisteredAreas  Feature-area names used by some describe but absent from
  *                                          concepts.json. What `--check-concepts` fails the build on (§7).
- * @property {string[]} warnings           Things the analyzer could not determine; never silently dropped.
+ * @property {NotWorthATest[]} notWorthATest  The files judged not worth a test, from not-worth-a-test.json
+ *                                          beside concepts.json: each names a file the analyzer walks.
+ * @property {string[]} notWorthATestProblems  Each entry of that list the analyzer could not place (a
+ *                                          file it does not walk, no reason, no count), named. What
+ *                                          `--check-concepts` also fails the build on.
+ * @property {string[]} warnings          Things the analyzer could not determine; never silently dropped.
  */
 
 /**
