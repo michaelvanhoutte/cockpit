@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/worker';
 import { withoutExplanations } from './cockpit-support';
 import { GREY, RED, slot, swatches } from './series-colours';
-import { docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection, theSentence } from './support';
+import { cycleCheck, cyclePull, cycleRound, docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendPulls, sendSelection, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -155,8 +155,8 @@ describe('Harness Monitor', () => {
       const e2e = rowsOf(await thePage('?group=rule&job=e2e'), 'by-rule');
       const both = rowsOf(await thePage('?group=rule'), 'by-rule');
 
-      expect(e2e.map((row) => row.slice(0, 2))).toEqual([['E2E job', expect.stringContaining('owned by no concept')]]);
-      expect(both.map((row) => row[0])).toEqual(['E2E job', 'Test job']);
+      expect(e2e.filter((row) => row.length > 1).map((row) => row.slice(0, 2))).toEqual([['E2E job', expect.stringContaining('owned by no concept')]]);
+      expect(both.filter((row) => row.length > 1).map((row) => row[0])).toEqual(['E2E job', 'Test job']);
     });
 
     it('the Pull request tab has a column for each job asked for, and only that job\'s outcome', async () => {
@@ -395,6 +395,184 @@ describe('Harness Monitor', () => {
       const html = await thePage(query);
 
       for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', 'aria-pressed', '<label ']) expect(html).not.toContain(gone);
+    });
+  });
+
+  describe('each rule that forced a full run says what it could have saved, in three groups, with a prompt to fix the ones to fix', () => {
+    const MINUTE = 60_000;
+    const NEWEST = Date.parse('2026-10-14T10:00:00Z');
+    /** Pull request `n` of a run of thirty, merged three hours before the one before: 1 is the newest. */
+    const mergedAt = (n: number) => new Date(NEWEST - (n - 1) * 3 * 3_600_000).toISOString();
+
+    /** A pull request's rounds as cycle time holds them: each round names the checks and the minutes each held it up. */
+    const rounds = (...each: Record<string, number | number[]>[]) =>
+      each.map((checks) =>
+        cycleRound(
+          Object.entries(checks).flatMap(([name, held]) =>
+            [held].flat().map((minutes, index) => cycleCheck(name, minutes * MINUTE, { attempt: index + 1, last: name === 'E2E (F3)' && index === [held].flat().length - 1 })),
+          ),
+        ),
+      );
+    const heldBy = (n: number, rounds: ReturnType<typeof cycleRound>[], over: Record<string, unknown> = {}) => cyclePull(n, { mergedAt: mergedAt(n), rounds, ...over });
+
+    /** The rule table as a reader sees it: each group's heading as one cell, each rule as its cells. */
+    const ruleTable = (html: string) =>
+      [...sectionOf(html, 'by-rule').matchAll(/<tr[ >].*?<\/tr>/gs)]
+        .map((row) => [...row[0].replace(/<pre hidden>.*?<\/pre>/gs, '').matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs)].map((cell) => plain(cell[1]!)))
+        .filter((cells) => cells.length > 0)
+        .slice(1);
+
+    /**
+     * Thirty pull requests, newest first. E2E ran every spec on 1 to 3 for a rule to fix, on 4 for an expected rule,
+     * on 25 for an expected one and on 26 for one to fix, both stopped; the Test job ran every package on 5 for an expected rule
+     * and on 6 for one to fix. Every pull request's checks held it 2 minutes (E2E) and 3 (Test), save those that ran everything.
+     */
+    const aMonitor = async () => {
+      const forced = new Map<number, { e2e?: ReturnType<typeof ranEverything>; test?: ReturnType<typeof ranEverything> }>([
+        [1, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
+        [2, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
+        [3, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/b.ts') }],
+        [4, { e2e: ranEverything('e2e', 'e2e support, registry or config', 'tools/test-explorer/concepts.json') }],
+        [5, { test: ranEverything('test', 'any tsconfig', 'tsconfig.json') }],
+        [6, { test: ranEverything('test', 'outside every package', 'readme.md') }],
+        [25, { e2e: ranEverything('e2e', 'lockfile', 'pnpm-lock.yaml') }],
+        [26, { e2e: ranEverything('e2e', 'spec with no area', 'tests/e2e/a.test.ts') }],
+      ]);
+      const held: Record<number, { e2e: number; test: number }> = { 1: { e2e: 10, test: 3 }, 2: { e2e: 6, test: 3 }, 3: { e2e: 3, test: 3 }, 4: { e2e: 20, test: 3 }, 5: { e2e: 2, test: 5 }, 6: { e2e: 2, test: 9 } };
+      await sendSelection(times(30, (index) => selectionPull(index + 1, { mergedAt: mergedAt(index + 1), jobs: [forced.get(index + 1)?.test ?? selectionJob('test'), forced.get(index + 1)?.e2e ?? selectionJob('e2e')] })));
+      await sendPulls(times(30, (index) => heldBy(index + 1, rounds({ Test: held[index + 1]?.test ?? 3, 'E2E (F3)': held[index + 1]?.e2e ?? 2 }))));
+    };
+
+    it('lists Rules to fix, then Expected, then Stopped, each by the time it could have saved, with the job, advice, full runs, pull requests as n of m, paths and when it last forced one', async () => {
+      await aMonitor();
+
+      const table = ruleTable(await thePage('?group=rule'));
+
+      expect(table.map((row) => (row.length === 1 ? row[0] : `${row[0]} · ${row[1]!.split(' ')[0]}…`))).toEqual([
+        'Rules to fix',
+        'E2E job · owned…',
+        'Test job · outside…',
+        'Expected: they force a full run by design',
+        'E2E job · e2e…',
+        'Test job · any…',
+        'Stopped: none of the last 20 pull requests',
+        'E2E job · lockfile…',
+        'E2E job · spec…',
+      ]);
+      const cells = (rule: string) => table.find((row) => row[1]?.startsWith(rule))!;
+      expect(cells('owned by no concept')).toEqual(['E2E job', expect.stringContaining('The area registry cannot place this file'), '13m 00s 3 full runs', '3 of 30', '2 paths', '14 Oct 2026', 'Copy prompt']);
+      expect(cells('outside every package')).toEqual(['Test job', expect.stringContaining('A file outside every package’s directory'), '6m 00s 1 full run', '1 of 30', '1 path', '13 Oct 2026', 'Copy prompt']);
+      expect(cells('e2e support, registry or config')).toEqual(['E2E job', expect.stringContaining('shared by every walk'), '18m 00s 1 full run', '1 of 30', '1 path', '14 Oct 2026', '']);
+      expect(cells('any tsconfig')).toEqual(['Test job', expect.stringContaining('can extend another package'), '2m 00s 1 full run', '1 of 30', '1 path', '14 Oct 2026', '']);
+    });
+
+    it('a rule that stopped says so in its last forced, whether it was marked expected or not, and keeps no prompt', async () => {
+      await aMonitor();
+
+      const table = ruleTable(await thePage('?group=rule'));
+
+      expect(table.find((row) => row[1]?.startsWith('lockfile'))).toEqual(['E2E job', expect.stringContaining('The lockfile changes'), '0s 1 full run', '1 of 30', '1 path', 'stopped 11 Oct 2026', '']);
+      expect(table.find((row) => row[1]?.startsWith('spec with no area'))).toEqual(['E2E job', expect.stringContaining('A changed spec'), '0s 1 full run', '1 of 30', '1 path', 'stopped 11 Oct 2026', '']);
+      expect(sectionOf(await thePage('?group=rule'), 'by-rule')).toContain('<span class="pill grey">stopped 11 Oct 2026</span>');
+    });
+
+    it('names each job\'s typical selected run under the table, and carries no bar', async () => {
+      await aMonitor();
+
+      const html = await thePage('?group=rule');
+
+      expect(text(sectionOf(html, 'by-rule'))).toContain('less a typical selected run of the same job (Test job 3m 00s, E2E job 2m 00s).');
+      expect(headers(html, 'by-rule')).toEqual(['Job', 'Rule', 'Could have saved', 'Pull requests', 'Paths', 'Last forced', 'Prompt']);
+    });
+
+    it('a job over its bar draws no pill on any row, and no bar in the header', async () => {
+      await sendSelection(thirtyWithNineFull());
+
+      const html = await thePage('?group=rule&job=e2e');
+
+      expect(text(sectionOf(html, 'by-rule'))).toContain('owned by no concept');
+      expect(sectionOf(html, 'by-rule')).not.toMatch(/over the bar|within|class="pill (over|good)"|>Bar /);
+      expect(text(await thePage('?group=day'))).toContain('over the bar');
+    });
+
+    it('only a rule to fix has Copy prompt, and no prompt is shown', async () => {
+      await aMonitor();
+
+      const html = sectionOf(await thePage('?group=rule'), 'by-rule');
+      const withButton = [...html.matchAll(/<tr[ >].*?<\/tr>/gs)].filter((row) => row[0].includes('class="copy-prompt"')).map((row) => plain(row[0].replace(/<pre hidden>.*?<\/pre>/gs, '')).split(' ').slice(0, 3).join(' '));
+
+      expect(withButton).toEqual(['E2E job owned', 'Test job outside']);
+      expect(html.match(/<pre hidden>/g)).toHaveLength(2);
+      expect(html.match(/<pre(?! hidden)/g)).toBeNull();
+    });
+
+    it('the prompt a rule to fix copies names the rule, its file and tests, its paths and what it could have saved', async () => {
+      await aMonitor();
+
+      const prompts = [...sectionOf(await thePage('?group=rule'), 'by-rule').matchAll(/<pre hidden>(.*?)<\/pre>/gs)].map((m) => m[1]!.replaceAll('&#34;', '"').replaceAll('&#39;', "'"));
+
+      expect(prompts[0]).toContain('The E2E job ran every spec on 3 of the 30 pull requests merged 10 Oct 2026 to 14 Oct 2026 that ran it, forced by the rule "owned by no concept" in scripts/lib/e2e-selection.mjs. Selecting instead would have saved about 13m 00s of CI time.');
+      expect(prompts[0]).toContain('- apps/api/src/a.ts: 2 pull requests (#1, #2)\n- apps/api/src/b.ts: 1 pull request (#3)');
+      expect(prompts[0]).toContain('scripts/lib/e2e-selection.test.mjs');
+      expect(prompts[1]).toContain('The Test job ran every test file of the packages it forced on 1 of the 30 pull requests');
+      expect(prompts[1]).toContain('scripts/lib/test-selection.mjs');
+    });
+
+    it('the job chosen keeps only its own rules and its own typical selected run', async () => {
+      await aMonitor();
+
+      const table = ruleTable(await thePage('?group=rule&job=test'));
+
+      expect(table.filter((row) => row.length > 1).map((row) => row[0])).toEqual(['Test job', 'Test job']);
+      expect(text(sectionOf(await thePage('?group=rule&job=test'), 'by-rule'))).toContain('(Test job 3m 00s).');
+    });
+
+    it('a job with no selected run in the period says so, and its rules could have saved nothing to name', async () => {
+      await sendSelection(times(3, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [selectionJob('test'), ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts')] })));
+      await sendPulls(times(3, (index) => cyclePull(index + 1, { mergedAt: MERGED, rounds: rounds({ 'E2E (F3)': 9 }) })));
+
+      const html = await thePage('?group=rule&job=e2e');
+
+      expect(ruleTable(html).find((row) => row.length > 1)).toEqual(['E2E job', expect.any(String), '— 3 full runs', '3 of 3', '1 path', '10 Oct 2026', 'Copy prompt']);
+      expect(text(sectionOf(html, 'by-rule'))).toContain('(E2E job no selected run in this period)');
+    });
+  });
+
+  describe("the page reads each pull request's check time from cycle time's rows, over the period", () => {
+    const MINUTE = 60_000;
+    const checks = (...each: [string, number, Record<string, unknown>?][]) => cycleRound(each.map(([name, minutes, over]) => cycleCheck(name, minutes * MINUTE, over)));
+    /** An E2E run that ran everything on pull request 1, and two that selected, 1 minute each unless told otherwise; the figure the rule could have saved. */
+    const saved = async (first: unknown, selected: unknown[] = [cyclePull(2, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 1])] }), cyclePull(3, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 1])] })]) => {
+      await sendSelection([selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test'), ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts')] }), selectionPull(2, { mergedAt: MERGED }), selectionPull(3, { mergedAt: MERGED })]);
+      await sendPulls([first, ...selected]);
+      const row = [...sectionOf(await thePage('?group=rule&job=e2e'), 'by-rule').matchAll(/<tr[ >].*?<\/tr>/gs)].map((r) => plain(r[0])).find((r) => r.includes('owned by no concept'))!;
+      return /(\d+h \d\dm|\d+m \d\ds|\d+s) \d+ full runs?/.exec(row)?.[1];
+    };
+
+    it('a pull request with two rounds, E2E in both, counts both rounds added up', async () => {
+      const twoRounds = cyclePull(1, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 8], ['Test', 2]), checks(['E2E (F3)', 4])] });
+
+      expect(await saved(twoRounds)).toBe('11m 00s');
+    });
+
+    it("a re-run attempt in a round counts as cycle time counts it: its time waited is added to the round's", async () => {
+      const reRun = cyclePull(1, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 5, { failure: 'fluke', flukeMs: 3 * MINUTE }], ['E2E (F3)', 3, { attempt: 2, last: true }])] });
+
+      expect(await saved(reRun)).toBe('7m 00s');
+    });
+
+    it("a pull request cycle time dates before the period is not read, so it is not one of the typical selected runs", async () => {
+      const first = cyclePull(1, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 10])] });
+      const oldRow = cyclePull(2, { mergedAt: '2026-08-01T10:00:00Z', rounds: [checks(['E2E (F3)', 50])] });
+      const inPeriod = cyclePull(3, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 2])] });
+
+      expect(await saved(first, [oldRow, inPeriod])).toBe('8m 00s');
+    });
+
+    it('only the Test and E2E (F3) checks are read: no other check holds a job up', async () => {
+      const others = cyclePull(1, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 8], ['Checks', 30], ['Test Explorer', 30])] });
+
+      expect(await saved(others)).toBe('7m 00s');
     });
   });
 

@@ -335,7 +335,7 @@ async function selectionCheck(request: Request, env: Env, ctx: ExecutionContext)
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const wants: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, pull: pr, test: null };
+  const wants: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, checks: false, pull: pr, test: null };
   const view = await selectionView(env.DB, wants, 0, job);
   const response = new Response(renderSelectionCheck(view, job), {
     headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
