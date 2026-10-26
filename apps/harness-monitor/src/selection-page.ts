@@ -9,6 +9,7 @@ import {
   dayOf,
   dayRange,
   GROUPS,
+  groupByStart,
   JOB_CHOICES,
   JOB_NAMES,
   jobOf,
@@ -23,6 +24,7 @@ import {
   outcomeOf,
   overBar,
   packageRows,
+  parseSelectionQuery,
   PERIOD_CHOICES,
   PERIODS,
   percent,
@@ -38,6 +40,7 @@ import {
   type Group,
   type Job,
   type Outcome,
+  type SelectedFile,
   type SelectionQuery,
   type Verdict,
 } from './selection-report';
@@ -92,6 +95,58 @@ const withVerdict = (label: string, verdict: Verdict) =>
 const mono = (s: string) => `<span class="mono">${esc(s)}</span>`;
 const prLabel = (p: { number: number; title: string }) => `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`;
 const jobDot = (job: Job) => `<i class="job-dot" style="background:${JOB_COLOURS[job]}"></i>`;
+
+const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
+
+/**
+ * What one job selected on one pull request's last CI run, as the fragment a
+ * cycle time outline's line opens beneath it: the reasons it ran everything, or
+ * the files it selected grouped by the changed file their chains started from.
+ */
+export function renderSelectionCheck(view: SelectionView, job: Job): string {
+  const drill = view.pullDrill;
+  const p = drill?.pull;
+  if (!drill || !p) return '<p class="faint">The Monitor holds no test selection record for this pull request.</p>';
+  const v = jobOf(p, job);
+  const o = outcomeOf(v);
+  const [unit, units] = UNIT[job];
+  const foot = `<p class="sel-foot">What its last CI run selected · <a href="${esc(selectionAddress(OWN_ADDRESS, { group: 'pr', pr: p.number, job }))}">Open its whole selection</a></p>`;
+  if (o === 'docs') return `<p>Did not run: the change was documentation only.</p>${foot}`;
+  if (o === 'none') return `<p class="faint">No record of what it selected.</p>${foot}`;
+
+  const packages = drill.packages.filter((k) => k.job === job);
+  const forced = new Map<string, { rule: string; path: string | null; names: string[] }>();
+  for (const k of packages.filter((k) => k.mode === 'full' && k.rule)) {
+    const key = JSON.stringify([k.rule, k.path]);
+    const entry = forced.get(key) ?? { rule: k.rule!, path: k.path, names: [] };
+    entry.names.push(k.name);
+    forced.set(key, entry);
+  }
+  const reasons = [...forced.values()]
+    .map((f) => {
+      const which = job === 'e2e' ? '' : f.names.length === packages.length ? ' · every package' : ` · ${f.names.map(esc).join(', ')}`;
+      return `<li><a href="${esc(selectionAddress(OWN_ADDRESS, { group: 'rule', rule: `${job}:${f.rule}` }))}">${esc(f.rule)}</a>${f.path ? `: ${mono(f.path)}` : ''}<span class="faint">${which}</span><div class="sub">${esc(adviceFor(job, f.rule))}</div></li>`;
+    })
+    .join('');
+  if (o === 'full') return `<p><strong>Ran everything</strong>: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, unit, units)}, because</p><ul class="sel-list">${reasons}</ul>${foot}`;
+
+  const files = drill.files.filter((f) => f.job === job);
+  const item = (f: SelectedFile) => `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
+  const groups = groupByStart(files);
+  const groupRows = groups
+    .map((g) => {
+      const split = job === 'test' && g.byPackage.length > 0 ? ` <span class="faint">· ${g.byPackage.map(([name, n]) => `${esc(name)} ${number(n)}`).join(' · ')}</span>` : '';
+      const name = g.kind === 'itself' ? g.label : g.kind === 'file' && job === 'test' ? mono(g.label) : esc(g.label);
+      const through = g.through ? `<div class="sub">mostly through ${mono(g.through.step)} (${number(g.through.count)} of ${number(g.files.length)})</div>` : '';
+      return `<li><details><summary>${name} <span class="arrow">→</span> <strong>${plural(g.files.length, unit, units)}</strong>${split}${through}</summary><ul class="sel-list">${g.files.map(item).join('')}</ul></details></li>`;
+    })
+    .join('');
+  const ranIn = job === 'test' ? packages.filter((k) => k.mode === 'changed' && k.ran > 0).map((k) => `${esc(k.name)} ${number(k.ran)} of ${number(k.filesTotal ?? 0)}`) : [];
+  const head = `<p><strong>Selected a subset</strong>: ${number(v.filesRun ?? 0)} of ${plural(v.filesTotal ?? 0, unit, units)}${ranIn.length ? ` <span class="faint">· ${ranIn.join(' · ')}</span>` : ''}</p>`;
+  const body = files.length ? `<p class="sub">Reached from ${plural(groups.length, 'starting point')}, each ${unit} counted under the first chain that reached it:</p><ul class="sel-list triggers">${groupRows}</ul>` : '<p class="faint">Nothing selected.</p>';
+  const alsoWhole = reasons ? `<p>And ran some packages whole, because</p><ul class="sel-list">${reasons}</ul>` : '';
+  return `${head}${body}${alsoWhole}${foot}`;
+}
 
 const CHART = { width: 1000, height: 260, left: 52, right: 12, top: 12, bottom: 30 };
 const CAUGHT = 'No pull request in this period matches the filters.';

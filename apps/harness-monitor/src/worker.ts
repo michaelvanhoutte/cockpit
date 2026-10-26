@@ -13,10 +13,10 @@ import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
 import { checkSelection } from './selection';
-import { renderSelection } from './selection-page';
+import { renderSelection, renderSelectionCheck } from './selection-page';
 import { parseSelectionQuery, periodStart, selectionAddress, wantsOf } from './selection-report';
 import { newestSelectionMerge, parseJobFilter, parseSelectionPeriod, selectionAnswer, storeSelection } from './selection-store';
-import { selectionView } from './selection-view';
+import { selectionView, type ViewWants } from './selection-view';
 import { checkRuns } from './stability';
 import { renderStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
@@ -303,6 +303,35 @@ async function selection(request: Request, env: Env, ctx: ExecutionContext): Pro
 }
 
 /**
+ * What one job selected on one pull request's last CI run, as the fragment a
+ * cycle time row's E2E (F3) or Test line opens beneath it: `pr` a positive whole
+ * number and `job` `test` or `e2e`, anything else refused. One request, read when
+ * the line is opened rather than carried in the row (a pull request's chains run
+ * to tens of KB), and cached at the edge like the pages.
+ */
+async function selectionCheck(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const raw = url.searchParams.get('pr') ?? '';
+  const job = url.searchParams.get('job');
+  const pr = /^[1-9][0-9]{0,15}$/.test(raw) ? Number(raw) : null;
+  if (pr === null || !Number.isSafeInteger(pr)) return new Response('pr must be a pull request number', { status: 400 });
+  if (job !== 'test' && job !== 'e2e') return new Response('job must be test or e2e', { status: 400 });
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/selection/check?pr=${pr}&job=${job}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const wants: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, pull: pr, test: null };
+  const view = await selectionView(env.DB, wants, 0, job);
+  const response = new Response(renderSelectionCheck(view, job), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
  * CI stability: the page, or its stored runs as JSON when the request asks
  * (`wantsJson`), for the period the address asks. Cached like the costs page
  * under one key per view, so a page and its JSON never share an entry.
@@ -487,6 +516,7 @@ export default {
       return json({ error: 'Use GET or POST.' }, 405);
     }
     if (pathname === '/selection' && request.method === 'GET') return selection(request, env, ctx);
+    if (pathname === '/selection/check' && request.method === 'GET') return selectionCheck(request, env, ctx);
     const testsCurrent = /^\/v1\/tests\/([^/]+)$/.exec(pathname);
     if (testsCurrent) return currentTests(request, env, testsCurrent[1]!);
     const testsPath = /^\/v1\/tests\/([^/]+)\/([^/]+)\/(tree|current|areas\/[^/]+)$/.exec(pathname);
