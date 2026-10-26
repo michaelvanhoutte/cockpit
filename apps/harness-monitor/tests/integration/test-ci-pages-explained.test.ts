@@ -4,7 +4,10 @@ import { area, kase, model, rule, rules, statements } from '../fixtures/tests-mo
 import { withoutExplanations } from './cockpit-support';
 import { panelOf } from './series-colours';
 import {
+  ciAttempt,
   emptyTheDatabase,
+  failedJob,
+  failedTest,
   ranEverything,
   selectionBars,
   selectionFile,
@@ -12,6 +15,7 @@ import {
   selectionPackage,
   selectionPull,
   sendRuns,
+  sendAttempts,
   sendSelection,
   sendTestsModel,
   stabilityJob,
@@ -101,6 +105,18 @@ async function stability(runs = [ran(1, '2026-10-30T08:00:00Z', 'pass'), ran(2, 
   await emptyTheDatabase();
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T12:00:00Z') });
   for (let at = 0; at < runs.length; at += 50) await sendRuns(runs.slice(at, at + 50));
+  // The Workflow tab reads the attempts: each run is the only attempt of its own.
+  await sendAttempts(
+    runs.map((run) =>
+      ciAttempt(run.id, 1, {
+        createdAt: run.createdAt,
+        conclusion: run.conclusion,
+        outcome: run.outcome,
+        headSha: run.headSha,
+        failedJobs: run.outcome === 'fail' ? [failedJob('Test', [failedTest('a dismissed item leaves the lists')], { step: 'Run the tests' })] : [],
+      }),
+    ),
+  );
 }
 
 describe('Harness Monitor', () => {
@@ -287,7 +303,7 @@ describe('Harness Monitor', () => {
       { panel: 'How every job run ended', query: '', id: 'ended' },
       { panel: 'Last run of each workflow', query: '', id: 'last-runs' },
       { panel: 'a job opened to its steps', query: '?steps=CI%7CTest', id: 'steps' },
-      { panel: 'Time main was red, per day', query: '?group=day', id: 'red-per-day' },
+      { panel: 'Runs per day of a workflow', query: '?group=workflow&workflow=CI', id: 'per-day' },
     ])('$panel carries its own (i), with the three parts', async ({ query, id }) => {
       await stability();
 
@@ -298,12 +314,24 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
+      { tile: 'Pass rate on main', id: 't-wf-rate' },
+      { tile: 'Failed on main', id: 't-wf-failed' },
+      { tile: 'Flaky on feature branches', id: 't-wf-flaky' },
+      { tile: 'Top cause', id: 't-wf-top' },
+    ])('on a workflow, the $tile tile carries its own (i), with the three parts', async ({ tile, id }) => {
+      await stability();
+
+      const html = await page('/stability?group=workflow&workflow=CI');
+
+      expect(tileOf(html, tile)).toContain(`data-pop="x-${id}"`);
+      expect(partsOf(html, id)).toEqual(THREE_PARTS);
+    });
+
+    it.each([
       { table: 'By job', query: '', id: 'by-job' },
       { table: 'By workflow', query: '?group=workflow', id: 'by-workflow' },
-      { table: 'Red spells', query: '?group=red', id: 'spells' },
-      { table: 'Where they died', query: '?group=failures', id: 'where-they-died' },
-      { table: 'Recent failures', query: '?group=failures', id: 'recent-failures' },
-      { table: 'By day', query: '?group=day', id: 'by-day' },
+      { table: 'What made a workflow fail', query: '?group=workflow&workflow=CI', id: 'causes' },
+      { table: 'Every failure', query: '?group=workflow&workflow=CI', id: 'every-failure' },
     ])('the $table table carries an (i) saying what its rows are', async ({ query, id }) => {
       await stability();
 
@@ -314,12 +342,12 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
-      { table: 'Red spells', query: '?group=red', id: 'spells', said: 'main was not red in this period' },
-      { table: 'Recent failures', query: '?group=failures', id: 'recent-failures', said: 'No failure in this period' },
-    ])('a period main was never red in keeps the (i) on $table, which says so', async ({ query, id, said }) => {
+      { table: 'What made a workflow fail', id: 'causes', said: 'No failure in this period' },
+      { table: 'Every failure', id: 'every-failure', said: 'No failure in this period' },
+    ])('a period main never failed in keeps the (i) on $table, which says so', async ({ id, said }) => {
       await stability([ran(1, '2026-10-30T08:00:00Z', 'pass')]);
 
-      const html = await page(`/stability${query}`);
+      const html = await page('/stability?group=workflow&workflow=CI');
 
       expect(text(panelOf(html, id))).toContain(said);
       expect(firstInfo(panelOf(html, id))).toBe(id);
@@ -333,6 +361,19 @@ describe('Harness Monitor', () => {
       // Four tiles, how the runs ended, the last runs, the steps and the table.
       expect(buttons).toHaveLength(8);
       expect(new Set(buttons).size).toBe(8);
+      expect(panels.sort()).toEqual([...buttons].sort());
+    });
+
+    it.each([
+      { situation: 'the rows', query: '?group=workflow', count: 1 },
+      { situation: "a workflow's view", query: '?group=workflow&workflow=CI', count: 7 },
+    ])('draws each (i) of the Workflow tab once, on $situation', async ({ query, count }) => {
+      await stability();
+
+      const { buttons, panels } = infosOf(await page(`/stability${query}`));
+
+      expect(buttons).toHaveLength(count);
+      expect(new Set(buttons).size).toBe(count);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
   });
@@ -367,13 +408,13 @@ describe('Harness Monitor', () => {
       expect(leadOf(html)).toContain('What do the tests cover, and at which level?');
     });
 
-    it.each([['/stability'], ['/stability?group=red']])('CI stability, under the band’s sentence, at %s', async (path) => {
+    it.each([['/stability'], ['/stability?group=workflow']])('CI stability, under the band’s sentence, at %s', async (path) => {
       await stability();
 
       const html = await page(path);
 
       expect(leadOf(html)).toContain('How often do the automated checks fail, and which ones?');
-      for (const words of ['A pass rate is', 'A cancelled run', 'A red spell is', 'A fluke is']) expect(leadOf(html)).toContain(words);
+      for (const words of ['A pass rate is', 'A cancelled run', 'flaky when a later attempt on the same commit passed', 'A cause is the failing test']) expect(leadOf(html)).toContain(words);
       expect(leadPlace(html)).toEqual({ afterTheSentence: true, beforeThePanels: true });
     });
   });
@@ -382,8 +423,8 @@ describe('Harness Monitor', () => {
     it.each([
       { panel: 'How every job run ended', query: '', id: 'ended', note: 'A pass rate counts only the runs that finished' },
       { panel: 'a job’s steps', query: '?steps=CI%7CTest', id: 'steps', note: 'skipped and cancelled steps are left out' },
-      { panel: 'Red spells', query: '?group=red', id: 'spells', note: 'A spell runs from a failing run to the next passing one' },
-      { panel: 'By day', query: '?group=day', id: 'by-day', note: 'Workflows red at the same time count once under Any workflow' },
+      { panel: 'By workflow', query: '?group=workflow', id: 'by-workflow', note: 'A feature branch counts only a failure that a later attempt on the same commit passed' },
+      { panel: 'What made a workflow fail', query: '?group=workflow&workflow=CI', id: 'causes', note: 'A cause is the failing test where the attempt names one, otherwise the job and step' },
     ])('CI stability: $panel no longer says it under its heading, and its explanation does', async ({ query, id, note }) => {
       await stability();
 
@@ -391,14 +432,6 @@ describe('Harness Monitor', () => {
 
       expect(text(withoutExplanations(panelOf(html, id)))).not.toContain(note);
       expect(text(explanationOf(html, id))).toContain(note);
-    });
-
-    it('CI stability: past the newest hundred failures, the list still says under it how many it shows of how many', async () => {
-      await stability(Array.from({ length: 101 }, (_, i) => ran(i + 1, new Date(Date.UTC(2026, 9, 30, 0, i)).toISOString(), 'fail')));
-
-      const html = await page('/stability?group=failures');
-
-      expect(text(withoutExplanations(panelOf(html, 'recent-failures')))).toContain('The newest 100 are listed; the counts above use all 101.');
     });
 
     it.each([

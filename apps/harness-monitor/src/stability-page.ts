@@ -1,33 +1,32 @@
-import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
+import { startOfDay, formatDateTime } from './belgium';
+import { periodDays } from './ci-flakiness';
+import type { WorkflowData } from './ci-flakiness-report';
+import { COPY_STYLE } from './copy-prompt';
+import { PERIODS } from './costs';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
-import { esc, inline, lineKey, questionOf, sentenceForm } from './look';
+import { esc, inline, questionOf, sentenceForm } from './look';
 import { number, REPOSITORY } from './page';
-import { BLUE, colourByPlace, GREY, isFolded, ORANGE, OTHER, OTHER_LABEL, RED, VIOLET } from './palette';
+import { BLUE, GREY, ORANGE, RED, VIOLET } from './palette';
 import { humanMs, outLink, pct, reportPage, section, tile } from './report';
 import {
-  clipSpans,
   GROUPS,
   redMs,
   sortJobs,
   sortOf,
-  sortSpells,
-  sortWorkflows,
   spellSpan,
   stabilityAddress,
   SORTS,
   sumTallies,
-  unionMs,
-  type Failure,
   type JobModel,
   type Last,
-  type Spell,
   type StabilityData,
   type StabilityQuery,
   type Tally,
 } from './stability-report';
 import { LEAD_MORE, WHAT } from './stability-explain';
+import { bandOf, redNowNotice, WORKFLOW_STYLE, workflowTab } from './stability-workflow-page';
 
-const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow', red: 'each red spell', failures: 'each failure', day: 'each day' };
+const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow' };
 /** The period as a word of the page's sentence ("over the last 7 days"). */
 const PERIOD_WORDS: [string, string][] = [
   ['7d', 'the last 7 days'],
@@ -38,9 +37,6 @@ const PERIOD_WORDS: [string, string][] = [
 
 /** The branch the runs are of: the Stability job sends `main`'s alone. */
 const BRANCH = 'main';
-/** The most failures the Recent failures list draws; the counts above it use every one. */
-const FAILURE_LIMIT = 100;
-
 /** How a run ended, in stacking order: failed is red, being bad; cancelled and skipped ran no verdict, so they are grey and stack last, and the series beside them takes blue, a slot grey clears. */
 const OUTCOMES = [
   { key: 'pass', label: 'Passed', colour: VIOLET },
@@ -50,8 +46,6 @@ const OUTCOMES = [
   { key: 'cancelled', label: 'Cancelled', colour: GREY },
   { key: 'skipped', label: 'Skipped', colour: GREY },
 ] as const;
-
-const bandOf = (rate: number) => (rate >= 0.99 ? 'ok' : rate >= 0.9 ? 'mid' : 'poor');
 
 function rateCell(t: Tally): string {
   if (t.rate === null) return '<td class="num"><span class="rate none">no data</span><span class="of">0 finished</span></td>';
@@ -82,10 +76,6 @@ interface JobRow {
 
 const rowKey = (j: JobRow) => `${j.workflow}|${j.job.name}`;
 
-/** A bar showing `value` of `peak`, with the figure beside it. */
-const lasted = (value: number, peak: number, text: string) =>
-  `<div class="lasted"><span class="track"><span class="fill" style="width:${((value / peak) * 100).toFixed(1)}%"></span></span><span class="num">${text}</span></div>`;
-
 /** The CI stability page: the same figures whatever the tab, narrowed by the filters, with the overview only on the first. */
 export function renderStability(q: StabilityQuery, data: StabilityData, repository: string | undefined, now: number): string {
   const repo = repository !== undefined && REPOSITORY.test(repository) ? repository : null;
@@ -94,15 +84,10 @@ export function renderStability(q: StabilityQuery, data: StabilityData, reposito
   const periodLabel = q.period === 'all' ? `Everything held · ${data.heldDays} days` : `Last ${data.periodDays} days`;
   const periodWords = q.period === 'all' || data.partial ? `the ${data.heldDays} days held` : `the last ${data.periodDays} days`;
 
-  const names = data.finishedWorkflows;
-  // Only workflows that were ever red are drawn as series, so only they take a slot, by their place among them in a fixed order; the ninth onward are drawn together as Other.
-  const everRed = [...new Set(data.spells.map((s) => s.workflow))].sort((a, b) => names.indexOf(a) - names.indexOf(b));
-  const colour = (name: string) => colourByPlace(everRed, name);
   const workflows = data.workflows.filter((w) => keep(w.name));
   const lastOf = (wf: string) => data.lastRuns.find((l) => l.workflow === wf);
   const jobs: JobRow[] = workflows.flatMap((w) => w.jobs.map((job) => ({ workflow: w.name, job, last: lastOf(w.name)?.jobs.find((j) => j.name === job.name)?.last ?? null })));
   const spells = data.spells.filter((s) => keep(s.workflow) && spellSpan(s, until)[1] > from);
-  const failures = data.failures.filter((f) => keep(f.workflow) && f.createdAt >= from);
   const red = redMs(spells, from, until);
   const link = (over: Partial<StabilityQuery>) => esc(stabilityAddress(q, over));
   const jobLink = (j: JobRow) => link({ group: 'job', sort: null, steps: rowKey(j) });
@@ -110,17 +95,6 @@ export function renderStability(q: StabilityQuery, data: StabilityData, reposito
 
   const empty = workflows.every((w) => w.tally.pass + w.tally.fail + w.tally.cancelled + w.tally.skipped + w.tally.running + w.tally.other + w.tally.unknown === 0);
 
-  // Red now: the one thing the page must not let a reader miss, on every tab and whatever the Workflow filter holds.
-  const ongoing = data.spells.filter((s) => s.ongoing);
-  const redNow = ongoing.length
-    ? `<p class="notice" role="status">${ongoing
-        .map((s) => {
-          const f = data.failures.find((x) => x.runId === s.openedBy);
-          const died = f?.jobs.map((j) => `${outLink(j.url, esc(j.name))}${j.failedStep ? ` at &ldquo;${esc(j.failedStep)}&rdquo;` : ''}`).join(', ');
-          return `<strong>${esc(s.workflow)} is red now</strong>, for ${humanMs(now - s.from)} since ${outLink(s.fromUrl, esc(formatDateTime(s.from)))}${died ? `: ${died} failed` : ''}.`;
-        })
-        .join('<br>')}</p>`
-    : '';
   const anomalies = data.unrecognised.length
     ? `<p class="notice" role="status"><strong>Not counted, because the report does not recognise them:</strong> ${data.unrecognised
         .map((a) => `${number(a.count)} run${a.count === 1 ? '' : 's'} or job${a.count === 1 ? '' : 's'} concluded &ldquo;${esc(a.conclusion)}&rdquo;`)
@@ -211,198 +185,48 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
     return out;
   }
 
-  function workflowTab(): string {
-    const rows = sortWorkflows(
-      workflows.map((w) => {
-        const own = spells.filter((s) => s.workflow === w.name);
-        return { ...w, spells: own.length, red: redMs(own, from, until) };
-      }),
-      sort,
-    );
-    const peak = Math.max(...rows.map((r) => r.red), 1);
-    const table = rows
-      .map(
-        (r) =>
-          `<tr><td class="first"><a href="${link({ workflow: r.name, group: 'job', sort: null })}">${esc(r.name)}</a><div class="sub">${number(r.jobs.length)} job${r.jobs.length === 1 ? '' : 's'}${r.tally.completed === 0 && r.tally.skipped ? ` · ${number(r.tally.skipped)} skipped, none ran` : ''}</div></td>${lastCell(lastOf(r.name)?.last)}${rateCell(r.tally)}<td class="split-cell">${outcomeBar(r.tally)}</td><td class="num">${r.tally.fail ? number(r.tally.fail) : '<span class="faint">—</span>'}</td><td class="num faint-num">${r.spells ? number(r.spells) : '—'}</td><td class="lasted-cell">${r.red ? lasted(r.red, peak, humanMs(r.red)) : '<span class="faint">never red</span>'}</td></tr>`,
-      )
-      .join('\n');
-    return section(
-      'by-workflow',
-      'By workflow',
-      `${number(rows.length)} workflows · ${esc(SORTS.workflow.find(([k]) => k === sort)![1].toLowerCase())} first · a workflow&rsquo;s name opens its jobs`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Workflow</th><th scope="col" class="num">Last run</th><th scope="col" class="num">Pass rate</th><th scope="col">Outcomes</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Red spells</th><th scope="col">Time red</th></tr></thead>
-<tbody>${table}</tbody></table></div>`,
-      'panel wide',
-      explain('by-workflow', 'By workflow', WHAT.workflow),
-    );
-  }
-
-  function redTab(): string {
-    const rows = sortSpells(spells, sort, until);
-    const info = explain('spells', `How long ${esc(BRANCH)} stayed red`, WHAT.spells);
-    if (!rows.length) return section('spells', `How long ${esc(BRANCH)} stayed red`, '', `<p class="well empty">${esc(BRANCH)} was not red in this period.</p>`, 'panel', info);
-    const len = (s: Spell) => spellSpan(s, until)[1] - spellSpan(s, until)[0];
-    const peak = Math.max(...rows.map(len), 1);
-    const table = rows
-      .map((s) => {
-        const f = data.failures.find((x) => x.runId === s.openedBy);
-        const died = f?.jobs.map((j) => `${esc(j.name)}${j.failedStep ? ` · ${esc(j.failedStep)}` : ''}`).join(', ');
-        return `<tr${s.ongoing ? ' class="open"' : ''}><td class="first"><i class="dot" style="background:${colour(s.workflow)}"></i>${esc(s.workflow)}${died ? `<div class="sub">${died}</div>` : ''}</td><td class="num">${outLink(s.fromUrl, esc(formatDateTime(s.from)))}</td><td class="num">${s.until !== null ? outLink(s.untilUrl, esc(formatDateTime(s.until))) : '<span class="rate poor">red now</span>'}</td><td class="lasted-cell">${lasted(len(s), peak, humanMs(len(s)))}</td><td class="num faint-num">${number(s.commits)}</td></tr>`;
-      })
-      .join('\n');
-    return section(
-      'spells',
-      `How long ${esc(BRANCH)} stayed red`,
-      `${number(rows.length)} spells · ${humanMs(red)} red with overlaps counted once · ${sort === 'longest' ? 'longest' : 'newest'} first`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Workflow</th><th scope="col" class="num">Went red</th><th scope="col" class="num">Green again</th><th scope="col">Lasted</th><th scope="col" class="num">Commits</th></tr></thead>
-<tbody>${table}</tbody></table></div>`,
-      'panel wide',
-      info,
-    );
-  }
-
-  function failuresTab(): string {
-    const where = new Map<string, { job: string; step: string | null; workflows: Set<string>; count: number; last: Failure; url: string | null }>();
-    for (const f of failures)
-      for (const j of f.jobs) {
-        const key = `${j.name}|${j.failedStep ?? ''}`;
-        const e = where.get(key) ?? { job: j.name, step: j.failedStep, workflows: new Set<string>(), count: 0, last: f, url: j.url };
-        e.count++;
-        e.workflows.add(f.workflow);
-        if (f.createdAt > e.last.createdAt) {
-          e.last = f;
-          e.url = j.url;
-        }
-        where.set(key, e);
-      }
-    const steps = [...where.values()].sort((a, b) => b.count - a.count || b.last.createdAt - a.last.createdAt);
-    const peak = Math.max(...steps.map((s) => s.count), 1);
-    let out = '';
-    if (steps.length) {
-      out += section(
-        'where-they-died',
-        'Where they died',
-        `${number(steps.length)} job and step pairs · most first`,
-        `<div class="well table"><table>
-<thead><tr><th scope="col">Job · step</th><th scope="col">Workflow</th><th scope="col">Failures</th><th scope="col" class="num">Last</th></tr></thead>
-<tbody>${steps
-          .map(
-            (s) =>
-              `<tr><td class="first">${esc(s.job)}<div class="sub">${s.step ? esc(s.step) : 'no failing step recorded'}</div></td><td>${[...s.workflows].map(esc).join(', ')}</td><td class="lasted-cell">${lasted(s.count, peak, number(s.count))}</td><td class="num">${outLink(s.url ?? s.last.url, esc(formatDateTime(s.last.createdAt)))}</td></tr>`,
-          )
-          .join('\n')}</tbody></table></div>`,
-        'panel wide',
-        explain('where-they-died', 'Where they died', WHAT.whereTheyDied),
-      );
-    }
-    const listed = failures.slice(0, FAILURE_LIMIT);
-    out += failures.length
-      ? section(
-          'recent-failures',
-          'Recent failures',
-          `${number(failures.length)} · newest first`,
-          `<div class="well table"><table>
-<thead><tr><th scope="col" class="num">When</th><th scope="col">Workflow</th><th scope="col">Failing job</th><th scope="col">Died at</th><th scope="col">Commit</th></tr></thead>
-<tbody>${listed
-            .map(
-              (f) =>
-                `<tr><td class="num">${outLink(f.url, esc(formatDateTime(f.createdAt)))}</td><td class="first"><i class="dot" style="background:${colour(f.workflow)}"></i>${esc(f.workflow)}</td><td>${f.jobs.length ? f.jobs.map((j) => outLink(j.url, esc(j.name))).join('<br>') : '<span class="faint">none recorded</span>'}</td><td class="step-cell">${f.jobs.map((j) => (j.failedStep ? esc(j.failedStep) : '<span class="faint">—</span>')).join('<br>')}</td><td>${repo ? `<a class="sha" href="https://github.com/${repo}/commit/${esc(f.headSha)}" target="_blank" rel="noopener noreferrer">${esc(f.headSha.slice(0, 7))}</a>` : `<span class="sha">${esc(f.headSha.slice(0, 7))}</span>`}</td></tr>`,
-            )
-            .join('\n')}</tbody></table>${failures.length > listed.length ? `<p class="note steps-note">The newest ${number(listed.length)} are listed; the counts above use all ${number(failures.length)}.</p>` : ''}</div>`,
-          'panel wide',
-          explain('recent-failures', 'Recent failures', WHAT.recent),
-        )
-      : section('recent-failures', 'Recent failures', '', '<p class="well empty">No failure in this period.</p>', 'panel', explain('recent-failures', 'Recent failures', WHAT.recent));
-    return out;
-  }
-
-  /** Hours red per Belgian day, per workflow, and with overlaps merged. */
-  function dayTab(): string {
-    const days: string[] = [];
-    for (let d = belgianDay(from); d <= belgianDay(until); d = addDays(d, 1)) days.push(d);
-    const redWorkflows = [...new Set(spells.map((s) => s.workflow))].sort((a, b) => names.indexOf(a) - names.indexOf(b));
-    const folded = redWorkflows.filter((w) => isFolded(everRed, w));
-    const dayRed = (d: string, list: Spell[]) => unionMs(clipSpans(list.map((s) => spellSpan(s, until)), Math.max(from, startOfDay(d)), Math.min(until, startOfDay(addDays(d, 1)))));
-    const own = redWorkflows.filter((w) => !folded.includes(w)).map((w) => ({ key: w, label: w, colour: colour(w), dash: false, values: days.map((d) => dayRed(d, spells.filter((s) => s.workflow === w))) }));
-    // Other is the time any of the folded workflows was red, overlaps counted once, so it can never run above the total.
-    const lines = folded.length ? [...own, { key: OTHER, label: OTHER_LABEL, colour: GREY, dash: false, values: days.map((d) => dayRed(d, spells.filter((s) => folded.includes(s.workflow)))) }] : own;
-    const total = days.map((d) => dayRed(d, spells));
-    const { width, height, left, right, top, bottom } = { width: 1000, height: 260, left: 64, right: 12, top: 12, bottom: 30 };
-    const peak = Math.max(...total, 1);
-    const x = (i: number) => (days.length === 1 ? (left + width - right) / 2 : left + (i / (days.length - 1)) * (width - left - right));
-    const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
-    const grid = [0, 0.5, 1].map((f) => `<line x1="${left}" x2="${width - right}" y1="${y(peak * f).toFixed(1)}" y2="${y(peak * f).toFixed(1)}" class="gridline"/><text x="${left - 10}" y="${(y(peak * f) + 4).toFixed(1)}" text-anchor="end" class="axis">${humanMs(peak * f)}</text>`).join('');
-    const ends = [...new Set([0, Math.floor((days.length - 1) / 2), days.length - 1])];
-    const dates = ends.map((i) => `<text x="${x(i).toFixed(1)}" y="${height - 8}" text-anchor="${i === 0 && ends.length > 1 ? 'start' : i === days.length - 1 && ends.length > 1 ? 'end' : 'middle'}" class="axis">${formatDay(days[i]!)}</text>`).join('');
-    const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-    const drawn = [...lines, { key: 'total', label: 'Any workflow', values: total, colour: 'var(--ink-strong)', dash: true }]
-      .map(
-        (l) =>
-          `<g${l.dash ? ' data-line="total"' : ''}><polyline points="${l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${l.colour}" stroke-width="${l.dash ? 1.5 : 2}" stroke-linejoin="round"${l.dash ? ' stroke-dasharray="5 4"' : ''}/>${l.values
-            .map((v, i) => (v > 0 ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${l.dash ? 0 : 2.5}" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(days[i]!)} · ${humanMs(v)} red</title></circle>` : ''))
-            .join('')}</g>`,
-      )
-      .join('');
-    const legend = [...lines.map((l) => lineKey(esc(l.label), l.colour)), lineKey('Any workflow', null)].join('');
-    let out = section(
-      'red-per-day',
-      `Time ${esc(BRANCH)} was red, per day`,
-      `<span class="legend">${legend}</span>`,
-      `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Time red per day">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>`,
-      'panel',
-      explain('red-per-day', `Time ${esc(BRANCH)} was red, per day`, WHAT.perDay),
-    );
-
-    const dayPeak = Math.max(...total, 1);
-    const heads = lines.map((l) => `<th scope="col" class="num"><i style="background:${l.colour}"></i>${esc(l.label)}</th>`).join('');
-    const rows = days
-      .map((d, i) => ({ d, i }))
-      .reverse()
-      .map(({ d, i }) => {
-        const began = spells.filter((s) => belgianDay(s.from) === d).length;
-        const failed = failures.filter((f) => belgianDay(f.createdAt) === d).length;
-        // The bar is the day's red time with overlaps merged; its segments share it in proportion to each workflow's own.
-        const split = total[i]! > 0 ? `<span class="stack" style="width:${((total[i]! / dayPeak) * 100).toFixed(1)}%">${lines.map((l) => (l.values[i]! > 0 ? `<span style="flex:${l.values[i]!};background:${l.colour}" title="${esc(l.label)} ${humanMs(l.values[i]!)}"></span>` : '')).join('')}</span>` : '';
-        const cells = lines.map((l) => `<td class="num">${l.values[i]! > 0 ? humanMs(l.values[i]!) : '<span class="faint">—</span>'}</td>`).join('');
-        return `<tr><td class="first">${esc(formatDay(d))}</td><td class="split-cell"><div class="split">${split}</div></td>${cells}<td class="num faint-num">${began || '—'}</td><td class="num faint-num">${failed || '—'}</td><td class="num total">${total[i]! > 0 ? humanMs(total[i]!) : '<span class="faint">green all day</span>'}</td></tr>`;
-      })
-      .join('\n');
-    out += section(
-      'by-day',
-      'By day',
-      `${number(days.length)} days · newest first`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Day</th><th scope="col">Split</th>${heads}<th scope="col" class="num">Spells began</th><th scope="col" class="num">Failures</th><th scope="col" class="num">Any workflow</th></tr></thead>
-<tbody>${rows}</tbody></table></div>`,
-      'panel wide',
-      explain('by-day', 'By day', WHAT.day),
-    );
-    return out;
-  }
-
-  const tabBodies: Record<StabilityQuery['group'], () => string> = { job: jobTab, workflow: workflowTab, red: redTab, failures: failuresTab, day: dayTab };
   // The overview (tiles, outcomes, last runs) belongs to Job, the first tab; every other tab goes straight to its own content.
   const content = empty
     ? section('nothing', 'CI stability', '', '<p class="well empty">Nothing in this period. No run of main is stored for it with these filters.</p>')
-    : `${q.group === 'job' ? overviewOf() : ''}${tabBodies[q.group]()}`;
+    : `${overviewOf()}${jobTab()}`;
 
-  // The controls as one sentence on the band: the order is a word of it where the rows have more than one, and the Workflow filter is not offered when the rows are workflows.
+  return stabilityFrame(q, repo, data.finishedWorkflows, `${partial}${redNowNotice(data.redNow, now)}${anomalies}`, content, now);
+}
+
+/** The CI stability page's Workflow tab, drawn from the stored attempts on every branch. */
+export function renderWorkflowStability(q: StabilityQuery, data: WorkflowData, repository: string | undefined, now: number): string {
+  const repo = repository !== undefined && REPOSITORY.test(repository) ? repository : null;
+  const days = periodDays(q.period, now, data.oldest);
+  const first = startOfDay(days[0]!);
+  const named = PERIODS[q.period];
+  const partial = data.oldest !== null && named !== null && data.oldest > first ? `<p class="muted small">Only ${number(Math.max(1, Math.round((now - data.oldest) / 86_400_000)))} of the period&rsquo;s ${number(named)} days are stored so far.</p>` : '';
+  const content = data.attempts.length === 0
+    ? section('nothing', 'CI stability', '', '<p class="well empty">Nothing in this period. No attempt is stored for it.</p>')
+    : workflowTab(q, data, days, (over) => esc(stabilityAddress(q, over)));
+  return stabilityFrame(q, repo, data.workflows, `${partial}${redNowNotice(data.redNow, now)}`, content, now, WORKFLOW_STYLE + COPY_STYLE);
+}
+
+/** What both tabs share: the sentence on the band, the lead, the notices and the content. */
+function stabilityFrame(q: StabilityQuery, repo: string | null, workflows: string[], notices: string, content: string, now: number, style = ''): string {
+  // The controls as one sentence on the band: the order is a word of it where the rows have more than one.
   const sorts = SORTS[q.group];
-  const workflowChoices: [string, string][] = [['', 'All workflows'], ...data.finishedWorkflows.map((w): [string, string] => [w, w])];
-  if (q.workflow !== null && !data.finishedWorkflows.includes(q.workflow)) workflowChoices.push([q.workflow, q.workflow]);
+  const workflowChoices: [string, string][] = [['', 'All workflows'], ...workflows.map((w): [string, string] => [w, w])];
+  if (q.workflow !== null && !workflows.includes(q.workflow)) workflowChoices.push([q.workflow, q.workflow]);
+  const sort = sortOf(q);
   const form = sentenceForm(
     '/stability',
-    `Show CI on main for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+    `Show CI ${q.group === 'job' ? 'on main ' : ''}for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
 ${sorts.length ? inline('sort', 'Order', sorts.map(([v, t]): [string, string] => [v, `${t.toLowerCase()} first`]), sort) : ''}
 over ${inline('period', 'Period', PERIOD_WORDS, q.period)}`,
-    [q.group === 'workflow' ? '' : inline('workflow', 'Workflow', workflowChoices, q.workflow ?? '', '')],
-    repo ? [`<a class="button" href="https://github.com/${repo}/actions?query=branch%3A${encodeURIComponent(BRANCH)}" target="_blank" rel="noopener noreferrer">Open in Actions</a>`] : [],
+    [inline('workflow', 'Workflow', workflowChoices, q.workflow ?? '', '')],
+    repo ? [`<a class="button" href="https://github.com/${repo}/actions${q.group === 'job' ? `?query=branch%3A${encodeURIComponent(BRANCH)}` : ''}" target="_blank" rel="noopener noreferrer">Open in Actions</a>`] : [],
   );
   // The page opens with the question its top tab names and the words a newcomer will not know, under the band, on every tab.
   const pageLead = lead(questionOf('stability'), LEAD_MORE);
-  return reportPage({ current: 'stability', controls: form, body: `${pageLead}\n${partial}${redNow}${anomalies}\n${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
+  return reportPage({ current: 'stability', controls: form, body: `${pageLead}
+${notices}
+${content}
+${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE + style }, now);
 }
 
 const EXTRA = `
@@ -413,15 +237,12 @@ a.rate:hover{text-decoration:underline}
 .tile.name .tile-value{font-size:22px;line-height:1.25;padding:6px 0 5px}.tile.name .tile-value a{color:var(--ink-strong);text-decoration:none}.tile.name .tile-value a:hover{color:var(--accent-deep)}
 .changes .verdict{color:inherit;text-decoration:none}.changes .verdict:hover{text-decoration:underline}
 code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em}
-.sha{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
 tr.chosen td{background:var(--accent-tint)}
 tr.open td{background:color-mix(in srgb,var(--over) 8%,transparent)}
 .lasted-cell{width:260px}
 .lasted{display:flex;align-items:center;gap:10px}.lasted .track{flex:1;height:8px;border-radius:2px;overflow:hidden;background:color-mix(in srgb,var(--shade) 7%,transparent)}.lasted .fill{display:block;height:100%;background:var(--over)}
 .lasted .num{min-width:64px}
 .step-cell{color:var(--ink-soft)}
-.stack{display:flex;gap:1px;height:100%}.stack span{display:block;height:100%;min-width:2px}
 .steps-note{margin:0 16px 14px;padding-top:12px}
 .steps{list-style:none;margin:0;padding:6px 0}
 .steps li{display:grid;grid-template-columns:minmax(180px,2fr) minmax(120px,3fr) 80px 80px 56px;gap:12px;align-items:center;padding:7px 16px;border-bottom:1px solid color-mix(in srgb,var(--shade) 8%,transparent);font-size:14px;font-variant-numeric:tabular-nums}

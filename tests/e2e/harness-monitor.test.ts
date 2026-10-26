@@ -317,7 +317,47 @@ test.describe('Harness Monitor', () => {
     await expect(appearance).toHaveValue('');
   });
 
-  test('CI stability opens from the top bar, its sentence and the Workflow filter narrow it, choosing each workflow starts it in its own order with every workflow and no Workflow filter, Open in Actions follows the filter on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
+  /**
+   * CI's attempts on every branch, as the Workflow tab and the red-now line read them: CI failed on main once at a test and was green again, a pull request's
+   * attempt failed at another test and passed on a re-run, another pull request's failed and stayed failed, and Nightly's only run on main is red.
+   */
+  async function seedCiAttempts(api: APIRequestContext) {
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const attempt = (runId: number, number: number, workflow: string, hours: number, failed: { job: string; step: string; tests: { file: string; name: string; project: string | null }[] } | null, over: Record<string, unknown> = {}) => ({
+      runId,
+      attempt: number,
+      workflow,
+      path: `.github/workflows/${workflow.toLowerCase()}.yml`,
+      event: 'push',
+      branch: 'main',
+      pullRequest: null,
+      onMain: true,
+      headSha: String(runId).padEnd(40, 'c'),
+      status: 'completed',
+      conclusion: failed ? 'failure' : 'success',
+      outcome: failed ? 'fail' : 'pass',
+      createdAt: hoursAgo(hours),
+      url: `https://github.com/o/r/actions/runs/${runId}${number > 1 ? `/attempts/${number}` : ''}`,
+      jobs: [],
+      failedJobs: failed ? [{ name: failed.job, step: failed.step, url: `https://github.com/o/r/actions/runs/${runId}/job/1`, testsMore: 0, tests: failed.tests.map((t) => ({ ...t, error: 'AssertionError: expected 1 to be 2' })) }] : [],
+      ...over,
+    });
+    const triage = { file: 'apps/api/tests/integration/triage.test.ts', name: 'Triage > a dismissed item leaves the lists', project: null };
+    const capture = { file: 'tests/e2e/capture.test.ts', name: 'Capture > a thought is kept', project: 'phone' };
+    const onPull = (pull: number) => ({ onMain: false, event: 'pull_request', branch: `claude/${pull}-change`, pullRequest: pull });
+    const attempts = [
+      attempt(9_002_001, 1, 'CI', 50, null),
+      attempt(9_002_002, 1, 'CI', 40, { job: 'Test', step: 'Run the tests', tests: [triage] }),
+      attempt(9_002_003, 1, 'CI', 30, null),
+      attempt(9_002_010, 1, 'CI', 20, { job: 'E2E (F3)', step: 'Run pnpm test:e2e', tests: [capture] }, onPull(9_101)),
+      attempt(9_002_010, 2, 'CI', 19, null, onPull(9_101)),
+      attempt(9_002_011, 1, 'CI', 10, { job: 'Test', step: 'Run the tests', tests: [triage] }, { ...onPull(9_102), headSha: 'e'.repeat(40) }),
+      attempt(9_002_020, 1, 'Nightly', 5, { job: 'Test explorer', step: 'Build the snapshot', tests: [] }, { event: 'schedule' }),
+    ];
+    expect((await api.post(`${monitor}/__e2e/seed-ci-attempts`, { data: { attempts } })).ok()).toBe(true);
+  }
+
+  test('CI stability opens from the top bar, its sentence and the Workflow filter narrow it, choosing each workflow lists every workflow in its own order and a Workflow filter opens that workflow, Open in Actions follows the filter on a desk, and a phone scrolls the wide tables inside their panels', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     const run = (id: number, workflow: string, hours: number, failed: { job: string; step: string } | null) => ({
@@ -352,6 +392,7 @@ test.describe('Harness Monitor', () => {
       run(9_001_004, 'Nightly', 5, { job: 'Test explorer', step: 'Build the snapshot' }),
     ];
     expect((await api.post(`${monitor}/__e2e/seed-stability`, { data: { runs } })).ok()).toBe(true);
+    await seedCiAttempts(api);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
     // From the costs page, the top bar's own tab opens it on each job, with the tiles an overview has.
@@ -377,32 +418,133 @@ test.describe('Harness Monitor', () => {
     const byJob = page.getByRole('region', { name: 'By job' }).locator('.table');
     expect(await byJob.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
 
-    // Each failure lists where both workflows died, and has no order to choose; choosing Workflow: CI keeps the rows and leaves only CI's failure.
-    await choose(page, 'Rows', 'each failure', /[?&]group=failures(&|$)/);
-    await expect(choice(page, 'Order')).toHaveCount(0);
-    const died = page.getByRole('region', { name: 'Where they died' });
-    await expect(died.getByRole('row')).toHaveCount(3);
+    // Each workflow lists both workflows, with the red line above them and a Workflow filter to open one; choosing CI there opens CI's own view and leaves only its failure.
+    await choose(page, 'Rows', 'each workflow', /[?&]group=workflow(&|$)/);
+    await expect(choice(page, 'Order')).toHaveValue('worst');
     await expect(page.getByRole('status').filter({ hasText: 'Nightly is red now' })).toBeVisible();
+    const workflows = page.getByRole('region', { name: 'By workflow' });
+    await expect(workflows.getByRole('row')).toHaveCount(3);
     await choose(page, 'Workflow', 'CI', /[?&]workflow=CI(&|$)/);
-    await expect(page).toHaveURL(/[?&]group=failures(&|$)/);
-    await expect(choice(page, 'Rows')).toHaveValue('failures');
-    await expect(died.getByRole('row')).toHaveCount(2);
-    await expect(died).toContainText('Run the tests');
-    await expect(died).not.toContainText('Build the snapshot');
+    await expect(page).toHaveURL(/[?&]group=workflow(&|$)/);
+    const everyFailure = page.getByRole('region', { name: 'Every failure' });
+    await expect(everyFailure.getByRole('row')).toHaveCount(3);
+    await expect(everyFailure).toContainText('Run the tests');
+    await expect(everyFailure).not.toContainText('Build the snapshot');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
-    // Each job, slowest first, with the Workflow filter still CI; then each workflow starts in its own order and lists every workflow, since a filter to one would repeat the rows.
+    // Each job, slowest first, with the Workflow filter still CI; then each workflow starts in its own order and keeps the filter, so it is still CI's view.
     await choose(page, 'Rows', 'each job', /[?&]group=job(&|$)/);
     await choose(page, 'Order', 'slowest first', /[?&]sort=slowest(&|$)/);
     await expect(page).toHaveURL(/[?&]workflow=CI(&|$)/);
     await choose(page, 'Rows', 'each workflow', /[?&]group=workflow(&|$)/);
     expect(new URL(page.url()).searchParams.has('sort')).toBe(false);
     await expect(choice(page, 'Order')).toHaveValue('worst');
-    await expect(choice(page, 'Workflow')).toHaveCount(0);
-    const workflows = page.getByRole('region', { name: 'By workflow' });
+    await expect(choice(page, 'Workflow')).toHaveValue('CI');
+    await expect(page.getByRole('region', { name: 'Every failure' })).toBeVisible();
+    await choose(page, 'Workflow', 'All workflows', /[?&]workflow=(&|$)/);
     await expect(workflows.getByRole('row')).toHaveCount(3);
-    await expect(workflows).toContainText('CI');
     await expect(workflows).toContainText('Nightly');
+  });
+
+  test("a CI stability workflow row opens to main beside its feature branches from its chevron or anywhere on it outside its links, and closes with a second click, with no request; its name opens the workflow's own view, and Copy prompt puts its prompt on the clipboard without opening it, fitting a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCiAttempts(api);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(monitor!).origin });
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/stability?group=workflow`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By workflow' });
+    const row = (name: string) => table.locator('tr[data-opens]', { has: page.getByRole('link', { name, exact: true }) });
+    const stripOf = (name: string) => row(name).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+    const opening = (name: string) => row(name).getByRole('button', { name: new RegExp(`^(Open|Close) ${name}$`) });
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+
+    // Ranked by main: Nightly, red on its only run, before CI, and every strip is in the page and closed.
+    await expect(table.locator('tr[data-opens] td.first a')).toHaveText(['Nightly', 'CI']);
+    await expect(table.locator('tr.detail')).toHaveCount(2);
+    await expect(table.locator('tr.detail').first()).toBeHidden();
+    await expect(opening('CI')).toHaveAttribute('aria-expanded', 'false');
+
+    // The chevron opens the strip beneath its row, main beside the feature branches on a desk and above them on a phone.
+    await opening('CI').click();
+    await expect(opening('CI')).toHaveAttribute('aria-expanded', 'true');
+    await expect(opening('CI')).toHaveAccessibleName('Close CI');
+    await expect(row('CI')).toHaveClass(/\bopen\b/);
+    await expect(stripOf('CI')).toBeVisible();
+    await expect(stripOf('Nightly')).toBeHidden();
+    const main = stripOf('CI').locator('.side.main');
+    const branches = stripOf('CI').locator('.side.branch');
+    await expect(main.locator('h4')).toHaveText('On main');
+    await expect(branches.locator('h4')).toHaveText('On feature branches');
+    await expect(main.locator('li')).toHaveText([/1\s*a dismissed item leaves the lists/]);
+    await expect(branches.locator('li')).toHaveText([/1\s*a thought is kept/]);
+    const [m, b] = await Promise.all([main.boundingBox(), branches.boundingBox()]);
+    if (onAPhone) expect(b!.y).toBeGreaterThan(m!.y + m!.height - 1);
+    else {
+      expect(Math.abs(b!.y - m!.y)).toBeLessThan(4);
+      expect(b!.x).toBeGreaterThan(m!.x + m!.width - 1);
+    }
+    if (onAPhone) {
+      // On a phone the strip stays inside the panel's width while the wide table scrolls beneath it.
+      const [strip, panel] = await Promise.all([stripOf('CI').locator('.strip').boundingBox(), table.locator('.well.table').boundingBox()]);
+      expect(strip!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(strip!.x + strip!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    }
+    expect(await noSideways()).toBe(true);
+
+    // Anywhere else on the row closes it, and the same again opens it.
+    await row('CI').locator('td').nth(1).click();
+    await expect(stripOf('CI')).toBeHidden();
+    await expect(opening('CI')).toHaveAttribute('aria-expanded', 'false');
+    await expect(row('CI')).not.toHaveClass(/\bopen\b/);
+    await row('CI').locator('td').nth(1).click();
+    await expect(stripOf('CI')).toBeVisible();
+
+    // Copy prompt copies this row's prompt, says so for a moment, and neither opens nor closes the row it sits in.
+    await row('Nightly').getByRole('button', { name: 'Copy prompt' }).click();
+    await expect(row('Nightly').locator('.copy-prompt')).toHaveText('Copied');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('The "Nightly" GitHub Actions workflow in this repository is unstable.');
+    expect(copied).toContain('it passed 0% of its runs, with 1 failure, 0 of which passed on a later attempt of the same commit.');
+    expect(copied).toContain('- Test explorer · Build the snapshot: 1 failure on main, 0 flaky on feature branches');
+    expect(copied).not.toContain('a dismissed item leaves the lists');
+    await expect(opening('Nightly')).toHaveAttribute('aria-expanded', 'false');
+    await expect(stripOf('Nightly')).toBeHidden();
+    await expect(row('Nightly').getByRole('button', { name: 'Copy prompt' })).toBeVisible();
+    await row('CI').getByRole('button', { name: 'Copy prompt' }).click();
+    const copiedCi = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copiedCi).toContain('Test "Triage > a dismissed item leaves the lists" (apps/api/tests/integration/triage.test.ts · Test): 1 failure on main');
+    expect(copiedCi).toContain('Test "Capture > a thought is kept" (tests/e2e/capture.test.ts · E2E (F3)): 0 failures on main, 1 flaky on feature branches');
+    await expect(stripOf('CI')).toBeVisible();
+
+    // Nothing above sent a request: the strips and the prompts were in the page.
+    expect(requests).toEqual([]);
+
+    // The table scrolls inside its panel on a phone and fits it on a desk; the page never scrolls sideways.
+    expect(await table.locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
+    expect(await noSideways()).toBe(true);
+
+    // The name opens the workflow's own view, with its row left closed behind it.
+    await row('CI').getByRole('link', { name: 'CI', exact: true }).click();
+    await expect(page).toHaveURL(/[?&]workflow=CI(&|$)/);
+    await expect(page.getByRole('img', { name: 'Runs per day' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'What made CI fail' })).toContainText('a dismissed item leaves the lists');
+    await expect(page.getByRole('region', { name: 'Every failure' }).getByRole('row')).toHaveCount(3);
+    expect(await noSideways()).toBe(true);
+    await page.goto(`${monitor}/stability?group=workflow`);
+    await expect(opening('CI')).toHaveAttribute('aria-expanded', 'false');
+
+    // The keyboard: Tab from the table's (i) reaches the first chevron, and Enter opens and closes it.
+    await table.getByRole('button', { name: 'How to read By workflow' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(table.locator('.chev').first()).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(table.locator('tr.detail').first()).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(table.locator('tr.detail').first()).toBeHidden();
   });
 
   /**

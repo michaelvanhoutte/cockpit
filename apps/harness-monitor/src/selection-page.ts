@@ -1,4 +1,5 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
+import { COPY_SCRIPT, COPY_STYLE, promptBox } from './copy-prompt';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
 import { esc, inline, lineKey, questionOf, sentenceForm } from './look';
 import { number } from './page';
@@ -92,12 +93,6 @@ const fileItem = (f: Pick<SelectedFile, 'path' | 'status' | 'text'>) =>
   `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
 
 const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
-
-/** A Copy prompt button with the prompt it copies, which is in the page and never shown. */
-const promptBox = (text: string) => `<div class="prompt-cell"><button type="button" class="copy-prompt">Copy prompt</button><pre hidden>${esc(text)}</pre></div>`;
-
-/** Copies the prompt a button sits beside, which is in the page and never shown, and says so for a moment. */
-const COPY_SCRIPT = `<script>document.addEventListener('click',function(e){var b=e.target.closest('.copy-prompt');if(!b)return;var pre=b.parentNode.querySelector('pre');var say=function(t){b.textContent=t;setTimeout(function(){b.textContent='Copy prompt'},1500)};var fail=function(){say('Could not copy')};try{navigator.clipboard.writeText(pre.textContent).then(function(){say('Copied')},fail)}catch(x){fail()}});</script>`;
 
 /**
  * What one job selected on one pull request's last CI run, as the fragment a
@@ -395,7 +390,7 @@ over ${inline('period', 'Period', PERIOD_CHOICES, q.period)}`,
 
   // The page opens with the question its top tab names and the words a newcomer will not know, under the band, on every tab.
   const pageLead = lead(questionOf('selection'), LEAD_MORE);
-  return reportPage({ current: 'selection', controls: form, body: `${pageLead}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
+  return reportPage({ current: 'selection', controls: form, body: `${pageLead}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + COPY_STYLE + EXPLAIN_STYLE }, now);
 }
 
 const EXTRA = `
@@ -434,7 +429,6 @@ tr.stopped td{opacity:.55}
 .view-lead{margin:0 10px 12px;max-width:820px;font-size:14px;line-height:1.55;color:var(--ink)}
 tr.tier th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);padding-top:18px}
 .prompt-col{width:1%;white-space:nowrap;text-align:right}
-.copy-prompt{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line,#444);background:transparent;color:var(--accent-deep);cursor:pointer}
 details.more{display:inline}
 details.more summary{display:inline;font-size:13px}
 @media (max-width:640px){
