@@ -29,7 +29,10 @@ import {
   PERIODS,
   percent,
   plural,
+  rankRules,
+  RULE_GROUP_LABELS,
   ruleRows,
+  rulePrompt,
   selectionAddress,
   shareOf,
   TEST_ROWS,
@@ -55,38 +58,39 @@ const JOB_COLOURS: Record<Job, string> = { test: VIOLET, e2e: ORANGE };
 const OUTCOME_COLOURS: Record<Outcome, string> = { selected: VIOLET, full: ORANGE, docs: GREY, none: GREY };
 const outcomeColour = (o: Outcome, over: boolean) => (o === 'full' && over ? RED : OUTCOME_COLOURS[o]);
 
-/** The advice for each rule, by job: what to do about a rule that forces a full run, in the rule's own words. */
-const ADVICE: Record<Job, Record<string, string>> = {
+/** The advice for each rule, by job: what to do about a rule that forces a full run, in the rule's own words. A rule marked `expected` forces a full run by design, so it is listed with the ones not to fix and carries no prompt. */
+const ADVICE: Record<Job, Record<string, { advice: string; expected?: true }>> = {
   test: {
-    'push to main': 'Expected on a push to main, which runs everything by design; nothing to fix.',
-    'not a pull request': 'Not a pull request event, so nothing to select from. Nothing to fix.',
-    'diff unreadable': 'The job could not read the diff, so it ran everything rather than guess. A recurring one is a CI fault: fix the checkout.',
-    'any tsconfig': 'A tsconfig can extend another package’s, so it forces every package, and should.',
-    'outside every package': 'A file outside every package’s directory forces every package, since the import graph cannot attribute it. Fix: move the path under a package, or narrow the rule for files no test can depend on.',
-    'own vitest config': 'A package’s own Vitest config changes how its whole suite runs, so it forces that package. Expected.',
-    'own package.json': 'A package’s own package.json can change what its tests resolve, so it forces that package. Expected.',
-    'own wrangler config': 'A package’s Wrangler config is what its suite runs against, so it forces that package. Expected.',
-    'own migration': 'A migration forces its own package, since Vitest’s graph does not see the schema. Expected.',
-    'own global setup': 'A global setup runs outside any test file’s imports, so it forces its package. Expected.',
+    'push to main': { advice: 'Expected on a push to main, which runs everything by design; nothing to fix.', expected: true },
+    'not a pull request': { advice: 'Not a pull request event, so nothing to select from. Nothing to fix.', expected: true },
+    'diff unreadable': { advice: 'The job could not read the diff, so it ran everything rather than guess. A recurring one is a CI fault: fix the checkout.' },
+    'any tsconfig': { advice: 'A tsconfig can extend another package’s, so it forces every package, and should.', expected: true },
+    'outside every package': { advice: 'A file outside every package’s directory forces every package, since the import graph cannot attribute it. Fix: move the path under a package, or narrow the rule for files no test can depend on.' },
+    'own vitest config': { advice: 'A package’s own Vitest config changes how its whole suite runs, so it forces that package. Expected.', expected: true },
+    'own package.json': { advice: 'A package’s own package.json can change what its tests resolve, so it forces that package. Expected.', expected: true },
+    'own wrangler config': { advice: 'A package’s Wrangler config is what its suite runs against, so it forces that package. Expected.', expected: true },
+    'own migration': { advice: 'A migration forces its own package, since Vitest’s graph does not see the schema. Expected.', expected: true },
+    'own global setup': { advice: 'A global setup runs outside any test file’s imports, so it forces its package. Expected.', expected: true },
   },
   e2e: {
-    'push to main': 'Expected on a push to main, which runs everything by design; nothing to fix.',
-    'not a pull request': 'Not a pull request event, so nothing to select from. Nothing to fix.',
-    'diff unreadable': 'The job could not read the diff, so it ran every spec rather than guess. A recurring one is a CI fault: fix the checkout.',
-    'no product file in the diff': 'Nothing in the diff places a walk, so every spec ran. A pull request that changes only tests or tooling lands here.',
-    'e2e support, registry or config': 'Support code, the area registry or the Playwright config is shared by every walk, so it forces every spec, and should.',
-    'any tsconfig': 'A tsconfig can extend another package’s, so it forces every walk, and should.',
-    lockfile: 'The lockfile changes what every walk installs, so it forces every spec, and should.',
-    'any package.json': 'A package.json can change what every walk runs against, so it forces every spec.',
-    'workflow or action': 'A workflow or action changes how the job itself runs, so it forces every spec.',
-    'outside every package': 'A workflow, the lockfile or a root config forces every walk, and should.',
-    'spec with no area': 'A changed spec whose walks no area owns cannot be placed, so every walk ran. Fix: give the spec’s walks an area in the registry.',
-    'loaded by the job, owned by no area': 'A file the job loads that no area owns cannot be placed, so every walk ran. Fix: give it an area.',
-    'owned by no concept': 'The area registry cannot place this file, so every walk ran. A new source file or another tier’s test file lands here. Fix: place a file by what imports it (issue 1275, "Make the E2E (F3) selection fire"), not by adding it to the registry.',
-    'the selection failed': 'The selection step itself failed, so the job ran every spec. Read that job’s log for the cause.',
+    'push to main': { advice: 'Expected on a push to main, which runs everything by design; nothing to fix.', expected: true },
+    'not a pull request': { advice: 'Not a pull request event, so nothing to select from. Nothing to fix.', expected: true },
+    'diff unreadable': { advice: 'The job could not read the diff, so it ran every spec rather than guess. A recurring one is a CI fault: fix the checkout.' },
+    'no product file in the diff': { advice: 'Nothing in the diff places a walk, so every spec ran. A pull request that changes only tests or tooling lands here.' },
+    'e2e support, registry or config': { advice: 'Support code, the area registry or the Playwright config is shared by every walk, so it forces every spec, and should.', expected: true },
+    'any tsconfig': { advice: 'A tsconfig can extend another package’s, so it forces every walk, and should.', expected: true },
+    lockfile: { advice: 'The lockfile changes what every walk installs, so it forces every spec, and should.', expected: true },
+    'any package.json': { advice: 'A package.json can change what every walk runs against, so it forces every spec.' },
+    'workflow or action': { advice: 'A workflow or action changes how the job itself runs, so it forces every spec.' },
+    'outside every package': { advice: 'A workflow, the lockfile or a root config forces every walk, and should.', expected: true },
+    'spec with no area': { advice: 'A changed spec whose walks no area owns cannot be placed, so every walk ran. Fix: give the spec’s walks an area in the registry.' },
+    'loaded by the job, owned by no area': { advice: 'A file the job loads that no area owns cannot be placed, so every walk ran. Fix: give it an area.' },
+    'owned by no concept': { advice: 'The area registry cannot place this file, so every walk ran. A new source file or another tier’s test file lands here. Fix: place a file by what imports it (issue 1275, "Make the E2E (F3) selection fire"), not by adding it to the registry.' },
+    'the selection failed': { advice: 'The selection step itself failed, so the job ran every spec. Read that job’s log for the cause.' },
   },
 };
-const adviceFor = (job: Job, rule: string) => ADVICE[job][rule] ?? 'No advice is written for this rule yet.';
+const adviceFor = (job: Job, rule: string) => ADVICE[job][rule]?.advice ?? 'No advice is written for this rule yet.';
+const isExpected = (job: Job, rule: string) => ADVICE[job][rule]?.expected === true;
 
 /** A tile's label with its verdict after it, so the (i) follows both. Each verdict word is its own element, with no space inside one, so the label wraps between them and the (i) binds to the last; the dot keeps to the word after it. */
 const withVerdict = (label: string, verdict: Verdict) =>
@@ -101,6 +105,9 @@ const fileItem = (f: Pick<SelectedFile, 'path' | 'status' | 'text'>) =>
   `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
 
 const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
+
+/** Copies the prompt a button sits beside, which is in the page and never shown, and says so for a moment. */
+const COPY_SCRIPT = `<script>document.addEventListener('click',function(e){var b=e.target.closest('.copy-prompt');if(!b)return;var pre=b.parentNode.querySelector('pre');var say=function(t){b.textContent=t;setTimeout(function(){b.textContent='Copy prompt'},1500)};navigator.clipboard.writeText(pre.textContent).then(function(){say('Copied')},function(){say('Could not copy')})});</script>`;
 
 /**
  * What one job selected on one pull request's last CI run, as the fragment a
@@ -422,22 +429,28 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   }
 
   function byRule(): string {
-    const rows = ruleRows(pulls, jobs);
-    if (rows.length === 0) return wide('by-rule', 'What forced a full run', '', '<p class="well empty">Nothing forced a full run in this period.</p>');
-    const body = rows
-      .map((r) => {
-        const verdict = verdictOf(read, r.everything.size / r.of, bars.forcedFull[r.job]);
-        const pill = verdict === 'crossed' ? '<span class="pill over">over the bar</span>' : verdict === 'within' ? '<span class="pill good">within</span>' : '<span class="faint">unread</span>';
-        return `<tr><td>${jobDot(r.job)}${JOB_NAMES[r.job]}</td><td class="first"><a href="${link({ group: 'rule', rule: `${r.job}:${r.rule}` })}">${esc(r.rule)}</a><div class="sub">${esc(adviceFor(r.job, r.rule))}</div></td><td class="num total">${number(r.pulls.size)}<div class="sub">of ${number(r.of)} · ${percent(r.pulls.size / r.of)}</div></td><td class="num">${number(r.everything.size)}</td><td class="num">${plural(r.paths.size, 'path')}</td><td>${pill}</td></tr>`;
+    const { rules, typical } = rankRules(pulls, jobs, view.checkMs, isExpected);
+    const title = 'Ran more than needed: what forced a full run';
+    if (rules.length === 0) return wide('by-rule', title, '', '<p class="well empty">Nothing forced a full run in this period.</p>');
+    const body = rules
+      .map((r, i) => {
+        const saved = r.savedMs === null ? '<span class="faint">—</span>' : humanMs(r.savedMs);
+        const last = formatDay(belgianDay(r.lastForced));
+        const prompt = r.group === 'fix' ? `<div class="prompt-cell"><button type="button" class="copy-prompt">Copy prompt</button><pre hidden>${esc(rulePrompt(r, adviceFor(r.job, r.rule)))}</pre></div>` : '';
+        const head = i === 0 || rules[i - 1]!.group !== r.group ? `<tr class="tier"><th colspan="7" scope="rowgroup">${RULE_GROUP_LABELS[r.group]}</th></tr>` : '';
+        return `${head}<tr${r.group === 'fix' ? '' : ' class="stopped"'}><td>${jobDot(r.job)}${JOB_NAMES[r.job]}</td><td class="first"><a href="${link({ group: 'rule', rule: `${r.job}:${r.rule}` })}">${esc(r.rule)}</a><div class="sub">${esc(adviceFor(r.job, r.rule))}</div></td><td class="num total">${saved}<div class="sub">${plural(r.everything.size, 'full run')}</div></td><td class="num">${number(r.pulls.size)}<div class="sub">of ${number(r.of)}</div></td><td class="num">${plural(r.paths.size, 'path')}</td><td>${r.group === 'stopped' ? `<span class="pill grey">stopped ${last}</span>` : last}</td><td class="prompt-col">${prompt}</td></tr>`;
       })
       .join('\n');
+    const typicalLine = jobs.map((j) => `${JOB_NAMES[j]} ${typical[j] === null ? 'no selected run in this period' : humanMs(typical[j])}`).join(', ');
     return wide(
       'by-rule',
-      'What forced a full run',
-      `${plural(rows.length, 'rule')} · worst first · a pull request counts once per rule`,
+      title,
+      `${plural(rules.length, 'rule')} · most time it could have saved first`,
       `<div class="well table"><table>
-<thead><tr><th scope="col">Job</th><th scope="col">Rule</th><th scope="col" class="num">Pull requests</th><th scope="col" class="num">Left running everything</th><th scope="col" class="num">Paths</th><th scope="col">Bar ${forcedBarText}</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
+<thead><tr><th scope="col">Job</th><th scope="col">Rule</th><th scope="col" class="num">Could have saved</th><th scope="col" class="num">Pull requests</th><th scope="col" class="num">Paths</th><th scope="col">Last forced</th><th scope="col"><span class="sr-only">Prompt</span></th></tr></thead>
+<tbody>${body}</tbody></table></div>
+<p class="legend-foot">Could have saved: each full run&rsquo;s time in its check, less a typical selected run of the same job (${typicalLine}).</p>
+${COPY_SCRIPT}`,
     );
   }
 
@@ -618,6 +631,10 @@ details summary{cursor:pointer;color:var(--accent-deep);font-size:14px;font-weig
 .files li{font-size:13px}
 .advice{margin:0;padding:12px 16px;font-size:14px;color:var(--ink-soft);border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
 .prs a{margin-right:6px;font-weight:500}
+tr.stopped td{opacity:.55}
+tr.tier th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);padding-top:18px}
+.prompt-col{width:1%;white-space:nowrap;text-align:right}
+.copy-prompt{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line,#444);background:transparent;color:var(--accent-deep);cursor:pointer}
 details.more{display:inline}
 details.more summary{display:inline;font-size:13px}
 @media (max-width:640px){

@@ -1,5 +1,6 @@
 import { type JobFilter, inPeriod, MOST_SELECTED, type PullRef, refOf, SCOPE } from './selection-store';
 import type { BarId, SelectionJob, SelectionStatus } from './selection';
+import { CHECK_NAMES, checkKey } from './selection-report';
 
 /**
  * What the test selection page reads of the stored rows. The queries only
@@ -89,6 +90,8 @@ export interface SelectionView {
   packages: PackageRun[];
   pullDrill: PullDrill | null;
   testDrill: TestDrill | null;
+  /** The time each pull request's Test and E2E checks held it up in cycle time's rounds, by `checkKey` (selection-report.ts); empty where the view did not ask. */
+  checkMs: Map<string, number>;
 }
 
 /** What a view needs read. */
@@ -100,6 +103,8 @@ export interface ViewWants {
   /** How many of the most selected files to read; 0 reads only the bar's one, null none. */
   tally: number | null;
   packages: boolean;
+  /** How long the period's pull requests' Test and E2E checks held them up, from cycle time's rows. */
+  checks: boolean;
   /** One pull request's whole selection, whatever the period. */
   pull: number | null;
   /** One test's file rows. */
@@ -206,6 +211,19 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
            FROM selection_packages k JOIN scoped s ON s.pull_number = k.pull_number AND s.job = k.job`,
         )
         .bind(from, job),
+    );
+  }
+  if (wants.checks) {
+    add(
+      'checks',
+      db
+        .prepare(
+          `SELECT c.pull_number, c.name, SUM(c.held_ms) AS ms
+           FROM cycle_time_checks c JOIN cycle_time_pulls p ON p.pull_number = c.pull_number
+           WHERE p.merged_at >= ?1 AND c.name IN (${Object.values(CHECK_NAMES).map((name) => `'${name}'`).join(', ')})
+           GROUP BY c.pull_number, c.name`,
+        )
+        .bind(from),
     );
   }
   if (wants.pull !== null) {
@@ -316,5 +334,6 @@ export async function selectionView(db: D1Database, wants: ViewWants, from: numb
     packages: rows<PackageRun>('packages'),
     pullDrill,
     testDrill,
+    checkMs: new Map(rows<{ pull_number: number; name: string; ms: number }>('checks').map((row) => [checkKey(row.name === CHECK_NAMES.test ? 'test' : 'e2e', row.pull_number), row.ms])),
   };
 }

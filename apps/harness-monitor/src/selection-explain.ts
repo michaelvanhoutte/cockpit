@@ -48,7 +48,7 @@ export const TABLES: Record<Group, Explanation> = {
   pr: { shows: 'Each row is one merged pull request, newest first: what each job did, with the rule that forced a full run beneath it, its misses and the Test job&rsquo;s time. Its title opens what each job ran and why.' },
   rule: {
     shows:
-      'Each row is a rule that made a job run a package whole, worst first, with what to do about it: how many of the pull requests that ran the job it fired on (a pull request counts once per rule), on how many it left the whole job running everything, and how many paths set it off. The verdict judges the share it left running everything against the job&rsquo;s bar. A rule&rsquo;s name opens its paths.',
+      'Each row is a rule that made a job run a package whole, in three groups: <b>rules to fix</b>; <b>expected</b> ones, which force a full run by design; and <b>stopped</b> ones, which forced none of the job&rsquo;s last 20 pull requests. Each group lists first the rule whose full runs <b>could have saved</b> the most: for each, the time its check held the pull request up, less the median a selected run of the same job held one up in the period, never below zero. A pull request cycle time does not hold counts nothing. <b>Pull requests</b> is how many of those the job ran the rule fired on (a pull request counts once per rule), and <b>Paths</b> how many files set it off. <b>Copy prompt</b> copies what an agent needs to narrow a rule to fix. A rule&rsquo;s name opens its paths.',
   },
   package: {
     shows:

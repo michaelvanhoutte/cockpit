@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barsOf, dayRange, groupByStart, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, ruleRows, selectionAddress, type SelectedFile, verdictOf, whyText } from '../../src/selection-report';
+import { barsOf, type CheckMs, checkKey, dayRange, groupByStart, type Job, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, rankRules, ruleRows, rulePrompt, selectionAddress, type SelectedFile, verdictOf, whyText } from '../../src/selection-report';
 import type { PackageRun, ViewJob, ViewPull } from '../../src/selection-view';
 
 const ran = (over: Partial<ViewJob> = {}): ViewJob => ({ status: 'ran', ranEverything: false, selecting: true, filesRun: 12, filesTotal: 300, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [], ...over });
@@ -247,6 +247,185 @@ describe('Harness Monitor', () => {
       const files = times(6, (n) => through(`t/${n}.test.ts`, 'apps/api/src/item.ts'));
 
       expect(groupByStart(files)[0]).toMatchObject({ label: 'apps/api/src/item.ts', through: null });
+    });
+  });
+
+  describe('a rule that forced a full run could have saved the time its full runs held their pull requests up beyond a typical selected run of the same job', () => {
+    const MINUTE = 60_000;
+    /** Each pull request's check time, by job and number. */
+    const held = (entries: [Job, number, number][]): CheckMs => new Map(entries.map(([job, n, minutes]) => [checkKey(job, n), minutes * MINUTE]));
+    const neverExpected = () => false;
+    const savedBy = (pulls: ViewPull[], checkMs: CheckMs, rule: string) => rankRules(pulls, ['test', 'e2e'], checkMs, neverExpected).rules.find((r) => r.rule === rule);
+
+    it('two E2E full runs that held 8 and 6 minutes against a selected run of 1 minute could have saved 12', () => {
+      const pulls = [pull(1, { e2e: full('owned by no concept', 'a.ts') }), pull(2, { e2e: full('owned by no concept', 'b.ts') }), pull(3)];
+
+      const rule = savedBy(pulls, held([['e2e', 1, 8], ['e2e', 2, 6], ['e2e', 3, 1]]), 'owned by no concept');
+
+      expect(rule).toMatchObject({ savedMs: 12 * MINUTE });
+      expect(rule!.everything.size).toBe(2);
+    });
+
+    it('a full run that held less than a selected run could have saved nothing, never a negative', () => {
+      const pulls = [pull(1, { e2e: full('owned by no concept', 'a.ts') }), pull(2, { e2e: full('owned by no concept', 'b.ts') }), pull(3)];
+
+      const rule = savedBy(pulls, held([['e2e', 1, 8], ['e2e', 2, 0.5], ['e2e', 3, 2]]), 'owned by no concept');
+
+      expect(rule!.savedMs).toBe(6 * MINUTE);
+    });
+
+    it("a full run whose pull request cycle time does not hold counts nothing, and is still one of the rule's full runs", () => {
+      const pulls = [pull(1, { e2e: full('owned by no concept', 'a.ts') }), pull(2, { e2e: full('owned by no concept', 'b.ts') }), pull(3)];
+
+      const rule = savedBy(pulls, held([['e2e', 1, 8], ['e2e', 3, 1]]), 'owned by no concept');
+
+      expect(rule!.savedMs).toBe(7 * MINUTE);
+      expect(rule!.everything.size).toBe(2);
+    });
+
+    it("Test and E2E rules in one period are each read against their own job's typical selected run", () => {
+      const pulls = [pull(1, { test: full('any tsconfig', null), e2e: full('owned by no concept', 'a.ts') }), pull(2)];
+      const checkMs = held([['test', 1, 10], ['test', 2, 4], ['e2e', 1, 10], ['e2e', 2, 1]]);
+
+      expect(savedBy(pulls, checkMs, 'any tsconfig')!.savedMs).toBe(6 * MINUTE);
+      expect(savedBy(pulls, checkMs, 'owned by no concept')!.savedMs).toBe(9 * MINUTE);
+    });
+
+    it('a job with no selected run in the period has no typical run to measure against, so nothing is said, not zero', () => {
+      const pulls = [pull(1, { e2e: full('owned by no concept', 'a.ts') }), pull(2, { e2e: full('owned by no concept', 'b.ts') })];
+
+      const { rules, typical } = rankRules(pulls, ['e2e'], held([['e2e', 1, 8], ['e2e', 2, 6]]), neverExpected);
+
+      expect(rules[0]!.savedMs).toBeNull();
+      expect(typical.e2e).toBeNull();
+    });
+
+    it('a selected run counts toward the typical one only where cycle time holds its pull request', () => {
+      const pulls = [pull(1, { e2e: full('owned by no concept', 'a.ts') }), pull(2), pull(3), pull(4)];
+
+      const { typical } = rankRules(pulls, ['e2e'], held([['e2e', 1, 9], ['e2e', 2, 2], ['e2e', 3, 4]]), neverExpected);
+
+      expect(typical.e2e).toBe(3 * MINUTE);
+    });
+  });
+
+  describe('rules sit in three groups, rules to fix, expected and stopped, each ranked by what it could have saved, then by pull requests', () => {
+    const MINUTE = 60_000;
+    /** `count` pull requests, newest first, each merged a day before the one before, with the jobs `jobs` makes of each. */
+    const newestFirst = (count: number, jobs: (n: number) => Partial<ViewPull['jobs']>): ViewPull[] =>
+      times(count, (index) => ({ ...pull(index + 1, jobs(index + 1)), mergedAt: Date.parse('2026-10-14T10:00:00Z') - index * 86_400_000 }));
+    const byDesign = (_job: Job, rule: string) => rule.startsWith('by design');
+    const order = (pulls: ViewPull[], checkMs: CheckMs, jobs: Job[] = ['e2e']) => rankRules(pulls, jobs, checkMs, byDesign).rules.map((r) => [r.group, r.rule]);
+
+    it('a rule to fix that could have saved 2 hours sits above an expected rule that could have saved 4', () => {
+      const pulls = newestFirst(4, (n) => ({ e2e: n === 1 ? full('by design: lockfile', 'a') : n === 2 ? full('owned by no concept', 'b') : ran() }));
+      const checkMs: CheckMs = new Map([
+        [checkKey('e2e', 1), 4 * 60 * MINUTE + MINUTE],
+        [checkKey('e2e', 2), 2 * 60 * MINUTE + MINUTE],
+        [checkKey('e2e', 3), MINUTE],
+        [checkKey('e2e', 4), MINUTE],
+      ]);
+
+      expect(order(pulls, checkMs)).toEqual([['fix', 'owned by no concept'], ['expected', 'by design: lockfile']]);
+    });
+
+    it('an expected rule that also stopped sits under Stopped, and so does a rule to fix that stopped', () => {
+      const pulls = newestFirst(25, (n) => ({ e2e: n === 22 ? full('by design: lockfile', 'a') : n === 23 ? full('owned by no concept', 'b') : ran() }));
+
+      expect(order(pulls, new Map())).toEqual([['stopped', 'by design: lockfile'], ['stopped', 'owned by no concept']]);
+    });
+
+    it.each([
+      { situation: 'the 20th latest pull request that ran the job', forced: 20, group: 'fix' },
+      { situation: 'the 21st latest', forced: 21, group: 'stopped' },
+    ])('a rule whose last forced pull request is $situation is $group', ({ forced, group }) => {
+      const pulls = newestFirst(30, (n) => ({ e2e: n === forced ? full('owned by no concept', 'a') : ran() }));
+
+      const [rule] = rankRules(pulls, ['e2e'], new Map(), byDesign).rules;
+
+      expect(rule).toMatchObject({ group, lastForced: pulls[forced - 1]!.mergedAt });
+    });
+
+    it('the last 20 pull requests are those that ran the job, not those that skipped it for documentation only', () => {
+      const pulls = newestFirst(30, (n) => ({ e2e: n <= 5 ? ran({ status: 'docs-only' }) : n === 22 ? full('owned by no concept', 'a') : ran() }));
+
+      expect(order(pulls, new Map())).toEqual([['fix', 'owned by no concept']]);
+    });
+
+    it('rules of equal time rank the one that forced more pull requests first, then by name', () => {
+      const both = ran({ ranEverything: true, selecting: false, reasons: [{ rule: 'a rule', path: 'a' }, { rule: 'b rule', path: 'b' }] });
+      const pulls = newestFirst(4, (n) => ({ e2e: n === 1 ? full('b rule', 'a') : n === 2 ? both : n === 3 ? full('c rule', 'a') : ran() }));
+
+      expect(order(pulls, new Map())).toEqual([['fix', 'b rule'], ['fix', 'a rule'], ['fix', 'c rule']]);
+    });
+
+    it('a group is ranked by what it could have saved before it is by pull requests', () => {
+      const pulls = newestFirst(5, (n) => ({ e2e: n <= 2 ? full('many', `p${n}`) : n === 3 ? full('costly', 'a') : ran() }));
+      const checkMs: CheckMs = new Map([
+        [checkKey('e2e', 1), 2 * MINUTE],
+        [checkKey('e2e', 2), 2 * MINUTE],
+        [checkKey('e2e', 3), 20 * MINUTE],
+        [checkKey('e2e', 4), MINUTE],
+        [checkKey('e2e', 5), MINUTE],
+      ]);
+
+      expect(order(pulls, checkMs)).toEqual([['fix', 'costly'], ['fix', 'many']]);
+    });
+  });
+
+  describe("a rule's prompt holds what an agent needs to act, and is copied rather than shown", () => {
+    const MINUTE = 60_000;
+    const ADVICE = 'A file outside every package forces every package.';
+    /** One E2E rule forced by the paths given, each with its pull request numbers, among three selected runs; all merged on 10 Oct 2026. */
+    const ruleForcedBy = (paths: Record<string, number[]>) => {
+      const numbers = [...new Set(Object.values(paths).flat())];
+      const forcing = numbers.map((n) => {
+        const reasons = Object.entries(paths).filter(([, list]) => list.includes(n)).map(([path]) => ({ rule: 'owned by no concept', path }));
+        return pull(n, { e2e: ran({ ranEverything: true, selecting: false, reasons }) });
+      });
+      const selected = times(3, (n) => pull(1000 + n));
+      const checkMs: CheckMs = new Map([...numbers.map((n) => [checkKey('e2e', n), 5 * MINUTE] as const), ...selected.map((p) => [checkKey('e2e', p.number), MINUTE] as const)]);
+      return rankRules([...forcing, ...selected], ['e2e'], checkMs, () => false).rules[0]!;
+    };
+
+    it('names the job, the rule, the file that holds the rule and its tests, the merge dates, the time it could have saved, the advice and the ask', () => {
+      const prompt = rulePrompt(ruleForcedBy({ 'apps/api/src/a.ts': [1, 2], 'apps/api/src/b.ts': [3] }), ADVICE);
+
+      expect(prompt).toContain('The E2E job ran every spec on 3 of the 6 pull requests merged 10 Oct 2026 to 10 Oct 2026 that ran it, forced by the rule "owned by no concept" in scripts/lib/e2e-selection.mjs.');
+      expect(prompt).toContain('Selecting instead would have saved about 12m 00s of CI time.');
+      expect(prompt).toContain(`What the Harness Monitor says about the rule today: ${ADVICE}`);
+      expect(prompt).toContain('prove it with a case in scripts/lib/e2e-selection.test.mjs');
+      expect(prompt).toContain('Never let a spec be skipped that the change could break.');
+      expect(prompt).toContain('Where a path should keep forcing a full run, say so and why.');
+      expect(prompt.endsWith('Scope the fix with /scoping before building it.')).toBe(true);
+    });
+
+    it('lists every path worst first, the one that forced the most pull requests at the top', () => {
+      const prompt = rulePrompt(ruleForcedBy({ 'apps/api/src/a.ts': [1], 'apps/api/src/b.ts': [1, 2, 3] }), ADVICE);
+
+      expect(prompt).toContain('- apps/api/src/b.ts: 3 pull requests (#1, #2, #3)\n- apps/api/src/a.ts: 1 pull request (#1)');
+    });
+
+    it('a path that forced 9 pull requests names six of them and then an ellipsis', () => {
+      const prompt = rulePrompt(ruleForcedBy({ 'apps/api/src/a.ts': [1, 2, 3, 4, 5, 6, 7, 8, 9] }), ADVICE);
+
+      expect(prompt).toContain('- apps/api/src/a.ts: 9 pull requests (#1, #2, #3, #4, #5, #6, …)');
+      expect(prompt).not.toContain('#7');
+    });
+
+    it('a rule with 75 paths lists 25 and says how many more', () => {
+      const paths = Object.fromEntries(times(75, (n) => [`apps/api/src/p${String(n).padStart(2, '0')}.ts`, [n + 1]]));
+
+      const prompt = rulePrompt(ruleForcedBy(paths), ADVICE);
+
+      expect(prompt.split('\n').filter((line) => line.startsWith('- apps/api/src/p'))).toHaveLength(25);
+      expect(prompt).toContain('- and 50 more paths, each forcing one pull request');
+    });
+
+    it('says nothing of a time saved where there is none to say', () => {
+      const prompt = rulePrompt({ ...ruleForcedBy({ 'apps/api/src/a.ts': [1] }), savedMs: null }, ADVICE);
+
+      expect(prompt).not.toContain('Selecting instead would have saved');
     });
   });
 

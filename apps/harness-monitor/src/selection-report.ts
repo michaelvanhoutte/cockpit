@@ -1,6 +1,7 @@
-import { addDays, belgianDay, startOfDay } from './belgium';
-import { quantile } from './cycle-time-report';
+import { addDays, belgianDay, formatDay, startOfDay } from './belgium';
+import { plural, quantile } from './cycle-time-report';
 import { number } from './page';
+import { humanMs } from './report';
 import { leadingRule, type JobFilter, verdictOf } from './selection-store';
 import type { BarId, SelectionJob } from './selection';
 import type { PackageRun, StoredBar, ViewJob, ViewPull, ViewWants } from './selection-view';
@@ -98,10 +99,10 @@ export function periodStart(period: Period, now: number): number {
 
 /** What the tab needs read: each asks for its own rows, so a tab never pays for another's. */
 export function wantsOf(q: SelectionQuery): ViewWants {
-  const none: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, pull: null, test: null };
+  const none: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, checks: false, pull: null, test: null };
   if (q.group === 'day') return { ...none, pulls: true, reasons: true, misses: true, tally: 0 };
   if (q.group === 'pr') return q.pr !== null ? { ...none, pull: q.pr } : { ...none, pulls: true, reasons: true, misses: true };
-  if (q.group === 'rule') return { ...none, pulls: true, reasons: true };
+  if (q.group === 'rule') return q.rule ? { ...none, pulls: true, reasons: true } : { ...none, pulls: true, reasons: true, checks: true };
   if (q.group === 'package') return { ...none, pulls: true, packages: true };
   if (q.group === 'test') return q.test !== null ? { ...none, test: q.test } : { ...none, pulls: true, tally: TEST_ROWS };
   return { ...none, pulls: true, misses: true };
@@ -109,7 +110,7 @@ export function wantsOf(q: SelectionQuery): ViewWants {
 
 // ---- Reading
 
-export { plural } from './cycle-time-report';
+export { plural };
 export const percent = (value: number) => `${Math.round(value * 100)}%`;
 
 /** The middle value, the middle pair averaged on an even count; null for none. */
@@ -284,6 +285,120 @@ export function ruleRows(pulls: ViewPull[], jobs: Job[]): RuleRow[] {
     rows.push(...byRule.values());
   }
   return rows.sort((a, b) => b.pulls.size - a.pulls.size || a.job.localeCompare(b.job) || a.rule.localeCompare(b.rule));
+}
+
+/** A rule that forced none of its job's latest this many pull requests that ran it reads as stopped. */
+export const STOPPED_AFTER_PULLS = 20;
+
+/** The three groups the rules sit in, in the order the page lists them. */
+export const RULE_GROUPS = ['fix', 'expected', 'stopped'] as const;
+export type RuleGroup = (typeof RULE_GROUPS)[number];
+export const RULE_GROUP_LABELS: Record<RuleGroup, string> = {
+  fix: 'Rules to fix',
+  expected: 'Expected: they force a full run by design',
+  stopped: `Stopped: none of the last ${STOPPED_AFTER_PULLS} pull requests`,
+};
+
+/** The time each pull request's check held it up in cycle time's rounds, by `checkKey`. */
+export type CheckMs = Map<string, number>;
+export const checkKey = (job: Job, pull: number) => `${job}:${pull}`;
+
+/** Cycle time's name for the check a job runs as. */
+export const CHECK_NAMES: Record<Job, string> = { test: 'Test', e2e: 'E2E (F3)' };
+
+/**
+ * The median time a job's check held a pull request up where it selected: what
+ * a run of the job costs when no rule forces everything. Null where the period
+ * holds no selected run with a check time, which is no figure, never zero.
+ */
+export function typicalSelectedMs(pulls: ViewPull[], job: Job, checkMs: CheckMs): number | null {
+  return median(
+    pulls
+      .filter((p) => outcomeOf(jobOf(p, job)) === 'selected')
+      .map((p) => checkMs.get(checkKey(job, p.number)))
+      .filter((ms): ms is number => ms !== undefined),
+  );
+}
+
+/** One rule with the group it sits in and what its full runs cost over a typical selected run. */
+export interface RankedRule extends RuleRow {
+  group: RuleGroup;
+  /** The time its full runs could have saved; null where the period holds no selected run of the job to measure against. */
+  savedMs: number | null;
+  /** When the newest pull request it forced was merged. */
+  lastForced: number;
+  /** The first and last merge among the pull requests the job ran in the period. */
+  span: [number, number];
+}
+
+/**
+ * The rules that forced a full run, in three groups, each ranked by the time
+ * its full runs could have saved, then by pull requests. A full run could have
+ * saved the time its check held the pull request up, less a typical selected
+ * run of the same job, never below zero for one run; a pull request cycle time
+ * does not hold counts nothing. A rule that forced none of its job's latest
+ * pull requests is stopped, whatever its mark; the rest are expected where
+ * `expected` says so, and otherwise are to be fixed.
+ */
+export function rankRules(pulls: ViewPull[], jobs: Job[], checkMs: CheckMs, expected: (job: Job, rule: string) => boolean): { rules: RankedRule[]; typical: Record<Job, number | null> } {
+  const typical: Record<Job, number | null> = { test: typicalSelectedMs(pulls, 'test', checkMs), e2e: typicalSelectedMs(pulls, 'e2e', checkMs) };
+  const recent: Record<Job, Set<number>> = { test: new Set(), e2e: new Set() };
+  const span: Record<Job, [number, number]> = { test: [0, 0], e2e: [0, 0] };
+  for (const job of jobs) {
+    const ran = pulls.filter((p) => jobOf(p, job).status === 'ran');
+    for (const p of ran.slice(0, STOPPED_AFTER_PULLS)) recent[job].add(p.number);
+    if (ran.length) span[job] = [Math.min(...ran.map((p) => p.mergedAt)), Math.max(...ran.map((p) => p.mergedAt))];
+  }
+  const rules = ruleRows(pulls, jobs).map((row): RankedRule => {
+    const selected = typical[row.job];
+    const savedMs = selected === null ? null : [...row.everything].reduce((all, n) => all + Math.max(0, (checkMs.get(checkKey(row.job, n)) ?? 0) - selected), 0);
+    const stopped = ![...row.pulls.keys()].some((n) => recent[row.job].has(n));
+    return {
+      ...row,
+      group: stopped ? 'stopped' : expected(row.job, row.rule) ? 'expected' : 'fix',
+      savedMs,
+      lastForced: Math.max(...[...row.pulls.values()].map((p) => p.mergedAt)),
+      span: span[row.job],
+    };
+  });
+  return {
+    rules: rules.sort((a, b) => RULE_GROUPS.indexOf(a.group) - RULE_GROUPS.indexOf(b.group) || (b.savedMs ?? 0) - (a.savedMs ?? 0) || b.pulls.size - a.pulls.size || a.job.localeCompare(b.job) || a.rule.localeCompare(b.rule)),
+    typical,
+  };
+}
+
+/** Where each job's rules live, and the tests that hold them. */
+export const RULE_FILES: Record<Job, string> = { test: 'scripts/lib/test-selection.mjs', e2e: 'scripts/lib/e2e-selection.mjs' };
+export const RULE_TESTS: Record<Job, string> = { test: 'scripts/lib/test-selection.test.mjs', e2e: 'scripts/lib/e2e-selection.test.mjs' };
+
+/** The most paths, and the most pull requests of each, a rule's prompt lists. */
+const PROMPT_PATHS = 25;
+const PROMPT_PULLS = 6;
+
+/**
+ * What an agent in this repository is asked, to fix a rule: the rule and its
+ * file, how often and when it forced a full run, every path worst first, the
+ * time it could have saved, the advice the Monitor gives today, and the ask.
+ */
+export function rulePrompt(r: RankedRule, advice: string): string {
+  const [unit, units] = UNIT[r.job];
+  const every = r.job === 'e2e' ? 'every spec' : 'every test file of the packages it forced';
+  const paths = [...r.paths.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  const listed = paths.slice(0, PROMPT_PATHS).map(([path, list]) => `- ${path}: ${plural(list.length, 'pull request')} (${list.slice(0, PROMPT_PULLS).map((p) => `#${p.number}`).join(', ')}${list.length > PROMPT_PULLS ? ', …' : ''})`);
+  const rest = paths.length > PROMPT_PATHS ? [`- and ${plural(paths.length - PROMPT_PATHS, 'more path')}, each forcing ${paths.slice(PROMPT_PATHS).every(([, list]) => list.length === 1) ? 'one pull request' : 'a few'}`] : [];
+  const range = `${formatDay(belgianDay(r.span[0]))} to ${formatDay(belgianDay(r.span[1]))}`;
+  const saved = r.savedMs ? ` Selecting instead would have saved about ${humanMs(r.savedMs)} of CI time.` : '';
+  return [
+    `The ${JOB_NAMES[r.job]} ran ${every} on ${r.everything.size} of the ${r.of} pull requests merged ${range} that ran it, forced by the rule "${r.rule}" in ${RULE_FILES[r.job]}.${saved}`,
+    '',
+    'Paths that forced it, worst first:',
+    ...listed,
+    ...rest,
+    '',
+    `What the Harness Monitor says about the rule today: ${advice}`,
+    '',
+    `For each path, find what in it really forces ${every}. Where a change to it can only affect some ${units}, change the selection so it runs only those, and prove it with a case in ${RULE_TESTS[r.job]}. Never let a ${unit} be skipped that the change could break. Where a path should keep forcing a full run, say so and why. Paths that share one cause share one fix. Scope the fix with /scoping before building it.`,
+  ].join('\n');
 }
 
 export interface PackageSummary {
