@@ -425,14 +425,14 @@ export function isDependabot(run) {
 export const workflowOf = (run) => (isDependabot(run) ? 'Dependabot' : run.workflow);
 
 /**
- * Whether a run is `main`'s own: every push to it, and its scheduled and manual runs. A pull
- * request's run, or a push to any other branch, is a feature branch's.
+ * Whether a run is `main`'s own: whatever started it, a run on the trunk. A pull request's
+ * run, or any run on another branch, is a feature branch's.
  *
  * @param {{ event?: string|null, branch?: string|null }} run
  */
 export function onMainOf(run, trunk = 'main') {
   if (run.event === 'pull_request' || run.event === 'pull_request_target') return false;
-  return !(run.event === 'push' && run.branch !== trunk);
+  return run.branch == null || run.branch === trunk;
 }
 
 /**
@@ -520,7 +520,8 @@ export function attemptRows(entries, { trunk = 'main' } = {}) {
       runId: run.id,
       attempt,
       workflow: workflowOf(run),
-      path: run.path,
+      // Dependabot's update runs can come with no workflow file, and the Monitor refuses an attempt with no path.
+      path: run.path ?? 'dynamic/dependabot',
       event: run.event ?? 'unknown',
       branch: run.branch ?? null,
       pullRequest: run.pullRequest ?? null,

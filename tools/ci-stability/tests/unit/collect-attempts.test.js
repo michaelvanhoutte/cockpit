@@ -200,6 +200,7 @@ describe('CI stability', () => {
 
     it.each([
       { situation: 'a download GitHub fails', zips: {}, },
+      { situation: 'a download that breaks off mid-body', zips: { 11: { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => { throw new TypeError('terminated'); } } } },
       { situation: 'a download that is not an archive', zips: { 11: { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new TextEncoder().encode('not a zip').buffer } } },
     ])('$situation leaves the job unreadable rather than failing the send', async ({ zips }) => {
       const stub = stubGithub({ artifacts: [artifact(11, '08:11')], zips });

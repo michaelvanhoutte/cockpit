@@ -111,6 +111,13 @@ describe('CI stability', () => {
       expect(row.outcome).toBe('pass');
     });
 
+    it('a Dependabot run with no workflow file still has a path to send', () => {
+      const row = rowOf([], { conclusion: 'success', path: null, event: 'dynamic', workflow: 'npm_and_yarn in /. for esbuild - Update #1547810405' });
+
+      expect(row.workflow).toBe('Dependabot');
+      expect(row.path).toBe('dynamic/dependabot');
+    });
+
     it('a workflow of the repository keeps its own name', () => {
       expect(rowOf([], { workflow: 'Stability backfill' }).workflow).toBe('Stability backfill');
       expect(isDependabot(run())).toBe(false);
@@ -158,6 +165,8 @@ describe('CI stability', () => {
       { situation: 'a manual run', run: { event: 'workflow_dispatch', branch: 'main' }, onMain: true },
       { situation: 'a pull request\'s run', run: { event: 'pull_request', branch: 'claude/1581-store', pullRequest: 1604 }, onMain: false },
       { situation: 'a push to another branch', run: { event: 'push', branch: 'claude/1581-store' }, onMain: false },
+      { situation: 'a manual run on another branch', run: { event: 'workflow_dispatch', branch: 'claude/1581-store' }, onMain: false },
+      { situation: 'a merge queue\'s run', run: { event: 'merge_group', branch: 'gh-readonly-queue/main/pr-1604' }, onMain: false },
     ])('$situation is main\'s: $onMain', ({ run: over, onMain }) => {
       const row = rowOf([job('Test', 'failure', { record: read([test('a')]) })], over);
 

@@ -118,7 +118,15 @@ async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250
       continue;
     }
 
-    if (res.ok) return parse(res);
+    if (res.ok) {
+      // A body that breaks off mid-read is a failed request like a thrown fetch, not a bug here.
+      try {
+        return await parse(res);
+      } catch (error) {
+        lastError = new GitHubError(`Could not read GitHub's answer for ${path}: ${error.message}`, { reason: 'network' });
+        continue;
+      }
+    }
 
     // A spent allowance is worth its own message: it is the one failure that is
     // about *us* rather than about GitHub, and the fix (fetch fewer runs, or

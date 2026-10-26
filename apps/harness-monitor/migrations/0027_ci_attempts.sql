@@ -15,7 +15,7 @@ CREATE TABLE ci_attempts (
   event TEXT NOT NULL,
   branch TEXT,
   pull_number INTEGER,                      -- the pull request it ran for, if any
-  on_main INTEGER NOT NULL CHECK (on_main IN (0, 1)),  -- main's own runs, scheduled and manual ones included; 0 for a pull request's run or a push to any other branch
+  on_main INTEGER NOT NULL CHECK (on_main IN (0, 1)),  -- main's own runs, scheduled and manual ones included; 0 for a pull request's run or any run on another branch
   head_sha TEXT NOT NULL,
   status TEXT NOT NULL,
   conclusion TEXT,                          -- null while it is still running
