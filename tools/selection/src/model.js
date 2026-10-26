@@ -35,8 +35,6 @@ export const BARS = Object.freeze({
   minPulls: 20,
   /** A job forced to run everything on this share of the pull requests that ran it, Test and E2E apart. */
   forcedFull: 0.25,
-  /** A test file or spec selected on this share of the pull requests that could have skipped it, over at least `minOver` of them. */
-  mostSelected: Object.freeze({ share: 0.8, minOver: 10 }),
   /** Misses: any one crosses. */
   misses: 1,
 });
@@ -46,7 +44,6 @@ export const BAR_DEFS = Object.freeze([
   { id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: BARS.forcedFull, minOver: null },
   { id: 'test-forced-full', name: 'Test forced to run everything', threshold: BARS.forcedFull, minOver: null },
   { id: 'misses', name: 'Misses', threshold: BARS.misses, minOver: null },
-  { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: BARS.mostSelected.share, minOver: BARS.mostSelected.minOver },
 ]);
 
 const barName = (id) => BAR_DEFS.find((def) => def.id === id).name;
@@ -216,36 +213,6 @@ function pullsInWindow(pulls, days, now) {
 }
 
 /**
- * The test file or spec selected on the largest share of the pull requests
- * that could have skipped it, among those with at least `BARS.mostSelected.minOver`
- * such pull requests. A pull request could have skipped a file only where its
- * package (or the E2E tier) ran in `changed` mode; a full run says nothing
- * about selection. `null` where no file has ten of them.
- */
-function mostSelectedShare(pulls) {
-  const files = new Map();
-  const tally = (packages) => {
-    for (const pkg of packages) {
-      if (pkg.mode === 'full') continue;
-      for (const file of pkg.files) {
-        const entry = files.get(file.path) ?? { path: file.path, selected: 0, of: 0 };
-        entry.of += 1;
-        if (file.status !== 'not run') entry.selected += 1;
-        files.set(file.path, entry);
-      }
-    }
-  };
-  for (const pull of pulls) {
-    tally(pull.packages);
-    tally(pull.e2e.packages);
-  }
-
-  const eligible = [...files.values()].filter((entry) => entry.of >= BARS.mostSelected.minOver).map((entry) => ({ ...entry, share: entry.selected / entry.of }));
-  eligible.sort((a, b) => b.share - a.share || b.of - a.of || a.path.localeCompare(b.path));
-  return eligible[0] ?? null;
-}
-
-/**
  * One window's summary — the five figures "Is selection working?" asks for.
  * `null` wherever there is nothing to compute from, which the page reads as
  * "none" and never draws as a zero it did not earn.
@@ -283,8 +250,6 @@ function windowSummary(pulls, { days, now, coveredSince }) {
       main: inWindow.length === 0 ? null : median(ran.map((pull) => pull.testDurationMs.main).filter((ms) => ms !== null)),
     },
     docsOnly: inWindow.length === 0 ? null : { count: docsOnly.length, of: inWindow.length },
-    // The worst test file or spec by share selected, over the pull requests that could have skipped it; null where none has ten of them.
-    mostSelected: mostSelectedShare(inWindow),
     // The browser tier, counted over the pull requests whose E2E job left a
     // record: one from before E2E recorded anything says nothing either way.
     e2e: {
@@ -393,7 +358,7 @@ function barsOf(windowPulls, summary, alarmNumbers) {
   const read = summary.pulls >= BARS.minPulls;
   const bar = ({ id, name, count, of, value, threshold, ...extra }) => {
     const verdict = verdictOf({ read, value, threshold });
-    return { id, name, count, of, value, threshold, minOver: null, path: null, cause: null, ...extra, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: alarmNumbers.get(id) ?? null };
+    return { id, name, count, of, value, threshold, cause: null, ...extra, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: alarmNumbers.get(id) ?? null };
   };
   const forced = (id, name, figure, { forcedOf, ranEverything, ran }) =>
     bar({
@@ -406,7 +371,6 @@ function barsOf(windowPulls, summary, alarmNumbers) {
       cause: leadingRule(windowPulls.filter((pull) => ran(pull) && ranEverything(pull)), forcedOf),
     });
   const [test, e2e] = TIERS;
-  const selected = summary.mostSelected;
 
   return {
     windowDays: BARS.windowDays,
@@ -419,16 +383,6 @@ function barsOf(windowPulls, summary, alarmNumbers) {
       forced('e2e-forced-full', barName('e2e-forced-full'), summary.e2e.forcedFull, e2e),
       forced('test-forced-full', barName('test-forced-full'), summary.forcedFull, test),
       bar({ id: 'misses', name: barName('misses'), count: summary.misses, of: null, value: summary.misses, threshold: BARS.misses }),
-      bar({
-        id: 'most-selected',
-        name: barName('most-selected'),
-        count: selected?.selected ?? null,
-        of: selected?.of ?? null,
-        value: selected?.share ?? null,
-        threshold: BARS.mostSelected.share,
-        minOver: BARS.mostSelected.minOver,
-        path: selected?.path ?? null,
-      }),
     ],
   };
 }

@@ -45,14 +45,6 @@ function forcedWindow({ total, testForced = 0, e2eForced = 0 }) {
   );
 }
 
-/** `selected` of `total` pull requests select `hot.test.ts` among those that could have skipped it, plus `fullRuns` that ran its package in full. */
-function hotFileWindow({ total, selected, fullRuns = 0, path = 'apps/pkg/tests/unit/hot.test.ts' }) {
-  return [
-    ...times(total, (index) => aPull({ test: [pkg({ mode: 'changed', files: [file({ path, status: index < selected ? 'passed' : 'not run' })] })] })),
-    ...times(fullRuns, () => aPull({ test: [pkg({ ...forced(), files: [file({ path })] })] })),
-  ];
-}
-
 describe('Test selection report', () => {
   describe('each headline figure carries a verdict against its bar on the 14-day window', () => {
     it.each([
@@ -74,30 +66,18 @@ describe('Test selection report', () => {
       expect(crossed).toMatchObject({ threshold: 0.25, alarmIssue: null });
     });
 
-    it.each([
-      { situation: 'the most-selected test at 67% over 12 pull requests', pulls: () => [...hotFileWindow({ total: 12, selected: 8 }), ...padding(10)], verdict: 'within', unread: null },
-      { situation: 'the most-selected test at 83% over 12 pull requests', pulls: () => [...hotFileWindow({ total: 12, selected: 10 }), ...padding(10)], verdict: 'crossed', unread: null },
-      { situation: 'the most-selected test at 83% over 6 pull requests', pulls: () => [...hotFileWindow({ total: 6, selected: 5 }), ...padding(20)], verdict: 'unread', unread: 'figure' },
-      { situation: 'the most-selected test at 80% over exactly 10 pull requests', pulls: () => [...hotFileWindow({ total: 10, selected: 8 }), ...padding(20)], verdict: 'crossed', unread: null },
-      { situation: 'a test selected on 8 of 12 pull requests, and run in full by 10 others', pulls: () => [...hotFileWindow({ total: 12, selected: 8, fullRuns: 10 })], verdict: 'within', unread: null },
-    ])('$situation: $verdict', ({ pulls, verdict, unread }) => {
-      expect(bar(build(pulls()), 'most-selected')).toMatchObject({ verdict, unread });
-    });
-
-    it('a browser spec is read like a test file: selected on 10 of 12 pull requests it crosses', () => {
-      const spec = (index) => aPull({ e2e: [e2eTier({ mode: 'changed', files: [file({ path: 'tests/e2e/hot.test.ts', status: index < 10 ? 'passed' : 'not run' })] })] });
-      expect(bar(build([...times(12, spec), ...padding(10)]), 'most-selected')).toMatchObject({ verdict: 'crossed', path: 'tests/e2e/hot.test.ts', count: 10, of: 12 });
-    });
-
-    it('the worst test with at least ten pull requests is the figure, not a worse one with fewer', () => {
-      const pulls = [...hotFileWindow({ total: 6, selected: 6, path: 'few.test.ts' }), ...hotFileWindow({ total: 20, selected: 14, path: 'many.test.ts' })];
-      expect(bar(build(pulls), 'most-selected')).toMatchObject({ verdict: 'within', path: 'many.test.ts', count: 14, of: 20 });
+    it('the job judges three bars, and a test selected on every pull request crosses none of them', () => {
+      // A test selected on all twelve pull requests that could have skipped it, beside eight documentation-only ones: it was once the retired most-selected bar's crossing.
+      const hot = times(12, () => aPull({ test: [pkg({ mode: 'changed', files: [file({ path: 'apps/pkg/tests/unit/hot.test.ts' })] })] }));
+      const model = build([...hot, ...padding(8)]);
+      expect(model.bars.items.map((each) => each.id)).toEqual(['e2e-forced-full', 'test-forced-full', 'misses']);
+      expect(model.bars.items.map((each) => each.verdict)).not.toContain('crossed');
     });
 
     it('a window with 19 merged pull requests leaves every bar unread, and says the window is why', () => {
       const model = build(forcedWindow({ total: 19, testForced: 19, e2eForced: 19 }));
       expect(model.bars.read).toBe(false);
-      expect(model.bars.items.map((each) => [each.verdict, each.unread])).toEqual(times(4, () => ['unread', 'window']));
+      expect(model.bars.items.map((each) => [each.verdict, each.unread])).toEqual(times(3, () => ['unread', 'window']));
     });
 
     it('a window with exactly 20 merged pull requests is read', () => {
@@ -109,7 +89,6 @@ describe('Test selection report', () => {
       const model = build(padding(20));
       expect(bar(model, 'test-forced-full')).toMatchObject({ verdict: 'unread', unread: 'figure', value: null });
       expect(bar(model, 'e2e-forced-full')).toMatchObject({ verdict: 'unread', unread: 'figure', value: null });
-      expect(bar(model, 'most-selected')).toMatchObject({ verdict: 'unread', unread: 'figure', value: null });
     });
 
     it('pull requests merged before the window are not read', () => {
