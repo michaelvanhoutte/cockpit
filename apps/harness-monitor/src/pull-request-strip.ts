@@ -244,10 +244,10 @@ function gapParts(type: 'coding' | 'fixing', from: number, to: number, slices: S
  * A round's jobs placed in rows: a job takes the free row that ended last, from its lead's start to
  * its end, so jobs that overlapped sit in different rows and one that waited on another sits in
  * its row after it. The row that was busiest holds the strip's line, then the next above it, then
- * below, so the same jobs hold the same rows on every render. Null where the round's jobs are not recorded.
+ * below, so the same jobs hold the same rows on every render. Null where the round's jobs are not recorded, or none ran, which draws as a block like an unrecorded one.
  */
 export function placeLanes(lanes: TimelineLane[] | null | undefined): PlacedLane[] | null {
-  if (!Array.isArray(lanes)) return null;
+  if (!Array.isArray(lanes) || lanes.length === 0) return null;
   const rows = packRows(lanes.map((lane) => ({ from: lane.offsetMs - lane.leadMs, to: lane.offsetMs + lane.ms, busy: lane.leadMs + lane.ms })));
   return lanes.map((lane, at) => ({ ...lane, row: rows[at]! }));
 }

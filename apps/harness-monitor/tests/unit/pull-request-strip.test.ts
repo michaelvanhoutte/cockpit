@@ -219,6 +219,7 @@ describe('Harness Monitor', () => {
     it('places nothing for a round whose jobs are not recorded', () => {
       expect(placeLanes(null)).toBeNull();
       expect(placeLanes(undefined)).toBeNull();
+      expect(placeLanes([])).toBeNull();
     });
   });
 
