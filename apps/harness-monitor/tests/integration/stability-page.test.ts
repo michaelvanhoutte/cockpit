@@ -311,7 +311,7 @@ describe('Harness Monitor', () => {
     const jobRows = (html: string) =>
       [...panelOf(html, 'by-job').matchAll(/<tr data-opens="([^"]*)"[^>]*>(.*?)<\/tr><tr class="detail" hidden><td colspan="8">(.*?)<\/td><\/tr>/gs)].map(([, name, row, detail]) => {
         const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((c) => plain(c[1]!));
-        return { name: name!, cells, rate: cells[2]!, failed: cells[4]!, detail: detail! };
+        return { name: name!.split(' in ')[0]!, cells, rate: cells[2]!, failed: cells[4]!, detail: detail! };
       });
 
     it("the tiles and panels count main: a feature branch's attempts are in none of them, and no tile counts the time main was red", async () => {
@@ -353,6 +353,14 @@ describe('Harness Monitor', () => {
       expect(plain(lint!.detail)).toContain('No step of this job is stored for main.');
     });
 
+    it('a job with nothing on main has a name that opens no steps, where a job on main has a link', async () => {
+      await sendAttempts(SCENARIO);
+
+      const rows = [...panelOf(await thePage(), 'by-job').matchAll(/<td class="first">(.*?)<div class="sub">/gs)].map((m) => m[1]!);
+
+      expect(rows).toEqual(['<a href="/stability?steps=CI%7CTest">Test</a>', 'Lint']);
+    });
+
     it('a job that did not flake on a branch says so in its strip', async () => {
       await sendAttempts([on(1, 1, '2026-10-30T09:00:00Z', 'pass', { jobs: [test('pass')] })]);
 
@@ -368,7 +376,7 @@ describe('Harness Monitor', () => {
       const html = await thePage('?steps=CI%7CTest');
 
       expect(text(panelOf(html, 'steps'))).toContain('CI · on main · median 1m 00s');
-      expect(panelOf(html, 'by-job')).toContain('<tr data-opens="Test" class="chosen">');
+      expect(panelOf(html, 'by-job')).toContain('<tr data-opens="Test in CI" class="chosen">');
       expect(plain(jobRows(html)[0]!.detail)).toContain('Hide where Test');
     });
 

@@ -436,14 +436,16 @@ test.describe('Harness Monitor', () => {
     await page.goto(`${monitor}/stability`);
     await page.waitForLoadState('load');
     const table = page.getByRole('region', { name: 'By job' });
-    const row = (name: string) => table.locator('tr[data-opens]', { has: page.getByRole('link', { name, exact: true }) });
+    const row = (name: string) => table.locator(`tr[data-opens^="${name} in "]`);
     const stripOf = (name: string) => row(name).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
-    const opening = (name: string) => row(name).getByRole('button', { name: new RegExp(`^(Open|Close) ${name.replace(/[()]/g, '\\$&')}$`) });
+    const opening = (name: string) => row(name).getByRole('button', { name: new RegExp(`^(Open|Close) ${name.replace(/[()]/g, '\\$&')} in CI$`) });
     const requests: string[] = [];
     page.on('request', (r) => requests.push(r.url()));
 
     // Ranked by main: Test explorer, red on its only run, then Test, then the job that only flaked on a pull request, and every strip is in the page and closed.
-    await expect(table.locator('tr[data-opens] td.first a')).toHaveText(['Test explorer', 'Test', 'E2E (F3)']);
+    await expect(table.locator('tr[data-opens] td.first')).toHaveText([/^›Test explorerNightly/, /^›TestCI/, /^›E2E \(F3\)CI$/]);
+    // The job with nothing on main has no steps to open, so its name is not a link.
+    await expect(table.locator('tr[data-opens] td.first a')).toHaveText(['Test explorer', 'Test']);
     await expect(table.locator('tr.detail')).toHaveCount(3);
     await expect(table.locator('tr.detail').first()).toBeHidden();
     await expect(opening('Test')).toHaveAttribute('aria-expanded', 'false');

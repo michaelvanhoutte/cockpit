@@ -76,19 +76,21 @@ export function jobTab(q: StabilityQuery, data: StabilityData, days: string[], l
     .map((f): JobRow => ({ workflow: f.workflow, job: { name: f.job, tally: tallyOf({}), durations: null, steps: [] }, last: null, fails: f, branchFlaky: f.branchFlaky.length }));
   const jobs = [...onMain, ...onBranches];
   const jobLink = (j: JobRow) => link({ group: 'job', sort: null, steps: rowKey(j) });
+  /** A job that ran on no attempt of main has no steps to open: its name is not a link. */
+  const onlyOnBranches = (j: JobRow) => !known.has(rowKey(j));
 
   /** Tiles and the row of panels, all counting main. */
   function overview(): string {
     const overall = sumTallies(workflows.map((w) => w.tally));
-    const reliable = [...jobs].filter((j) => j.job.tally.rate !== null && j.job.tally.completed >= 3).sort((a, b) => a.job.tally.rate! - b.job.tally.rate! || b.job.tally.completed - a.job.tally.completed)[0];
-    const slowest = [...jobs].filter((j) => j.job.durations !== null).sort((a, b) => b.job.durations!.median - a.job.durations!.median)[0];
+    const reliable = [...onMain].filter((j) => j.job.tally.rate !== null && j.job.tally.completed >= 3).sort((a, b) => a.job.tally.rate! - b.job.tally.rate! || b.job.tally.completed - a.job.tally.completed)[0];
+    const slowest = [...onMain].filter((j) => j.job.durations !== null).sort((a, b) => b.job.durations!.median - a.job.durations!.median)[0];
     const tiles = `<div class="tiles">
 ${tile('Runs passed', overall.rate === null ? '—' : `<span class="rate ${bandOf(overall.rate)}">${pct(overall.rate)}</span>`, `${number(overall.pass)} of ${number(overall.completed)} finished · ${number(overall.cancelled)} cancelled left out`, '', explain('t-passed', 'Runs passed', WHAT.passed))}
 ${reliable ? tile('Least reliable job', `<a href="${jobLink(reliable)}">${esc(reliable.job.name)}</a>`, `${pct(reliable.job.tally.rate!)} · ${number(reliable.job.tally.fail)} failed of ${number(reliable.job.tally.completed)} · ${esc(reliable.workflow)}`, 'name', explain('t-least', 'Least reliable job', WHAT.leastReliable)) : ''}
 ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job.name)}</a>`, `median ${humanMs(slowest.job.durations!.median)} · p90 ${humanMs(slowest.job.durations!.p90)} · ${esc(slowest.workflow)}`, 'name', explain('t-slowest', 'Slowest job', WHAT.slowest)) : ''}
 </div>`;
 
-    const c = counts(sumTallies(jobs.map((j) => j.job.tally)));
+    const c = counts(sumTallies(onMain.map((j) => j.job.tally)));
     const totalRuns = OUTCOMES.reduce((a, o) => a + c[o.key], 0);
     const shown = OUTCOMES.filter((o) => c[o.key] > 0);
     const ended = section(
@@ -151,7 +153,7 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
         branchSide(j.fails?.branchFlaky ?? [], j.fails?.branchCauses ?? [], 'This job did not fail and then pass on a feature branch.'),
         j.job.steps.length ? `<a href="${on ? link({ steps: null }) : jobLink(j)}">${on ? 'Hide' : 'Show'} where ${esc(j.job.name)}&rsquo;s time goes on main</a>` : 'No step of this job is stored for main.',
       );
-      return `<tr data-opens="${esc(j.job.name)}"${on ? ' class="chosen"' : ''}><td class="first"><a href="${on ? link({ steps: null }) : jobLink(j)}">${esc(j.job.name)}</a><div class="sub">${esc(j.workflow)}${j.job.steps.length ? ` · ${on ? 'steps shown' : 'steps'}` : ''}</div></td>${lastCell(j.last)}${rateCell(tally)}<td class="split-cell">${outcomeBar(tally)}</td><td class="num">${tally.fail ? number(tally.fail) : dash}${j.branchFlaky ? `<span class="of">+${number(j.branchFlaky)} on branches</span>` : ''}</td><td class="num faint-num">${tally.cancelled ? number(tally.cancelled) : '—'}</td><td class="num">${humanMs(j.job.durations?.median)}</td><td class="num faint-num">${humanMs(j.job.durations?.p90)}</td></tr><tr class="detail" hidden><td colspan="8">${detail}</td></tr>`;
+      return `<tr data-opens="${esc(`${j.job.name} in ${j.workflow}`)}"${on ? ' class="chosen"' : ''}><td class="first">${onlyOnBranches(j) ? esc(j.job.name) : `<a href="${on ? link({ steps: null }) : jobLink(j)}">${esc(j.job.name)}</a>`}<div class="sub">${esc(j.workflow)}${j.job.steps.length ? ` · ${on ? 'steps shown' : 'steps'}` : ''}</div></td>${lastCell(j.last)}${rateCell(tally)}<td class="split-cell">${outcomeBar(tally)}</td><td class="num">${tally.fail ? number(tally.fail) : dash}${j.branchFlaky ? `<span class="of">+${number(j.branchFlaky)} on branches</span>` : ''}</td><td class="num faint-num">${tally.cancelled ? number(tally.cancelled) : '—'}</td><td class="num">${humanMs(j.job.durations?.median)}</td><td class="num faint-num">${humanMs(j.job.durations?.p90)}</td></tr><tr class="detail" hidden><td colspan="8">${detail}</td></tr>`;
     })
     .join('\n');
   out += rows.length

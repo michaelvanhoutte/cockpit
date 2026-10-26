@@ -1,3 +1,4 @@
+import { jobKey } from './ci-flakiness';
 import { load, startOf, type WorkflowData } from './ci-flakiness-report';
 import { PERIODS, type Period } from './costs';
 import type { Outcome } from './stability';
@@ -202,11 +203,13 @@ export async function loadStability(db: D1Database, period: Period, now: number)
   const [jobTallies, runTallies, lastRuns, lastJobs, unrecognised, jobTimes, stepTimes] = extra;
 
   const timed = durationsByWorkflow(jobTimes!.results as never, stepTimes!.results as never);
-  const durationsOf = new Map(timed.flatMap((w) => w.jobs.map((j): [string, typeof j] => [`${w.name}|${j.name}`, j])));
-  const jobCounts = new Map<string, Partial<Record<Outcome, number>>>();
+  const durationsOf = new Map(timed.flatMap((w) => w.jobs.map((j): [string, typeof j] => [jobKey(w.name, j.name), j])));
+  const jobCounts = new Map<string, { workflow: string; job: string; counts: Partial<Record<Outcome, number>> }>();
   for (const row of jobTallies!.results) {
-    const key = `${row.workflow}|${row.job}`;
-    jobCounts.set(key, { ...jobCounts.get(key), [row.outcome as Outcome]: row.n as number });
+    const key = jobKey(row.workflow as string, row.job as string);
+    const own = jobCounts.get(key) ?? { workflow: row.workflow as string, job: row.job as string, counts: {} };
+    own.counts[row.outcome as Outcome] = row.n as number;
+    jobCounts.set(key, own);
   }
   const runCounts = new Map<string, Partial<Record<Outcome, number>>>();
   for (const row of runTallies!.results) runCounts.set(row.workflow as string, { ...runCounts.get(row.workflow as string), [row.outcome as Outcome]: row.n as number });
@@ -214,12 +217,11 @@ export async function loadStability(db: D1Database, period: Period, now: number)
   const main = [...runCounts.keys()].sort().map((name): WorkflowModel => ({
     name,
     tally: tallyOf(runCounts.get(name)!),
-    jobs: [...jobCounts.keys()]
-      .filter((key) => key.startsWith(`${name}|`))
-      .map((key) => {
-        const job = key.slice(name.length + 1);
-        const own = durationsOf.get(key);
-        return { name: job, tally: tallyOf(jobCounts.get(key)!), durations: own?.durations ?? null, steps: own?.steps ?? [] };
+    jobs: [...jobCounts.entries()]
+      .filter(([, own]) => own.workflow === name)
+      .map(([key, own]) => {
+        const timed = durationsOf.get(key);
+        return { name: own.job, tally: tallyOf(own.counts), durations: timed?.durations ?? null, steps: timed?.steps ?? [] };
       })
       .sort((a, b) => a.name.localeCompare(b.name)),
   }));
