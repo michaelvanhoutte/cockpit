@@ -11,7 +11,8 @@ import androidx.core.view.WindowInsetsCompat
  * already insets the window and these insets arrive as zero.
  *
  * The padding the view was built with is kept and the bars are added to it, so it
- * can be applied once and survives the insets changing (a turned phone, a keyboard).
+ * can be applied once and survives the insets changing (a turned phone). The keyboard
+ * is not handled: neither screen has a field for it to cover.
  */
 fun View.keepClearOfSystemBars() {
     val left = paddingLeft

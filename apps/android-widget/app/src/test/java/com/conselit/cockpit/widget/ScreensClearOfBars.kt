@@ -53,8 +53,11 @@ class ScreensClearOfBars {
 
     private fun contentOf(screen: Activity): View = screen.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
 
-    private fun report(view: View, bars: Insets) {
-        val insets = WindowInsetsCompat.Builder().setInsets(WindowInsetsCompat.Type.systemBars(), bars).build()
+    private fun report(view: View, bars: Insets, cutOut: Insets = Insets.NONE) {
+        val insets = WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.systemBars(), bars)
+            .setInsets(WindowInsetsCompat.Type.displayCutout(), cutOut)
+            .build()
         ViewCompat.dispatchApplyWindowInsets(view, insets)
     }
 
@@ -79,6 +82,19 @@ class ScreensClearOfBars {
     @Test
     fun `the picker keeps its heading and list below the status bar and above the navigation bar`() {
         assertClearOfBars(picker())
+    }
+
+    @Test
+    fun `a notch at the side of a turned phone is cleared too`() {
+        for (screen in listOf(main(), picker())) {
+            val content = contentOf(screen)
+            report(content, Insets.NONE)
+            val left = content.paddingLeft
+
+            report(content, Insets.of(0, 96, 0, 0), cutOut = Insets.of(80, 0, 0, 0))
+
+            assertEquals(left + 80, content.paddingLeft)
+        }
     }
 
     @Test

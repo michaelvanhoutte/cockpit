@@ -30,12 +30,14 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val pad = (24 * resources.displayMetrics.density).toInt()
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            val pad = (24 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad * 2, pad, pad)
+            setPadding(pad, pad, pad, pad)
         }
+        // The action bar that carried the app's name is gone, so the screen says whose it is.
+        column.addView(TextView(this).apply { text = getString(R.string.app_name); textSize = 22f; setPadding(0, 0, 0, pad) })
         status = TextView(this).apply { textSize = 18f }
         action = Button(this)
         secondary = Button(this)
