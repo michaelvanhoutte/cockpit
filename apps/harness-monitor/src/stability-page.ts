@@ -1,6 +1,6 @@
 import { startOfDay, formatDateTime } from './belgium';
 import { periodDays } from './ci-flakiness';
-import type { WorkflowData } from './ci-flakiness-report';
+import type { FragileData, WorkflowData } from './ci-flakiness-report';
 import { COPY_STYLE } from './copy-prompt';
 import { PERIODS } from './costs';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
@@ -24,9 +24,11 @@ import {
   type Tally,
 } from './stability-report';
 import { LEAD_MORE, WHAT } from './stability-explain';
+import { FRAGILE_STYLE, fragileTab } from './stability-fragile-page';
+import { ROWS_STYLE } from './stability-rows';
 import { bandOf, redNowNotice, WORKFLOW_STYLE, workflowTab } from './stability-workflow-page';
 
-const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow' };
+const ROW_WORDS: Record<StabilityQuery['group'], string> = { job: 'each job', workflow: 'each workflow', tests: 'each fragile test' };
 /** The period as a word of the page's sentence ("over the last 7 days"). */
 const PERIOD_WORDS: [string, string][] = [
   ['7d', 'the last 7 days'],
@@ -195,6 +197,16 @@ ${slowest ? tile('Slowest job', `<a href="${jobLink(slowest)}">${esc(slowest.job
 
 /** The CI stability page's Workflow tab, drawn from the stored attempts on every branch. */
 export function renderWorkflowStability(q: StabilityQuery, data: WorkflowData, repository: string | undefined, now: number): string {
+  return attemptsPage(q, data, repository, now, (days, link) => workflowTab(q, data, days, link), WORKFLOW_STYLE);
+}
+
+/** The CI stability page's Fragile tests tab, drawn from the same stored attempts and the misses Test selection stored. */
+export function renderFragileStability(q: StabilityQuery, data: FragileData, repository: string | undefined, now: number): string {
+  return attemptsPage(q, data, repository, now, (days) => fragileTab(q, data, days), FRAGILE_STYLE);
+}
+
+/** What the tabs drawn from the stored attempts share: the days, the note on how much is stored, the red-now line and the empty page. */
+function attemptsPage(q: StabilityQuery, data: WorkflowData, repository: string | undefined, now: number, tab: (days: string[], link: (over: Partial<StabilityQuery>) => string) => string, style: string): string {
   const repo = repository !== undefined && REPOSITORY.test(repository) ? repository : null;
   const days = periodDays(q.period, now, data.oldest);
   const first = startOfDay(days[0]!);
@@ -202,8 +214,8 @@ export function renderWorkflowStability(q: StabilityQuery, data: WorkflowData, r
   const partial = data.oldest !== null && named !== null && data.oldest > first ? `<p class="muted small">Only ${number(Math.max(1, Math.round((now - data.oldest) / 86_400_000)))} of the period&rsquo;s ${number(named)} days are stored so far.</p>` : '';
   const content = data.attempts.length === 0
     ? section('nothing', 'CI stability', '', '<p class="well empty">Nothing in this period. No attempt is stored for it.</p>')
-    : workflowTab(q, data, days, (over) => esc(stabilityAddress(q, over)));
-  return stabilityFrame(q, repo, data.workflows, `${partial}${redNowNotice(data.redNow, now)}`, content, now, WORKFLOW_STYLE + COPY_STYLE);
+    : tab(days, (over) => esc(stabilityAddress(q, over)));
+  return stabilityFrame(q, repo, data.workflows, `${partial}${redNowNotice(data.redNow, now)}`, content, now, ROWS_STYLE + style + COPY_STYLE);
 }
 
 /** What both tabs share: the sentence on the band, the lead, the notices and the content. */

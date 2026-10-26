@@ -19,9 +19,9 @@ import { renderSelection, renderSelectionCheck } from './selection-page';
 import { parseSelectionQuery, periodStart, selectionAddress, wantsOf } from './selection-report';
 import { newestSelectionMerge, parseJobFilter, parseSelectionPeriod, selectionAnswer, storeSelection } from './selection-store';
 import { selectionView, type ViewWants } from './selection-view';
-import { loadWorkflowData } from './ci-flakiness-report';
+import { loadFragileData, loadWorkflowData } from './ci-flakiness-report';
 import { checkRuns } from './stability';
-import { renderStability, renderWorkflowStability } from './stability-page';
+import { renderFragileStability, renderStability, renderWorkflowStability } from './stability-page';
 import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
@@ -392,7 +392,9 @@ async function stability(request: Request, env: Env, ctx: ExecutionContext): Pro
     : new Response(
         query.group === 'workflow'
           ? renderWorkflowStability(query, await loadWorkflowData(env.DB, query.period, now), env.GITHUB_REPOSITORY, now)
-          : renderStability(query, await loadStability(env.DB, query.period, now), env.GITHUB_REPOSITORY, now),
+          : query.group === 'tests'
+            ? renderFragileStability(query, await loadFragileData(env.DB, query.period, now), env.GITHUB_REPOSITORY, now)
+            : renderStability(query, await loadStability(env.DB, query.period, now), env.GITHUB_REPOSITORY, now),
         { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } },
       );
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));

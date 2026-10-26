@@ -2,7 +2,7 @@ import { SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { withoutExplanations } from './cockpit-support';
 import { GREY, panelOf, RED, slot, swatches } from './series-colours';
-import { ciAttempt, emptyTheDatabase, failedJob, failedTest, sendAttempts, sendRuns, stabilityJob, stabilityRun, stabilityStep, theSentence } from './support';
+import { ciAttempt, emptyTheDatabase, failedJob, failedTest, selectionPull, sendAttempts, sendRuns, sendSelection, stabilityJob, stabilityRun, stabilityStep, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -225,7 +225,7 @@ describe('Harness Monitor', () => {
       const { text: sentence, choices } = theSentence(html);
 
       expect(sentence).toBe('Show CI on main for [each job] [least reliable first] over [the last 7 days]');
-      expect(choices.group!.offered).toEqual(['each job', 'each workflow']);
+      expect(choices.group!.offered).toEqual(['each job', 'each workflow', 'each fragile test']);
       expect(choices.sort!.offered).toEqual(['least reliable first', 'slowest first', 'most failures first']);
       expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 30 days', 'the last 90 days', 'everything held']);
       expect(Object.keys(choices)).toEqual(['group', 'sort', 'period', 'workflow']);
@@ -255,7 +255,7 @@ describe('Harness Monitor', () => {
 
   describe('nothing stored for the period shows that there is nothing', () => {
     it('with nothing stored, every tab says nothing in this period', async () => {
-      for (const group of ['job', 'workflow']) {
+      for (const group of ['job', 'workflow', 'tests']) {
         const html = await thePage(`?group=${group}`);
 
         expect(text(html)).toContain('Nothing in this period');
@@ -513,7 +513,7 @@ describe('Harness Monitor', () => {
   describe('red now reads the newest attempt on main of each workflow, on every tab', () => {
     const walks = { failedJobs: [failedJob('Test', [], { step: 'Run the E2E walks' })] };
 
-    it.each([['job'], ['workflow']])('names a workflow whose newest attempt on main failed, since when, and the job and step that failed, on the %s tab', async (group) => {
+    it.each([['job'], ['workflow'], ['tests']])('names a workflow whose newest attempt on main failed, since when, and the job and step that failed, on the %s tab', async (group) => {
       await sendAttempts([on(1, 1, '2026-10-30T09:00:00Z', 'pass'), on(2, 1, '2026-10-31T08:00:00Z', 'fail', walks)]);
 
       const html = await thePage(`?group=${group}`);
@@ -553,6 +553,223 @@ describe('Harness Monitor', () => {
       expect(said).toContain('CI is red now');
       expect(said).toContain('Nightly is red now');
       expect(said).not.toContain('Deploy is red now');
+    });
+  });
+
+  describe('the Fragile tests tab lists each test that failed and then passed on the same commit, with its failures on main beside its flaky ones on branches', () => {
+    const TRIAGE = ['apps/api/tests/integration/triage.test.ts', 'Triage > a dismissed item leaves the lists'] as const;
+    const CAPTURE = ['tests/e2e/capture.test.ts', 'Capture > a thought is kept'] as const;
+    /** The failed job of an attempt, naming `[file, name, project?]` tests, each attempt its own job link. */
+    const broke = (runId: number, tests: readonly (readonly [string, string, string?])[], over: { job?: string; error?: string | null } = {}) => ({
+      failedJobs: [
+        failedJob(over.job ?? 'Test', tests.map(([file, name, project]) => failedTest(name, { file, project: project ?? null, ...(over.error === undefined ? {} : { error: over.error }) })), {
+          step: 'Run pnpm test',
+          url: `https://github.com/o/r/actions/runs/${runId}/job/1`,
+        }),
+      ],
+    });
+    /**
+     * Triage failed on main twice (the second passed on a re-run) and flaked on one pull request, whose other pull request's failure stayed failed;
+     * Capture flaked on a third pull request, on phone and desktop in the one attempt.
+     */
+    const SCENARIO = [
+      on(2, 1, '2026-10-30T10:00:00Z', 'fail', { ...sha('b'), ...broke(2, [TRIAGE]) }),
+      on(3, 1, '2026-10-30T11:00:00Z', 'fail', { ...sha('c'), ...broke(3, [TRIAGE]) }),
+      on(3, 2, '2026-10-30T11:30:00Z', 'pass', { ...sha('c') }),
+      on(10, 1, '2026-10-29T10:00:00Z', 'fail', { ...branch(5), ...sha('d'), ...broke(10, [TRIAGE]) }),
+      on(10, 2, '2026-10-29T10:30:00Z', 'pass', { ...branch(5), ...sha('d') }),
+      on(11, 1, '2026-10-29T12:00:00Z', 'fail', { ...branch(6), ...sha('e'), ...broke(11, [TRIAGE]) }),
+      on(12, 1, '2026-10-28T10:00:00Z', 'fail', { ...branch(7), ...sha('f'), ...broke(12, [[...CAPTURE, 'phone'], [...CAPTURE, 'desktop']], { job: 'E2E (F3)', error: 'Timeout 5000ms' }) }),
+      on(12, 2, '2026-10-28T10:30:00Z', 'pass', { ...branch(7), ...sha('f') }),
+    ];
+    const unescaped = (cell: string) => cell.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+    /** Each row of the tab: what its cells read, whether it is tagged a miss, its prompt and the strip it opens to. */
+    const fragileRows = (html: string) =>
+      [...panelOf(html, 'fragile').matchAll(/<tr data-opens="([^"]*)">(.*?)<\/tr><tr class="detail" hidden><td colspan="4">(.*?)<\/td><\/tr>/gs)].map(([, name, row, detail]) => {
+        const cells = [...row!.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((c) => c[1]!);
+        return {
+          name: unescaped(name!),
+          test: plain(cells[0]!),
+          failures: plain(cells[1]!),
+          last: plain(cells[2]!),
+          missed: cells[0]!.includes('>also a miss<'),
+          prompt: unescaped(/<pre hidden>(.*?)<\/pre>/s.exec(cells[3]!)![1]!),
+          detail: detail!,
+        };
+      });
+    /** The runs a side of an opened row lists: whether a re-run passed, and where it ran. */
+    const sideRuns = (detail: string, kind: 'main' | 'branch') =>
+      [...(new RegExp(`<div class="side ${kind}">(.*?)</div>`, 's').exec(detail)?.[1] ?? '').matchAll(/<li><span class="n \w+">([^<]*)<\/span><span><a [^>]*>[^<]*<\/a><span class="of">([^<]*)<\/span>/g)].map(([, verdict, label]) => `${verdict} ${label}`);
+
+    it('a row reads the test, the describe blocks above it and its latest error, one bar of its failures with the counts beside it, and its last flaky failure', async () => {
+      await sendAttempts(SCENARIO);
+
+      const [triage, capture, ...others] = fragileRows(await thePage('?group=tests'));
+
+      expect(others).toEqual([]);
+      expect([triage!.name, triage!.test, triage!.failures]).toEqual(['a dismissed item leaves the lists', 'a dismissed item leaves the lists Triage AssertionError: expected 1 to be 2', '3 2 on main · 1 on branches']);
+      expect(triage!.last).toMatch(/^main 30 Oct 2026, 12:00$/);
+      expect([capture!.name, capture!.test, capture!.failures]).toEqual(['a thought is kept', 'a thought is kept Capture Timeout 5000ms', '1 none on main · 1 on branches']);
+      expect(capture!.last).toMatch(/^branch 28 Oct 2026, 11:00$/);
+    });
+
+    it('draws a failure on main in red and a flaky one on a branch in orange, in the one bar, each as wide as its share of the busiest test', async () => {
+      await sendAttempts(SCENARIO);
+
+      const bars = [...panelOf(await thePage('?group=tests'), 'fragile').matchAll(/<span class="track stacked"><span class="fill" style="width:([\d.]+)%"><\/span><span class="fill branch" style="width:([\d.]+)%"><\/span><\/span>/g)].map(([, main, branch]) => [main, branch]);
+
+      expect(bars).toEqual([
+        ['66.7', '33.3'],
+        ['0.0', '33.3'],
+      ]);
+    });
+
+    it('a failure on a branch that stayed failed is not counted, and a test that failed only on such commits is not listed', async () => {
+      await sendAttempts([
+        on(1, 1, '2026-10-30T10:00:00Z', 'fail', { ...branch(5), ...sha('a'), ...broke(1, [TRIAGE]) }),
+        on(2, 1, '2026-10-30T11:00:00Z', 'pass', { ...branch(5), ...sha('b') }),
+        on(3, 1, '2026-10-30T12:00:00Z', 'fail', { ...sha('c'), ...broke(3, [CAPTURE]) }),
+      ]);
+
+      const html = await thePage('?group=tests');
+
+      expect(fragileRows(html)).toEqual([]);
+      expect(text(html)).toContain('No test failed and then passed on the same commit in this period.');
+    });
+
+    it.each([
+      { situation: 'Most on main puts the test with most failures on main first', query: '?group=tests', expected: ['a dismissed item leaves the lists', 'a thought is kept'] },
+      { situation: 'Most in total counts the branches too', query: '?group=tests&sort=all', expected: ['a thought is kept', 'a dismissed item leaves the lists'] },
+    ])('$situation', async ({ query, expected }) => {
+      // Capture flaked on three more pull requests: four in total against Triage's three, and none of them on main.
+      await sendAttempts([
+        ...SCENARIO,
+        on(20, 1, '2026-10-30T09:00:00Z', 'fail', { ...branch(8), ...sha('1'), ...broke(20, [CAPTURE]) }),
+        on(20, 2, '2026-10-30T09:30:00Z', 'pass', { ...branch(8), ...sha('1') }),
+        on(21, 1, '2026-10-30T09:40:00Z', 'fail', { ...branch(9), ...sha('2'), ...broke(21, [CAPTURE]) }),
+        on(21, 2, '2026-10-30T09:50:00Z', 'pass', { ...branch(9), ...sha('2') }),
+        on(22, 1, '2026-10-30T09:41:00Z', 'fail', { ...branch(10), ...sha('3'), ...broke(22, [CAPTURE]) }),
+        on(22, 2, '2026-10-30T09:51:00Z', 'pass', { ...branch(10), ...sha('3') }),
+      ]);
+
+      const html = await thePage(query);
+
+      expect(fragileRows(html).map((r) => r.name)).toEqual(expected);
+      expect(text(panelOf(html, 'fragile'))).toContain(`2 tests · most failures ${query.includes('sort=all') ? 'in total' : 'on main'} first`);
+      expect(theSentence(html).text).toBe(`Show CI for [each fragile test] [${query.includes('sort=all') ? 'most in total' : 'most on main'} first] over [the last 7 days]`);
+    });
+
+    it('a test whose file Test selection counts a miss is tagged also a miss, and one whose file it does not is not', async () => {
+      await sendAttempts(SCENARIO);
+      await sendSelection([selectionPull(7, { mergedAt: '2026-10-29T10:00:00Z', misses: [{ job: 'test', path: TRIAGE[0], level: 'integration', reason: null }] })]);
+
+      const rows = fragileRows(await thePage('?group=tests'));
+
+      expect(rows.map((r) => [r.name, r.missed])).toEqual([
+        ['a dismissed item leaves the lists', true],
+        ['a thought is kept', false],
+      ]);
+    });
+
+    it('a miss on a pull request merged before the period tags nothing', async () => {
+      await sendAttempts(SCENARIO);
+      await sendSelection([selectionPull(7, { mergedAt: '2026-10-10T10:00:00Z', misses: [{ job: 'test', path: TRIAGE[0], level: 'integration', reason: null }] })]);
+
+      expect(fragileRows(await thePage('?group=tests')).map((r) => r.missed)).toEqual([false, false]);
+      expect(fragileRows(await thePage('?group=tests&period=30d')).map((r) => r.missed)).toEqual([true, false]);
+    });
+
+    it('the Workflow filter keeps only the tests that failed in that workflow, counting only its failures', async () => {
+      await sendAttempts([
+        ...SCENARIO,
+        on(30, 1, '2026-10-30T09:00:00Z', 'fail', { workflow: 'Nightly', ...sha('4'), ...broke(30, [TRIAGE]) }),
+        on(30, 2, '2026-10-30T09:30:00Z', 'pass', { workflow: 'Nightly', ...sha('4') }),
+      ]);
+
+      const nightly = fragileRows(await thePage('?group=tests&workflow=Nightly'));
+      const ci = fragileRows(await thePage('?group=tests&workflow=CI'));
+      const every = fragileRows(await thePage('?group=tests'));
+
+      expect(nightly.map((r) => [r.name, r.failures])).toEqual([['a dismissed item leaves the lists', '1 1 on main · 0 on branches']]);
+      expect(ci.map((r) => [r.name, r.failures])).toEqual([
+        ['a dismissed item leaves the lists', '3 2 on main · 1 on branches'],
+        ['a thought is kept', '1 none on main · 1 on branches'],
+      ]);
+      expect(every[0]!.failures).toBe('4 3 on main · 1 on branches');
+    });
+
+    it('a row opens to its newest runs on main beside its newest on branches, each saying whether a re-run passed, and names the file, projects and jobs', async () => {
+      await sendAttempts(SCENARIO);
+
+      const [triage, capture] = fragileRows(await thePage('?group=tests'));
+
+      expect(plain(triage!.detail)).toContain('On main 2 failures · 1 passed on a re-run');
+      expect(sideRuns(triage!.detail, 'main')).toEqual(['re-run passed main · CI', 'stayed failed main · CI']);
+      expect(plain(triage!.detail)).toContain('On feature branches 1 failure a later attempt passed · 1 branch');
+      expect(sideRuns(triage!.detail, 'branch')).toEqual(['re-run passed pull request 5 · CI']);
+      expect(plain(triage!.detail)).toContain('apps/api/tests/integration/triage.test.ts · CI · Test');
+      expect(plain(capture!.detail)).toContain('It has not failed on main in this period.');
+      expect(plain(capture!.detail)).toContain('tests/e2e/capture.test.ts · phone, desktop · CI · E2E (F3)');
+    });
+
+    it("draws a row's strip in the page, hidden, for the opening script to show, and the script and the copy script once", async () => {
+      await sendAttempts(SCENARIO);
+
+      const html = await thePage('?group=tests');
+
+      expect(html.match(/<tr class="detail" hidden>/g)).toHaveLength(2);
+      expect(html).toContain('<table class="openable">');
+      expect(html.match(/function toggle\(row\)/g)).toHaveLength(1);
+      expect(html.match(/class="copy-prompt"/g)).toHaveLength(2);
+    });
+
+    it("a row's prompt names the test, its file and projects, its counts, its error and its runs, main first", async () => {
+      await sendAttempts(SCENARIO);
+
+      const [triage, capture] = fragileRows(await thePage('?group=tests'));
+
+      expect(triage!.prompt.split('\n').slice(0, 7)).toEqual([
+        'The test "Triage > a dismissed item leaves the lists" in apps/api/tests/integration/triage.test.ts is fragile in CI. It failed and then passed on the same commit 1 time on main and 1 time on feature branches, and failed on main without passing afterwards 1 time. It runs in CI · Test.',
+        '',
+        'Its latest error: AssertionError: expected 1 to be 2',
+        '',
+        'Failed runs, main first, newest first:',
+        '- https://github.com/o/r/actions/runs/3/job/1 (main, passed on a later attempt)',
+        '- https://github.com/o/r/actions/runs/2/job/1 (main, stayed failed)',
+      ]);
+      expect(triage!.prompt).toContain('- https://github.com/o/r/actions/runs/10/job/1 (feature branch, passed on a later attempt)');
+      expect(capture!.prompt).toContain('The test "Capture > a thought is kept" in tests/e2e/capture.test.ts (Playwright projects: phone, desktop) is fragile in CI.');
+    });
+
+    it('the period changed counts only the attempts in it', async () => {
+      await sendAttempts(SCENARIO);
+
+      expect(fragileRows(await thePage('?group=tests&period=7d')).map((r) => r.failures)).toEqual(['3 2 on main · 1 on branches', '1 none on main · 1 on branches']);
+      await sendAttempts([on(40, 1, '2026-10-10T10:00:00Z', 'fail', { ...sha('5'), ...broke(40, [CAPTURE]) }), on(40, 2, '2026-10-10T10:30:00Z', 'pass', { ...sha('5') })]);
+      expect(fragileRows(await thePage('?group=tests&period=7d'))[1]!.failures).toBe('1 none on main · 1 on branches');
+      expect(fragileRows(await thePage('?group=tests&period=30d'))[1]!.failures).toBe('2 1 on main · 1 on branches');
+    });
+
+    it('no attempt in the period says nothing is stored, and attempts with no flaky test say no test failed and then passed', async () => {
+      await sendAttempts([on(1, 1, '2026-09-20T10:00:00Z', 'fail')]);
+      expect(text(await thePage('?group=tests'))).toContain('Nothing in this period');
+
+      await sendAttempts([on(2, 1, '2026-10-30T10:00:00Z', 'pass')]);
+      expect(text(await thePage('?group=tests'))).toContain('No test failed and then passed on the same commit in this period.');
+    });
+
+    it('a test name, an error and a file are drawn as text, never as markup', async () => {
+      const file = '<img src=x onerror=alert(1)>.test.ts';
+      await sendAttempts([
+        on(1, 1, '2026-10-30T10:00:00Z', 'fail', { ...sha('b'), failedJobs: [failedJob('Test', [failedTest('<script>alert(1)</script>', { file, error: '<b>boom</b>' })], { url: 'https://github.com/o/r/actions/runs/1/job/1' })] }),
+        on(1, 2, '2026-10-30T10:30:00Z', 'pass', { ...sha('b') }),
+      ]);
+      await sendSelection([selectionPull(7, { mergedAt: '2026-10-30T10:00:00Z', misses: [{ job: 'test', path: file, level: 'unit', reason: null }] })]);
+
+      const html = await thePage('?group=tests');
+
+      expect(fragileRows(html)).toHaveLength(1);
+      for (const markup of ['<img src=x', '<script>alert(1)', '<b>boom']) expect(html).not.toContain(markup);
     });
   });
 

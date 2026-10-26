@@ -353,6 +353,25 @@ describe('Harness Monitor', () => {
       expect(firstInfo(panelOf(html, id))).toBe(id);
     });
 
+    it('the Fragile tests table carries an (i) saying what its rows are, and keeps it in a period with no fragile test, which says so', async () => {
+      await stability();
+      const empty = panelOf(await page('/stability?group=tests'), 'fragile');
+      expect(text(empty)).toContain('No test failed and then passed on the same commit in this period');
+      expect(firstInfo(empty)).toBe('fragile');
+
+      await sendAttempts([
+        ciAttempt(20, 1, { createdAt: '2026-10-30T11:00:00Z', conclusion: 'failure', outcome: 'fail', headSha: 'c'.repeat(40), failedJobs: [failedJob('Test', [failedTest('a dismissed item leaves the lists')])] }),
+        ciAttempt(20, 2, { createdAt: '2026-10-30T11:30:00Z', headSha: 'c'.repeat(40) }),
+      ]);
+      const html = await page('/stability?group=tests');
+      expect(text(panelOf(html, 'fragile'))).toContain('a dismissed item leaves the lists');
+      expect(firstInfo(panelOf(html, 'fragile'))).toBe('fragile');
+      expect(partsOf(html, 'fragile')).toEqual(['What it shows']);
+      const { buttons, panels } = infosOf(html);
+      expect(buttons).toHaveLength(1);
+      expect(panels).toEqual(buttons);
+    });
+
     it('draws each (i) once, each to an explanation of its own on the page', async () => {
       await stability();
 
