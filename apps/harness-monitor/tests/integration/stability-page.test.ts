@@ -686,11 +686,13 @@ describe('Harness Monitor', () => {
         on(30, 2, '2026-10-30T09:30:00Z', 'pass', { workflow: 'Nightly', ...sha('4') }),
       ]);
 
-      const nightly = fragileRows(await thePage('?group=tests&workflow=Nightly'));
+      const nightlyPage = await thePage('?group=tests&workflow=Nightly');
+      const nightly = fragileRows(nightlyPage);
       const ci = fragileRows(await thePage('?group=tests&workflow=CI'));
       const every = fragileRows(await thePage('?group=tests'));
 
       expect(nightly.map((r) => [r.name, r.failures])).toEqual([['a dismissed item leaves the lists', '1 1 on main · 0 on branches']]);
+      expect(text(panelOf(nightlyPage, 'fragile'))).toContain('1 test · most failures on main first');
       expect(ci.map((r) => [r.name, r.failures])).toEqual([
         ['a dismissed item leaves the lists', '3 2 on main · 1 on branches'],
         ['a thought is kept', '1 none on main · 1 on branches'],

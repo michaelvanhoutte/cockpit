@@ -218,7 +218,7 @@ function attemptsPage(q: StabilityQuery, data: WorkflowData, repository: string 
   return stabilityFrame(q, repo, data.workflows, `${partial}${redNowNotice(data.redNow, now)}`, content, now, ROWS_STYLE + style + COPY_STYLE);
 }
 
-/** What both tabs share: the sentence on the band, the lead, the notices and the content. */
+/** What every tab shares: the sentence on the band, the lead, the notices and the content. */
 function stabilityFrame(q: StabilityQuery, repo: string | null, workflows: string[], notices: string, content: string, now: number, style = ''): string {
   // The controls as one sentence on the band: the order is a word of it where the rows have more than one.
   const sorts = SORTS[q.group];

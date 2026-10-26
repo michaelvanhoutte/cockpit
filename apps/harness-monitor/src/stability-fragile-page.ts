@@ -64,7 +64,7 @@ export function fragileTab(q: StabilityQuery, data: FragileData, days: string[])
   return section(
     'fragile',
     'Fragile tests',
-    `${number(rows.length)} tests · ${sort === 'all' ? 'most failures in total' : 'most failures on main'} first · a row opens to main and its feature branches`,
+    `${times(rows.length, 'test')} · ${sort === 'all' ? 'most failures in total' : 'most failures on main'} first · a row opens to main and its feature branches`,
     `<div class="well table"><table class="openable"><thead><tr><th scope="col">Test</th><th scope="col">Failures</th><th scope="col" class="num">Last flaky failure</th><th scope="col"><span class="visually-hidden">Fix</span></th></tr></thead><tbody>${body}</tbody></table></div>${OPEN_SCRIPT}${COPY_SCRIPT}`,
     'panel wide',
     info,

@@ -141,7 +141,8 @@ export function causesOf(failed: Attempt[], flaky: Set<Attempt>): Cause[] {
       c.main++;
       if (flaky.has(a)) c.mainFlaky++;
     } else c.branch++;
-    c.runs.push({ at: a.at, url: where, main: a.onMain, flaky: flaky.has(a), where: whereOf(a), label: `${whereOf(a)} · ${a.workflow}`, error });
+    const place = whereOf(a);
+    c.runs.push({ at: a.at, url: where, main: a.onMain, flaky: flaky.has(a), where: place, label: `${place} · ${a.workflow}`, error });
     if (a.at >= c.last.at) Object.assign(c, { last: a, lastUrl: where, error: error ?? c.error });
   };
   for (const a of failed) {

@@ -93,17 +93,18 @@ export async function loadFragileData(db: D1Database, period: Period, now: numbe
 
 async function load(db: D1Database, period: Period, now: number, more: D1PreparedStatement[]): Promise<{ data: WorkflowData; extra: { results: Row[] }[] }> {
   const start = startOf(period, now);
+  const redNow = redNowStatements(db);
   const [attempts, jobs, tests, workflows, oldest, ...rest] = await db.batch<Row>([
     db.prepare(ATTEMPTS).bind(start),
     db.prepare(FAILED_JOBS).bind(start),
     db.prepare(FAILED_TESTS).bind(start),
     db.prepare('SELECT DISTINCT workflow FROM ci_attempts ORDER BY workflow'),
     db.prepare('SELECT MIN(created_at) AS oldest FROM ci_attempts'),
-    ...redNowStatements(db),
+    ...redNow,
     ...more,
   ]);
-  const red = rest.slice(0, 3);
-  const extra = rest.slice(3);
+  const red = rest.slice(0, redNow.length);
+  const extra = rest.slice(redNow.length);
 
   const testsOf = new Map<string, FailedJob['tests']>();
   for (const t of tests!.results) {
