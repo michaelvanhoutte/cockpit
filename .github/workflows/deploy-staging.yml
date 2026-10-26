@@ -26,12 +26,30 @@ jobs:
     environment:
       name: staging
       url: https://cockpit-staging.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+    env:
+      # Where each Vitest run leaves the tests that failed in it
+      # (scripts/lib/vitest-session-reporter.mjs), absolute because pnpm runs
+      # each package from its own folder.
+      COCKPIT_FAILED_TESTS_DIR: ${{ github.workspace }}/failed-tests
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
       - run: pnpm typecheck
       - run: pnpm test
+      # The failed tests by name, for CI stability: a record only where some
+      # failed, and it can only add - the job stays what the tests made it.
+      - name: Gather the failed tests
+        if: ${{ failure() }}
+        run: node scripts/ci-failed-tests.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        continue-on-error: true
+        with:
+          name: failed-tests-record
+          path: failed-tests-record/record.json
+          if-no-files-found: ignore
+          retention-days: 30
       - run: pnpm build
 
       # Migrations first, so the new code never meets the old schema. The

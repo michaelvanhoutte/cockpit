@@ -18,6 +18,7 @@
 // `node --test` without a browser.
 //
 
+import { mergeFailedTests, playwrightFailedTests } from './failed-tests.mjs';
 import { isNonProduct } from './what-changed.mjs';
 import { SPECS } from './test-selection.mjs';
 
@@ -118,6 +119,8 @@ export function buildE2eRecord({ event, baseCommit, changedFiles, plan, walks, r
         files,
       },
     ],
+    // The walks that failed, by name and project, filed under their spec (failed-tests.mjs).
+    ...playwrightFailedTests(report, (file) => `${SPECS}${file}`),
     // A selection that starts nothing deals nothing; only a run that started and left no report leaves the count unknown.
     ...(shard ? { shard: { ...shard, walks: started ? walksDealt(report) : 0 } } : {}),
   };
@@ -166,7 +169,9 @@ export function mergeE2eRecords(records, total = E2E_SHARDS) {
   }
 
   const { shard: _shard, ...rest } = first;
-  return { ...rest, packages: [{ ...first.packages[0], report: complete ? 'written' : 'none', files: [...merged.values()].sort((a, b) => (a.path < b.path ? -1 : 1)) }], shards };
+  // The failed walks of every shard, whether or not the whole is complete: a shard that did write one names what failed in it.
+  const failed = mergeFailedTests([...byIndex.entries()].sort(([a], [b]) => a - b).map(([, record]) => record));
+  return { ...rest, ...failed, packages: [{ ...first.packages[0], report: complete ? 'written' : 'none', files: [...merged.values()].sort((a, b) => (a.path < b.path ? -1 : 1)) }], shards };
 }
 
 /** The shard a job of the E2E (F3) family is, from its name (`E2E (F3) (2)`), or `null` for any other job, the fan-in included. */

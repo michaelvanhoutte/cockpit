@@ -2,7 +2,8 @@
 // A Vitest reporter that writes what scripts/lib/test-record.mjs needs from one
 // package's run: every test file Vitest knows of, how each one it ran ended,
 // and - where COCKPIT_TEST_GRAPH is set, for a package run with `--changed` -
-// the import edges under each file it ran. The edges are walked the way
+// the import edges under each file it ran, and the tests that failed
+// (failed-tests.mjs). The edges are walked the way
 // Vitest's own `--changed` walks them (its transformed modules' static and
 // dynamic imports, skipping node_modules), so the chain in the record is the
 // graph the selection actually used.
@@ -15,6 +16,8 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
+
+import { vitestFailedTests } from './failed-tests.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -52,7 +55,8 @@ export default class RecordReporter {
       }
 
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, JSON.stringify({ all, ran, edges, timings }));
+      // The tests that failed, by name and first line of error, for the record's `failedTests`.
+      writeFileSync(out, JSON.stringify({ all, ran, edges, timings, ...vitestFailedTests(testModules, rel) }));
     } catch (error) {
       console.warn(`Test record reporter: no report written (${error.message}).`);
     }

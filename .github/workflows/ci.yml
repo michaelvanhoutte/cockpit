@@ -255,6 +255,8 @@ jobs:
           name: test-selection-record
           path: test-record/record.json
           if-no-files-found: warn
+          # Long enough that a nightly job failing for a week loses no failed test's name.
+          retention-days: 30
       # `main` only: a pull request's uninstrumented run writes no coverage, and
       # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4
@@ -374,6 +376,7 @@ jobs:
           # A re-run of this shard alone uploads under the first attempt's name,
           # which v4 otherwise refuses, leaving the fan-in the failed record.
           overwrite: true
+          retention-days: 30
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #
@@ -447,6 +450,7 @@ jobs:
           if-no-files-found: ignore
           # The fan-in re-runs with a re-run shard and replaces the merged record.
           overwrite: true
+          retention-days: 30
 
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
