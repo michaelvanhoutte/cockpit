@@ -107,8 +107,9 @@ class MainActivity : Activity() {
      * stranger's.
      */
     private fun beginSignIn(closeWhenDone: Boolean) {
-        showStarting()
+        // Another start is on its way, perhaps from a screen since turned: this ask adds nothing to it.
         if (!graph.signInStarting.compareAndSet(false, true)) return
+        showStarting()
         graph.io.execute {
             val clientId = try {
                 graph.client.clientId()
@@ -125,7 +126,8 @@ class MainActivity : Activity() {
                     return@runOnUiThread
                 }
                 val waiting = graph.session.pending()?.takeIf { it.isFresh(graph.clock.millis()) }
-                val pending = waiting?.copy(closeWhenDone = waiting.closeWhenDone || closeWhenDone)
+                // Reopened, it is waited for from now.
+                val pending = waiting?.copy(closeWhenDone = waiting.closeWhenDone || closeWhenDone, startedAtMs = graph.clock.millis())
                     ?: Pending(Pkce.state(), Pkce.verifier(), closeWhenDone, graph.clock.millis())
                 if (!graph.session.savePending(pending)) {
                     note = "This phone could not keep a sign-in safe, so the widget cannot sign in."

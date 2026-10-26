@@ -135,6 +135,37 @@ class OneSignInServesEveryWidget {
     }
 
     @Test
+    fun `a sign-in reopened late is waited for from the reopening, not from its start`() {
+        val signingIn = SigningIn(phone).fromAWidget()
+        val state = signingIn.browserAddress.getQueryParameter("state")!!
+        phone.clock.advance(java.time.Duration.ofMinutes(9))
+        signingIn.asksAgain()
+        phone.clock.advance(java.time.Duration.ofMinutes(9))
+
+        signingIn.comesHome(state = state)
+
+        assertTrue(phone.graph.session.isSignedIn())
+    }
+
+    @Test
+    fun `a screen turned while the sign-in was being started is not left on a button that does nothing`() {
+        val work = ManualExecutor()
+        phone = Phone(cockpit, io = work)
+        val turned = Robolectric.buildActivity(MainActivity::class.java).setup()
+        turned.get().button("Sign in").performClick()
+        turned.destroy()
+
+        val screen = Robolectric.buildActivity(MainActivity::class.java).setup()
+        screen.get().button("Sign in").performClick()
+        work.runAll()
+
+        assertTrue("a button that can be pressed again", screen.get().button("Sign in").isEnabled)
+        screen.get().button("Sign in").performClick()
+        work.runAll()
+        assertNotNull("and pressing it opens the browser", shadowOf(screen.get()).nextStartedActivity)
+    }
+
+    @Test
     fun `a sign-in abandoned for a quarter of an hour is begun afresh, and the old answer signs nobody in`() {
         val signingIn = SigningIn(phone).fromAWidget()
         val abandoned = signingIn.browserAddress
