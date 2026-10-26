@@ -79,7 +79,7 @@ const plain = (html: string) => withoutExplanations(html).replace(/<style>.*?<\/
 const sectionOf = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '';
 const hasSection = (html: string, id: string) => sectionOf(html, id) !== '';
 /** The side panel beside the table. */
-const paneOf = (html: string) => /<aside class="pane".*?<\/aside>/s.exec(html)?.[0] ?? '';
+const paneOf = (html: string) => /<aside class="pane[ "].*?<\/aside>/s.exec(html)?.[0] ?? '';
 /** A table row of a section, as markup, by the text its first cell starts with. */
 const rowOf = (html: string, id: string, name: string) => [...sectionOf(html, id).matchAll(/<tr[ >].*?<\/tr>/gs)].map((m) => m[0]).find((row) => plain(row).startsWith(name)) ?? '';
 const cellsOf = (row: string) => [...row.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);

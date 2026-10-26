@@ -1108,7 +1108,7 @@ test.describe('Harness Monitor', () => {
     expect(await noSidewaysScroll()).toBe(true);
   });
 
-  test("Test coverage opens an area's tests in a panel beside the table that changes alone: a count far down leaves the table where it is and starts the panel at its top, its tabs and Back follow the address, a case's source loads when it is opened, a failed fetch loads the address in full, and the table fits beside the panel from 1,300px and sits above it below", async ({ page, request: api }) => {
+  test("Test coverage opens an area's tests in a panel beside the table that changes alone: a count far down leaves the table where it is and starts the panel at its top, its tabs and Back follow the address, a case's source loads when it is opened, a failed fetch loads the address in full, and the table fits beside the panel from 1,300px, below which the panel sits above the table and a click scrolls it into view", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const names = Array.from({ length: 24 }, (_, i) => `Area ${String(i + 1).padStart(2, '0')}`);
     const unit = (name: string) => `apps/api/tests/unit/${name.toLowerCase().replace(' ', '-')}.test.ts`;
@@ -1162,7 +1162,7 @@ test.describe('Harness Monitor', () => {
     await expect(pane.locator('.pane-rule')).toHaveCount(48);
     const asideBox = await boxOf(pane);
     const tableBox = await boxOf(table.locator('.table'));
-    if (onAPhone) expect(asideBox.y).toBeGreaterThanOrEqual(tableBox.y + tableBox.height - 1);
+    if (onAPhone) expect(asideBox.y + asideBox.height).toBeLessThanOrEqual(tableBox.y + 1);
     else {
       expect(asideBox.x).toBeGreaterThanOrEqual(tableBox.x + tableBox.width - 1);
       expect(asideBox.y).toBeLessThan(tableBox.y + tableBox.height);
@@ -1170,7 +1170,8 @@ test.describe('Harness Monitor', () => {
     }
     expect(await noSidewaysScroll()).toBe(true);
 
-    // A count far down the table: the page does not move, and the panel shows that count's rules from its top, though the panel before it was scrolled.
+    // A count far down the table: on a desk the page does not move; stacked above the table, the panel is scrolled into view. Either way it shows that count's rules from its top, though the panel before it was scrolled.
+    const heading = pane.getByRole('heading', { level: 2 });
     const far = table.getByRole('row', { name: /^Area 20/ });
     await far.scrollIntoViewIfNeeded();
     await pane.locator('.pane-body').evaluate((el) => (el.scrollTop = el.scrollHeight));
@@ -1180,23 +1181,26 @@ test.describe('Harness Monitor', () => {
     await expect(page).toHaveURL(/[?&]tests=Area\+20%7EF3%7E(&|$)/);
     await expect(pane.getByRole('heading', { level: 2 })).toContainText('Area 20');
     await expect(pane.locator('.pane-rule')).toHaveCount(1);
-    expect(await scrollY()).toBe(before);
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
     expect(await pane.locator('.pane-body').evaluate((el) => el.scrollTop)).toBe(0);
     await expect(far).toHaveClass(/selected/);
 
-    // Its Files tab: the table does not move, and the address names the tab.
+    // Its Files tab: the table does not move on a desk, the stacked panel stays in view, and the address names the tab.
     await pane.getByRole('link', { name: /^Files/ }).click();
     await expect(page).toHaveURL(/[?&]pane=files(&|$)/);
     await expect(pane.locator('.pane-files li')).toHaveCount(1);
     await expect(pane.locator('.pane-files')).toContainText('apps/api/src/area-20.ts');
-    expect(await scrollY()).toBe(before);
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
 
     // Back returns the previous panel, the table where it was.
     await page.goBack();
     await expect(page).not.toHaveURL(/pane=files/);
     await expect(pane.getByRole('link', { name: /^Rules/ })).toHaveAttribute('aria-current', 'page');
     await expect(pane.locator('.pane-rule')).toHaveCount(1);
-    expect(await scrollY()).toBe(before);
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
 
     // The area's name opens every rule of it, and a case's place opens the source around it, read once, when it is opened.
     await far.getByRole('link', { name: 'Area 20', exact: true }).click();
@@ -1207,7 +1211,7 @@ test.describe('Harness Monitor', () => {
     await expect(place.locator('pre .hit')).toContainText("describe('Area 20 holds'");
     expect(sources).toHaveLength(1);
     expect(sources[0]).toContain('area=Area%2020');
-    // Opening it on a desk moves nothing; on a phone the panel is under the table, so focusing it brings it into view.
+    // Opening it moves nothing on a desk.
     if (!onAPhone) expect(await scrollY()).toBe(before);
 
     // A fetch that fails loads the address in full.
@@ -1216,12 +1220,18 @@ test.describe('Harness Monitor', () => {
     await expect(page).toHaveURL(/[?&]tests=Area\+21%7E%7E(&|$)/);
     await expect(pane.getByRole('heading', { level: 2 })).toContainText('Area 21');
 
-    // Below 1,300px the panel sits under the table on a desk too, and the page still does not scroll sideways.
+    // Below 1,300px the panel is above the table on a desk too, a count far down brings it into view, and the page still does not scroll sideways.
     if (!onAPhone) {
       await page.setViewportSize({ width: 1280, height: 800 });
-      const under = await boxOf(pane);
-      const above = await boxOf(table.locator('.table'));
-      expect(under.y).toBeGreaterThanOrEqual(above.y + above.height - 1);
+      await page.goto(`${monitor}/tests`);
+      const lower = table.getByRole('row', { name: /^Area 22/ });
+      await lower.scrollIntoViewIfNeeded();
+      await lower.locator('td').nth(6).getByRole('link').click();
+      await expect(heading).toContainText('Area 22');
+      await expect(heading).toBeInViewport();
+      const stacked = await boxOf(pane);
+      const below = await boxOf(table.locator('.table'));
+      expect(stacked.y + stacked.height).toBeLessThanOrEqual(below.y + 1);
       expect(await noSidewaysScroll()).toBe(true);
     }
   });

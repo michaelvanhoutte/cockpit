@@ -283,8 +283,8 @@ ${tiles}`;
 
   function pane(): string {
     const spec = q.list;
-    const open = (inner: string) => `<aside class="pane" id="pane" aria-label="Tests behind the count"${q.pr === null ? '' : ` data-pr="${q.pr}"`}>${inner}</aside>`;
-    if (!spec) return open('<div class="well empty">Pick an area, or any count, to see its rules and their cases here.</div>');
+    const open = (inner: string, idle = false) => `<aside class="pane${idle ? ' pane-idle' : ''}" id="pane" aria-label="Tests behind the count"${q.pr === null ? '' : ` data-pr="${q.pr}"`}>${inner}</aside>`;
+    if (!spec) return open('<div class="well empty">Pick an area, or any count, to see its rules and their cases here.</div>', true);
     const at = spec.node === null ? null : (ix.byKey.get(spec.node) ?? null);
     const areasIn = at ? [...walk([at])] : [...walk(model.tree)];
     const fileKeep = keepOf({ level: null, package: spec.package });
@@ -464,13 +464,20 @@ export function renderSource(at: string, lines: Line[] | null): string {
  * the table's marks, so the page stays where it is and only the panel starts at
  * its top; the address is pushed, and Back swaps the previous panel in. Without
  * script, or where the fetch fails, the link loads the whole page. A case's
- * source is fetched when its place is first opened.
+ * source is fetched when its place is first opened. Where the panel is stacked
+ * above the table (the media query below, as the style's), each swap scrolls its
+ * top into view, under the pinned band.
  */
 const PANE_SCRIPT = `<script>
 (function(){
   var wrap = document.querySelector('.with-pane');
   if (!wrap || !window.fetch || !window.DOMParser) return;
   var latest = 0;
+  function reveal(pane){
+    if (!matchMedia('(max-width:1300px)').matches) return;
+    var band = document.querySelector('.band-controls');
+    scrollTo(0, Math.max(0, pane.getBoundingClientRect().top + scrollY - (band ? band.offsetHeight : 0) - 8));
+  }
   function opens(a){ return a.matches('a.count, .tree a, .pane-tabs a, .pane .close'); }
   function swap(url, push){
     var mine = ++latest;
@@ -482,6 +489,7 @@ const PANE_SCRIPT = `<script>
       if (!pane || !old) { location.href = url; return; }
       old.replaceWith(pane);
       if (window.explainBind) window.explainBind(pane);
+      reveal(pane);
       var on = {};
       next.querySelectorAll('.main-col a.count.on').forEach(function(a){ on[a.getAttribute('href')] = true; });
       wrap.querySelectorAll('.main-col a.count').forEach(function(a){ a.classList.toggle('on', !!on[a.getAttribute('href')]); });
@@ -581,5 +589,5 @@ details.code .src{margin-top:6px;font-size:12px;color:var(--ink-faint)}
 .pane-files .stmts{grid-column:3;font-size:12px}
 .pane-branches li{grid-template-columns:36px minmax(0,1fr)}
 .pane-branches .lines{grid-column:2;font-size:12px;color:var(--ink-faint);word-break:normal;overflow-wrap:normal}.pane-branches .lines a{color:var(--ink-soft);white-space:nowrap}
-@media (max-width:1300px){.with-pane{grid-template-columns:minmax(0,1fr)}.pane{position:static;max-height:none}}
+@media (max-width:1300px){.with-pane{grid-template-columns:minmax(0,1fr)}.pane{position:static;max-height:none;order:-1}.pane-idle{display:none}}
 `;
