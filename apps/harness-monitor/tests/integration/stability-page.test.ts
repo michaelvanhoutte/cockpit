@@ -457,6 +457,14 @@ describe('Harness Monitor', () => {
       expect(every[0]![2]).toBe('x y');
     });
 
+    it("a workflow's runs-per-day chart labels each gridline with a different whole number, whatever its busiest day", async () => {
+      await sendAttempts([on(1, 1, '2026-10-30T10:00:00Z', 'pass')]);
+
+      const ticks = [...(await thePage('?group=workflow&workflow=CI')).matchAll(/text-anchor="end" class="axis">(\d+)</g)].map((m) => m[1]);
+
+      expect(ticks).toEqual(['0', '1']);
+    });
+
     it('a Workflow filter naming a workflow with no attempt in the period draws its view with nothing in it', async () => {
       await sendAttempts(SCENARIO);
 

@@ -1,4 +1,4 @@
-import { addDays, belgianDay, startOfDay } from './belgium';
+import { addDays, belgianDay } from './belgium';
 import { firstDay as periodFirstDay, type Period } from './costs';
 import { pct } from './report';
 
@@ -181,9 +181,6 @@ export function periodDays(period: Period, now: number, oldest: number | null): 
   for (let d = first; d <= today; d = addDays(d, 1)) days.push(d);
   return days;
 }
-
-/** The first instant of the period. */
-export const periodStart = (days: string[]) => startOfDay(days[0]!);
 
 // ---- The prompts
 

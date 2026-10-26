@@ -41,14 +41,28 @@ export function redNowNotice(redNow: RedNow[], now: number): string {
     .join('<br>')}</p>`;
 }
 
+/** Attempts bucketed by the Belgian day they started on, so a strip or chart formats each instant once. */
+const byDay = (attempts: Attempt[]): Map<string, Attempt[]> => {
+  const days = new Map<string, Attempt[]>();
+  for (const a of attempts) {
+    const d = belgianDay(a.at);
+    const own = days.get(d) ?? [];
+    own.push(a);
+    days.set(d, own);
+  }
+  return days;
+};
+
 /** A square per day: main's pass rate that day, with a dot under it on a day a feature branch flaked. */
 function dayStrip(main: Attempt[], branchFlaky: Attempt[], days: string[]): string {
+  const mainOf = byDay(main);
+  const flakedOf = byDay(branchFlaky);
   return `<div class="day-strip">${days
     .map((d) => {
-      const own = main.filter((a) => belgianDay(a.at) === d);
+      const own = mainOf.get(d) ?? [];
       const pass = own.filter((a) => a.outcome === 'pass').length;
       const fail = own.length - pass;
-      const flaked = branchFlaky.filter((a) => belgianDay(a.at) === d).length;
+      const flaked = (flakedOf.get(d) ?? []).length;
       const cls = own.length === 0 ? 'none' : bandOf(pass / own.length);
       return `<span title="${esc(formatDay(d))} · main: ${own.length ? `${pct(pass / own.length)}, ${fail} failed of ${own.length}` : 'no finished run'}${flaked ? ` · feature branches: ${flaked} flaky` : ''}"><i class="${cls}"></i><b class="${flaked ? 'branch' : ''}"></b></span>`;
     })
@@ -56,14 +70,16 @@ function dayStrip(main: Attempt[], branchFlaky: Attempt[], days: string[]): stri
 }
 
 function dayChart(f: WorkflowFigures, flaky: Set<Attempt>, days: string[]): string {
+  const mainOf = byDay(f.main);
+  const flakedOf = byDay(f.branchFlaky);
   const rows = days.map((d) => {
-    const own = f.main.filter((a) => belgianDay(a.at) === d);
+    const own = mainOf.get(d) ?? [];
     return {
       d,
       pass: own.filter((a) => a.outcome === 'pass').length,
       flaky: own.filter((a) => a.outcome === 'fail' && flaky.has(a)).length,
       fail: own.filter((a) => a.outcome === 'fail' && !flaky.has(a)).length,
-      branch: f.branchFlaky.filter((a) => belgianDay(a.at) === d).length,
+      branch: (flakedOf.get(d) ?? []).length,
     };
   });
   const peak = Math.max(1, ...rows.map((r) => Math.max(r.pass + r.fail + r.flaky, r.branch)));
@@ -96,8 +112,9 @@ function dayChart(f: WorkflowFigures, flaky: Set<Attempt>, days: string[]): stri
       return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="${anchor}" class="axis">${formatDay(days[i]!)}</text>`;
     })
     .join('');
-  const grid = [0, 0.5, 1]
-    .map((g) => `<line x1="${left}" x2="${width}" y1="${(height - bottom - y(peak * g)).toFixed(1)}" y2="${(height - bottom - y(peak * g)).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(height - bottom - y(peak * g) + 4).toFixed(1)}" text-anchor="end" class="axis">${Math.round(peak * g)}</text>`)
+  // Whole-number ticks only: a peak of 1 has no half run to label.
+  const grid = [...new Set([0, Math.ceil(peak / 2), peak])]
+    .map((v) => `<line x1="${left}" x2="${width}" y1="${(height - bottom - y(v)).toFixed(1)}" y2="${(height - bottom - y(v)).toFixed(1)}" class="gridline"/><text x="${left - 8}" y="${(height - bottom - y(v) + 4).toFixed(1)}" text-anchor="end" class="axis">${v}</text>`)
     .join('');
   const legend = `<span class="legend"><span class="key"><i style="background:${VIOLET}"></i>Main passed</span><span class="key"><i style="background:${ORANGE}"></i>Main failed, then passed</span><span class="key"><i style="background:${RED}"></i>Main failed</span><span class="key"><i class="branch-key"></i>Feature branch failed, then passed</span></span>`;
   return section('per-day', 'Runs per day', legend, `<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Runs per day">${grid}${bars}${dates}</svg></div>`, 'panel wide', explain('per-day', 'Runs per day', WHAT.workflowPerDay));
