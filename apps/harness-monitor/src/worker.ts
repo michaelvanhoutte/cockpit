@@ -23,8 +23,8 @@ import { loadStability, parseStabilityQuery, stabilityAddress } from './stabilit
 import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
 import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
 import { COMMIT, MAX_PART_BYTES, pullRequestNumber, pullRequestSnapshot, readArea, readTree, snapshotOf, tooLarge } from './tests';
-import { renderTests } from './tests-page';
-import { loadTests, parseTestsQuery, testsAddress } from './tests-report';
+import { renderSource, renderTests } from './tests-page';
+import { loadSource, loadTests, parseSourceAsk, parseTestsQuery, testsAddress } from './tests-report';
 import { currentCommit, currentTree, makeCurrent, shownTests, storeArea, storeTree } from './tests-store';
 import { validateBatch, validateCorrections } from './validate';
 
@@ -214,9 +214,9 @@ const wantsJson = (request: Request, url: URL) => url.searchParams.get('format')
  * Test coverage page, or, when the request asks (`wantsJson`), the shown tree as JSON
  * as it was sent (its commit, whether coverage was available, the areas, rules
  * and cases without source lines), unpacked; before any has been made current,
- * an empty answer saying so. The page reads the same tree and, for a rule, one
- * area's source lines. Cached like the other reports under one key per view,
- * so a page and its JSON never share an entry.
+ * an empty answer saying so. The page reads the same tree alone, whatever panel
+ * it opens beside the table. Cached like the other reports under one key per
+ * view, so a page and its JSON never share an entry.
  */
 async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -224,7 +224,7 @@ async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise
   const query = parseTestsQuery(url.searchParams);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(asJson ? `${url.origin}/tests?format=json${query.pr === null ? '' : `&pr=${query.pr}`}` : `${url.origin}${testsAddress(query, { rule: query.rule, list: query.list })}`);
+  const key = new Request(asJson ? `${url.origin}/tests?format=json${query.pr === null ? '' : `&pr=${query.pr}`}` : `${url.origin}${testsAddress(query, { list: query.list, pane: query.pane })}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
@@ -239,6 +239,30 @@ async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise
   } else {
     response = new Response(renderTests(await loadTests(env.DB, query), Date.now()), { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
   }
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * The source around one case of the shown tests, as a fragment the panel puts
+ * under the case when it is opened: `?area=<key>&at=<file:line>`, with
+ * `&pr=<number>` for an open pull request's. It reads the one stored document
+ * of that area and nothing else, so a panel listing many areas reads none until
+ * a case is opened. Cached like the page, one key per case.
+ */
+async function testsSource(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const ask = parseSourceAsk(url.searchParams);
+  if (!ask) return json({ error: 'Name the area and the case: ?area=<area>&at=<file:line>.' }, 400);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/tests/source?${new URLSearchParams({ area: ask.area, at: ask.at, ...(ask.pr === null ? {} : { pr: String(ask.pr) }) })}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = new Response(renderSource(ask.at, await loadSource(env.DB, ask)), {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' },
+  });
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
   return response;
 }
@@ -522,6 +546,7 @@ export default {
     const testsPath = /^\/v1\/tests\/([^/]+)\/([^/]+)\/(tree|current|areas\/[^/]+)$/.exec(pathname);
     if (testsPath) return writeTests(request, env, testsPath[1]!, testsPath[2]!, testsPath[3]!);
     if (pathname === '/tests' && request.method === 'GET') return tests(request, env, ctx);
+    if (pathname === '/tests/source' && request.method === 'GET') return testsSource(request, env, ctx);
     if (pathname === '/v1/usage/corrections') {
       return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }

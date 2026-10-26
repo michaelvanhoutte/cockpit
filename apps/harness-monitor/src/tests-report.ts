@@ -1,12 +1,12 @@
 import { GREY, slot } from './palette';
 import { pullRequestNumber, pullRequestSnapshot, unpack, type Snapshot } from './tests';
-import { currentAreaLines, shownTests, type PullRequestTests } from './tests-store';
+import { shownAreaLines, shownTests, type PullRequestTests } from './tests-store';
 
 /**
  * What the Test coverage page reads of the shown snapshot, `main`'s or an open
  * pull request's, and the counting over it: which rules a row counts and what
  * share of its statements ran under the filters, what a count opens, which
- * areas Show keeps. The snapshot is the tree document the test explorer
+ * areas Show keeps, and what the side panel beside the table lists. The snapshot is the tree document the test explorer
  * sent (src/tests.ts); the Monitor derives nothing from it but these counts,
  * which the filters change, so they cannot be stored with it.
  */
@@ -98,6 +98,9 @@ export const SHOWS = ['all', 'files', 'empty'] as const;
 export type Show = (typeof SHOWS)[number];
 export const SPLITS = ['level', 'package'] as const;
 export type Split = (typeof SPLITS)[number];
+/** The side panel's tabs: the rules behind a count, the files they cover, the branches no test takes. */
+export const PANES = ['rules', 'files', 'branches'] as const;
+export type Pane = (typeof PANES)[number];
 
 /** The tests behind a clicked count: any part empty means every one. */
 export interface ListSpec {
@@ -114,18 +117,18 @@ export interface TestsQuery {
   package: PackageKey | null;
   show: Show;
   split: Split;
-  /** A rule's id, `file:line`: its cases open instead of the tab. */
-  rule: string | null;
-  /** The tests a clicked count opens above the tab; the page's own filters stay as they were. */
+  /** The tests a clicked count or an area's name opens in the panel beside the table; the page's own filters stay as they were. */
   list: ListSpec | null;
+  /** Which tab of the panel the list opens on. */
+  pane: Pane;
   /** The open pull request whose tests are shown; null is `main`'s. */
   pr: number | null;
 }
 
-export const DEFAULT_QUERY: TestsQuery = { group: 'area', node: null, level: null, package: null, show: 'all', split: 'level', rule: null, list: null, pr: null };
-const DEFAULTS: Partial<Record<keyof TestsQuery, unknown>> = { group: 'area', show: 'all', split: 'level' };
+export const DEFAULT_QUERY: TestsQuery = { group: 'area', node: null, level: null, package: null, show: 'all', split: 'level', list: null, pane: 'rules', pr: null };
+const DEFAULTS: Partial<Record<keyof TestsQuery, unknown>> = { group: 'area', show: 'all', split: 'level', pane: 'rules' };
 
-/** Longest value an address may carry for an area or a rule, so a junk address is never a long cache key. */
+/** Longest value an address may carry for an area or a case, so a junk address is never a long cache key. */
 const MAX_VALUE = 400;
 
 const oneOf = <T extends string>(value: string | null, list: readonly string[]): T | null => (value !== null && list.includes(value) ? (value as T) : null);
@@ -147,15 +150,16 @@ export function parseTestsQuery(params: URLSearchParams): TestsQuery {
     package: oneOf(params.get('package'), PACKAGE_KEYS),
     show: pick(params.get('show'), SHOWS, 'all'),
     split: pick(params.get('split'), SPLITS, 'level'),
-    rule: text(params.get('rule')),
     list,
+    pane: pick(params.get('pane'), PANES, 'rules'),
     pr: pullRequestNumber(params.get('pr')),
   };
 }
 
-/** The address for `q` with `over` applied; defaults are left out, so one view has one address (and one cache entry). A rule and a list are dropped unless asked for. */
+/** The address for `q` with `over` applied; defaults are left out, so one view has one address (and one cache entry). A list and its tab are dropped unless asked for, and a tab means nothing without a list. */
 export function testsAddress(q: TestsQuery, over: Partial<TestsQuery> = {}): string {
-  const all: TestsQuery = { ...q, rule: null, list: null, ...over };
+  const all: TestsQuery = { ...q, list: null, pane: 'rules', ...over };
+  if (all.list === null) all.pane = 'rules';
   const params = new URLSearchParams();
   for (const [name, value] of Object.entries(all)) {
     if (value === null || DEFAULTS[name as keyof TestsQuery] === value) continue;
@@ -171,7 +175,6 @@ export function testsAddress(q: TestsQuery, over: Partial<TestsQuery> = {}): str
 export interface Index {
   byKey: Map<string, Area>;
   parent: Map<string, Area | null>;
-  rules: Map<string, { rule: Rule; area: Area }>;
 }
 
 export function* walk(areas: Area[]): Generator<Area> {
@@ -183,12 +186,11 @@ export function* walk(areas: Area[]): Generator<Area> {
 export const ruleId = (r: Ref) => `${r.file}:${r.line}`;
 
 export function indexOf(model: Model): Index {
-  const ix: Index = { byKey: new Map(), parent: new Map(), rules: new Map() };
+  const ix: Index = { byKey: new Map(), parent: new Map() };
   const visit = (areas: Area[], parent: Area | null) => {
     for (const a of areas) {
       ix.byKey.set(a.key, a);
       ix.parent.set(a.key, parent);
-      for (const r of a.rules) ix.rules.set(ruleId(r), { rule: r, area: a });
       visit(a.children, a);
     }
   };
@@ -203,10 +205,10 @@ export function pathOf(ix: Index, area: Area): string[] {
   return path;
 }
 
-/** The query with an area or rule the snapshot does not hold dropped, and a list naming such an area dropped whole (an empty area would mean every area), so no link carries it. */
+/** The query with an area the snapshot does not hold dropped, and a list naming such an area dropped whole (an empty area would mean every area), so no link carries it. */
 export function resolveQuery(q: TestsQuery, ix: Index): TestsQuery {
   const list = q.list && (q.list.node === null || ix.byKey.has(q.list.node)) ? q.list : null;
-  return { ...q, node: q.node !== null && ix.byKey.has(q.node) ? q.node : null, rule: q.rule !== null && ix.rules.has(q.rule) ? q.rule : null, list };
+  return { ...q, node: q.node !== null && ix.byKey.has(q.node) ? q.node : null, list };
 }
 
 /** The stored tree document, with what the explorer's older models or a hand-built one may lack given its default. */
@@ -240,8 +242,6 @@ export interface TestsData {
   index: Index;
   /** The address's query with what the snapshot does not hold dropped. */
   query: TestsQuery;
-  /** The lines around the open rule's cases: its area's own document. Null when no rule is open, or the area holds none. */
-  lines: AreaLines | null;
 }
 
 export interface TestsView {
@@ -255,9 +255,8 @@ export interface TestsView {
 
 /**
  * What the page reads: the pull requests with tests shown and the asked
- * snapshot's tree, in one round trip, and, for a rule, its area's source
- * lines. The lines are read after the tree because the rule's area is only
- * known from it, still inside the one request the page is answered by.
+ * snapshot's tree, in one round trip. The source lines a case shows are not
+ * read here but by `loadSource`, when the case is opened.
  */
 export async function loadTests(db: D1Database, asked: TestsQuery): Promise<TestsView> {
   const snapshot: Snapshot = asked.pr === null ? 'main' : pullRequestSnapshot(asked.pr);
@@ -267,14 +266,33 @@ export async function loadTests(db: D1Database, asked: TestsQuery): Promise<Test
   if (!unpacked.ok) throw new Error(unpacked.error);
   const model = readModel(unpacked.value);
   const index = indexOf(model);
-  const query = resolveQuery(asked, index);
-  let lines: AreaLines | null = null;
-  if (query.rule !== null) {
-    const stored = await currentAreaLines(db, snapshot, current.commit, index.rules.get(query.rule)!.area.key);
-    const unpackedLines = stored ? await unpack('The source lines', stored) : null;
-    if (unpackedLines?.ok) lines = unpackedLines.value as AreaLines;
-  }
-  return { asked, pulls, data: { model, index, query, lines } };
+  return { asked, pulls, data: { model, index, query: resolveQuery(asked, index) } };
+}
+
+/** A case whose source is asked for: the area that holds its lines, its `file:line`, and the snapshot (an open pull request's, or `main`'s when null). */
+export interface SourceAsk {
+  area: string;
+  at: string;
+  pr: number | null;
+}
+
+/** The source asked for by an address, or null where it names no area or no case, or one too long to be either. */
+export function parseSourceAsk(params: URLSearchParams): SourceAsk | null {
+  const area = text(params.get('area'));
+  const at = text(params.get('at'));
+  return area === null || at === null ? null : { area, at, pr: pullRequestNumber(params.get('pr')) };
+}
+
+/**
+ * The lines around one case, read when it is opened: the one document of the
+ * case's own area, at the commit the page shows, and nothing else. Null when
+ * the area holds none or none for the case.
+ */
+export async function loadSource(db: D1Database, ask: SourceAsk): Promise<Line[] | null> {
+  const stored = await shownAreaLines(db, ask.pr === null ? 'main' : pullRequestSnapshot(ask.pr), ask.area);
+  const unpacked = stored ? await unpack('The source lines', stored) : null;
+  if (!unpacked?.ok) return null;
+  return (unpacked.value as AreaLines)[ask.at] ?? null;
 }
 
 // ---- Counting

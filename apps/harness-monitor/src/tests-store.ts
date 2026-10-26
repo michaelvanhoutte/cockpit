@@ -182,14 +182,18 @@ export const CLOSED_SNAPSHOTS = `DELETE FROM tests_trees WHERE snapshot IN (
   OR (snapshot LIKE 'pr-%' AND EXISTS (SELECT 1 FROM branch_links b WHERE b.pr_number = CAST(substr(tests_trees.snapshot, 4) AS INTEGER) AND b.state <> 'OPEN'))`;
 
 /**
- * One area's gzipped source lines at the commit of the tree read, or null when
- * it holds none for the area, or another commit has been made current since and
- * deleted them: never another commit's lines under this tree's references.
+ * One area's gzipped source lines at the commit shown for `snapshot`, or null
+ * when the area holds none: one query, joined to the switch, so the lines are
+ * never another commit's than the one the page shows.
  */
-export async function currentAreaLines(db: D1Database, snapshot: Snapshot, commit: string, area: string): Promise<Uint8Array | null> {
+export async function shownAreaLines(db: D1Database, snapshot: Snapshot, area: string): Promise<Uint8Array | null> {
   const row = await db
-    .prepare('SELECT document FROM tests_area_lines WHERE snapshot = ?1 AND commit_sha = ?2 AND area = ?3')
-    .bind(snapshot, commit, area)
+    .prepare(
+      `SELECT l.document AS document FROM tests_current c
+       JOIN tests_area_lines l ON l.snapshot = c.snapshot AND l.commit_sha = c.commit_sha
+       WHERE c.snapshot = ?1 AND l.area = ?2`,
+    )
+    .bind(snapshot, area)
     .first<{ document: unknown }>();
   return row ? bytesOf(row.document) : null;
 }

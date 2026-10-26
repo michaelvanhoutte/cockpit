@@ -208,9 +208,6 @@ describe('Harness Monitor', () => {
     it.each([
       { view: 'Gaps, its files to test next', query: '?group=gaps', id: 'gap-files' },
       { view: 'Gaps, its branches nothing takes', query: '?group=gaps', id: 'gap-branches' },
-      { view: 'an area drilled into, its own rules', query: '?node=Inbox', id: 'own-rules' },
-      { view: 'a count followed, the tests behind it', query: '?tests=Inbox~~', id: 'tests' },
-      { view: 'a rule opened through the address, its cases', query: `?node=Inbox&rule=${encodeURIComponent(`${API_INT}:20`)}`, id: 'cases' },
     ])('$view carries an (i) saying what it shows', async ({ query, id }) => {
       await tests();
 
@@ -218,6 +215,19 @@ describe('Harness Monitor', () => {
 
       expect(firstInfo(panelOf(html, id))).toBe(id);
       expect(partsOf(html, id)?.[0]).toBe('What it shows');
+    });
+  });
+
+  describe('the panel opened beside the table carries an explanation on its head', () => {
+    it('an opened panel has an (i) on its head, with the three parts, and the bare page has none for it', async () => {
+      await tests();
+
+      const html = await page('/tests?tests=Inbox~~');
+
+      const head = /<div class="pane-head">.*?<nav class="pane-tabs"/s.exec(html)?.[0] ?? '';
+      expect(firstInfo(head)).toBe('pane');
+      expect(partsOf(html, 'pane')).toEqual(THREE_PARTS);
+      expect(infosOf(await page('/tests')).buttons).not.toContain('x-pane');
     });
   });
 
@@ -231,12 +241,12 @@ describe('Harness Monitor', () => {
       expect(infosOf(await page(`/tests${query}`)).buttons).toContain(`x-${id}`);
     });
 
-    it.each([[''], ['?group=gaps'], ['?group=level'], ['?group=package'], ['?node=Inbox']])('the page at %j draws no explanation of the removed panels, tabs or files column', async (query) => {
+    it.each([[''], ['?group=gaps'], ['?group=level'], ['?group=package'], ['?node=Inbox'], ['?tests=Inbox~~']])('the page at %j draws no explanation of the removed panels, tabs or files column', async (query) => {
       await tests();
 
       const { buttons, panels } = infosOf(await page(`/tests${query}`));
 
-      for (const gone of ['x-where', 'x-worst', 'x-by-level', 'x-by-package', 'x-t-files']) {
+      for (const gone of ['x-where', 'x-worst', 'x-by-level', 'x-by-package', 'x-t-files', 'x-own-rules', 'x-tests', 'x-rule', 'x-cases']) {
         expect(buttons).not.toContain(gone);
         expect(panels).not.toContain(gone);
       }
@@ -374,17 +384,6 @@ describe('Harness Monitor', () => {
       const html = await page('/stability?group=failures');
 
       expect(text(withoutExplanations(panelOf(html, 'recent-failures')))).toContain('The newest 100 are listed; the counts above use all 101.');
-    });
-
-    it.each([
-      { panel: 'a rule opened', query: `?node=Inbox&rule=${encodeURIComponent(`${API_INT}:20`)}`, id: 'rule', note: 'No pass or fail mark' },
-    ])('Test coverage: $panel no longer says it under its heading, and its explanation does', async ({ query, id, note }) => {
-      await tests();
-
-      const html = await page(`/tests${query}`);
-
-      expect(text(withoutExplanations(panelOf(html, id)))).not.toContain(note);
-      expect(text(explanationOf(html, id))).toContain(note);
     });
 
     it.each([

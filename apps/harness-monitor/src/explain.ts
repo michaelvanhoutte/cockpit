@@ -61,6 +61,8 @@ export const EXPLAIN_STYLE = `
  * Opens an (i)'s explanation on pointing, keeps it on a click or tap, and closes
  * it on leaving (unless kept), a second click, a click elsewhere or Escape. One
  * is open at a time. It is placed under its (i), kept inside the screen's width.
+ * `window.explainBind(root)` binds the (i)s a page adds later, as the Test
+ * coverage panel does when it swaps one in.
  */
 export const EXPLAIN_SCRIPT = `<script>
 (function(){
@@ -76,7 +78,8 @@ export const EXPLAIN_SCRIPT = `<script>
   function hide(){
     clearTimeout(timer);
     if(!open)return;
-    open.p.hidePopover();open.b.setAttribute('aria-expanded','false');open=null;kept=false;
+    if(open.p.isConnected)open.p.hidePopover();
+    open.b.setAttribute('aria-expanded','false');open=null;kept=false;
   }
   function show(b){
     clearTimeout(timer);
@@ -87,17 +90,23 @@ export const EXPLAIN_SCRIPT = `<script>
     open={b:b,p:p};kept=false;place();
   }
   function leave(){clearTimeout(timer);timer=setTimeout(function(){if(!kept)hide()},150)}
-  document.querySelectorAll('.info').forEach(function(b){
-    var p=document.getElementById(b.dataset.pop);
-    b.addEventListener('mouseenter',function(){show(b)});
-    b.addEventListener('mouseleave',leave);
-    p.addEventListener('mouseenter',function(){clearTimeout(timer)});
-    p.addEventListener('mouseleave',leave);
-    b.addEventListener('click',function(){
-      if(open&&open.b===b&&kept){hide();return}
-      show(b);kept=true;
+  function bind(root){
+    root.querySelectorAll('.info').forEach(function(b){
+      if(b.dataset.bound)return;
+      b.dataset.bound='1';
+      var p=document.getElementById(b.dataset.pop);
+      b.addEventListener('mouseenter',function(){show(b)});
+      b.addEventListener('mouseleave',leave);
+      p.addEventListener('mouseenter',function(){clearTimeout(timer)});
+      p.addEventListener('mouseleave',leave);
+      b.addEventListener('click',function(){
+        if(open&&open.b===b&&kept){hide();return}
+        show(b);kept=true;
+      });
     });
-  });
+  }
+  bind(document);
+  window.explainBind=bind;
   document.addEventListener('click',function(e){
     if(open&&!open.b.contains(e.target)&&!open.p.contains(e.target))hide();
   });

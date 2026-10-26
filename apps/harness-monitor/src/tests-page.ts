@@ -33,7 +33,9 @@ import {
   type Case,
   type Coverage,
   type FileStatements,
+  type Line,
   type ListSpec,
+  type Pane,
   type Ref,
   type Rule,
   type TestsQuery,
@@ -49,6 +51,8 @@ const PAGE_LEAD = lead(questionOf('tests'), LEAD_MORE);
 const NBSP = String.fromCharCode(160);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
+/** A row's anchor, so a full load of a view lands on the row it was opened from. */
+const anchor = (key: string) => `a-${key.replace(/[^\w]+/g, '-')}`;
 
 const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', gaps: 'each gap' };
 
@@ -93,10 +97,10 @@ function renderNothing({ asked, pulls }: TestsView, now: number): string {
   return reportPage({ current: 'tests', controls, body: `${PAGE_LEAD}\n${section('nothing', 'Test coverage', '', `<p class="well empty">${said}</p>`)}`, style: EXTRA + EXPLAIN_STYLE }, now);
 }
 
-/** The Test coverage page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package with the share of each area's code its tests run, each count opening the tests behind it. */
+/** The Test coverage page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package with the share of each area's code its tests run, each name and count opening the tests behind it in a panel beside the table. */
 export function renderTests(view: TestsView, now: number): string {
   if (!view.data) return renderNothing(view, now);
-  const { model, index: ix, query: q, lines } = view.data;
+  const { model, index: ix, query: q } = view.data;
   const scope = q.node ? ix.byKey.get(q.node)! : null;
   const inScope = scope ? [...walk([scope])] : [...walk(model.tree)];
   const blob = model.commitUrl && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/commit\/[0-9a-f]+$/.test(model.commitUrl) ? model.commitUrl.replace('/commit/', '/blob/') : null;
@@ -108,7 +112,7 @@ export function renderTests(view: TestsView, now: number): string {
   const qualifier = [q.level ? `${q.level} only` : '', q.package ? `${pkgLabel(q.package)} only` : ''].filter(Boolean).join(' · ');
   const link = (over: Partial<TestsQuery> = {}) => esc(testsAddress(q, over));
   /** The files of `areas` with their statements, or null where coverage is unknown: no run, or a tree older than the figures. */
-  const measured = (areas: Area[]) => (model.coverageAvailable ? filesCovered(areas, keep) : null);
+  const measured = (areas: Area[], k = keep) => (model.coverageAvailable ? filesCovered(areas, k) : null);
 
   // ---- filters ----
   const areaOptions: [string, string][] = [['', 'All areas']];
@@ -125,7 +129,7 @@ export function renderTests(view: TestsView, now: number): string {
   const controls = sentenceForm(
     '/tests',
     `Show ${whose(q, view.pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
-${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['package', 'package']], q.split)}` : ''}`,
+${onAreas ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['package', 'package']], q.split)}` : ''}`,
     [
       inline('node', 'Area', areaOptions, q.node ?? '', ''),
       q.group === 'gaps' ? '' : inline('level', 'Level', [['', 'All levels'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '', ''),
@@ -136,7 +140,7 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
     [
       q.group === 'gaps' && q.level ? hidden('level', q.level) : '',
       !onAreas && q.show !== 'all' ? hidden('show', q.show) : '',
-      !(onAreas && !q.rule) && q.split !== 'level' ? hidden('split', q.split) : '',
+      !onAreas && q.split !== 'level' ? hidden('split', q.split) : '',
     ].join(''),
   );
 
@@ -146,9 +150,8 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
     const up: Area[] = [];
     for (let a = ix.parent.get(scope.key); a; a = ix.parent.get(a.key)) up.unshift(a);
     for (const u of up) crumbs.push(`<a href="${link({ node: u.key })}">${esc(u.label)}</a>`);
-    crumbs.push(q.rule ? `<a href="${link()}">${esc(scope.label)}</a>` : `<span aria-current="page">${esc(scope.label)}</span>`);
+    crumbs.push(`<span aria-current="page">${esc(scope.label)}</span>`);
   }
-  if (q.rule) crumbs.push('<span aria-current="page">Rule</span>');
   const crumbline = `<nav class="crumbs" aria-label="Area">${crumbs.join('<span class="sep">›</span>')}</nav>`;
 
   // ---- series: what a row's counts are split into ----
@@ -167,11 +170,15 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
   };
   const swatch = (s: Series) => (s.swatch ? `<i style="background:${s.colour}"></i>` : '');
   const dash = '<span class="faint">0</span>';
-  /** Wraps a count so a click opens the tests behind it above the tab; what the count did not name stays as the page's filters have it. */
-  const toTests = (cell: string, n: number, over: Partial<ListSpec>) => {
+  /** The tests a name or count opens: what it did not name stays as the page's filters have it. */
+  const listOf = (over: Partial<ListSpec>): ListSpec => ({ node: over.node ?? q.node, level: over.level ?? q.level, package: over.package ?? q.package });
+  const sameList = (a: ListSpec | null, b: ListSpec) => a !== null && a.node === b.node && a.level === b.level && a.package === b.package;
+  /** Wraps a count so a click opens the tests behind it in the panel beside the table, landing on the row it was clicked in. */
+  const toTests = (cell: string, n: number, over: Partial<ListSpec>, row: string, pane: Pane = 'rules') => {
     if (n <= 0) return cell;
-    const list: ListSpec = { node: over.node ?? q.node, level: over.level ?? q.level, package: over.package ?? q.package };
-    return `<a class="count" href="${link({ list })}#tests">${cell}</a>`;
+    const list = listOf(over);
+    const on = sameList(q.list, list) && q.pane === pane;
+    return `<a class="count${on ? ' on' : ''}" href="${link({ list, pane })}#${anchor(row)}">${cell}</a>`;
   };
   /** A row's own figure, then everything inside it in brackets. */
   const pair = (ownN: number | null, subN: number | null, hasKids: boolean, bad = false) =>
@@ -181,17 +188,14 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
   const share = (c: Coverage | null) =>
     c === null ? '<span class="faint">—</span>' : `<span class="meter"><i style="width:${(c.rate * 100).toFixed(1)}%"></i></span><span${isThin(c) ? ' class="bad"' : ''}>${percent(c)}</span>`;
 
-  let body: string;
-  if (q.rule) body = ruleDetail(ix.rules.get(q.rule)!.rule, ix.rules.get(q.rule)!.area);
-  else if (q.group === 'area') body = `${q.list ? testsList(q.list) : ''}${areaView()}`;
-  else body = gapsView();
+  const body = q.group === 'area' ? areaView() : gapsView();
 
   const commit = model.commitUrl && blob ? `<a href="${esc(model.commitUrl)}" target="_blank" rel="noopener noreferrer">${esc(model.commit)}</a>` : esc(model.commit);
   const generated = model.generatedAt !== null && !Number.isNaN(Date.parse(model.generatedAt)) ? `, ${formatDateTime(Date.parse(model.generatedAt))}` : '';
   const stamp = `<p class="stamp">${q.pr === null ? 'main&rsquo;s' : `#${q.pr}&rsquo;s`} tests at ${commit}${generated}.</p>`;
-  return reportPage({ current: 'tests', controls, body: `${PAGE_LEAD}\n${stamp}\n${crumbline}\n${body}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
+  return reportPage({ current: 'tests', controls, body: `${PAGE_LEAD}\n${stamp}\n${crumbline}\n${body}\n${EXPLAIN_SCRIPT}${q.group === 'area' ? PANE_SCRIPT : ''}`, style: EXTRA + EXPLAIN_STYLE }, now);
 
-  // ---- Concept area: the tree under the chosen area, then that area's own rules ----
+  // ---- Concept area: the tree under the chosen area, beside the panel ----
   function areaView(): string {
     const series = q.split === 'level' ? levelSeries : pkgSeries(scopeRules);
     const { shown, matched } = showRows(rowsUnder(model, scope), q, keep, ix);
@@ -202,27 +206,28 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
         const o = ownRules(a, keep);
         const d = deepRules(a, keep);
         const kids = a.children.length > 0;
-        const name = a.key === q.node ? `<strong>${esc(a.label)}</strong>` : `<a href="${link({ node: a.key })}">${esc(a.label)}</a>`;
+        const selected = q.list !== null && q.list.node === a.key;
+        const name = `<a href="${link({ list: listOf({ node: a.key }) })}#${anchor(a.key)}">${esc(a.label)}</a>`;
         const sub = kids ? `<div class="sub">${plural([...walk(a.children)].length, 'area')} inside</div>` : '';
         const cells = series
           .map((s) => {
             const deep = countOf(model, a, q.split, s.key, d, true);
-            return `<td class="num">${toTests(pair(countOf(model, a, q.split, s.key, o, false), deep, kids), deep ?? 0, q.split === 'level' ? { node: a.key, level: s.key as ListSpec['level'] } : { node: a.key, package: s.key as ListSpec['package'] })}</td>`;
+            return `<td class="num">${toTests(pair(countOf(model, a, q.split, s.key, o, false), deep, kids), deep ?? 0, q.split === 'level' ? { node: a.key, level: s.key as ListSpec['level'] } : { node: a.key, package: s.key as ListSpec['package'] }, a.key)}</td>`;
           })
           .join('');
         const deepFiles = measured([...walk([a])]);
         const deepCover = coverageOf(deepFiles);
         const ownCover = coverageOf(measured([a]));
         const shareCell = deepFiles === null ? unknown : `${share(ownCover)}${kids && deepCover !== null ? ` <span class="subtotal">(${percent(deepCover)})</span>` : ''}`;
-        const covered = deepCover !== null ? `<a href="${link({ group: 'gaps', node: a.key })}">${shareCell}</a>` : shareCell;
+        const covered = deepCover !== null ? toTests(shareCell, 1, { node: a.key }, a.key, 'files') : shareCell;
         const branchOwn = branchGaps([a], keep);
         const branchDeep = branchGaps([...walk([a])], keep);
         const branches = !model.coverageAvailable
           ? unknown
           : branchOwn || branchDeep
-            ? `<a href="${link({ group: 'gaps', node: a.key })}">${pair(branchOwn, branchDeep, kids, true)}</a>`
+            ? toTests(pair(branchOwn, branchDeep, kids, true), 1, { node: a.key }, a.key, 'branches')
             : pair(0, 0, kids);
-        return `<tr class="${matched.has(a.key) ? '' : 'context'}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key })}</td><td class="num cover">${covered}</td><td class="num">${branches}</td></tr>`;
+        return `<tr id="${anchor(a.key)}" class="${matched.has(a.key) ? '' : 'context'}${selected ? ' selected' : ''}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key }, a.key)}</td><td class="num cover">${covered}</td><td class="num">${branches}</td></tr>`;
       })
       .join('\n');
     const showNote = q.show === 'files' ? `areas under ${THIN}% covered` : q.show === 'empty' ? `areas with no ${q.level ? `${q.level} ` : ''}rule` : '';
@@ -266,103 +271,95 @@ ${tile('Branches nothing takes', model.coverageAvailable ? number(branchGaps(inS
 ${tile('Areas with no rule', `${number(emptyAreas.length)} <small>of ${number(inScope.length)}</small>`, emptyAreas.length ? esc(emptyAreas.slice(0, 3).map((a) => a.label).join(', ')) + (emptyAreas.length > 3 ? '…' : '') : q.level ? `every area has a ${q.level} rule` : 'every area has a rule', '', explain('t-empty', 'Areas with no rule', WHAT.empty))}
 </div>`;
 
-    return `${table}
-${scope ? ownRulesPanel(scope) : ''}
+    return `<div class="with-pane"><div class="main-col">${table}</div>${pane()}</div>
 ${tiles}`;
   }
 
-  // ---- the tests behind a clicked count: every rule in scope the count names, area by area ----
-  function testsList(spec: ListSpec): string {
-    const areas = testsBehind(model, ix, spec);
+  // ---- the panel beside the table: the tests, files and branches behind the opened list ----
+  /** A case's or rule's place, which opens the source around it where it is read from: only when it is opened, so a panel lists any number of cases and reads none. */
+  function code(ref: Ref): string {
+    return `<details class="code" data-at="${esc(ruleId(ref))}"><summary>${fileLink(ref.file, ref.line, `${ref.file}:${ref.line}`)}</summary><div class="src"></div></details>`;
+  }
+
+  function pane(): string {
+    const spec = q.list;
+    const open = (inner: string) => `<aside class="pane" id="pane" aria-label="Tests behind the count"${q.pr === null ? '' : ` data-pr="${q.pr}"`}>${inner}</aside>`;
+    if (!spec) return open('<div class="well empty">Pick an area, or any count, to see its rules and their cases here.</div>');
     const at = spec.node === null ? null : (ix.byKey.get(spec.node) ?? null);
-    const n = areas.reduce((t, x) => t + x.rules.length, 0);
+    const areasIn = at ? [...walk([at])] : [...walk(model.tree)];
+    const fileKeep = keepOf({ level: null, package: spec.package });
+    const behind = testsBehind(model, ix, spec);
+    const nRules = behind.reduce((t, x) => t + x.rules.length, 0);
+    const nCases = behind.reduce((t, x) => t + x.rules.reduce((n, r) => n + r.cases.length, 0), 0);
+    const files = measured(areasIn, fileKeep);
+    const cover = coverageOf(files);
+    const branchRows = [...branchesByFile(areasIn, fileKeep)].sort(([fa, a], [fb, b]) => b.count - a.count || (fa < fb ? -1 : 1));
     const what = [spec.level ? `${spec.level} · ${esc(levelName(spec.level))}` : '', spec.package ? esc(pkgLabel(spec.package)) : ''].filter(Boolean).join(' · ');
-    const title = `${plural(n, 'rule')}${at ? ` in ${esc(at.label)}${at.children.length ? ' and inside it' : ''}` : ''}${what ? ` · ${what}` : ''}`;
-    const rows = areas
+    const path = at ? pathOf(ix, at).join(' › ') : '';
+    const summary = [plural(nRules, 'rule'), plural(nCases, 'case'), files === null ? 'coverage unknown' : cover ? `${percent(cover)} of ${plural(cover.total, 'statement')} run` : 'no statements to run'].join(' · ');
+
+    const thin = (files ?? []).filter((f) => isThin(f)).sort((a, b) => a.covered / a.total - b.covered / b.total || (a.file < b.file ? -1 : 1));
+    const label = at ? at.label : 'Cockpit';
+    const prompt =
+      thin.length || branchRows.length
+        ? [
+            ...(thin.length ? [`These files in the "${label}" feature area have under ${THIN}% of their statements run by any test:`, ...thin.map((f) => `- ${f.file} (${percent(f)})`)] : []),
+            ...(branchRows.length ? [...(thin.length ? [''] : []), `These branches in the "${label}" feature area are never taken by a test:`, ...branchRows.map(([f, own]) => `- ${f}: lines ${[...new Set(own.lines)].sort((x, y) => x - y).join(', ')}`)] : []),
+            '',
+            "Use this repo's test strategy and guidance when defining tests, to figure out which tests may need to be added to ensure this is covered.",
+          ].join('\n')
+        : '';
+    const copy = prompt
+      ? `<textarea id="pane-prompt" hidden>${esc(prompt)}</textarea><button type="button" class="copy" onclick="navigator.clipboard.writeText(document.getElementById('pane-prompt').value).then(()=>{this.textContent='Copied'})">Copy prompt for missing tests</button>`
+      : '';
+    const tabLink = (p: Pane, text: string) => `<a href="${link({ list: spec, pane: p })}"${q.pane === p ? ' aria-current="page"' : ''}>${text}</a>`;
+    const tabs = `<nav class="pane-tabs" aria-label="Panel">${tabLink('rules', `Rules (${number(nRules)})`)}${tabLink('files', `Files (${files === null ? 'unknown' : number(files.length)})`)}${tabLink('branches', `Branches (${model.coverageAvailable ? number(branchGaps(areasIn, fileKeep)) : 'unknown'})`)}</nav>`;
+    const close = `<a class="close" href="${link()}" aria-label="Close the panel">&#10005;</a>`;
+    const inner = q.pane === 'files' ? filesPane(files) : q.pane === 'branches' ? branchesPane(branchRows) : rulesPane(behind);
+
+    return open(
+      `<div class="pane-head">${close}${path ? `<div class="pane-path">${esc(path)}</div>` : ''}<div class="pane-title"><h2>${at ? esc(at.label) : 'Every area'}${what ? ` <span class="faint">· ${what}</span>` : ''}</h2>${explain('pane', 'the tests behind this count', WHAT.pane).both}</div><div class="pane-sum">${summary}</div>${copy ? `<div>${copy}</div>` : ''}</div>${tabs}<div class="pane-body">${inner}</div>`,
+    );
+  }
+
+  function rulesPane(behind: { area: Area; rules: Rule[] }[]): string {
+    if (!behind.length) return '<p class="empty">No rule here.</p>';
+    const caseItem = (c: Case, todo: boolean) => `<li>${todo ? '<span class="todo">not written yet</span> ' : ''}<span class="case">${esc(c.text)}</span>${code(c)}</li>`;
+    return behind
       .map(
         (x) =>
-          `<tr class="group"><th colspan="4" scope="colgroup">${esc([...pathOf(ix, x.area), x.area.label].join(' › '))} <span class="faint">${plural(x.rules.length, 'rule')}</span></th></tr>` +
-          x.rules
-            .map((r) => `<tr><td class="first"><a href="${link({ rule: ruleId(r) })}">${esc(r.statement)}</a></td><td>${esc(r.level)}</td><td class="num">${plural(r.cases.length, 'case')}</td><td class="path">${fileLink(r.file, r.line, `${r.file}:${r.line}`)}</td></tr>`)
-            .join(''),
-      )
-      .join('\n');
-    return section(
-      'tests',
-      `Tests: ${title}`,
-      `<a href="${link()}">Close</a>`,
-      `<div class="well table"><table class="rules">
-<thead><tr><th scope="col">Rule</th><th scope="col">Level</th><th scope="col" class="num">Cases</th><th scope="col">Where</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="4" class="empty">No test here.</td></tr>'}</tbody></table></div>`,
-      'panel wide',
-      explain('tests', 'the tests behind this count', WHAT.tests),
-    );
-  }
-
-  // The chosen area's own rules, grouped by level: each one drills to its cases.
-  function ownRulesPanel(a: Area): string {
-    const list = ownRules(a, keep);
-    const aside = `${a.children.length ? 'the areas inside it list their own · ' : ''}${qualifier || 'every level'}`;
-    const info = explain('own-rules', `Rules on ${esc(a.label)} itself`, WHAT.ownRules);
-    if (!list.length) {
-      return section('own-rules', `Rules on ${esc(a.label)} itself`, aside, `<p class="well empty">No rule names ${esc(a.label)} as its area${qualifier ? ` at ${esc(qualifier.replace(/ only/g, ''))}` : ''}.</p>`, 'panel wide', info);
-    }
-    const rows = LEVELS.map((l) => ({ l, rules: list.filter((r) => r.level === l.id) }))
-      .filter((g) => g.rules.length)
-      .map(
-        (g) =>
-          `<tr class="group"><th colspan="3" scope="colgroup"><i style="background:${g.l.colour}"></i>${g.l.id} · ${g.l.name} <span class="faint">${plural(g.rules.length, 'rule')}</span></th></tr>` +
-          g.rules
+          `<div class="pane-group" data-area="${esc(x.area.key)}">${behind.length > 1 ? `<h3 class="pane-area">${esc(x.area.label)} <span class="faint">${plural(x.rules.length, 'rule')}</span></h3>` : ''}` +
+          LEVELS.map((l) => ({ l, rules: x.rules.filter((r) => r.level === l.id) }))
+            .filter((g) => g.rules.length)
             .map(
-              (r) =>
-                `<tr><td class="first"><a href="${link({ rule: ruleId(r) })}">${esc(r.statement)}</a></td><td class="num">${plural(r.cases.length, 'case')}${r.todoCases.length ? ` <span class="todo">+${r.todoCases.length} not written</span>` : ''}</td><td class="path">${fileLink(r.file, r.line, `${r.file}:${r.line}`)}</td></tr>`,
+              (g) =>
+                `<div class="pane-level"><i style="background:${g.l.colour}"></i>${g.l.id} · ${g.l.name} <span class="faint">${plural(g.rules.length, 'rule')}</span></div>` +
+                g.rules.map((r) => `<div class="pane-rule"><div class="statement">${esc(r.statement)}</div>${code(r)}<ol class="pane-cases">${r.cases.map((c) => caseItem(c, false)).join('')}${r.todoCases.map((c) => caseItem(c, true)).join('')}</ol></div>`).join(''),
             )
-            .join(''),
+            .join('') +
+          '</div>',
       )
-      .join('\n');
-    return section(
-      'own-rules',
-      `Rules on ${esc(a.label)} itself`,
-      `${plural(list.length, 'rule')} · ${aside}`,
-      `<div class="well table"><table class="rules">
-<thead><tr><th scope="col">Rule</th><th scope="col" class="num">Cases</th><th scope="col">Where</th></tr></thead>
-<tbody>${rows}</tbody></table></div>`,
-      'panel wide',
-      info,
-    );
+      .join('');
   }
 
-  // ---- one rule: its cases, each with the source around it ----
-  function ruleDetail(r: Rule, a: Area): string {
-    const code = (ref: Ref) => {
-      const context = lines?.[ruleId(ref)];
-      const where = fileLink(ref.file, ref.line, `${ref.file}:${ref.line}`);
-      return context?.length
-        ? `<details class="code"><summary>${where}</summary><pre>${context.map((l) => `<span class="${l.line === ref.line ? 'hit' : ''}"><b>${l.line}</b>${esc(l.text)}</span>`).join('')}</pre></details>`
-        : `<div class="path">${where}</div>`;
-    };
-    const caseItem = (c: Case, todo: boolean) => `<li>${todo ? '<span class="todo">not written yet</span> ' : ''}<span class="case">${esc(c.text)}</span>${code(c)}</li>`;
-    return (
-      section(
-        'rule',
-        `${esc(r.level)} · ${esc(levelName(r.level))} rule`,
-        `${esc([...pathOf(ix, a), a.label].join(' › '))} · ${esc(pkgLabel(pkgOf(r.file)))}`,
-        `<div class="well rule">
-<h3>${esc(r.statement)}</h3>
-${code(r)}
-</div>`,
-        'panel wide',
-        explain('rule', 'this rule', WHAT.rule),
-      ) +
-      section(
-        'cases',
-        'Cases',
-        plural(r.cases.length, 'case'),
-        `<ol class="well cases">${r.cases.map((c) => caseItem(c, false)).join('')}${r.todoCases.map((c) => caseItem(c, true)).join('')}</ol>`,
-        'panel wide',
-        explain('cases', 'Cases', WHAT.ruleCases),
-      )
-    );
+  function filesPane(files: FileStatements[] | null): string {
+    if (files === null) return `<p class="empty">${UNKNOWN_COVERAGE}</p>`;
+    if (!files.length) return '<p class="empty">No source file with statements here.</p>';
+    const sorted = [...files].sort((a, b) => a.covered / a.total - b.covered / b.total || (a.file < b.file ? -1 : 1));
+    return `<ul class="pane-files">${sorted
+      .map((f) => {
+        const c = coverageOf([f])!;
+        return `<li><span class="meter"><i style="width:${(c.rate * 100).toFixed(1)}%"></i></span><span class="pct${isThin(c) ? ' bad' : ''}">${percent(c)}</span><span class="path">${fileLink(f.file, null)}</span><span class="faint stmts">${f.covered === 0 ? 'nothing runs · ' : ''}${number(f.covered)}/${number(f.total)}</span></li>`;
+      })
+      .join('')}</ul>`;
+  }
+
+  function branchesPane(rows: [string, { lines: number[]; count: number; areas: Area[] }][]): string {
+    if (!model.coverageAvailable) return '<p class="empty">Unknown, not zero: the branches no test takes come from CI&rsquo;s instrumented run on main, and this snapshot had none.</p>';
+    if (!rows.length) return '<p class="empty">None: every branch here is taken by at least one test.</p>';
+    return `<ul class="pane-files pane-branches">${rows
+      .map(([file, own]) => `<li><span class="pct bad">${number(own.count)}</span><span class="path">${fileLink(file, null)}</span><span class="lines">lines ${[...new Set(own.lines)].sort((x, y) => x - y).map((n) => fileLink(file, n, `${n}`)).join(', ')}</span></li>`)
+      .join('')}</ul>`;
   }
 
   // ---- Gaps: the files under THIN covered, most statements no test runs first, then the branches no test takes ----
@@ -406,11 +403,11 @@ ${code(r)}
   }
 
   /** The branches no test takes across areas, per file: its lines, how many, and the areas owning it. A file owned by several areas is counted once, by the most any one holds (as `branchGaps` does). */
-  function branchesByFile(areas: Area[]): Map<string, { lines: number[]; count: number; areas: Area[] }> {
+  function branchesByFile(areas: Area[], k = keep): Map<string, { lines: number[]; count: number; areas: Area[] }> {
     const byFile = new Map<string, { lines: number[]; count: number; areas: Area[] }>();
     for (const a of areas) {
       const here = new Map<string, number[]>();
-      for (const b of a.branchesNothingTakes ?? []) if (keep.file(b)) here.set(b.file, [...(here.get(b.file) ?? []), b.line]);
+      for (const b of a.branchesNothingTakes ?? []) if (k.file(b)) here.set(b.file, [...(here.get(b.file) ?? []), b.line]);
       for (const [file, ls] of here) {
         const own = byFile.get(file) ?? { lines: [], count: 0, areas: [] };
         own.lines.push(...ls);
@@ -451,17 +448,86 @@ ${code(r)}
   }
 }
 
+/**
+ * The fragment a case shows under its place when it is opened: the lines around
+ * it with its own marked, or that they were not stored (a tree older than the
+ * lines, or an area that holds none).
+ */
+export function renderSource(at: string, lines: Line[] | null): string {
+  if (!lines?.length) return '<p class="path">The source around this case was not stored.</p>';
+  const line = Number(at.slice(at.lastIndexOf(':') + 1));
+  return `<pre>${lines.map((l) => `<span class="${l.line === line ? 'hit' : ''}"><b>${l.line}</b>${esc(l.text)}</span>`).join('')}</pre>`;
+}
+
+/**
+ * A click that opens the panel fetches the view and swaps only the panel and
+ * the table's marks, so the page stays where it is and only the panel starts at
+ * its top; the address is pushed, and Back swaps the previous panel in. Without
+ * script, or where the fetch fails, the link loads the whole page. A case's
+ * source is fetched when its place is first opened.
+ */
+const PANE_SCRIPT = `<script>
+(function(){
+  var wrap = document.querySelector('.with-pane');
+  if (!wrap || !window.fetch || !window.DOMParser) return;
+  var latest = 0;
+  function opens(a){ return a.matches('a.count, .tree a, .pane-tabs a, .pane .close'); }
+  function swap(url, push){
+    var mine = ++latest;
+    return fetch(url, { headers: { accept: 'text/html' } }).then(function(r){ return r.text(); }).then(function(html){
+      if (mine !== latest) return;
+      var next = new DOMParser().parseFromString(html, 'text/html');
+      var pane = next.querySelector('.with-pane .pane');
+      var old = wrap.querySelector('.pane');
+      if (!pane || !old) { location.href = url; return; }
+      old.replaceWith(pane);
+      if (window.explainBind) window.explainBind(pane);
+      var on = {};
+      next.querySelectorAll('.main-col a.count.on').forEach(function(a){ on[a.getAttribute('href')] = true; });
+      wrap.querySelectorAll('.main-col a.count').forEach(function(a){ a.classList.toggle('on', !!on[a.getAttribute('href')]); });
+      wrap.querySelectorAll('.main-col tr[id]').forEach(function(tr){ var n = next.getElementById(tr.id); tr.classList.toggle('selected', !!(n && n.classList.contains('selected'))); });
+      if (push) history.pushState({ pane: true }, '', url);
+    });
+  }
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a');
+    if (!a || !wrap.contains(a) || !opens(a) || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    var url = a.getAttribute('href').split('#')[0];
+    swap(url, true).catch(function(){ location.href = url; });
+  });
+  window.addEventListener('popstate', function(){ swap(location.pathname + location.search, false).catch(function(){ location.reload(); }); });
+  document.addEventListener('toggle', function(e){
+    var d = e.target;
+    if (!d.matches || !d.matches('details.code[data-at]') || !d.open || d.dataset.loaded) return;
+    d.dataset.loaded = '1';
+    var box = d.querySelector('.src'), group = d.closest('[data-area]'), pane = d.closest('.pane');
+    box.textContent = 'Loading the source...';
+    fetch('/tests/source?area=' + encodeURIComponent(group.dataset.area) + '&at=' + encodeURIComponent(d.dataset.at) + (pane.dataset.pr ? '&pr=' + pane.dataset.pr : ''))
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(html){ box.innerHTML = html; })
+      .catch(function(){ delete d.dataset.loaded; box.textContent = 'The source could not be loaded. Close this and open it again.'; });
+  }, true);
+})();
+</script>`;
+
 const EXTRA = `
+main{max-width:1800px}
 .stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp a{color:inherit}
 a.count{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px}a.count:hover{color:var(--accent-deep)}
+a.count.on{outline:2px solid var(--accent-deep);outline-offset:2px;border-radius:3px}
 code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:500;color:var(--ink-strong)}
 .crumbs a{color:var(--accent-deep)}.crumbs .sep{color:var(--ink-faint)}
 .tile-value small{font-size:15px;font-weight:500;color:var(--ink-faint)}
 .tree{padding-left:calc(var(--depth) * 22px);position:relative}
+.tree a{color:inherit;text-decoration:none}.tree a:hover{color:var(--accent-deep)}
 .tree::before{content:'';position:absolute;left:calc(var(--depth) * 22px - 13px);top:-11px;height:24px;width:9px;border-left:1px solid color-mix(in srgb,var(--shade) 20%,transparent);border-bottom:1px solid color-mix(in srgb,var(--shade) 20%,transparent)}
 .tree[style*="--depth:0"]::before{display:none}
 tr.context td{opacity:.55}
+tr.selected td{background:var(--accent-tint)}
+tr.selected .tree a{font-weight:600}
+tr[id]{scroll-margin-top:120px}
 .subtotal{color:var(--ink-faint);font-weight:400}
 .na{display:inline-block;padding:0 6px;border-radius:var(--radius-sm);font-size:12px;color:var(--ink-faint);background:color-mix(in srgb,var(--shade) 6%,transparent)}
 .bad{color:var(--over-ink);font-weight:600}
@@ -470,21 +536,50 @@ td.cover{white-space:nowrap}
 th.wrap{white-space:normal;width:80px}
 .meter{display:inline-block;width:36px;height:6px;margin-right:6px;vertical-align:1px;border-radius:3px;background:color-mix(in srgb,var(--shade) 12%,transparent);overflow:hidden}
 .meter i{display:block;height:100%;background:${VIOLET}}
-tr.group th{position:static;padding-top:16px;font-size:12px;color:var(--accent-deep);background:none}
-tr.group th i{margin-right:8px}
-table.rules{min-width:720px}
 .path{font-size:13px;color:var(--ink-faint);word-break:break-all}.path a{color:var(--ink-soft)}
 td.path{max-width:360px}
 .todo{display:inline-block;padding:0 6px;border-radius:var(--radius-sm);font-size:12px;background:var(--due-soft);color:var(--due-ink)}
-.rule{padding:18px 16px;display:flex;flex-direction:column;gap:10px}
-.rule h3{margin:0;font-size:18px;font-weight:600;color:var(--ink-strong)}
-.cases{margin:0;padding:8px 16px 8px 44px;display:flex;flex-direction:column}
-.cases li{padding:9px 0;border-bottom:1px solid color-mix(in srgb,var(--shade) 8%,transparent)}.cases li:last-child{border-bottom:0}
 .case{color:var(--ink-strong)}
-details.code summary{cursor:pointer;font-size:13px;color:var(--ink-faint);list-style-position:inside}
+details.code summary{cursor:pointer;font-size:12px;color:var(--ink-faint);list-style-position:inside}
 details.code pre{margin:6px 0 0;padding:8px 0;overflow-x:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--field);border:1px solid color-mix(in srgb,var(--shade) 10%,transparent);border-radius:var(--radius-sm)}
 details.code pre span{display:block;padding:0 10px;white-space:pre}details.code pre b{display:inline-block;width:42px;color:var(--ink-faint);font-weight:400}
 details.code pre .hit{background:var(--accent-tint)}
+details.code .src{margin-top:6px;font-size:12px;color:var(--ink-faint)}
 .copy{height:30px;padding:0 12px;border:0;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);font:inherit;font-size:13px;font-weight:500;color:var(--ink-strong);cursor:pointer}
 .copy:hover{background:var(--field)}
+.with-pane{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,26%);gap:20px;align-items:start}
+.main-col{min-width:0;display:flex;flex-direction:column;gap:20px}
+.with-pane .table table{min-width:0}
+.with-pane th,.with-pane td{padding-left:6px;padding-right:6px}
+.with-pane th:first-child,.with-pane td:first-child{padding-left:14px}
+.with-pane th{letter-spacing:.03em;font-size:10.5px}
+.with-pane td.num{font-size:13px}
+.with-pane .first{min-width:150px}
+.with-pane .meter{width:22px;margin-right:4px}
+/* Pinned below the band, which is pinned too and about 110px tall, so the head is never under it. */
+.pane{position:sticky;top:124px;max-height:calc(100vh - 136px);display:flex;flex-direction:column;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 10%,transparent);border-radius:var(--radius-sm);overflow:hidden}
+.pane > .well.empty{padding:24px 18px;box-shadow:none;border:0}
+.pane-head{position:relative;padding:14px 44px 12px 16px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
+.pane-title{display:flex;align-items:center}
+.pane-head h2{margin:0;font-size:18px;font-weight:600;color:var(--ink-strong)}
+.pane-path{font-size:12px;color:var(--ink-faint)}.pane-sum{font-size:13px;color:var(--ink-soft)}
+.pane .close{position:absolute;top:10px;right:12px;padding:4px 8px;color:var(--ink-faint);text-decoration:none;font-size:15px}.pane .close:hover{color:var(--ink-strong)}
+.pane-tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
+.pane-tabs a{padding:6px 10px;font-size:13px;font-weight:500;color:var(--ink-soft);text-decoration:none;border-bottom:2px solid transparent}
+.pane-tabs a[aria-current]{color:var(--accent-deep);border-bottom-color:var(--accent-deep)}
+.pane-body{overflow-y:auto;padding:4px 16px 16px}
+.pane-body .empty{padding:16px 0;color:var(--ink-faint);font-size:14px}
+.pane-area{margin:18px 0 4px;font-size:14px;font-weight:600;color:var(--ink-strong)}
+.pane-level{margin:14px 0 6px;font-size:12px;font-weight:600;color:var(--accent-deep)}.pane-level i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+.pane-rule{padding:10px 0;border-bottom:1px solid color-mix(in srgb,var(--shade) 8%,transparent)}
+.pane-rule .statement{font-weight:600;color:var(--ink-strong);font-size:14px}
+.pane-rule > details.code{margin-top:2px}
+.pane-cases{margin:6px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.pane-files{list-style:none;margin:0;padding:6px 0}
+.pane-files li{display:grid;grid-template-columns:auto 44px 1fr;gap:2px 8px;align-items:baseline;padding:7px 0;border-bottom:1px solid color-mix(in srgb,var(--shade) 8%,transparent)}
+.pane-files .pct{font-variant-numeric:tabular-nums;text-align:right;font-size:13px}
+.pane-files .stmts{grid-column:3;font-size:12px}
+.pane-branches li{grid-template-columns:36px minmax(0,1fr)}
+.pane-branches .lines{grid-column:2;font-size:12px;color:var(--ink-faint);word-break:normal;overflow-wrap:normal}.pane-branches .lines a{color:var(--ink-soft);white-space:nowrap}
+@media (max-width:1300px){.with-pane{grid-template-columns:minmax(0,1fr)}.pane{position:static;max-height:none}}
 `;

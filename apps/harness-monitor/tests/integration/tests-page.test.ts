@@ -78,6 +78,8 @@ const thePage = async (query = '', init: RequestInit = {}) => {
 const plain = (html: string) => withoutExplanations(html).replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[#\w]+;/g, ' ').replace(/\s+/g, ' ').trim();
 const sectionOf = (html: string, id: string) => new RegExp(`<section[^>]*aria-labelledby="${id}".*?</section>`, 's').exec(html)?.[0] ?? '';
 const hasSection = (html: string, id: string) => sectionOf(html, id) !== '';
+/** The side panel beside the table. */
+const paneOf = (html: string) => /<aside class="pane".*?<\/aside>/s.exec(html)?.[0] ?? '';
 /** A table row of a section, as markup, by the text its first cell starts with. */
 const rowOf = (html: string, id: string, name: string) => [...sectionOf(html, id).matchAll(/<tr[ >].*?<\/tr>/gs)].map((m) => m[0]).find((row) => plain(row).startsWith(name)) ?? '';
 const cellsOf = (row: string) => [...row.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
@@ -142,22 +144,45 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('a count opens exactly the tests behind it, area by area, and leaves the filters as they were', () => {
-    it("Inbox's F3 count of 3 links to those 3 rules, and the Level filter is not changed by following it", async () => {
+  describe("an area's name or a count opens the panel with exactly the tests behind it, each rule with all its cases", () => {
+    /** The rules a panel lists, by statement, in the order drawn. */
+    const statementsOf = (pane: string) => [...pane.matchAll(/<div class="statement">(.*?)<\/div>/g)].map((m) => plain(m[1]!));
+    /** The areas a panel groups its rules under, each with its count, in the order drawn. */
+    const groupsOf = (pane: string) => [...pane.matchAll(/<h3 class="pane-area">(.*?)<\/h3>/g)].map((m) => plain(m[1]!));
+    const SUGGESTING = model([
+      area('Inbox', rules(1, 'L1', API_UNIT), [area('Capture', rules(2, 'F3', E2E), [area('Suggestions', rules(1, 'L1', API_UNIT))]), area('Triage', rules(3, 'F3', E2E))]),
+    ]);
+
+    it("Capture's name opens Capture's rules and Suggestions', under each area, by level, and does not drill into it", async () => {
+      await sendTestsModel(SUGGESTING);
+      const name = rowOf(await thePage(), 'areas', 'Capture').match(/<td class="first">.*?<a href="([^"]*)"/s)![1]!;
+      expect(name.replace(/&#38;/g, '&')).toBe('/tests?tests=Capture%7E%7E#a-Capture');
+
+      const pane = paneOf(await thePage('?tests=Capture%7E%7E'));
+
+      expect(plain(/<h2>.*?<\/h2>/s.exec(pane)![0])).toContain('Capture');
+      expect(groupsOf(pane)).toEqual(['Capture 2 rules', 'Suggestions 1 rule']);
+      expect([...pane.matchAll(/<div class="pane-level">(.*?)<\/div>/gs)].map((m) => plain(m[1]!))).toEqual(['F3 · End-to-end 2 rules', 'L1 · Unit 1 rule']);
+      expect(statementsOf(pane)).toHaveLength(3);
+      expect(pane).toContain('data-area="Suggestions"');
+    });
+
+    it("Inbox's F3 count of 3 opens those 3 rules, and the Level filter is not changed by following it", async () => {
       await sendTestsModel(SNAPSHOT);
       const inbox = rowOf(await thePage(), 'areas', 'Inbox');
       expect(plain(levelCell(inbox, 'F3'))).toBe('1 (3)');
       const href = hrefOf(levelCell(inbox, 'F3'))!;
-      expect(href).toBe('/tests?tests=Inbox%7EF3%7E#tests');
+      expect(href).toBe('/tests?tests=Inbox%7EF3%7E#a-Inbox');
 
-      const html = await thePage(href.slice('/tests'.length).replace('#tests', ''));
+      const html = await thePage(href.slice('/tests'.length).replace('#a-Inbox', ''));
 
-      const opened = sectionOf(html, 'tests');
-      expect(plain(opened)).toContain('Tests: 3 rules in Inbox and inside it · F3 · End-to-end');
-      expect(plain(opened)).toContain('Workspaces › Inbox 1 rule');
-      expect(plain(opened)).toContain('Workspaces › Inbox › Capture 2 rules');
-      expect([...opened.matchAll(/<td class="first"><a href="[^"]*rule=/g)]).toHaveLength(3);
+      const pane = paneOf(html);
+      expect(plain(pane)).toContain('3 rules');
+      expect(groupsOf(pane)).toEqual(['Inbox 1 rule', 'Capture 2 rules']);
+      expect(plain(/<h2>.*?<\/h2>/s.exec(pane)![0])).toContain('F3 · End-to-end');
       expect(theSentence(html).choices.level).toMatchObject({ chosen: 'All levels', held: false });
+      expect(rowOf(html, 'areas', 'Inbox')).toMatch(/^<tr id="a-Inbox" class=" selected"/);
+      expect(levelCell(rowOf(html, 'areas', 'Inbox'), 'F3')).toContain('<a class="count on"');
     });
 
     it('a count followed while Level is L1 opens the tests it names, and Level stays L1', async () => {
@@ -165,8 +190,32 @@ describe('Harness Monitor', () => {
 
       const html = await thePage('?level=L1&tests=Inbox%7EF3%7E');
 
-      expect(plain(sectionOf(html, 'tests'))).toContain('Tests: 3 rules in Inbox and inside it · F3 · End-to-end');
+      expect(plain(paneOf(html))).toContain('3 rules');
       expect(theSentence(html).choices.level).toMatchObject({ chosen: 'L1 · Unit', held: true });
+    });
+
+    it('a rule of four cases and one not written yet lists all five, the last marked not written, each with where it is', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const pane = paneOf(await thePage('?tests=Inbox%7EL2%7E'));
+
+      const cases = [...pane.matchAll(/<li>(.*?)<\/li>/gs)].map((m) => m[1]!);
+      expect(cases.map((c) => plain(c).replace(/ \S+\.ts:\d+$/, ''))).toEqual(['a note', 'a link', 'a photo', 'a voice memo', 'not written yet a forwarded email']);
+      expect(cases.filter((c) => c.includes('not written yet'))).toHaveLength(1);
+      expect(cases[1]).toContain(`<summary><a href="https://github.com/o/r/blob/abc1234/${API_INT}#L30"`);
+    });
+
+    it("Workspaces' total, holding 13 areas, opens every rule of every area inside it", async () => {
+      const thirteen = Array.from({ length: 13 }, (_, i) => area(`Part ${i + 1}`, [rule(`Part ${i + 1} works`, 'L1', API_UNIT, 10)]));
+      await sendTestsModel(model([area('Workspaces', [], thirteen)]));
+      const total = cellsOf(rowOf(await thePage(), 'areas', 'Workspaces')).at(-3)!;
+      expect(hrefOf(total)).toBe('/tests?tests=Workspaces%7E%7E#a-Workspaces');
+
+      const pane = paneOf(await thePage('?tests=Workspaces%7E%7E'));
+
+      expect(statementsOf(pane)).toEqual(thirteen.map((a) => `${a.key} works`));
+      expect(groupsOf(pane)).toEqual(thirteen.map((a) => `${a.key} 1 rule`));
+      expect(plain(pane)).toContain('13 rules · 0 cases');
     });
 
     it('a count of 0 is not a link', async () => {
@@ -177,44 +226,142 @@ describe('Harness Monitor', () => {
       expect(levelCell(capture, 'L1')).toBe('<span class="faint">0</span>');
       expect(levelCell(capture, 'F3')).toContain('<a class="count"');
     });
+
+    it('a list naming an area the snapshot no longer holds opens no tests, never every area’s', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage('?tests=GoneArea~L1~');
+
+      expect(statementsOf(paneOf(html))).toEqual([]);
+      expect(plain(paneOf(html))).toContain('Pick an area, or any count');
+      expect(hasSection(html, 'areas')).toBe(true);
+    });
   });
 
-  describe('a rule opens its cases with the source lines around each', () => {
-    it('a rule of four cases and one not written yet lists all five, each with its lines, and marks the one not written', async () => {
-      await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
+  describe("the panel's Files lists each file lowest covered first, and Branches each file's untaken branches, most first, with their lines", () => {
+    const BRANCHY = model(
+      [
+        area('Workspaces', [], [
+          area('Panels', [], [], { statements: [statements('apps/web/src/Menu.tsx', 25, 5)], branchesNothingTakes: [{ file: 'apps/web/src/Menu.tsx', line: 3 }, { file: 'apps/web/src/Menu.tsx', line: 9 }] }),
+          area('Layouts', [], [], {
+            statements: [statements('apps/web/src/Menu.tsx', 25, 5), statements('apps/web/src/Grid.tsx', 100, 76)],
+            branchesNothingTakes: [{ file: 'apps/web/src/Menu.tsx', line: 3 }, { file: 'apps/web/src/Grid.tsx', line: 4 }, { file: 'apps/web/src/Grid.tsx', line: 5 }, { file: 'apps/web/src/Grid.tsx', line: 6 }],
+          }),
+        ]),
+      ],
+      { coverageAvailable: true },
+    );
+    const rowsOf = (pane: string) => [...pane.matchAll(/<li>(.*?)<\/li>/gs)].map((m) => plain(m[1]!));
 
-      const html = await thePage(`?rule=${encodeURIComponent(`${API_INT}:20`)}`);
+    it('Workspaces’ Files lists the lowest first, and Menu.tsx once though Panels and Layouts both own it', async () => {
+      await sendTestsModel(BRANCHY);
 
-      const cases = sectionOf(html, 'cases');
-      expect([...cases.matchAll(/<li>/g)]).toHaveLength(5);
-      expect(plain(cases)).toContain('4 cases');
-      expect(plain(cases)).toContain('a voice memo');
-      // The case's own line is marked, with the line above it.
-      expect(cases).toContain('<span class="hit"><b>46</b>    it(&#39;a voice memo&#39;, async () =&#62; {</span>');
-      expect(cases).toContain('<span class=""><b>45</b>    // above</span>');
-      expect(sectionOf(html, 'rule')).toContain('<span class="hit"><b>20</b>  describe(&#39;A captured thought lands in the inbox&#39;');
-      const notWritten = [...cases.matchAll(/<li>(.*?)<\/li>/gs)].map((m) => m[1]!).filter((li) => li.includes('not written yet'));
-      expect(notWritten).toHaveLength(1);
-      expect(plain(notWritten[0]!)).toContain('a forwarded email');
+      const pane = paneOf(await thePage('?tests=Workspaces%7E%7E&pane=files'));
+
+      expect(rowsOf(pane)).toEqual(['20% apps/web/src/Menu.tsx 5/25', '76% apps/web/src/Grid.tsx 76/100']);
+      expect(plain(pane.match(/<nav class="pane-tabs"[^>]*>.*?<\/nav>/s)![0])).toBe('Rules (0) Files (2) Branches (5)');
     });
 
-    it('a case whose lines were not stored still says where it is', async () => {
-      await sendTestsModel(SNAPSHOT, { Inbox: { [`${API_INT}:22`]: around(22, "    it('a note'") } });
+    it('Workspaces’ Branches lists Grid.tsx first, with three untaken, each of its lines linked, then Menu.tsx with two', async () => {
+      await sendTestsModel(BRANCHY);
 
-      const cases = sectionOf(await thePage(`?rule=${encodeURIComponent(`${API_INT}:20`)}`), 'cases');
+      const pane = paneOf(await thePage('?tests=Workspaces%7E%7E&pane=branches'));
 
-      expect(cases).toContain(`<div class="path"><a href="https://github.com/o/r/blob/abc1234/${API_INT}#L30"`);
+      expect(rowsOf(pane)).toEqual(['3 apps/web/src/Grid.tsx lines 4 , 5 , 6', '2 apps/web/src/Menu.tsx lines 3 , 9']);
+      expect(pane).toContain('/blob/abc1234/apps/web/src/Grid.tsx#L5"');
     });
 
-    it('a rule opened from the tests behind a count belongs to the page it came from', async () => {
+    it.each([['files', 'Unknown, not none'], ['branches', 'Unknown, not zero']])('a snapshot without coverage says %s are unknown, not none', async (pane, says) => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = paneOf(await thePage(`?tests=Offline%7E%7E&pane=${pane}`));
+
+      expect(plain(html)).toContain(says);
+      expect(plain(html.match(/<nav class="pane-tabs"[^>]*>.*?<\/nav>/s)![0])).toBe('Rules (1) Files (unknown) Branches (unknown)');
+    });
+  });
+
+  describe("opening a case shows the source around it, read for that case's area alone", () => {
+    const source = async (query: string) => {
+      const response = await SELF.fetch(`https://monitor.test/tests/source${query}`);
+      return { status: response.status, html: await response.text() };
+    };
+    const at = (key: string) => encodeURIComponent(key);
+
+    it('a case whose lines were stored shows them, its own line marked', async () => {
       await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
-      const listed = sectionOf(await thePage('?tests=Inbox%7EL2%7E'), 'tests');
 
-      const href = hrefOf(listed.match(/<td class="first"><a href="[^"]*"/)![0])!;
-      const html = await thePage(href.slice('/tests'.length).replace('#tests', ''));
+      const { status, html } = await source(`?area=Inbox&at=${at(`${API_INT}:46`)}`);
 
-      expect(plain(sectionOf(html, 'rule'))).toContain('A captured thought lands in the inbox');
-      expect(plain(sectionOf(html, 'rule'))).toContain('Workspaces › Inbox · apps/api');
+      expect(status).toBe(200);
+      expect(html).toContain('<span class="hit"><b>46</b>    it(&#39;a voice memo&#39;, async () =&#62; {</span>');
+      expect(html).toContain('<span class=""><b>45</b>    // above</span>');
+    });
+
+    it('the panel itself carries no source: a case’s lines are read only when it is opened', async () => {
+      await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
+
+      const pane = paneOf(await thePage('?tests=Inbox%7EL2%7E'));
+
+      expect(pane).not.toContain('// above');
+      expect(pane).toContain(`<details class="code" data-at="${API_INT}:22">`);
+    });
+
+    it.each([
+      { situation: 'a case whose lines were not stored', lines: { Inbox: { [`${API_INT}:22`]: around(22, "    it('a note'") } }, query: `?area=Inbox&at=${at(`${API_INT}:30`)}` },
+      { situation: 'another area’s lines, which are never read for this one', lines: { Inbox: INBOX_LINES, Capture: {} }, query: `?area=Capture&at=${at(`${API_INT}:22`)}` },
+    ])('$situation says it was not stored, and the case still says where it is', async ({ lines, query }) => {
+      await sendTestsModel(SNAPSHOT, lines);
+
+      const { status, html } = await source(query);
+
+      expect(status).toBe(200);
+      expect(html).not.toContain('<pre>');
+      expect(plain(html)).toContain('not stored');
+      expect(paneOf(await thePage('?tests=Inbox%7EL2%7E'))).toContain(`<summary><a href="https://github.com/o/r/blob/abc1234/${API_INT}#L30"`);
+    });
+
+    it("a pull request's lines are read from its own snapshot", async () => {
+      await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
+      await sendTestsModel(model(TREE, { commit: 'def5678' }), { Inbox: { [`${API_INT}:22`]: around(22, "    it('a note on the pull request'") } }, 'pr-9001');
+
+      const { html } = await source(`?area=Inbox&at=${at(`${API_INT}:22`)}&pr=9001`);
+
+      expect(html).toContain('a note on the pull request');
+    });
+
+    it.each([[''], ['?area=Inbox'], [`?at=${encodeURIComponent(`${API_INT}:22`)}`], [`?area=${'a'.repeat(401)}&at=x:1`]])('the address %j is refused', async (query) => {
+      await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
+
+      expect((await source(query)).status).toBe(400);
+    });
+  });
+
+  describe("a panel's address opens the same view on its own", () => {
+    it('an address naming a list and the Branches tab opens the table and that panel on that tab', async () => {
+      await sendTestsModel(COVERED);
+
+      const html = await thePage('?tests=Panels%7E%7E&pane=branches');
+
+      expect(hasSection(html, 'areas')).toBe(true);
+      const tabs = paneOf(html).match(/<nav class="pane-tabs"[^>]*>.*?<\/nav>/s)![0];
+      expect(tabs.match(/<a [^>]*aria-current="page"[^>]*>(.*?)<\/a>/)![1]).toBe('Branches (2)');
+      expect(plain(paneOf(html))).toContain('apps/web/src/Menu.tsx lines 3 , 9');
+      expect(rowOf(html, 'areas', 'Panels')).toContain(' selected"');
+    });
+
+    it('the panel’s tabs, its close and the table’s counts all keep the view: filters, area and pull request', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage('?level=L1&node=Inbox&tests=Inbox%7EF3%7E');
+
+      const hrefs = [...paneOf(html).split('<div class="pane-body">')[0]!.matchAll(/<a [^>]*href="([^"]*)"/g)].map((m) => m[1]!.replace(/&#38;/g, '&'));
+      expect(hrefs).toEqual([
+        '/tests?node=Inbox&level=L1',
+        '/tests?node=Inbox&level=L1&tests=Inbox%7EF3%7E',
+        '/tests?node=Inbox&level=L1&tests=Inbox%7EF3%7E&pane=files',
+        '/tests?node=Inbox&level=L1&tests=Inbox%7EF3%7E&pane=branches',
+      ]);
     });
   });
 
@@ -373,7 +520,7 @@ describe('Harness Monitor', () => {
 
       const table = sectionOf(await thePage('?show=files'), 'areas');
 
-      const rows = [...table.matchAll(/<tr class="(context)?"><td class="first">.*?<a href="[^"]*">(.*?)<\/a>/gs)].map((m) => [m[2], m[1] ?? 'kept']);
+      const rows = [...table.matchAll(/<tr id="[^"]*" class="(context)? ?[^"]*"><td class="first">.*?<a href="[^"]*">(.*?)<\/a>/gs)].map((m) => [m[2], m[1] ?? 'kept']);
       expect(rows).toEqual([['Workspaces', 'context'], ['Panels', 'kept'], ['Layouts', 'kept'], ['Offline', 'kept']]);
     });
 
@@ -382,13 +529,13 @@ describe('Harness Monitor', () => {
 
       const table = sectionOf(await thePage('?level=F3&show=empty'), 'areas');
 
-      const rows = [...table.matchAll(/<tr class="(context)?"><td class="first">.*?<a href="[^"]*">(.*?)<\/a>/gs)].map((m) => [m[2], m[1] ?? 'kept']);
+      const rows = [...table.matchAll(/<tr id="[^"]*" class="(context)? ?[^"]*"><td class="first">.*?<a href="[^"]*">(.*?)<\/a>/gs)].map((m) => [m[2], m[1] ?? 'kept']);
       expect(rows).toEqual([['Workspaces', 'context'], ['Panels', 'kept'], ['Offline', 'kept']]);
     });
   });
 
-  describe('the tree is drilled through the address with a breadcrumb', () => {
-    it("Capture's breadcrumb names the areas above it, each a link, and its own rules are listed", async () => {
+  describe('the tree is drilled through the Area filter and the address, with a breadcrumb', () => {
+    it("Capture's breadcrumb names the areas above it, each a link, and lists no rules of its own above the table", async () => {
       await sendTestsModel(SNAPSHOT);
 
       const html = await thePage('?node=Capture');
@@ -396,26 +543,15 @@ describe('Harness Monitor', () => {
       const crumbs = html.match(/<nav class="crumbs".*?<\/nav>/s)![0];
       expect(plain(crumbs)).toBe('All areas › Workspaces › Inbox › Capture');
       expect(crumbs).toContain('<a href="/tests?node=Inbox">Inbox</a>');
-      expect(plain(sectionOf(html, 'own-rules'))).toContain('Rules on Capture itself 2 rules');
+      expect(hasSection(html, 'own-rules')).toBe(false);
     });
 
     it('an area the snapshot does not hold is the whole tree', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      const html = await thePage('?node=Nowhere&rule=nothing.test.ts%3A1');
+      const html = await thePage('?node=Nowhere');
 
       expect(plain(html.match(/<nav class="crumbs".*?<\/nav>/s)![0])).toBe('All areas');
-      expect(hasSection(html, 'areas')).toBe(true);
-    });
-  });
-
-  describe('a link naming an area the snapshot no longer holds opens nothing rather than everything', () => {
-    it('a clicked count for a missing area shows no list of tests', async () => {
-      await sendTestsModel(SNAPSHOT);
-
-      const html = await thePage('?tests=GoneArea~L1~');
-
-      expect(hasSection(html, 'tests')).toBe(false);
       expect(hasSection(html, 'areas')).toBe(true);
     });
   });
@@ -431,7 +567,7 @@ describe('Harness Monitor', () => {
   });
 
   describe('a view kept at the edge is the one the address asks for', () => {
-    it('a rule opened and the bare page are two views, each its own', async () => {
+    it('a panel opened and the bare page are two views, each its own', async () => {
       await sendTestsModel(SNAPSHOT);
       const cached = { ...env, PAGE_CACHE_SECONDS: '300' };
       const open = async (query: string) => {
@@ -441,16 +577,16 @@ describe('Harness Monitor', () => {
         return plain(await response.text());
       };
 
-      const rule = await open(`?rule=${encodeURIComponent(`${API_INT}:20`)}`);
+      const opened = await open('?tests=Inbox%7EL2%7E');
       const bare = await open('');
 
-      expect(rule).toContain('a voice memo');
+      expect(opened).toContain('a voice memo');
       expect(bare).not.toContain('a voice memo');
     });
   });
 
   describe('what a snapshot says is escaped', () => {
-    it('a rule named with markup is drawn as text', async () => {
+    it('a rule named with markup is drawn as text in the panel', async () => {
       await sendTestsModel(model([area('Offline', [rule('<img src=x onerror=alert(1)>', 'L1', WEB, 5)])]));
 
       const html = await thePage('?tests=Offline%7E%7E');
@@ -489,7 +625,7 @@ describe('Harness Monitor', () => {
       expect(plain(html)).toContain('at def5678');
       expect(rowOf(html, 'areas', 'Only on 9001')).not.toBe('');
       expect(rowOf(html, 'areas', 'Inbox')).toBe('');
-      expect(hrefOf(rowOf(html, 'areas', 'Only on 9001'))).toBe('/tests?node=Only+on+9001&pr=9001');
+      expect(hrefOf(rowOf(html, 'areas', 'Only on 9001'))).toBe('/tests?tests=Only+on+9001%7E%7E&pr=9001#a-Only-on-9001');
       expect(html.match(/<form class="sentence-form".*?<\/form>/s)![0]).toContain('<option value="9001" selected>');
     });
 
@@ -579,7 +715,6 @@ describe('Harness Monitor', () => {
 
     it.each([
       { situation: 'each gap, which offers no Level filter and carries a level held in the form', query: '?group=gaps&level=L1', keys: ['group', 'node', 'package'] },
-      { situation: 'a rule opened, which counts by nothing', query: `?rule=${encodeURIComponent(`${API_INT}:20`)}`, keys: ['group', 'node', 'level', 'package', 'show'] },
     ])('$situation', async ({ query, keys }) => {
       await sendTestsModel(SNAPSHOT);
 
@@ -610,7 +745,7 @@ describe('Harness Monitor', () => {
   });
 
   describe("with no snapshot of main's tests stored, the page says there is none yet", () => {
-    it.each([[''], ['?group=gaps'], ['?rule=a.test.ts%3A3']])('the address %j opens the frame and says nothing has arrived', async (query) => {
+    it.each([[''], ['?group=gaps'], ['?tests=Inbox~~']])('the address %j opens the frame and says nothing has arrived', async (query) => {
       const html = await thePage(query);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain('No snapshot of main s tests has arrived yet.');

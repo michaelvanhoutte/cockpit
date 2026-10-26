@@ -154,17 +154,30 @@ describe('Harness Monitor', () => {
       { situation: 'a drilled-in area on another tab', address: '/tests?group=gaps&node=Inbox', q: query({ group: 'gaps', node: 'Inbox' }) },
       { situation: 'filters and a count by package', address: '/tests?level=F3&package=api&show=empty&split=package', q: query({ level: 'F3', package: 'api', show: 'empty', split: 'package' }) },
       { situation: 'the tests behind a count, with the page filters kept', address: '/tests?level=L1&tests=Inbox%7EF3%7E', q: query({ level: 'L1', list: { node: 'Inbox', level: 'F3', package: null } }) },
-      { situation: 'a rule', address: '/tests?rule=a.test.ts%3A12', q: query({ rule: 'a.test.ts:12' }) },
+      { situation: 'the tests behind a count, on its Files tab', address: '/tests?tests=Inbox%7EF3%7E&pane=files', q: query({ list: { node: 'Inbox', level: 'F3', package: null }, pane: 'files' }) },
+      { situation: 'the tests behind a count, on its Branches tab, with a pull request', address: '/tests?tests=Inbox%7E%7E&pane=branches&pr=9001', q: query({ list: { node: 'Inbox', level: null, package: null }, pane: 'branches', pr: 9001 }) },
       { situation: "a pull request's tests, drilled in", address: '/tests?node=Inbox&pr=9001', q: query({ node: 'Inbox', pr: 9001 }) },
     ])('$situation', ({ address, q }) => {
       expect(parseTestsQuery(new URL(`https://monitor.test${address}`).searchParams)).toEqual(q);
-      expect(testsAddress(q, { rule: q.rule, list: q.list })).toBe(address);
+      expect(testsAddress(q, { list: q.list, pane: q.pane })).toBe(address);
     });
 
     it('a level, package or tab it does not know falls back to the default instead of failing', () => {
-      const q = parseTestsQuery(new URLSearchParams('group=nope&level=L9&package=zzz&show=x&split=y&tests=a~b~c~d'));
+      const q = parseTestsQuery(new URLSearchParams('group=nope&level=L9&package=zzz&show=x&split=y&tests=a~b~c~d&pane=zzz&rule=a.test.ts%3A12'));
 
       expect(q).toEqual(query());
+    });
+
+    it('a panel tab with no list open is not part of the address, so the bare page keeps one address', () => {
+      expect(testsAddress(query({ pane: 'files' }))).toBe('/tests');
+      expect(testsAddress(query({ list: { node: 'Inbox', level: null, package: null }, pane: 'files' }), { list: null })).toBe('/tests');
+    });
+
+    it('a link that changes the list starts on the Rules tab, and one that keeps the list keeps its tab only where asked', () => {
+      const open = query({ list: { node: 'Inbox', level: null, package: null }, pane: 'files' });
+
+      expect(testsAddress(open, { list: { node: 'Capture', level: null, package: null } })).toBe('/tests?tests=Capture%7E%7E');
+      expect(testsAddress(open, { list: open.list, pane: 'branches' })).toBe('/tests?tests=Inbox%7E%7E&pane=branches');
     });
 
     it.each([['09001'], ['-1'], ['0'], ['9001x'], ['12345678901']])("a pull request written %j is not one, so main's tests are shown", (pr) => {
