@@ -1,56 +1,47 @@
 import { belgianDay, formatDateTime, formatDay } from './belgium';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
 import { esc, inline, lineKey, questionOf, sentenceForm } from './look';
-import { number, REPOSITORY } from './page';
+import { number } from './page';
 import { GREY, ORANGE, RED, VIOLET } from './palette';
-import { humanMs, outLink, pct, reportPage, section, tile } from './report';
+import { humanMs, outLink, reportPage, section, tile } from './report';
 import {
   barsOf,
   dayOf,
   dayRange,
-  GROUPS,
   groupByStart,
   JOB_CHOICES,
   JOB_NAMES,
   jobOf,
   jobsOf,
-  leadingRuleOf,
-  matchesOutcome,
-  median,
-  missesOf,
-  OUTCOME_CHOICES,
-  OUTCOME_LABELS,
-  OUTCOMES,
+  missPrompt,
+  missRows,
   outcomeOf,
   overBar,
-  packageRows,
+  OUTCOME_LABELS,
+  OUTCOMES,
   parseSelectionQuery,
   PERIOD_CHOICES,
   PERIODS,
   percent,
   plural,
   rankRules,
+  ranMoreThanNeeded,
+  ROWS,
   RULE_GROUP_LABELS,
   ruleRows,
   rulePrompt,
   selectionAddress,
-  shareOf,
-  TEST_ROWS,
-  tileClass,
   UNIT,
-  verdictOf,
   whyText,
-  type Group,
   type Job,
   type Outcome,
   type SelectedFile,
   type SelectionQuery,
-  type Verdict,
 } from './selection-report';
 import { LEAD_MORE, TABLES, WHAT } from './selection-explain';
-import type { SelectionView, ViewJob, ViewPull } from './selection-view';
+import type { SelectionView, ViewPull } from './selection-view';
 
-const ROW_WORDS: Record<Group, string> = { day: 'each day', pr: 'each pull request', rule: 'each rule that forced a full run', package: 'each package', test: 'each test, most selected first', miss: 'each miss' };
+const ROW_WORDS: Record<(typeof ROWS)[number], string> = { day: 'each day', rule: 'each rule that forced a full run', miss: 'each test skipped, then failed on main' };
 
 /** Each job takes a slot (src/palette.ts). */
 const JOB_COLOURS: Record<Job, string> = { test: VIOLET, e2e: ORANGE };
@@ -92,10 +83,6 @@ const ADVICE: Record<Job, Record<string, { advice: string; expected?: true }>> =
 const adviceFor = (job: Job, rule: string) => ADVICE[job][rule]?.advice ?? 'No advice is written for this rule yet.';
 const isExpected = (job: Job, rule: string) => ADVICE[job][rule]?.expected === true;
 
-/** A tile's label with its verdict after it, so the (i) follows both. Each verdict word is its own element, with no space inside one, so the label wraps between them and the (i) binds to the last; the dot keeps to the word after it. */
-const withVerdict = (label: string, verdict: Verdict) =>
-  verdict === 'unread' ? label : `${label} ${(verdict === 'crossed' ? '·&nbsp;over the bar' : '·&nbsp;within').split(' ').map((w) => `<em>${w}</em>`).join(' ')}`;
-
 const mono = (s: string) => `<span class="mono">${esc(s)}</span>`;
 const prLabel = (p: { number: number; title: string }) => `<span class="pr-no">#${p.number}</span> ${esc(p.title)}`;
 const jobDot = (job: Job) => `<i class="job-dot" style="background:${JOB_COLOURS[job]}"></i>`;
@@ -105,6 +92,9 @@ const fileItem = (f: Pick<SelectedFile, 'path' | 'status' | 'text'>) =>
   `<li><span class="mono${f.status === 'failed' ? ' over-ink' : ''}">${esc(f.path)}${f.status === 'failed' ? ' (failed)' : ''}</span><div class="sub">${esc(whyText(f.text, f.path))}</div></li>`;
 
 const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
+
+/** A Copy prompt button with the prompt it copies, which is in the page and never shown. */
+const promptBox = (text: string) => `<div class="prompt-cell"><button type="button" class="copy-prompt">Copy prompt</button><pre hidden>${esc(text)}</pre></div>`;
 
 /** Copies the prompt a button sits beside, which is in the page and never shown, and says so for a moment. */
 const COPY_SCRIPT = `<script>document.addEventListener('click',function(e){var b=e.target.closest('.copy-prompt');if(!b)return;var pre=b.parentNode.querySelector('pre');var say=function(t){b.textContent=t;setTimeout(function(){b.textContent='Copy prompt'},1500)};var fail=function(){say('Could not copy')};try{navigator.clipboard.writeText(pre.textContent).then(function(){say('Copied')},fail)}catch(x){fail()}});</script>`;
@@ -159,79 +149,40 @@ export function renderSelectionCheck(view: SelectionView, job: Job): string {
 }
 
 const CHART = { width: 1000, height: 260, left: 52, right: 12, top: 12, bottom: 30 };
-const CAUGHT = 'No pull request in this period matches the filters.';
 
-/** The test selection page: the same pull requests whatever the tab, narrowed by the filters, with the tiles and overview panels only on the first. */
-export function renderSelection(q: SelectionQuery, view: SelectionView, repository: string | undefined, now: number): string {
-  const repo = repository !== undefined && REPOSITORY.test(repository) ? repository : null;
+/** The test selection page: the same pull requests whatever the row, narrowed by the filters, with the tiles and overview panels only on each day. */
+export function renderSelection(q: SelectionQuery, view: SelectionView, now: number): string {
   const jobs = jobsOf(q.job);
   const bars = barsOf(view.bars);
   const pulls = view.pulls;
-  const read = pulls.length >= bars.minPulls;
   const over: Record<Job, boolean> = { test: overBar(pulls, 'test', bars), e2e: overBar(pulls, 'e2e', bars) };
   const link = (to: Partial<SelectionQuery>) => esc(selectionAddress(q, to));
   /** The ran-everything bar of the jobs shown: one figure where they share it, each job's own where they differ. */
   const sharedBar = new Set(jobs.map((j) => bars.forcedFull[j])).size === 1;
   const forcedBarText = sharedBar ? percent(bars.forcedFull[jobs[0]!]) : jobs.map((j) => `${JOB_NAMES[j]} ${percent(bars.forcedFull[j])}`).join(', ');
-  /** A tab's table, with the (i) that says what its rows are. */
-  const wide = (id: string, title: string, aside: string, content: string) => section(id, title, aside, content, 'panel wide', explain(id, title, TABLES[q.group]));
+  /** A row's table, with the (i) that says what its rows are. */
+  const wide = (about: keyof typeof TABLES, id: string, title: string, aside: string, content: string) => section(id, title, aside, content, 'panel wide', explain(id, title, TABLES[about]));
 
-  /** The bars, as tiles, read on the period's own pull requests. */
-  function tiles(): string {
-    const alarm = (n: number | null, verdict: string) => (n !== null && verdict === 'crossed' && repo ? [outLink(`https://github.com/${repo}/issues/${n}`, `Alarm issue #${n}`)] : []);
-    const unread = read ? [] : [`unread: ${plural(pulls.length, 'pull request')}, a bar needs ${bars.minPulls}`];
-    const out: string[] = [];
-    for (const job of jobs) {
-      const views = pulls.map((p) => jobOf(p, job)).filter((v) => v.status === 'ran');
-      const full = views.filter((v) => v.ranEverything);
-      const value = views.length ? full.length / views.length : null;
-      const verdict = verdictOf(read, value, bars.forcedFull[job]);
-      const lead = leadingRuleOf(full);
-      out.push(
-        tile(
-          withVerdict(`${JOB_NAMES[job]} ran everything`, verdict),
-          value === null ? 'none' : pct(value),
-          [
-            `${number(full.length)} of ${plural(views.length, 'pull request')} that ran it · bar ${percent(bars.forcedFull[job])}`,
-            ...(lead ? [`Mostly <a href="${link({ group: 'rule', rule: `${job}:${lead.rule}` })}">${esc(lead.rule)}</a>, ${number(lead.count)} of them`] : []),
-            ...unread,
-            ...alarm(bars.alarm[`${job}-forced-full`], verdict),
-          ],
-          tileClass(verdict),
-          explain(`t-${job}-full`, `${JOB_NAMES[job]} ran everything`, WHAT.ranEverything),
-        ),
-      );
-    }
-    const misses = pulls.reduce((a, p) => a + missesOf(p, jobs), 0);
-    const missVerdict = verdictOf(read, pulls.length ? misses : null, bars.misses);
-    out.push(
-      tile(
-        withVerdict('Misses', missVerdict),
-        number(misses),
-        [`a test that failed on main after its pull request skipped it · ${bars.misses <= 1 ? 'any miss' : `${number(bars.misses)} or more`} crosses`, ...(misses ? [`<a href="${link({ group: 'miss' })}">See which</a>`] : []), ...unread, ...alarm(bars.alarm.misses, missVerdict)],
-        tileClass(missVerdict),
-        explain('t-misses', 'Misses', WHAT.misses),
-      ),
-    );
-    const top = view.worst;
-    const topVerdict = verdictOf(read, top ? shareOf(top) : null, bars.mostShare);
-    out.push(
-      tile(
-        withVerdict('Most selected test', topVerdict),
-        top ? pct(shareOf(top)) : 'none',
-        top
-          ? [
-              `<a href="${link({ group: 'test', test: top.path })}">${esc(top.path.split('/').pop() ?? top.path)}</a>, ${number(top.selected)} of ${number(top.selecting)} that could skip it`,
-              `bar ${percent(bars.mostShare)}, over at least ${bars.mostMinOver}`,
-              ...unread,
-              ...alarm(bars.alarm['most-selected'], topVerdict),
-            ]
-          : [`no test had ${bars.mostMinOver} pull requests that could skip it`],
-        tileClass(topVerdict),
-        explain('t-most', 'Most selected test', WHAT.mostSelected),
-      ),
-    );
-    return `<div class="tiles">${out.join('\n')}</div>`;
+  /** The two questions the page answers, one tile each: what ran more than needed, and what ran less. */
+  function questionTiles(): string {
+    const more = ranMoreThanNeeded(pulls, jobs, view.checkMs, isExpected);
+    const missed = missRows(pulls, jobs).length;
+    const everyRun = more.perJob.reduce((n, j) => n + j.full, 0);
+    const perJob = more.perJob.map((j) => `${JOB_NAMES[j.job]} ${number(j.full)} of ${number(j.ran)}`).join(' · ');
+    return `<div class="tiles">
+${tile(
+  'Ran more than needed',
+  humanMs(more.savedMs),
+  [
+    `could have been saved: ${plural(more.fixRuns, 'full run')} forced by rules to fix, against a typical selected run`,
+    `${plural(everyRun, 'full run')} in all (${perJob}), ${humanMs(more.allSavedMs)} counting the expected ones too`,
+    `<a href="${link({ group: 'rule' })}">Which rules</a>`,
+  ],
+  '',
+  explain('t-more', 'Ran more than needed', WHAT.ranMore),
+)}
+${tile('Ran less than needed', plural(missed, 'test'), ['skipped by their pull request, then failed on main', ...(missed ? [`<a href="${link({ group: 'miss' })}">Which ones</a>`] : [])], '', explain('t-less', 'Ran less than needed', WHAT.ranLess))}
+</div>`;
   }
 
   /** What each job did with the period's pull requests, as a split bar per job. */
@@ -260,29 +211,6 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
       'panel wide',
       explain('what-each-job-did', title, WHAT.whatEachJobDid),
     );
-  }
-
-  /** The typical pull request: medians over the ones that used selection at all. */
-  function typical(): string {
-    const items: string[] = [];
-    for (const job of jobs) {
-      const views = pulls.map((p) => jobOf(p, job));
-      const selecting = views.filter((v) => v.status === 'ran' && v.selecting);
-      const m = median(selecting.map((v) => v.filesRun ?? 0));
-      const total = median(views.filter((v) => v.status === 'ran' && v.filesTotal !== null).map((v) => v.filesTotal!));
-      items.push(
-        `<li><span class="name">${JOB_NAMES[job]}: ${UNIT[job][1]} run</span><span class="delta">${m === null ? 'none' : number(m)}</span><span class="from">${total !== null ? `of ${number(total)} · ` : ''}median over the ${plural(selecting.length, 'pull request')} that selected</span></li>`,
-      );
-    }
-    if (jobs.includes('test')) {
-      const ran = pulls.filter((p) => jobOf(p, 'test').status === 'ran');
-      const pr = median(ran.map((p) => jobOf(p, 'test').prDurationMs).filter((n): n is number => n !== null));
-      const main = median(ran.map((p) => jobOf(p, 'test').mainDurationMs).filter((n): n is number => n !== null));
-      items.push(`<li><span class="name">Test job time</span><span class="delta">${humanMs(pr)}</span><span class="from">main&rsquo;s own run of the merge: ${humanMs(main)} · medians</span></li>`);
-    }
-    const docs = pulls.filter((p) => jobs.every((j) => jobOf(p, j).status === 'docs-only')).length;
-    items.push(`<li><span class="name">Documentation only</span><span class="delta">${number(docs)}</span><span class="from">of ${plural(pulls.length, 'pull request')}, skipped both jobs</span></li>`);
-    return section('typical-pull-request', 'A typical pull request', '', `<ul class="well changes">${items.join('')}</ul>`, 'panel narrow', explain('typical-pull-request', 'A typical pull request', WHAT.typical));
   }
 
   const days = dayRange(q.period, view.oldest, now);
@@ -329,75 +257,9 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
     );
   }
 
-  const outcomeLegend = (anyOver: boolean) =>
-    `<p class="legend-foot">${(['selected', 'full', 'docs'] as Outcome[]).map((o) => `<span class="key"><i style="background:${OUTCOME_COLOURS[o]}"></i>${OUTCOME_LABELS[o]}</span>`).join('')}${anyOver ? '<span class="key"><i style="background:var(--over)"></i>Ran everything, in a job over the bar for the period</span>' : ''}</p>`;
-
-  /** A job's outcomes for a set of pull requests, as a split bar and "n of m ran everything". */
-  function outcomeCell(views: ViewJob[], isOver: boolean): string {
-    const ran = views.filter((v) => v.status === 'ran');
-    if (ran.length === 0) return '<td class="split-cell"><span class="faint">—</span></td>';
-    const counts = OUTCOMES.map((o) => [o, views.filter((v) => outcomeOf(v) === o).length] as const).filter(([, n]) => n > 0);
-    const full = ran.filter((v) => v.ranEverything).length;
-    return `<td class="split-cell"><div class="split">${counts.map(([o, n]) => `<div style="width:${((n / views.length) * 100).toFixed(1)}%;background:${outcomeColour(o, isOver)}" title="${OUTCOME_LABELS[o]} ${n}"></div>`).join('')}</div><div class="sub">ran everything on ${number(full)} of ${number(ran.length)}</div></td>`;
-  }
-
-  function byDay(): string {
-    const rows = [...days]
-      .reverse()
-      .map((d) => {
-        const list = pullsOn.get(d) ?? [];
-        if (list.length === 0) {
-          return `<tr><td class="first">${formatDay(d)}</td><td class="num faint-num">0</td>${jobs.map(() => '<td class="split-cell"><span class="faint">—</span></td>').join('')}<td class="num faint-num">—</td>${jobs.map(() => '<td class="num faint-num">—</td>').join('')}</tr>`;
-        }
-        const misses = list.reduce((a, p) => a + missesOf(p, jobs), 0);
-        const medians = jobs.map((j) => median(list.map((p) => jobOf(p, j)).filter((v) => v.status === 'ran' && v.selecting).map((v) => v.filesRun ?? 0)));
-        return `<tr><td class="first">${formatDay(d)}</td><td class="num"><a href="${link({ group: 'pr' })}">${number(list.length)}</a></td>${jobs.map((j) => outcomeCell(list.map((p) => jobOf(p, j)), over[j])).join('')}<td class="num${misses ? ' total over-ink' : ' faint-num'}">${misses ? number(misses) : '0'}</td>${medians.map((m) => `<td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td>`).join('')}</tr>`;
-      })
-      .join('\n');
-    return wide(
-      'by-day',
-      'By day',
-      `${plural(days.length, 'day')} · newest first`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Day</th><th scope="col" class="num">Merged</th>${jobs.map((j) => `<th scope="col"><i style="background:${JOB_COLOURS[j]}"></i>${JOB_NAMES[j]}</th>`).join('')}<th scope="col" class="num">Misses</th>${jobs.map((j) => `<th scope="col" class="num">Typical ${UNIT[j][1]} run</th>`).join('')}</tr></thead>
-<tbody>${rows}</tbody></table></div>${outcomeLegend(jobs.some((j) => over[j]))}`,
-    );
-  }
-
-  /** One job's cell in the pull request table. */
-  function jobCell(v: ViewJob, job: Job): string {
-    const o = outcomeOf(v);
-    if (o === 'docs') return '<td><span class="faint">Skipped: docs only</span></td>';
-    if (o === 'none') return '<td><span class="faint">No record</span></td>';
-    const reason = v.reasons[0];
-    const first = o === 'full' ? `<span class="pill ${over[job] ? 'over' : 'plain'}">Ran everything</span> ${number(v.filesRun ?? 0)}` : `<span class="pill plain">Selected</span> ${number(v.filesRun ?? 0)} of ${number(v.filesTotal ?? 0)}`;
-    const sub =
-      o === 'full' && reason ? `<div class="sub">${esc(reason.rule)}${reason.path ? `: ${mono(reason.path)}` : ''}${v.reasons.length > 1 ? ` and ${v.reasons.length - 1} more` : ''}</div>` : `<div class="sub">${UNIT[job][1]}</div>`;
-    return `<td>${first}${sub}</td>`;
-  }
-
-  function byPull(): string {
-    const list = pulls.filter((p) => matchesOutcome(p, jobs, q.outcome));
-    if (list.length === 0) return wide('by-pull-request', 'By pull request', '', `<p class="well empty">${CAUGHT}</p>`);
-    const rows = list
-      .map((p) => {
-        const misses = missesOf(p, jobs);
-        return `<tr><td class="first"><a href="${link({ group: 'pr', pr: p.number })}">${prLabel(p)}</a><div class="sub">${formatDateTime(p.mergedAt)} · ${outLink(p.url, 'on GitHub')}</div></td>${jobs.map((j) => jobCell(jobOf(p, j), j)).join('')}<td class="num">${misses ? `<span class="pill over">${plural(misses, 'miss', 'misses')}</span>` : '<span class="faint">—</span>'}</td>${jobs.includes('test') ? `<td class="num">${humanMs(jobOf(p, 'test').prDurationMs)}</td>` : ''}</tr>`;
-      })
-      .join('\n');
-    return wide(
-      'by-pull-request',
-      'By pull request',
-      `${plural(list.length, 'pull request')} · newest first · open one for what it ran and why`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Pull request</th>${jobs.map((j) => `<th scope="col"><i style="background:${JOB_COLOURS[j]}"></i>${JOB_NAMES[j]}</th>`).join('')}<th scope="col" class="num">Misses</th>${jobs.includes('test') ? '<th scope="col" class="num">Test job time</th>' : ''}</tr></thead>
-<tbody>${rows}</tbody></table></div>`,
-    );
-  }
-
   /** One pull request in full: what changed, each package's mode and reason, what ran and why. */
   function pullDrill(): string {
-    const back = `<a class="back" href="${link({ group: 'pr' })}">&larr; Every pull request</a>`;
+    const back = `<a class="back" href="${link({ group: 'day' })}">&larr; Each day</a>`;
     const drill = view.pullDrill;
     const p = drill?.pull;
     const info = explain('pull-request', 'what each job ran and why', WHAT.pull);
@@ -431,18 +293,19 @@ export function renderSelection(q: SelectionQuery, view: SelectionView, reposito
   function byRule(): string {
     const { rules, typical } = rankRules(pulls, jobs, view.checkMs, isExpected);
     const title = 'Ran more than needed: what forced a full run';
-    if (rules.length === 0) return wide('by-rule', title, '', '<p class="well empty">Nothing forced a full run in this period.</p>');
+    if (rules.length === 0) return wide('rule', 'by-rule', title, '', '<p class="well empty">Nothing forced a full run in this period.</p>');
     const body = rules
       .map((r, i) => {
         const saved = r.savedMs === null ? '<span class="faint">—</span>' : humanMs(r.savedMs);
         const last = formatDay(belgianDay(r.lastForced));
-        const prompt = r.group === 'fix' ? `<div class="prompt-cell"><button type="button" class="copy-prompt">Copy prompt</button><pre hidden>${esc(rulePrompt(r, adviceFor(r.job, r.rule)))}</pre></div>` : '';
+        const prompt = r.group === 'fix' ? promptBox(rulePrompt(r, adviceFor(r.job, r.rule))) : '';
         const head = i === 0 || rules[i - 1]!.group !== r.group ? `<tr class="tier"><th colspan="7" scope="rowgroup">${RULE_GROUP_LABELS[r.group]}</th></tr>` : '';
         return `${head}<tr${r.group === 'fix' ? '' : ' class="stopped"'}><td>${jobDot(r.job)}${JOB_NAMES[r.job]}</td><td class="first"><a href="${link({ group: 'rule', rule: `${r.job}:${r.rule}` })}">${esc(r.rule)}</a><div class="sub">${esc(adviceFor(r.job, r.rule))}</div></td><td class="num total">${saved}<div class="sub">${plural(r.everything.size, 'full run')}</div></td><td class="num">${number(r.pulls.size)}<div class="sub">of ${number(r.of)}</div></td><td class="num">${plural(r.paths.size, 'path')}</td><td>${r.group === 'stopped' ? `<span class="pill grey">stopped ${last}</span>` : last}</td><td class="prompt-col">${prompt}</td></tr>`;
       })
       .join('\n');
     const typicalLine = jobs.map((j) => `${JOB_NAMES[j]} ${typical[j] === null ? 'no selected run in this period' : humanMs(typical[j])}`).join(', ');
     return wide(
+      'rule',
       'by-rule',
       title,
       `${plural(rules.length, 'rule')} · most time it could have saved first`,
@@ -480,106 +343,46 @@ ${COPY_SCRIPT}`,
     );
   }
 
-  function byPackage(): string {
-    const rows = packageRows(view.packages);
-    if (rows.length === 0) return wide('by-package', 'By package', '', '<p class="well empty">No job ran in this period.</p>');
-    const body = rows
-      .map((r) => {
-        const lead = [...r.reasons.entries()].sort((a, b) => b[1] - a[1])[0];
-        const m = median(r.runs);
-        const share = r.changed ? r.touched / r.changed : 0;
-        return `<tr><td class="first">${jobDot(r.job)}${esc(r.name)}</td><td class="num faint-num">${r.files === null ? '<span class="faint">—</span>' : number(r.files)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${VIOLET}"></div></div><div class="sub">ran something on ${number(r.touched)} of ${number(r.changed)} that selected · ${percent(share)}</div></td><td class="num">${m === null ? '<span class="faint">—</span>' : number(m)}</td><td class="num">${number(r.full)}</td><td>${lead ? `<a href="${link({ group: 'rule', rule: `${r.job}:${lead[0]}` })}">${esc(lead[0])}</a><div class="sub">${number(lead[1])} of its full runs</div>` : '<span class="faint">—</span>'}</td></tr>`;
-      })
-      .join('\n');
-    return wide(
-      'by-package',
-      'By package',
-      'most often touched first',
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Package</th><th scope="col" class="num">Files</th><th scope="col">When selecting</th><th scope="col" class="num">Typical run</th><th scope="col" class="num">Ran in full</th><th scope="col">Mostly because</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
-    );
-  }
-
-  const crossed = (t: { selected: number; selecting: number }) => read && t.selecting >= bars.mostMinOver && shareOf(t) + 1e-9 >= bars.mostShare;
-
-  function byTest(): string {
-    const all = view.tally.filter((t) => t.selected > 0);
-    if (all.length === 0) return wide('most-selected-tests', 'Most selected tests', '', '<p class="well empty">No test was selected in this period.</p>');
-    const body = all
-      .slice(0, TEST_ROWS)
-      .map((t) => {
-        const share = shareOf(t);
-        const hot = crossed(t);
-        return `<tr${hot ? ' class="crossed"' : ''}><td class="first"><a class="mono" href="${link({ group: 'test', test: t.path })}">${esc(t.path)}</a><div class="sub mono-sub">${esc(whyText(t.chain, t.path))}</div></td><td>${esc(t.level)}</td><td class="split-cell"><div class="split"><div style="width:${(share * 100).toFixed(1)}%;background:${hot ? RED : VIOLET}"></div></div><div class="sub">${number(t.selected)} of ${number(t.selecting)} that could skip it · ${pct(share)}</div></td><td class="num">${number(t.fullRun)}</td><td>${hot ? '<span class="pill over">over the bar</span>' : t.selecting < bars.mostMinOver ? '<span class="faint">too few to read</span>' : ''}</td></tr>`;
-      })
-      .join('\n');
-    return wide(
-      'most-selected-tests',
-      'Most selected tests',
-      `${plural(view.tallyCount, 'file')} selected at least once · the ${Math.min(TEST_ROWS, view.tallyCount)} most selected`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Test, and the chain that most often selected it</th><th scope="col">Level</th><th scope="col">Selected</th><th scope="col" class="num">Full runs</th><th scope="col">Bar ${percent(bars.mostShare)}</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
-    );
-  }
-
-  function testDrill(path: string): string {
-    const back = `<a class="back" href="${link({ group: 'test' })}">&larr; Every test</a>`;
-    const drill = view.testDrill;
-    const panel = (aside: string, content: string) => `${back}${section('test', mono(path), aside, content, 'panel wide drill-panel', explain('test', 'the pull requests that selected this test', WHAT.test))}`;
-    if (!drill || drill.rows.length === 0) return panel('', '<p class="well empty">No pull request in this period ran this test.</p>');
-    const selected = drill.rows.filter((r) => r.kind !== 'full');
-    const full = drill.rows.length - selected.length;
-    // What its packages could have skipped it on, less the pull requests that did select it.
-    const skipped = drill.selecting.reduce((n, s) => n + Math.max(0, s.pulls - selected.filter((r) => r.job === s.job && r.package === s.package).length), 0);
-    const body = selected
-      .map(({ pull, status, text }) => `<tr><td class="first"><a href="${link({ group: 'pr', pr: pull.number })}">${prLabel(pull)}</a><div class="sub">${formatDateTime(Date.parse(pull.mergedAt))}</div></td><td>${esc(status)}</td><td class="mono-sub">${esc(whyText(text, path))}</td></tr>`)
-      .join('\n');
-    return panel(
-      `selected on ${number(selected.length)} · skipped on ${number(skipped)} · ran in full on ${number(full)}`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Pull request that selected it</th><th scope="col">Result</th><th scope="col">Why</th></tr></thead>
-<tbody>${body || '<tr><td colspan="3" class="faint">Never selected in this period; it ran only in full runs.</td></tr>'}</tbody></table></div>`,
-    );
-  }
-
+  /** The tests that failed on main after their pull request skipped them, newest first, each with a prompt that settles whether the selection missed it. */
   function byMiss(): string {
-    const rows = pulls.flatMap((p) => jobs.flatMap((job) => jobOf(p, job).misses.map((m) => ({ p, m, job }))));
-    if (rows.length === 0) return wide('misses', 'Misses', '', '<p class="well empty">No misses in this period: nothing failed on main that its pull request skipped.</p>');
+    const rows = missRows(pulls, jobs);
     const body = rows
       .map(
-        ({ p, m, job }) =>
-          `<tr><td class="first"><a href="${link({ group: 'pr', pr: p.number })}">${prLabel(p)}</a><div class="sub">${formatDateTime(p.mergedAt)}</div></td><td class="mono">${esc(m.path)}</td><td>${esc(m.level)}</td><td>${jobDot(job)}${JOB_NAMES[job]}</td><td>${m.reason === 'docs only' ? '<span class="pill grey">docs only</span>' : 'not run'}</td></tr>`,
+        (m) =>
+          `<tr><td class="first"><span class="mono">${esc(m.path)}</span><div class="sub">${esc(m.level)} · ${JOB_NAMES[m.job]}</div></td><td><a href="${link({ group: 'pr', pr: m.pull.number })}">${prLabel(m.pull)}</a><div class="sub">${formatDateTime(m.pull.mergedAt)}${m.reason === 'docs only' ? ' · it changed only documents, so it ran no tests' : ''}</div></td><td class="prompt-col">${promptBox(missPrompt(m))}</td></tr>`,
       )
       .join('\n');
     return wide(
+      'miss',
       'misses',
-      'Misses',
-      `${plural(rows.length, 'miss', 'misses')} · newest first`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Pull request</th><th scope="col">Test or spec that failed on main</th><th scope="col">Level</th><th scope="col">Job</th><th scope="col">Why it did not run</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
+      'Tests that were skipped, then failed on main',
+      `${plural(rows.length, 'test')} · newest first`,
+      `<p class="view-lead">The pull request skipped these tests, and they failed on main once it merged. If the pull request broke the test, the selection missed that its files lead to this test: teach it that a change to those files runs it. If the test is flaky, the selection was right and the test needs fixing. The prompt has Claude find out which, and make the fix.</p>
+${
+  rows.length
+    ? `<div class="well table"><table><thead><tr><th scope="col">Test</th><th scope="col">Skipped in</th><th scope="col"><span class="sr-only">Prompt</span></th></tr></thead><tbody>${body}</tbody></table></div>`
+    : '<p class="well empty">None in this period: nothing failed on main that its pull request skipped.</p>'
+}
+${COPY_SCRIPT}`,
     );
   }
 
-  const drilling = q.pr !== null || q.rule !== null || q.test !== null;
+  const drilling = q.pr !== null || q.rule !== null;
   let detail: string;
-  if (q.group === 'day') detail = `${tiles()}\n<div class="row">${whatEachJobDid()}${typical()}</div>\n${overTimeChart()}\n${byDay()}`;
-  else if (q.group === 'pr') detail = q.pr !== null ? pullDrill() : byPull();
+  if (q.group === 'day') detail = `${questionTiles()}\n${whatEachJobDid()}\n${overTimeChart()}`;
+  else if (q.group === 'pr') detail = pullDrill();
   else if (q.group === 'rule') detail = q.rule ? ruleDrill(q.rule) : byRule();
-  else if (q.group === 'package') detail = byPackage();
-  else if (q.group === 'test') detail = q.test ? testDrill(q.test) : byTest();
   else detail = byMiss();
 
-  // The controls as one sentence on the band. A drill-down rides along as hidden fields until the rows change, which the address then drops.
-  const drill = [q.pr !== null ? `<input type="hidden" name="pr" value="${q.pr}">` : '', q.rule ? `<input type="hidden" name="rule" value="${esc(q.rule)}">` : '', q.test ? `<input type="hidden" name="test" value="${esc(q.test)}">` : ''].join('');
+  // The controls as one sentence on the band. A drill-down rides along as hidden fields until the rows change, which the address then drops. One pull request has no row of its own to offer, so its sentence names it in a choice left out of the list.
+  const drill = [q.pr !== null ? `<input type="hidden" name="pr" value="${q.pr}">` : '', q.rule ? `<input type="hidden" name="rule" value="${esc(q.rule)}">` : ''].join('');
+  const rows = ROWS.map((g): [string, string] => [g, ROW_WORDS[g]]);
   const form = sentenceForm(
     '/selection',
-    `Show test selection for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
+    `Show test selection for ${inline('group', 'Rows', q.pr !== null ? [['pr', 'one pull request', 'hidden'], ...rows] : rows, q.group)}
 in ${inline('job', 'Job', JOB_CHOICES, q.job)}
 over ${inline('period', 'Period', PERIOD_CHOICES, q.period)}`,
-    [q.group === 'pr' && q.pr === null ? inline('outcome', 'Pull requests', OUTCOME_CHOICES, q.outcome ?? '', '') : ''],
+    [],
     [],
     drill,
   );
@@ -601,9 +404,6 @@ const EXTRA = `
 .first .mono{color:var(--ink-strong)}
 td.first{min-width:260px}
 .tile-note a{color:var(--accent-deep)}
-.tile-label em{font-style:normal}
-.tile.up .tile-label em{color:var(--over-ink)}
-.tile.down .tile-label em{color:var(--good)}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
 .pill.over{background:color-mix(in srgb,var(--over) 14%,transparent);color:var(--over-ink)}
 .pill.good{background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good)}
@@ -618,7 +418,6 @@ td.first{min-width:260px}
 .key i.bar-key{border-top-color:var(--ink-faint)}
 .legend-foot{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 10px 6px;font-size:13px;color:var(--ink-faint)}
 .legend-foot i{display:inline-block;width:10px;height:10px;border-radius:3px}
-tr.crossed td:first-child{box-shadow:inset 3px 0 0 var(--over)}
 .drill-panel .section-band h2{text-transform:none;letter-spacing:0;font-size:16px;color:var(--ink-strong)}
 .back{font-size:14px;font-weight:500;margin-bottom:-8px}
 .drill{padding:16px;display:flex;flex-direction:column;gap:18px}
@@ -632,6 +431,7 @@ details summary{cursor:pointer;color:var(--accent-deep);font-size:14px;font-weig
 .advice{margin:0;padding:12px 16px;font-size:14px;color:var(--ink-soft);border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
 .prs a{margin-right:6px;font-weight:500}
 tr.stopped td{opacity:.55}
+.view-lead{margin:0 10px 12px;max-width:820px;font-size:14px;line-height:1.55;color:var(--ink)}
 tr.tier th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);padding-top:18px}
 .prompt-col{width:1%;white-space:nowrap;text-align:right}
 .copy-prompt{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line,#444);background:transparent;color:var(--accent-deep);cursor:pointer}

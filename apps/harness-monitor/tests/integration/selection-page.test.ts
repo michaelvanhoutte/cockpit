@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../../src/worker';
 import { withoutExplanations } from './cockpit-support';
 import { GREY, RED, slot, swatches } from './series-colours';
-import { cycleCheck, cyclePull, cycleRound, docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendPulls, sendSelection, theSentence } from './support';
+import { cycleCheck, cyclePull, cycleRound, docsOnly, emptyTheDatabase, fullPackage, ranEverything, selectionFile, selectionJob, selectionPackage, selectionPull, sendPulls, sendSelection, theSentence } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -47,19 +47,49 @@ const thirtyWithNineFull = () =>
   );
 
 const HOT = 'apps/api/tests/unit/hot.test.ts';
-/** Twenty pull requests: seven ran the Test job's package whole, of the thirteen that selected, eleven picked the hot test. */
-const hotTest = () =>
-  times(20, (index) =>
-    selectionPull(index + 1, {
-      mergedAt: MERGED,
-      jobs: [
-        index < 7
-          ? ranEverything('test', 'a lockfile changed', 'pnpm-lock.yaml', [HOT])
-          : selectionJob('test', { packages: [selectionPackage('api', index < 18 ? [selectionFile(HOT, { selectedBy: { kind: 'chain', chain: [HOT, 'apps/api/src/a.ts', 'apps/api/src/b.ts'], text: `${HOT} → apps/api/src/a.ts → apps/api/src/b.ts` } })] : [])] }),
-        selectionJob('e2e'),
-      ],
-    }),
+const MINUTE = 60_000;
+const NEWEST = Date.parse('2026-10-14T10:00:00Z');
+/** Pull request `n` of a run of thirty, merged three hours before the one before: 1 is the newest. */
+const mergedAt = (n: number) => new Date(NEWEST - (n - 1) * 3 * 3_600_000).toISOString();
+
+/** A pull request's rounds as cycle time holds them: each round names the checks and the minutes each held it up. */
+const rounds = (...each: Record<string, number | number[]>[]) =>
+  each.map((checks) =>
+    cycleRound(
+      Object.entries(checks).flatMap(([name, held]) =>
+        [held].flat().map((minutes, index) => cycleCheck(name, minutes * MINUTE, { attempt: index + 1, last: name === 'E2E (F3)' && index === [held].flat().length - 1 })),
+      ),
+    ),
   );
+const heldBy = (n: number, rounds: ReturnType<typeof cycleRound>[], over: Record<string, unknown> = {}) => cyclePull(n, { mergedAt: mergedAt(n), rounds, ...over });
+
+/** The rule table as a reader sees it: each group's heading as one cell, each rule as its cells. */
+const ruleTable = (html: string) =>
+  [...sectionOf(html, 'by-rule').matchAll(/<tr[ >].*?<\/tr>/gs)]
+    .map((row) => [...row[0].replace(/<pre hidden>.*?<\/pre>/gs, '').matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs)].map((cell) => plain(cell[1]!)))
+    .filter((cells) => cells.length > 0)
+    .slice(1);
+
+/**
+ * Thirty pull requests, newest first. E2E ran every spec on 1 to 3 for a rule to fix, on 4 for an expected rule,
+ * on 25 for an expected one and on 26 for one to fix, both stopped; the Test job ran every package on 5 for an expected rule
+ * and on 6 for one to fix. Every pull request's checks held it 2 minutes (E2E) and 3 (Test), save those that ran everything.
+ */
+const aMonitor = async () => {
+  const forced = new Map<number, { e2e?: ReturnType<typeof ranEverything>; test?: ReturnType<typeof ranEverything> }>([
+    [1, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
+    [2, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
+    [3, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/b.ts') }],
+    [4, { e2e: ranEverything('e2e', 'e2e support, registry or config', 'tools/test-explorer/concepts.json') }],
+    [5, { test: ranEverything('test', 'any tsconfig', 'tsconfig.json') }],
+    [6, { test: ranEverything('test', 'outside every package', 'readme.md') }],
+    [25, { e2e: ranEverything('e2e', 'lockfile', 'pnpm-lock.yaml') }],
+    [26, { e2e: ranEverything('e2e', 'spec with no area', 'tests/e2e/a.test.ts') }],
+  ]);
+  const held: Record<number, { e2e: number; test: number }> = { 1: { e2e: 10, test: 3 }, 2: { e2e: 6, test: 3 }, 3: { e2e: 3, test: 3 }, 4: { e2e: 20, test: 3 }, 5: { e2e: 2, test: 5 }, 6: { e2e: 2, test: 9 } };
+  await sendSelection(times(30, (index) => selectionPull(index + 1, { mergedAt: mergedAt(index + 1), jobs: [forced.get(index + 1)?.test ?? selectionJob('test'), forced.get(index + 1)?.e2e ?? selectionJob('e2e')] })));
+  await sendPulls(times(30, (index) => heldBy(index + 1, rounds({ Test: held[index + 1]?.test ?? 3, 'E2E (F3)': held[index + 1]?.e2e ?? 2 }))));
+};
 
 describe('Harness Monitor', () => {
   describe('test selection is a page, and the same address answers JSON to a request that asks', () => {
@@ -75,7 +105,7 @@ describe('Harness Monitor', () => {
         '>Test coverage</a>',
         '>CI stability</a>',
       ]);
-      expect(theSentence(html).choices.group!.offered).toEqual(['each day', 'each pull request', 'each rule that forced a full run', 'each package', 'each test, most selected first', 'each miss']);
+      expect(theSentence(html).choices.group!.offered).toEqual(['each day', 'each rule that forced a full run', 'each test skipped, then failed on main']);
     });
 
     it('answers JSON to ?format=json or an Accept header for it, and a page to anything else', async () => {
@@ -92,57 +122,100 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe("each bar's verdict is judged for the chosen period and job, and reads unread under the pull requests it needs", () => {
-    it('nine of thirty pull requests running E2E in full is over the bar, with the rule behind most of them and the alarm issue', async () => {
-      await sendSelection(
-        thirtyWithNineFull(),
-        selectionBars({}, [
-          { id: 'e2e-forced-full', name: 'E2E', threshold: 0.25, minOver: null, alarmIssue: 1520 },
-          { id: 'test-forced-full', name: 'Test', threshold: 0.25, minOver: null, alarmIssue: null },
-          { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null },
-          { id: 'most-selected', name: 'Most selected', threshold: 0.8, minOver: 10, alarmIssue: null },
-        ]),
-      );
+  describe('each day leads with one tile per question: what ran more than needed, and what ran less', () => {
+    const missedIn = (n: number, path: string) => selectionPull(n, { mergedAt: MERGED, misses: [{ job: 'test', path, level: 'unit', reason: null }] });
+
+    it('the time rules to fix could have saved counts the rules to fix only, and its note gives every full run per job', async () => {
+      await aMonitor();
+
+      const [more] = tiles(await thePage());
+
+      expect(more!.text).toContain('Ran more than needed 19m 00s');
+      expect(more!.text).toContain('could have been saved: 4 full runs forced by rules to fix, against a typical selected run');
+      // The expected ones and the rules that stopped are in the note, with the time they add.
+      expect(more!.text).toContain('8 full runs in all (Test job 2 of 30 · E2E job 6 of 30), 39m 00s counting the expected ones too');
+      expect(more!.text).toContain('Which rules');
+    });
+
+    it('is the measure each rule that forced a full run is ranked by, so the rules to fix add up to it', async () => {
+      await aMonitor();
+
+      const [more] = tiles(await thePage());
+      const toFix = ruleTable(await thePage('?group=rule'))
+        .slice(1, 3)
+        .map((row) => row[2]);
+
+      expect(toFix).toEqual(['13m 00s 3 full runs', '6m 00s 1 full run']);
+      expect(more!.text).toContain('Ran more than needed 19m 00s');
+    });
+
+    it('its link opens the rules, keeping the job and period', async () => {
+      await aMonitor();
+
+      expect(await thePage('?job=e2e&period=7d')).toContain('<a href="/selection?group=rule&#38;period=7d&#38;job=e2e">Which rules</a>');
+    });
+
+    it('five tests skipped by their pull request and then failed on main read 5 tests, linking to their rows', async () => {
+      await sendSelection(times(5, (index) => missedIn(index + 1, `apps/api/tests/unit/m${index}.test.ts`)));
+
+      const [, less] = tiles(await thePage());
+
+      expect(less!.text).toContain('Ran less than needed 5 tests skipped by their pull request, then failed on main Which ones');
+      expect(await thePage()).toContain('<a href="/selection?group=miss">Which ones</a>');
+    });
+
+    it('none in the period reads 0 tests, and one reads 1 test', async () => {
+      await sendSelection([selectionPull(1, { mergedAt: MERGED })]);
+      const none = tiles(await thePage())[1]!.text;
+      await sendSelection([missedIn(2, 'apps/api/tests/unit/m.test.ts')]);
+      const one = tiles(await thePage())[1]!.text;
+
+      expect(none).toContain('Ran less than needed 0 tests');
+      expect(none).not.toContain('Which ones');
+      expect(one).toContain('Ran less than needed 1 test ');
+    });
+
+    it('the job chosen is read alone: its own full runs and its own misses', async () => {
+      await sendSelection([
+        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test'), ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts')], misses: [{ job: 'test', path: 'a.test.ts', level: 'unit', reason: null }, { job: 'e2e', path: 'tests/e2e/b.test.ts', level: 'e2e', reason: null }] }),
+      ]);
+
+      const [more, less] = tiles(await thePage('?job=e2e'));
+
+      expect(more!.text).toContain('1 full run in all (E2E job 1 of 1)');
+      expect(more!.text).not.toContain('Test job');
+      expect(less!.text).toContain('Ran less than needed 1 test ');
+    });
+
+    it('the tile explains itself with an (i), and the page has no Most selected tile, typical pull request panel or by-day table', async () => {
+      await aMonitor();
 
       const html = await thePage();
 
-      const [test, e2e] = tiles(html).filter((t) => /ran everything/i.test(t.text));
-      expect(e2e).toMatchObject({ cls: 'up' });
-      expect(e2e!.text).toContain('E2E job ran everything · over the bar 30% 9 of 30 pull requests that ran it · bar 25%');
-      // The verdict is the label's last words, so the (i) follows it.
-      expect(html).toContain('<em>bar</em><button type="button" class="info" data-pop="x-t-e2e-full"');
-      expect(html).toContain('Mostly <a href="/selection?group=rule&#38;rule=e2e%3Aowned+by+no+concept">owned by no concept</a>, 9 of them');
-      expect(e2e!.text).toContain('Alarm issue #1520');
-      expect(html).toContain('href="https://github.com/michaelvanhoutte/cockpit/issues/1520"');
-      expect(test).toMatchObject({ cls: 'down' });
-      expect(test!.text).toContain('Test job ran everything · within 0%');
+      expect(tiles(html).map((t) => t.text.split(' ').slice(0, 6).join(' '))).toEqual(['Ran more than needed 19m 00s', 'Ran less than needed 0 tests']);
+      expect(html).toContain('data-pop="x-t-more"');
+      expect(html).toContain('data-pop="x-t-less"');
+      for (const gone of ['Most selected', 'A typical pull request', 'By day', 'typical-pull-request', 'by-day', 'Misses']) expect(text(html)).not.toContain(gone);
+      expect(['what-each-job-did', 'ran-everything-per-day'].map((id) => hasSection(html, id))).toEqual([true, true]);
     });
 
-    it('twelve pull requests are too few to read, so no bar judges them and each says what it needs', async () => {
+    it('a period too small for a bar to read draws the figures all the same, and no job over the bar', async () => {
       await sendSelection(times(12, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [selectionJob('test'), ranEverything('e2e', 'owned by no concept', null)] })));
 
-      const all = tiles(await thePage());
+      const html = await thePage();
 
-      expect(all).toHaveLength(4);
-      expect(all.map((t) => t.cls)).toEqual(['', '', '', '']);
-      expect(all[0]!.text).toContain('unread: 12 pull requests, a bar needs 20');
-    });
-
-    it('the job chosen is read alone: its own tile, and the misses and most selected test of its own rows', async () => {
-      await sendSelection(thirtyWithNineFull());
-
-      const e2e = tiles(await thePage('?job=e2e')).map((t) => t.text.replace(/ · (over the bar|within)/, '').split(' ').slice(0, 3).join(' '));
-
-      expect(e2e).toEqual(['E2E job ran', 'Misses 0 a', 'Most selected test']);
+      expect(tiles(html)).toHaveLength(2);
+      expect(text(sectionOf(html, 'what-each-job-did'))).not.toContain('over the bar');
     });
 
     it('a period reaches the pull requests merged from the start of its first Belgian day', async () => {
       // 9 Oct begins in Brussels at 22:00 UTC on the 8th, the first day of the last seven.
-      await sendSelection([selectionPull(1, { mergedAt: '2026-10-08T21:59:00Z' }), selectionPull(2, { mergedAt: '2026-10-08T22:00:00Z' })]);
+      const missed = (n: number, mergedAt: string) => selectionPull(n, { mergedAt, misses: [{ job: 'test', path: `apps/api/tests/unit/m${n}.test.ts`, level: 'unit', reason: null }] });
+      await sendSelection([missed(1, '2026-10-08T21:59:00Z'), missed(2, '2026-10-08T22:00:00Z')]);
 
-      const html = await thePage('?period=7d&group=pr');
+      const html = await thePage('?period=7d&group=miss');
 
-      expect(rowsOf(html, 'by-pull-request').map((row) => row[0])).toEqual([expect.stringContaining('#2 Pull request 2')]);
+      expect(rowsOf(html, 'misses').map((row) => row[0])).toEqual([expect.stringContaining('m2.test.ts')]);
     });
   });
 
@@ -159,29 +232,93 @@ describe('Harness Monitor', () => {
       expect(both.filter((row) => row.length > 1).map((row) => row[0])).toEqual(['E2E job', 'Test job']);
     });
 
-    it('the Pull request tab has a column for each job asked for, and only that job\'s outcome', async () => {
-      await sendSelection([selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { filesRun: 4, filesTotal: 50 }), ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts', ['a.test.ts', 'b.test.ts'])] })]);
+  });
 
-      const both = await thePage('?group=pr');
-      const test = await thePage('?group=pr&job=test');
+  describe('each test skipped, then failed on main is a row with the pull request that skipped it, and a prompt that settles it', () => {
+    const missed = (path: string, job: 'test' | 'e2e' = 'test', reason: string | null = null) => ({ job, path, level: job === 'e2e' ? 'e2e' : 'unit', reason });
+    /** The rows as a reader sees them: the test with its level and job, the pull request with when it merged, the button. */
+    const missTable = (html: string) =>
+      [...sectionOf(html, 'misses').matchAll(/<tr[ >].*?<\/tr>/gs)]
+        .map((row) => [...row[0].replace(/<pre hidden>.*?<\/pre>/gs, '').matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs)].map((cell) => plain(cell[1]!)))
+        .filter((cells) => cells.length > 0)
+        .slice(1);
 
-      expect(headers(both, 'by-pull-request')).toEqual(['Pull request', 'Test job', 'E2E job', 'Misses', 'Test job time']);
-      expect(rowsOf(both, 'by-pull-request')[0]!.slice(1, 3)).toEqual(['Selected 4 of 50 test files', 'Ran everything 2 owned by no concept: apps/api/src/a.ts']);
-      expect(headers(test, 'by-pull-request')).toEqual(['Pull request', 'Test job', 'Misses', 'Test job time']);
-      expect(text(sectionOf(test, 'by-pull-request'))).not.toContain('owned by no concept');
+    it('a Test job miss is a row with its path, level and job, the pull request that skipped it and when that merged', async () => {
+      await sendSelection([selectionPull(7, { mergedAt: '2026-10-10T10:00:00Z', misses: [missed('apps/api/tests/unit/a.test.ts')] })]);
+
+      const html = await thePage('?group=miss');
+
+      expect(headers(html, 'misses')).toEqual(['Test', 'Skipped in', 'Prompt']);
+      expect(missTable(html)).toEqual([['apps/api/tests/unit/a.test.ts unit · Test job', '#7 Pull request 7 10 Oct 2026, 12:00', 'Copy prompt']]);
+      expect(html).toContain('<a href="/selection?group=pr&#38;pr=7"><span class="pr-no">#7</span> Pull request 7</a>');
     });
 
-    it('the Misses tab lists the misses of the job asked for, with why a documentation-only pull request did not run them', async () => {
+    it('a miss whose pull request changed only documents says it ran no tests', async () => {
       await sendSelection([
-        selectionPull(1, { mergedAt: MERGED, misses: [{ job: 'test', path: 'apps/api/tests/unit/a.test.ts', level: 'unit', reason: null }, { job: 'e2e', path: 'tests/e2e/b.test.ts', level: 'e2e', reason: 'docs only' }] }),
+        selectionPull(1, { mergedAt: MERGED, jobs: [docsOnly('test'), docsOnly('e2e')], misses: [missed('tests/e2e/b.test.ts', 'e2e', 'docs only')] }),
+        selectionPull(2, { mergedAt: MERGED, misses: [missed('apps/api/tests/unit/a.test.ts')] }),
       ]);
 
-      expect(rowsOf(await thePage('?group=miss'), 'misses').map((row) => [row[1], row[3], row[4]])).toEqual([
-        ['apps/api/tests/unit/a.test.ts', 'Test job', 'not run'],
-        ['tests/e2e/b.test.ts', 'E2E job', 'docs only'],
-      ]);
-      expect(rowsOf(await thePage('?group=miss&job=e2e'), 'misses').map((row) => row[1])).toEqual(['tests/e2e/b.test.ts']);
+      const [ran, docs] = missTable(await thePage('?group=miss'));
+
+      expect(docs![1]).toContain('it changed only documents, so it ran no tests');
+      expect(ran![1]).not.toContain('only documents');
     });
+
+    it('two misses from one pull request are two rows, the newest pull request first', async () => {
+      await sendSelection([
+        selectionPull(1, { mergedAt: '2026-10-09T10:00:00Z', misses: [missed('apps/api/tests/unit/old.test.ts')] }),
+        selectionPull(2, { mergedAt: '2026-10-10T10:00:00Z', misses: [missed('apps/api/tests/unit/a.test.ts'), missed('apps/api/tests/unit/b.test.ts')] }),
+      ]);
+
+      const html = await thePage('?group=miss');
+
+      expect(missTable(html).map((row) => row[0]!.split(' ')[0])).toEqual(['apps/api/tests/unit/a.test.ts', 'apps/api/tests/unit/b.test.ts', 'apps/api/tests/unit/old.test.ts']);
+      expect(text(sectionOf(html, 'misses'))).toContain('3 tests · newest first');
+    });
+
+    it('the job chosen keeps only its own', async () => {
+      await sendSelection([selectionPull(1, { mergedAt: MERGED, misses: [missed('apps/api/tests/unit/a.test.ts'), missed('tests/e2e/b.test.ts', 'e2e')] })]);
+
+      expect(missTable(await thePage('?group=miss&job=e2e')).map((row) => row[0]!.split(' ')[0])).toEqual(['tests/e2e/b.test.ts']);
+    });
+
+    it('none in the period says nothing failed on main that its pull request skipped, under the explanation', async () => {
+      await sendSelection([selectionPull(1, { mergedAt: MERGED })]);
+
+      const view = sectionOf(await thePage('?group=miss'), 'misses');
+
+      expect(text(view)).toContain('None in this period: nothing failed on main that its pull request skipped.');
+      expect(view).not.toContain('<table');
+    });
+
+    it('is titled for what it is, and explains under the title what to make of a row, aligned with it', async () => {
+      await sendSelection([selectionPull(1, { mergedAt: MERGED })]);
+
+      const view = sectionOf(await thePage('?group=miss'), 'misses');
+
+      expect(text(view)).toContain('Tests that were skipped, then failed on main');
+      expect(view).toMatch(/<\/div><p class="view-lead">The pull request skipped these tests, and they failed on main once it merged\. If the pull request broke the test, the selection missed that its files lead to this test: teach it that a change to those files runs it\. If the test is flaky, the selection was right and the test needs fixing\. The prompt has Claude find out which, and make the fix\.<\/p>/);
+    });
+
+    it("each row's Copy prompt is its own, held in the page and never shown", async () => {
+      await sendSelection([
+        selectionPull(7, { mergedAt: '2026-10-10T10:00:00Z', misses: [missed('apps/api/tests/unit/a.test.ts')] }),
+        selectionPull(8, { mergedAt: '2026-10-09T10:00:00Z', jobs: [docsOnly('test'), docsOnly('e2e')], misses: [missed('tests/e2e/b.test.ts', 'e2e', 'docs only')] }),
+      ]);
+
+      const html = sectionOf(await thePage('?group=miss'), 'misses');
+      const prompts = [...html.matchAll(/<pre hidden>(.*?)<\/pre>/gs)].map((m) => m[1]!.replaceAll('&#34;', '"').replaceAll('&#39;', "'"));
+
+      expect(prompts).toHaveLength(2);
+      expect(prompts[0]).toContain('apps/api/tests/unit/a.test.ts (unit, Test job) failed on main\'s run of the merge of #7 "Pull request 7" (merged 10 Oct 2026, 12:00)');
+      expect(prompts[0]).toContain('If it could not, say what did break it');
+      expect(prompts[1]).toContain('tests/e2e/b.test.ts (e2e, E2E job) failed on main\'s run of the merge of #8 "Pull request 8"');
+      expect(prompts[1]).toContain('its change being documentation only');
+      expect(html.match(/<pre(?! hidden)/g)).toBeNull();
+      expect(html.match(/class="copy-prompt"/g)).toHaveLength(2);
+    });
+
   });
 
   describe("a pull request opens its changed files, each package's mode and reason, its selected files with their chains and its misses", () => {
@@ -266,19 +403,19 @@ describe('Harness Monitor', () => {
       const html = await thePage('?group=pr&pr=999');
 
       expect(text(html)).toContain('That pull request is not in the data held.');
-      expect(html).toContain('<a class="back" href="/selection?group=pr">&larr; Every pull request</a>');
+      expect(html).toContain('<a class="back" href="/selection">&larr; Each day</a>');
     });
 
-    it('opens from the table of pull requests, and keeps the period and job', async () => {
-      await sendSelection([selectionPull(7, { mergedAt: MERGED })]);
+    it('opens from the paths of a rule, and keeps the period and job', async () => {
+      await sendSelection(times(30, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [ranEverything('test', 'any tsconfig', 'tsconfig.json'), selectionJob('e2e')] })));
 
-      const html = await thePage('?group=pr&period=7d&job=test');
+      const html = await thePage('?group=rule&rule=test%3Aany%20tsconfig&period=7d&job=test');
 
       expect(html).toContain('href="/selection?group=pr&#38;period=7d&#38;job=test&#38;pr=7"');
     });
   });
 
-  describe('a rule opens its paths worst first with their pull requests, and a test opens the pull requests that selected it and why', () => {
+  describe('a rule opens its paths worst first with their pull requests', () => {
     it('a rule forced by two paths lists the one that forced the most pull requests first, with each pull request linked', async () => {
       await sendSelection(thirtyWithNineFull());
 
@@ -296,68 +433,25 @@ describe('Harness Monitor', () => {
       expect(text(await thePage('?group=rule&rule=test%3Aany%20tsconfig'))).toContain('This rule forced nothing in this period for the jobs chosen.');
     });
 
-    it('a test selected on eleven of the thirteen pull requests that could skip it opens those eleven, each with its chain', async () => {
-      await sendSelection(hotTest());
-
-      const html = await thePage(`?group=test&test=${encodeURIComponent(HOT)}`);
-
-      const rows = rowsOf(html, 'test');
-      expect(rows).toHaveLength(11);
-      expect(rows[0]).toEqual([expect.stringContaining('#18 Pull request 18'), 'passed', 'via apps/api/src/a.ts → apps/api/src/b.ts']);
-      expect(text(sectionOf(html, 'test'))).toContain('selected on 11 · skipped on 2 · ran in full on 7');
-    });
-
-    it('the most selected tests list the hot one first, 11 of the 13 that could skip it, over the 80% bar, with the chain that most often picked it', async () => {
-      await sendSelection(hotTest());
-
-      const [first] = rowsOf(await thePage('?group=test'), 'most-selected-tests');
-
-      expect(first).toEqual([`${HOT} via apps/api/src/a.ts → apps/api/src/b.ts`, 'unit', '11 of 13 that could skip it · 84.6%', '7', 'over the bar']);
-    });
-
-    it('a test no pull request in the period ran says so', async () => {
-      await sendSelection(hotTest());
-
-      expect(text(await thePage('?group=test&test=apps%2Fapi%2Fnothing.test.ts'))).toContain('No pull request in this period ran this test.');
-    });
   });
 
-  describe('the tiles and overview panels are on Overview only, and the pull request select is on Pull request only', () => {
-    const tabs = [
-      { group: 'day', tiles: true, overview: true, select: false },
-      { group: 'pr', tiles: false, overview: false, select: true },
-      { group: 'rule', tiles: false, overview: false, select: false },
-      { group: 'package', tiles: false, overview: false, select: false },
-      { group: 'test', tiles: false, overview: false, select: false },
-      { group: 'miss', tiles: false, overview: false, select: false },
+  describe('the tiles and the overview panels are on each day only', () => {
+    const views = [
+      { view: 'each day', query: '?group=day', tiles: true, overview: true },
+      { view: 'each rule that forced a full run', query: '?group=rule', tiles: false, overview: false },
+      { view: 'each test skipped, then failed on main', query: '?group=miss', tiles: false, overview: false },
+      { view: "one pull request's selection", query: '?group=pr&pr=7', tiles: false, overview: false },
     ];
 
-    it.each(tabs)('$group has the tiles: $tiles, the overview panels: $overview, the pull request select: $select', async ({ group, ...expected }) => {
+    it.each(views)('$view has the tiles: $tiles, the overview panels: $overview', async ({ query, ...expected }) => {
       await sendSelection(thirtyWithNineFull());
 
-      const html = await thePage(`?group=${group}`);
+      const html = await thePage(query);
 
       expect(html.includes('class="tiles"')).toBe(expected.tiles);
-      expect(['what-each-job-did', 'typical-pull-request', 'ran-everything-per-day', 'by-day'].map((id) => hasSection(html, id))).toEqual(Array(4).fill(expected.overview));
-      expect(html.includes('name="outcome"')).toBe(expected.select);
+      expect(['what-each-job-did', 'ran-everything-per-day'].map((id) => hasSection(html, id))).toEqual(Array(2).fill(expected.overview));
       expect(html).toContain('name="period"');
       expect(html).toContain('name="job"');
-    });
-
-    it('a pull request opened leaves the pull request select behind', async () => {
-      await sendSelection([selectionPull(7, { mergedAt: MERGED })]);
-
-      expect((await thePage('?group=pr&pr=7')).includes('name="outcome"')).toBe(false);
-    });
-
-    it('the Overview lists each day of the period, newest first, with what each job did on it', async () => {
-      await sendSelection([selectionPull(1, { mergedAt: '2026-10-14T10:00:00Z', jobs: [selectionJob('test'), ranEverything('e2e', 'owned by no concept', null)] }), selectionPull(2, { mergedAt: '2026-10-12T10:00:00Z' })]);
-
-      const rows = rowsOf(await thePage('?period=7d'), 'by-day');
-
-      // The days before the first pull request held are not listed: nothing there is "no pull request merged".
-      expect(rows.map((row) => row.slice(0, 2))).toEqual([['15 Oct 2026', '0'], ['14 Oct 2026', '1'], ['13 Oct 2026', '0'], ['12 Oct 2026', '1']].map(([day, merged]) => [expect.stringContaining(day!.slice(0, 6)), merged]));
-      expect(rows[1]![3]).toContain('ran everything on 1 of 1');
     });
   });
 
@@ -367,31 +461,38 @@ describe('Harness Monitor', () => {
       const { text: sentence, choices } = theSentence(html);
 
       expect(sentence).toBe('Show test selection for [each day] in [both jobs] over [the last 14 days]');
-      expect(choices.group!.offered).toEqual(['each day', 'each pull request', 'each rule that forced a full run', 'each package', 'each test, most selected first', 'each miss']);
+      expect(choices.group!.offered).toEqual(['each day', 'each rule that forced a full run', 'each test skipped, then failed on main']);
       expect(choices.job!.offered).toEqual(['both jobs', 'the Test job', 'the E2E job']);
       expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 14 days', 'everything held']);
       expect(Object.keys(choices)).toEqual(['group', 'job', 'period']);
       expect(html).not.toContain('class="only"');
     });
 
-    it('each pull request offers the pull requests outcome under Only, and the job chosen is read in the sentence', async () => {
-      const { text: sentence, choices } = theSentence(await thePage('?group=pr&job=e2e&outcome=full'));
+    it.each(['?group=package', '?group=pr', '?group=pr&outcome=full', '?group=test', '?group=test&test=apps%2Fapi%2Fa.test.ts'])('an address asking for a row the sentence does not offer, %s, reads each day', async (query) => {
+      await sendSelection(thirtyWithNineFull());
 
-      expect(sentence).toBe('Show test selection for [each pull request] in [the E2E job] over [the last 14 days]');
-      expect(choices.outcome).toMatchObject({ chosen: 'Ran everything', held: true });
-      expect(choices.outcome!.offered).toEqual(['Every pull request', 'Selected a subset', 'Ran everything', 'With a miss', 'Documentation only']);
+      const html = await thePage(query);
+
+      expect(theSentence(html).text).toBe('Show test selection for [each day] in [both jobs] over [the last 14 days]');
+      expect(html.includes('class="tiles"')).toBe(true);
     });
 
-    it('one pull request opened has no outcome filter, and the form carries the pull request', async () => {
+    it("one pull request's address opens its whole selection, with no row of its own in the list, and keeps the view when the period or job changes", async () => {
       await sendSelection([selectionPull(7, { mergedAt: MERGED })]);
 
       const html = await thePage('?group=pr&pr=7');
+      const { text: sentence, choices } = theSentence(html);
 
-      expect(Object.keys(theSentence(html).choices)).toEqual(['group', 'job', 'period']);
+      expect(text(sectionOf(html, 'pull-request'))).toContain('#7 Pull request 7');
+      expect(sentence).toBe('Show test selection for [one pull request] in [both jobs] over [the last 14 days]');
+      expect(choices.group).toMatchObject({ chosen: 'one pull request', disabled: [] });
+      expect(html).toContain('<option value="pr" selected hidden>one pull request</option>');
+      expect(choices.group!.offered.slice(1)).toEqual(['each day', 'each rule that forced a full run', 'each test skipped, then failed on main']);
+      // The held choice is sent as it stands, so the form keeps the view and the pull request.
       expect(html).toContain('<input type="hidden" name="pr" value="7">');
     });
 
-    it.each(['', '?group=pr', '?group=rule', '?group=package', '?group=test', '?group=miss'])('has no grouping tabs, no Job toggle and no labelled filter row at %s', async (query) => {
+    it.each(['', '?group=rule', '?group=miss', '?group=pr&pr=7'])('has no grouping tabs, no Job toggle and no labelled filter row at %s', async (query) => {
       const html = await thePage(query);
 
       for (const gone of ['band-tabs', 'aria-label="Group by"', 'class="filters"', 'class="toggles"', 'aria-pressed', '<label ']) expect(html).not.toContain(gone);
@@ -399,50 +500,6 @@ describe('Harness Monitor', () => {
   });
 
   describe('each rule that forced a full run says what it could have saved, in three groups, with a prompt to fix the ones to fix', () => {
-    const MINUTE = 60_000;
-    const NEWEST = Date.parse('2026-10-14T10:00:00Z');
-    /** Pull request `n` of a run of thirty, merged three hours before the one before: 1 is the newest. */
-    const mergedAt = (n: number) => new Date(NEWEST - (n - 1) * 3 * 3_600_000).toISOString();
-
-    /** A pull request's rounds as cycle time holds them: each round names the checks and the minutes each held it up. */
-    const rounds = (...each: Record<string, number | number[]>[]) =>
-      each.map((checks) =>
-        cycleRound(
-          Object.entries(checks).flatMap(([name, held]) =>
-            [held].flat().map((minutes, index) => cycleCheck(name, minutes * MINUTE, { attempt: index + 1, last: name === 'E2E (F3)' && index === [held].flat().length - 1 })),
-          ),
-        ),
-      );
-    const heldBy = (n: number, rounds: ReturnType<typeof cycleRound>[], over: Record<string, unknown> = {}) => cyclePull(n, { mergedAt: mergedAt(n), rounds, ...over });
-
-    /** The rule table as a reader sees it: each group's heading as one cell, each rule as its cells. */
-    const ruleTable = (html: string) =>
-      [...sectionOf(html, 'by-rule').matchAll(/<tr[ >].*?<\/tr>/gs)]
-        .map((row) => [...row[0].replace(/<pre hidden>.*?<\/pre>/gs, '').matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gs)].map((cell) => plain(cell[1]!)))
-        .filter((cells) => cells.length > 0)
-        .slice(1);
-
-    /**
-     * Thirty pull requests, newest first. E2E ran every spec on 1 to 3 for a rule to fix, on 4 for an expected rule,
-     * on 25 for an expected one and on 26 for one to fix, both stopped; the Test job ran every package on 5 for an expected rule
-     * and on 6 for one to fix. Every pull request's checks held it 2 minutes (E2E) and 3 (Test), save those that ran everything.
-     */
-    const aMonitor = async () => {
-      const forced = new Map<number, { e2e?: ReturnType<typeof ranEverything>; test?: ReturnType<typeof ranEverything> }>([
-        [1, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
-        [2, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/a.ts') }],
-        [3, { e2e: ranEverything('e2e', 'owned by no concept', 'apps/api/src/b.ts') }],
-        [4, { e2e: ranEverything('e2e', 'e2e support, registry or config', 'tools/test-explorer/concepts.json') }],
-        [5, { test: ranEverything('test', 'any tsconfig', 'tsconfig.json') }],
-        [6, { test: ranEverything('test', 'outside every package', 'readme.md') }],
-        [25, { e2e: ranEverything('e2e', 'lockfile', 'pnpm-lock.yaml') }],
-        [26, { e2e: ranEverything('e2e', 'spec with no area', 'tests/e2e/a.test.ts') }],
-      ]);
-      const held: Record<number, { e2e: number; test: number }> = { 1: { e2e: 10, test: 3 }, 2: { e2e: 6, test: 3 }, 3: { e2e: 3, test: 3 }, 4: { e2e: 20, test: 3 }, 5: { e2e: 2, test: 5 }, 6: { e2e: 2, test: 9 } };
-      await sendSelection(times(30, (index) => selectionPull(index + 1, { mergedAt: mergedAt(index + 1), jobs: [forced.get(index + 1)?.test ?? selectionJob('test'), forced.get(index + 1)?.e2e ?? selectionJob('e2e')] })));
-      await sendPulls(times(30, (index) => heldBy(index + 1, rounds({ Test: held[index + 1]?.test ?? 3, 'E2E (F3)': held[index + 1]?.e2e ?? 2 }))));
-    };
-
     it('lists Rules to fix, then Expected, then Stopped, each by the time it could have saved, with the job, advice, full runs, pull requests as n of m, paths and when it last forced one', async () => {
       await aMonitor();
 
@@ -539,7 +596,6 @@ describe('Harness Monitor', () => {
   });
 
   describe("the page reads each pull request's check time from cycle time's rows, over the period", () => {
-    const MINUTE = 60_000;
     const checks = (...each: [string, number, Record<string, unknown>?][]) => cycleRound(each.map(([name, minutes, over]) => cycleCheck(name, minutes * MINUTE, over)));
     /** An E2E run that ran everything on pull request 1, and two that selected, 1 minute each unless told otherwise; the figure the rule could have saved. */
     const saved = async (first: unknown, selected: unknown[] = [cyclePull(2, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 1])] }), cyclePull(3, { mergedAt: MERGED, rounds: [checks(['E2E (F3)', 1])] })]) => {
@@ -577,7 +633,7 @@ describe('Harness Monitor', () => {
   });
 
   describe('nothing in the period says nothing in this period', () => {
-    it.each([{ situation: 'the Overview' }, { situation: 'a tab', query: '?group=rule' }, { situation: 'a period that holds only older pull requests', query: '?period=7d', older: true }])('$situation of an empty Monitor', async ({ query, older }) => {
+    it.each([{ situation: 'each day' }, { situation: 'each rule', query: '?group=rule' }, { situation: 'each test skipped, then failed on main', query: '?group=miss' }, { situation: 'a period that holds only older pull requests', query: '?period=7d', older: true }])('$situation of an empty Monitor', async ({ query, older }) => {
       if (older) await sendSelection([selectionPull(1, { mergedAt: '2026-08-01T10:00:00Z' })]);
 
       const html = await thePage(query ?? '');
@@ -586,58 +642,10 @@ describe('Harness Monitor', () => {
       expect(html.includes('class="tiles"')).toBe(false);
     });
 
-    it('a tab with nothing of its own says what is missing, and a period with nothing forcing a full run says so', async () => {
+    it('a period with nothing forcing a full run says so', async () => {
       await sendSelection([selectionPull(1, { mergedAt: MERGED })]);
 
-      expect(text(await thePage('?group=miss'))).toContain('No misses in this period');
       expect(text(await thePage('?group=rule'))).toContain('Nothing forced a full run in this period.');
-      expect(text(await thePage('?group=pr&outcome=full'))).toContain('No pull request in this period matches the filters.');
-    });
-  });
-
-  describe('Package lists each package by how often a selecting pull request ran something of it', () => {
-    it('shows ran something on 1 of 2 that selected for a package that ran a file on one of two pull requests that selected', async () => {
-      await sendSelection([
-        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)])] }), selectionJob('e2e')] }),
-        selectionPull(2, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [])] }), selectionJob('e2e')] }),
-      ]);
-
-      const [row] = rowsOf(await thePage('?group=package'), 'by-package');
-
-      expect(row).toEqual(['api', '—', 'ran something on 1 of 2 that selected · 50%', '1', '0', '—']);
-    });
-
-    it('shows the most test files the package held on any pull request of the period', async () => {
-      await sendSelection([
-        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)], { filesTotal: 40 })] }), selectionJob('e2e')] }),
-        selectionPull(2, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [], { filesTotal: 43 })] }), selectionJob('e2e')] }),
-      ]);
-
-      const [row] = rowsOf(await thePage('?group=package'), 'by-package');
-
-      expect(row!.slice(0, 2)).toEqual(['api', '43']);
-    });
-
-    it('does not count a package whose process wrote no report as one that selected', async () => {
-      await sendSelection([
-        selectionPull(1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)])] }), selectionJob('e2e')] }),
-        selectionPull(2, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [], { report: 'none' })] }), selectionJob('e2e')] }),
-      ]);
-
-      const [row] = rowsOf(await thePage('?group=package'), 'by-package');
-
-      expect(row![2]).toBe('ran something on 1 of 1 that selected · 100%');
-    });
-  });
-
-  describe('a bar is read only on a period large enough to read it, on every tab', () => {
-    it('a test selected on every pull request of twelve is not over the bar, since a bar needs twenty', async () => {
-      await sendSelection(times(12, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(HOT)])] }), selectionJob('e2e')] })));
-
-      const html = await thePage('?group=test');
-
-      expect(rowsOf(html, 'most-selected-tests')[0]!.slice(2)).not.toContain('over the bar');
-      expect(sectionOf(html, 'most-selected-tests')).not.toContain('crossed');
     });
   });
 

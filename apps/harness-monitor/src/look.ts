@@ -57,9 +57,9 @@ export function selectField(id: string, label: string, options: [value: string, 
   return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()"${current === resting ? '' : ' data-set'}>${opts}</select></div>`;
 }
 
-/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. */
-export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean][], current: string, resting: string | null = null): string {
-  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
+/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. An option marked `off` cannot be picked and stays in the list; one marked `hidden` is left out of the list and names only the value held. */
+export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean | 'hidden'][], current: string, resting: string | null = null): string {
+  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off === 'hidden' ? ' hidden' : off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
   // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
   const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
   return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
