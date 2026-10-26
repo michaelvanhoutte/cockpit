@@ -139,6 +139,13 @@ describe('Harness Monitor', () => {
       expect((await env.DB.prepare('SELECT branch, pull_number, on_main FROM ci_attempts').all()).results).toEqual([where]);
       expect(await storedFailedTests()).toEqual(tests);
     });
+
+    it('a later send of the attempt after its pull request closed keeps the pull request it was stored with', async () => {
+      await sendAttempts([ciAttempt(14, 1, { ...onBranch, event: 'pull_request', pullRequest: 1604 })]);
+      await sendAttempts([ciAttempt(14, 1, { ...onBranch, event: 'pull_request', pullRequest: null })]);
+
+      expect((await env.DB.prepare('SELECT pull_number FROM ci_attempts').all()).results).toEqual([{ pull_number: 1604 }]);
+    });
   });
 
   describe("a send of CI's attempts without the write key stores nothing", () => {

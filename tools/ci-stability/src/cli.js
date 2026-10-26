@@ -396,6 +396,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
   let runsRead = 0;
   let capped = false;
   let stoppedAt = null;
+  const deferred = [];
 
   for (const { from, to } of dayChunks(window.since, until)) {
     if (runsRead >= maxRuns) {
@@ -410,12 +411,25 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
       }
       runsRead += listed.runs.length;
       const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, token, counter });
+      // A re-run's attempt carries the time it started, which can be after this day. It waits for
+      // the end, so a stop part-way cannot leave the Monitor's newest past days not yet sent.
       const attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-      const result = await sendAttempts({ url: monitor.url, key: monitor.key, attempts });
-      sent += result.attempts;
+      const due = attempts.filter((attempt) => Date.parse(attempt.createdAt) < to.getTime());
+      deferred.push(...attempts.filter((attempt) => !due.includes(attempt)));
+      sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: due })).attempts;
     } catch (error) {
       if (!(error instanceof GitHubError || error instanceof MonitorError)) throw error;
       process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and the next send continues from the newest the Monitor holds.\n`);
+      return 1;
+    }
+  }
+
+  if (!stoppedAt && deferred.length > 0) {
+    try {
+      sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: deferred })).attempts;
+    } catch (error) {
+      if (!(error instanceof MonitorError)) throw error;
+      process.stderr.write(`${error.message}\nThe re-runs started after their day were not sent; ${sent} attempts were sent before them, and the next send continues from the newest the Monitor holds.\n`);
       return 1;
     }
   }

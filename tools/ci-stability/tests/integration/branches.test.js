@@ -184,6 +184,31 @@ describe('CI stability', () => {
       ]);
     });
 
+    describe('a re-run started after its run\'s day is sent last, so a stop cannot move the newest past days not yet sent', () => {
+      const world = {
+        runs: [
+          rawRun(1, '2026-10-20T12:00:00Z', { run_attempt: 2, run_started_at: '2026-10-23T07:00:00Z' }),
+          rawRun(2, '2026-10-21T12:00:00Z'),
+          rawRun(3, '2026-10-22T12:00:00Z'),
+        ],
+        jobs: (runId, attempt) => (runId === 1 && attempt === 1 ? [rawJob(1, { started_at: '2026-10-20T12:01:00Z', completed_at: '2026-10-20T12:11:00Z' })] : []),
+      };
+
+      it('after the last day when the night completes', async () => {
+        const { code, sends } = await nightly(world);
+
+        expect(code).toBe(0);
+        expect(sends).toEqual([['1/1'], ['2/1'], ['3/1'], ['1/2']]);
+      });
+
+      it('not at all when the night stops first', async () => {
+        const { code, sends } = await nightly({ ...world, refuseListingFrom: '2026-10-22T08:00:00Z' });
+
+        expect(code).toBe(1);
+        expect(sends).toEqual([['1/1'], ['2/1']]);
+      });
+    });
+
     it('reads every page of a day with more runs than one page holds, and sends them in batches the Monitor takes', async () => {
       const runs = Array.from({ length: 150 }, (_, i) => rawRun(1000 + i, '2026-10-22T09:00:00Z'));
       const { code, sends, github } = await nightly({ runs });

@@ -10,7 +10,7 @@ SELECT value ->> '$.run_id', value ->> '$.attempt', value ->> '$.workflow', valu
        value ->> '$.outcome', value ->> '$.created_at', value ->> '$.url', ?2
 FROM json_each(?1) WHERE true
 ON CONFLICT (run_id, attempt) DO UPDATE SET
-  workflow = excluded.workflow, path = excluded.path, event = excluded.event, branch = excluded.branch, pull_number = excluded.pull_number,
+  workflow = excluded.workflow, path = excluded.path, event = excluded.event, branch = excluded.branch, pull_number = COALESCE(excluded.pull_number, ci_attempts.pull_number),
   on_main = excluded.on_main, head_sha = excluded.head_sha, status = excluded.status, conclusion = excluded.conclusion,
   outcome = excluded.outcome, created_at = excluded.created_at, url = excluded.url, received_at = excluded.received_at`;
 
