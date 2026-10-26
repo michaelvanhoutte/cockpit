@@ -262,7 +262,7 @@ const BACKUP_RESTORE_GUEST_RESET = [
 
 /**
  * Paths Review findings' table calls security: sign-in and the register
- * (`auth/`), the web session, a connector, the gate composition and the
+ * (`auth/`), the Android widget (it keeps a sign-in token on a phone), the web session, a connector, the gate composition and the
  * Google OIDC and ingress-webhook routes it mounts (`http/app.ts` - there is
  * no perimeter to fall back on for this app's auth model), the CI workflows,
  * the composite action they share, and the branch protection payload they
@@ -284,6 +284,7 @@ const BACKUP_RESTORE_GUEST_RESET = [
  */
 const SECURITY_PATHS = [
   'apps/api/src/auth/',
+  'apps/android-widget/',
   'apps/web/src/session/',
   'apps/api/src/connectors/',
   'apps/api/src/accounts/register.ts',
@@ -324,6 +325,24 @@ export function isSecurityPath(path) {
 /** Whether `path` is one Review findings' table calls a stored-data path. */
 export function isStoredDataPath(path) {
   return matchesAny(String(path ?? ''), STORED_DATA_PATHS);
+}
+
+/**
+ * What the Android widget's build and tests read: the app itself, the sample
+ * answers its tests are held to (`packages/shared/samples/`, which the server's
+ * own tests check against its real answers), and the workflow that runs them.
+ * Nothing else can change what the widget's Gradle tests say.
+ */
+const WIDGET_PATHS = ['apps/android-widget/', 'packages/shared/samples/', '.github/workflows/ci.yml'];
+
+/**
+ * Whether the Android widget's build and tests need to run for this diff. Fails
+ * open as `productChanged` does: an empty list is a range this could not read,
+ * and answers true.
+ */
+export function widgetChanged(paths) {
+  const files = normalize(paths);
+  return files.length === 0 || files.some((path) => matchesAny(path, WIDGET_PATHS));
 }
 
 /**
@@ -436,7 +455,7 @@ const NAMED = 20;
 export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   const range = diffRange({ eventName, event: parseEvent(readFile, eventPath) });
   if (range === null) {
-    return { changed: true, security: true, lines: [`No diff range for a ${printable(eventName ?? 'nameless')} event, so every check runs.`] };
+    return { changed: true, security: true, widget: true, lines: [`No diff range for a ${printable(eventName ?? 'nameless')} event, so every check runs.`] };
   }
 
   let paths;
@@ -444,7 +463,7 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
     paths = pathsFromDiff(gitDiff(range));
   } catch (error) {
     const why = printable(String(error?.message ?? error).replace(/\s+/g, ' ').trim());
-    return { changed: true, security: true, lines: [`::warning::Could not diff ${range}, so every check runs: ${why}`] };
+    return { changed: true, security: true, widget: true, lines: [`::warning::Could not diff ${range}, so every check runs: ${why}`] };
   }
 
   if (paths.length === 0) {
@@ -452,7 +471,7 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
     // found nothing product-affecting, when what it actually found is nothing
     // to classify - a range git resolved to no files, which is answered
     // "product changed" for the reason productChanged's own comment gives.
-    return { changed: true, security: true, lines: [`${range}: no paths in this diff, so every check runs rather than reading that as documentation.`] };
+    return { changed: true, security: true, widget: true, lines: [`${range}: no paths in this diff, so every check runs rather than reading that as documentation.`] };
   }
 
   const forcing = productPaths(paths);
@@ -463,5 +482,5 @@ export function classify({ eventName, eventPath, readFile, gitDiff } = {}) {
   // print itself into the log for an answer nobody is in doubt about.
   for (const path of forcing.slice(0, NAMED)) lines.push(`  ${printable(path)}`);
   if (forcing.length > NAMED) lines.push(`  ... and ${forcing.length - NAMED} more`);
-  return { changed: productChanged(paths), security, lines };
+  return { changed: productChanged(paths), security, widget: widgetChanged(paths), lines };
 }

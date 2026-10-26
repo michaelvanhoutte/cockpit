@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One row: the flag, the title, and under it the due pill and the places. Exactly one pill view is shown, so each look keeps its own colours. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingTop="11dp"
+    android:paddingBottom="11dp">
+
+    <ImageView
+        android:id="@+id/flag"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginTop="2dp"
+        android:src="@drawable/flag_unset" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/ink"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:id="@+id/second"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/pill_overdue"
+                style="@style/Pill"
+                android:background="@drawable/pill_over_bg"
+                android:textColor="@color/pill_over_ink"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/pill_today"
+                style="@style/Pill"
+                android:background="@drawable/pill_today_bg"
+                android:textColor="@color/pill_today_ink"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/pill_near"
+                style="@style/Pill"
+                android:background="@drawable/pill_near_bg"
+                android:textColor="@color/pill_near_ink"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/pill_week"
+                style="@style/Pill"
+                android:background="@drawable/pill_week_bg"
+                android:textColor="@color/pill_week_ink"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/pill_plain"
+                style="@style/Pill"
+                android:textColor="@color/ink_faint"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/place"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/ink_faint"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

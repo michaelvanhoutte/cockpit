@@ -452,6 +452,54 @@ jobs:
           overwrite: true
           retention-days: 30
 
+  # The Android widget (apps/android-widget): built and tested only when a file
+  # it reads changed (scripts/lib/what-changed.mjs, `widgetChanged`), so the
+  # many pull requests that never touch it pay for no Gradle run. Its own job
+  # because it needs Java and the Android SDK where the rest need Node, and
+  # because it is the one place a Kotlin test can run (docs/testing-strategy.md,
+  # "The Android widget").
+  #
+  # Runs on anything the classifier could not answer: `widget_changed` is unset
+  # then, and also while the base commit's classifier predates the output, which
+  # `!= 'false'` reads as "yes". The release is a different workflow, on a tag
+  # (widget-release.yml). Not a required check until the owner adds it to
+  # `.github/branch-protection.json`.
+  widget:
+    name: Widget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the widget
+        id: classify
+        uses: ./.github/actions/classify
+        continue-on-error: true
+      - uses: actions/setup-java@v4
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Caches Gradle's downloads, and refuses a wrapper jar that is not Gradle's own.
+      - uses: gradle/actions/setup-gradle@v4
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+      # Both builds, so a flavour that stops compiling is seen, but the tests once: the
+      # flavours differ only in constants, and a bare `test` would run every Robolectric
+      # suite four times. The JVM unit tests and Robolectric against a fake Cockpit.
+      - name: Test and build the widget
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+        working-directory: apps/android-widget
+        run: bash ./gradlew --no-daemon testStagingDebugUnitTest lintStagingDebug assembleStagingDebug assembleProductionDebug
+      - name: Upload the test and lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: widget-reports
+          path: apps/android-widget/app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
   # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,

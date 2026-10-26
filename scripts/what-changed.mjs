@@ -24,7 +24,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 
 import { classify } from './lib/what-changed.mjs';
 
-const { changed, security, lines } = classify({
+const { changed, security, widget, lines } = classify({
   eventName: process.env.GITHUB_EVENT_NAME,
   eventPath: process.env.GITHUB_EVENT_PATH,
   readFile: (path) => readFileSync(path, 'utf8'),
@@ -41,7 +41,7 @@ const { changed, security, lines } = classify({
 for (const line of lines) console.log(line);
 
 if (process.env.GITHUB_OUTPUT) {
-  appendFileSync(process.env.GITHUB_OUTPUT, `product_changed=${changed}\nsecurity_changed=${security}\n`);
+  appendFileSync(process.env.GITHUB_OUTPUT, `product_changed=${changed}\nsecurity_changed=${security}\nwidget_changed=${widget}\n`);
 }
 
 if (process.env.GITHUB_STEP_SUMMARY) {

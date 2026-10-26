@@ -706,6 +706,11 @@
         "apps/harness-monitor/src/claude-calls-explain.ts",
         "apps/harness-monitor/src/claude-calls-export.ts"
       ]
+    },
+    {
+      "key": "Home-screen widget",
+      "label": "Home-screen widget",
+      "sourcePatterns": []
     }
   ]
 }
