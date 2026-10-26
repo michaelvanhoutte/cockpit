@@ -52,7 +52,7 @@ const NBSP = String.fromCharCode(160);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 /** A row's anchor, so a full load of a view lands on the row it was opened from: a space is a hyphen and any other character outside letters and digits its code in underscores, so no two keys share one. */
-const anchor = (key: string) => `a-${key.replace(/[^A-Za-z0-9 ]/g, (c) => `_${c.codePointAt(0)!.toString(16)}_`).replace(/ /g, '-')}`;
+const anchor = (key: string) => `a-${key.replace(/[^A-Za-z0-9 ]/gu, (c) => `_${c.codePointAt(0)!.toString(16)}_`).replace(/ /g, '-')}`;
 
 const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', gaps: 'each gap' };
 

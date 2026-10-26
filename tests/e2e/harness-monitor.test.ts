@@ -1234,7 +1234,7 @@ test.describe('Harness Monitor', () => {
       expect(stacked.y + stacked.height).toBeLessThanOrEqual(below.y + 1);
       expect(await noSidewaysScroll()).toBe(true);
 
-      // Closing it, with nothing to show, leaves the page where it is.
+      // Closing it, with nothing to show, does not scroll the page.
       const open = await scrollY();
       await pane.getByRole('link', { name: 'Close the panel' }).click();
       await expect(pane).toBeHidden();
