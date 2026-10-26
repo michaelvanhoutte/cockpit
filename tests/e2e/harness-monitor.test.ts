@@ -1233,6 +1233,13 @@ test.describe('Harness Monitor', () => {
       const below = await boxOf(table.locator('.table'));
       expect(stacked.y + stacked.height).toBeLessThanOrEqual(below.y + 1);
       expect(await noSidewaysScroll()).toBe(true);
+
+      // Closing it, with nothing to show, leaves the page where it is.
+      const open = await scrollY();
+      await pane.getByRole('link', { name: 'Close the panel' }).click();
+      await expect(pane).toBeHidden();
+      const furthest = await page.evaluate(() => Math.round(document.documentElement.scrollHeight - window.innerHeight));
+      expect(await scrollY()).toBe(Math.min(open, furthest));
     }
   });
 

@@ -292,7 +292,9 @@ export async function loadSource(db: D1Database, ask: SourceAsk): Promise<Line[]
   const stored = await shownAreaLines(db, ask.pr === null ? 'main' : pullRequestSnapshot(ask.pr), ask.area);
   const unpacked = stored ? await unpack('The source lines', stored) : null;
   if (!unpacked?.ok) return null;
-  return (unpacked.value as AreaLines)[ask.at] ?? null;
+  const lines = unpacked.value as AreaLines;
+  // `at` is the address's own text, so an inherited name such as `constructor` is no case.
+  return Object.hasOwn(lines, ask.at) ? lines[ask.at]! : null;
 }
 
 // ---- Counting

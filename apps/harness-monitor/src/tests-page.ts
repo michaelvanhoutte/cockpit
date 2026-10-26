@@ -51,8 +51,8 @@ const PAGE_LEAD = lead(questionOf('tests'), LEAD_MORE);
 const NBSP = String.fromCharCode(160);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
-/** A row's anchor, so a full load of a view lands on the row it was opened from. */
-const anchor = (key: string) => `a-${key.replace(/[^\w]+/g, '-')}`;
+/** A row's anchor, so a full load of a view lands on the row it was opened from: a space is a hyphen and any other character outside letters and digits its code in underscores, so no two keys share one. */
+const anchor = (key: string) => `a-${key.replace(/[^A-Za-z0-9 ]/g, (c) => `_${c.codePointAt(0)!.toString(16)}_`).replace(/ /g, '-')}`;
 
 const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', gaps: 'each gap' };
 
@@ -474,7 +474,7 @@ const PANE_SCRIPT = `<script>
   if (!wrap || !window.fetch || !window.DOMParser) return;
   var latest = 0;
   function reveal(pane){
-    if (!matchMedia('(max-width:1300px)').matches) return;
+    if (!matchMedia('(max-width:1300px)').matches || pane.classList.contains('pane-idle')) return;
     var band = document.querySelector('.band-controls');
     scrollTo(0, Math.max(0, pane.getBoundingClientRect().top + scrollY - (band ? band.offsetHeight : 0) - 8));
   }

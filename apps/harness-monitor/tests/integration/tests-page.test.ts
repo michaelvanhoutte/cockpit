@@ -218,6 +218,15 @@ describe('Harness Monitor', () => {
       expect(plain(pane)).toContain('13 rules · 0 cases');
     });
 
+    it('areas whose names differ only in spacing or punctuation each have a row of their own to land on', async () => {
+      await sendTestsModel(model([area('Sign in', rules(1, 'L1', API_UNIT)), area('Sign-in', rules(1, 'L1', API_UNIT)), area('Sign_in', rules(1, 'L1', API_UNIT))]));
+
+      const ids = [...(await thePage()).matchAll(/<tr id="(a-[^"]*)"/g)].map((m) => m[1]);
+
+      expect(ids).toHaveLength(3);
+      expect(new Set(ids).size).toBe(3);
+    });
+
     it('a count of 0 is not a link', async () => {
       await sendTestsModel(SNAPSHOT);
 
@@ -296,6 +305,15 @@ describe('Harness Monitor', () => {
       expect(status).toBe(200);
       expect(html).toContain('<span class="hit"><b>46</b>    it(&#39;a voice memo&#39;, async () =&#62; {</span>');
       expect(html).toContain('<span class=""><b>45</b>    // above</span>');
+    });
+
+    it.each(['constructor', '__proto__', 'toString'])('a case named %s, which no area stores, says it was not stored rather than failing', async (name) => {
+      await sendTestsModel(SNAPSHOT, { Inbox: INBOX_LINES });
+
+      const { status, html } = await source(`?area=Inbox&at=${at(name)}`);
+
+      expect(status).toBe(200);
+      expect(plain(html)).toContain('not stored');
     });
 
     it('the panel itself carries no source: a case’s lines are read only when it is opened', async () => {
