@@ -8,8 +8,8 @@ import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { allItemsFilterId } from '../../../src/allItemsTab';
 import AllItemsBoard from '../../../src/components/AllItemsBoard';
 import { readDashboardFilter, useFilterBarOpen, writeDashboardFilter } from '../../../src/dashboardFilter';
-import { askToLand, forgetLanding } from '../../../src/landOnItem';
 import { deviceSpeaks } from '../support/timeZone';
+import { resetStanding, stand } from '../../../src/offline';
 import { browserStore } from '../../../src/lastVisited';
 import { NO_DASHBOARD_FILTER } from '@cockpit/shared';
 
@@ -20,7 +20,23 @@ import { NO_DASHBOARD_FILTER } from '@cockpit/shared';
  * tests/unit/allItems.test.ts; that a finished item's form really reopens it is
  * the browser walk in tests/e2e/all-items.test.ts.
  */
-const held = vi.hoisted(() => ({ items: [] as Item[], opened: [] as string[] }));
+const held = vi.hoisted(() => ({
+  items: [] as Item[],
+  opened: [] as string[],
+  /** What the finished Items' read answers, and what it waits for or fails with. */
+  finished: [] as Item[],
+  finishedGate: null as Promise<void> | null,
+  finishedFails: false,
+}));
+
+vi.mock('../../../src/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+  fetchFinishedItems: async () => {
+    await held.finishedGate;
+    if (held.finishedFails) throw new Error('finished items failed: 500');
+    return { items: held.finished, filings: [], attachments: [] };
+  },
+}));
 
 vi.mock('../../../src/itemForm', () => ({
   useOpenItem: () => (itemId: string) => {
@@ -37,6 +53,7 @@ vi.mock('../../../src/api/queries', () => ({
         dashboards: [{ id: 'd-work', name: 'Work' }],
         panels: [{ id: 'p-calls', dashboardId: 'd-work', name: 'Calls', kind: 'items' }],
         filings: [{ itemId: 'filed', panelId: 'p-calls', position: 0 }],
+        attachments: [],
       } as unknown as WorkspaceSnapshot),
   }),
 }));
@@ -101,11 +118,14 @@ const titlesInOrder = () =>
 
 beforeEach(() => {
   onAScreen(A_DESK);
+  held.finished = [];
+  held.finishedGate = null;
+  held.finishedFails = false;
 });
 
 afterEach(() => {
-  act(() => forgetLanding());
   cleanup();
+  resetStanding();
   browserStore()?.clear();
   vi.unstubAllGlobals();
 });
@@ -305,54 +325,88 @@ describe('Inbox', () => {
       expect(titlesInOrder()).toEqual(['finished']);
     });
   });
+});
 
-  describe('Find lands on a finished Item’s row, drawing rows and clearing the filter until it is shown', () => {
-    const landOnIt = (itemId: string, workspaceId = 'ws-work') =>
-      act(() => askToLand({ itemId, place: { kind: 'allItems', workspaceId }, focus: true }));
-    const rowOfIt = (itemId: string) => document.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+describe('Dashboards', () => {
+  describe('All items draws the finished Items it has fetched with the open ones', () => {
+    it('says the finished Items are loading while they arrive, then draws them beside the open ones', async () => {
+      let arrive: () => void = () => {};
+      held.finishedGate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      held.finished = [anItem('done-long-ago', { completedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' })];
+      theTable([anItem('open')]);
 
-    it('focuses its row, outlined', async () => {
-      theTable(manyItems(120, [3]));
       await screen.findByRole('table');
+      expect(screen.getByRole('status')).toHaveTextContent('Loading finished items…');
+      expect(titlesInOrder()).toEqual(['open']);
 
-      landOnIt('item-003');
+      await act(async () => arrive());
 
-      await waitFor(() => expect(rowOfIt('item-003')).toHaveFocus());
-      expect(rowOfIt('item-003')).toHaveAttribute('data-shown');
+      await waitFor(() => expect(titlesInOrder()).toEqual(['open', 'done-long-ago']));
+      expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('draws more rows until an Item past the first 50 is among them', async () => {
-      theTable(manyItems(120, [110]));
-      await screen.findByRole('table');
-      expect(rowCount()).toBe(50);
+    it('does not say there are no items yet while the finished ones are still arriving', async () => {
+      held.finishedGate = new Promise<void>(() => {});
+      theTable([]);
 
-      landOnIt('item-110');
-
-      await waitFor(() => expect(rowOfIt('item-110')).toHaveFocus());
-      expect(rowCount()).toBe(120);
+      expect(await screen.findByRole('status')).toHaveTextContent('Loading finished items…');
+      expect(screen.queryByText('There are no items yet.')).toBeNull();
     });
 
-    it('clears the filter that hides the Item, then lands on it', async () => {
-      storedStatuses('to_do');
-      theTable(manyItems(120, [5]));
-      await screen.findByRole('table');
-      expect(rowOfIt('item-005')).toBeNull();
+    it('says the finished Items could not be read, and reads them again on Try again', async () => {
+      held.finishedFails = true;
+      held.finished = [anItem('done', { completedAt: '2026-01-01T00:00:00.000Z' })];
+      const user = theTable([anItem('open')]);
+      expect(await screen.findByRole('alert')).toHaveTextContent('Finished items could not be read.');
+      expect(titlesInOrder()).toEqual(['open']);
 
-      landOnIt('item-005');
+      held.finishedFails = false;
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
 
-      await waitFor(() => expect(rowOfIt('item-005')).toHaveFocus());
-      expect(readDashboardFilter(browserStore(), allItemsFilterId('ws-work'))).toEqual(NO_DASHBOARD_FILTER);
+      await waitFor(() => expect(titlesInOrder()).toEqual(['open', 'done']));
+    });
+  });
+
+  describe('All items is not available offline, until the finished Items have been fetched', () => {
+    it('says it needs a connection, and draws no table, when opened offline', async () => {
+      stand({ connecting: false, found: true });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      // What an offline open draws the Workspace from: the copy this device saved.
+      client.setQueryData(['snapshot', 'ws-work'], {
+        items: [anItem('open')],
+        dashboards: [],
+        panels: [],
+        filings: [],
+        attachments: [],
+      });
+      render(
+        <QueryClientProvider client={client}>
+          <AllItemsBoard workspaceId="ws-work" />
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText(/All items needs a connection/)).toBeInTheDocument();
+      expect(screen.queryByRole('table')).toBeNull();
+      expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('lands on nothing for another Workspace’s request', async () => {
-      theTable(manyItems(120, [3]));
-      await screen.findByRole('table');
+    it('draws the table once the connection is back and the finished Items have arrived', async () => {
+      stand({ connecting: false, found: true });
+      held.finished = [anItem('done', { completedAt: '2026-01-01T00:00:00.000Z' })];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      client.setQueryData(['snapshot', 'ws-work'], { items: [anItem('open')], dashboards: [], panels: [], filings: [], attachments: [] });
+      render(
+        <QueryClientProvider client={client}>
+          <AllItemsBoard workspaceId="ws-work" />
+        </QueryClientProvider>,
+      );
+      await screen.findByText(/All items needs a connection/);
 
-      landOnIt('item-003', 'ws-other');
+      act(() => stand({ found: false }));
 
-      await new Promise((done) => setTimeout(done, 600));
-      expect(screen.getByRole('table')).not.toContainElement(document.activeElement as HTMLElement);
-      expect(rowCount()).toBe(50);
+      await waitFor(() => expect(titlesInOrder()).toEqual(['open', 'done']));
     });
   });
 });

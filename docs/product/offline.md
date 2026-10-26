@@ -3,6 +3,7 @@
 **Opening draws from the server**, never from the copy this device saved. Nothing shows for 300 ms, then a quiet "Loading…" line. If the server has not answered in 3 s, the request fails outright or the device says it is offline, Cockpit is offline: it draws what was saved, and an answer that comes later replaces it. Capture and the Car view open at once and send when the server answers.
 
 - **Reads offline:** what was saved, where this version can still read it — the Workspaces, Dashboards and Items you have opened, and an Item's history once opened. Files are never saved.
+- **All items needs a connection** until its finished Items have been fetched in this browser tab; they are not saved, so opened offline before then it says so and draws no table.
 - **Nothing to show** says "Cockpit can't be reached" with *Try again*, and either that nothing is saved here to show, or that what is saved was saved in a shape this version can't read and will be again once you've been online with this version.
 - **While offline, every change except a capture is refused** with "You're working offline"; a capture waits in the outbox. Offline found while changes are queued behind the one being sent sends every one of them back the same way.
 - **The header shows an outlined ● Offline · saved 14:32 pill** left of the account menu while offline, found or chosen, the time being when the Workspace read on screen was saved (dropped on a phone). Pressing it opens the account menu.

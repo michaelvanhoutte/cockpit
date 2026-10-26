@@ -39,7 +39,7 @@ import { deviceTimeZone } from '../deviceTimeZone';
 import { dateTimeLabel } from '../dateFormat';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
-import { useSnapshot } from '../api/useSnapshot';
+import { useSnapshotWithFinishedItems } from '../api/finishedItems';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
 import { RecurringOriginLine } from './RecurringMark';
@@ -311,7 +311,10 @@ function TheForm({
   fixedPresentation: ItemFormPresentation | null;
   setFixedPresentation: (presentation: ItemFormPresentation | null) => void;
 }) {
-  const { data, isLoading, isFetching } = useSnapshot(workspaceId);
+  // The Workspace's read, and - for an address naming an Item it does not hold - the Workspace's finished Items
+  // beside it, fetched before the Item is said to be gone (issue 1434).
+  const { data, workspace, reading: readingFinished } = useSnapshotWithFinishedItems(workspaceId, { itemId });
+  const { isLoading, isFetching } = workspace;
   const queryClient = useQueryClient();
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -1783,7 +1786,7 @@ function TheForm({
 
           {!item ? (
             <p role="alert" className={`pt-3 text-sm text-ink-soft${onAPage ? ' px-4' : ''}`}>
-              {isLoading || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
+              {isLoading || readingFinished || (arriving && isFetching) ? 'Opening…' : 'That item is not here any more.'}
             </p>
           ) : (
             draft && (

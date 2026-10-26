@@ -768,6 +768,30 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
     .all();
 }
 
+/**
+ * The Workspace's finished Items: the ones `listOpenItems` returns that are
+ * marked done ("Fetch a Workspace's finished Items the first time All items
+ * opens", issue 1434), dismissed ones left out as there. **Every one, with no
+ * page**: *All items* draws them whole, once, and pages only what it draws. The
+ * same `or` as `listOpenItems`: a finished Item belonging to no Workspace is
+ * listed in every one, as *All items* has listed it.
+ */
+export function listFinishedItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNotNull(items.completedAt),
+        isNull(items.deletedAt),
+      ),
+    )
+    .orderBy(items.createdAt)
+    .all();
+}
+
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db
@@ -984,6 +1008,8 @@ export function listAttachmentsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
+  /** Only the files of Items marked done: what a Workspace's finished Items are read with (issue 1434). */
+  finishedOnly = false,
 ): Attachment[] {
   return db
     .select({
@@ -1002,6 +1028,7 @@ export function listAttachmentsInWorkspace(
         eq(attachments.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
+        finishedOnly ? isNotNull(items.completedAt) : undefined,
       ),
     )
     .all();
@@ -1108,6 +1135,8 @@ export function listFilingsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
+  /** Only the filings of Items marked done: what a Workspace's finished Items are read with (issue 1434). */
+  finishedOnly = false,
 ): Filing[] {
   return db
     .select({
@@ -1126,6 +1155,7 @@ export function listFilingsInWorkspace(
         eq(items.workspaceId, workspaceId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
+        finishedOnly ? isNotNull(items.completedAt) : undefined,
       ),
     )
     .orderBy(asc(panelItems.position))

@@ -220,6 +220,8 @@
         "packages/shared/src/domain/dashboard-filter.ts",
         "packages/shared/src/domain/find-item.ts",
         "apps/web/src/allItemsTab.ts",
+        "apps/web/src/finishedItems.ts",
+        "apps/web/src/api/finishedItems.ts",
         "apps/web/src/components/AllItemsBoard.tsx",
         "apps/web/src/pages/AllItemsPage.tsx",
         "apps/web/src/components/PanelBoard.tsx",

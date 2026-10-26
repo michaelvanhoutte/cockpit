@@ -33,6 +33,8 @@ import { deviceIsIn, deviceSpeaks } from '../support/timeZone';
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
   uploadAttachment: vi.fn(() => Promise.resolve({ ok: true as const, applied: true })),
+  // Read for an Item the Workspace's read does not hold, before saying it is gone (issue 1434): nothing finished here.
+  fetchFinishedItems: vi.fn(() => Promise.resolve({ items: [], filings: [], attachments: [] })),
 }));
 
 /**

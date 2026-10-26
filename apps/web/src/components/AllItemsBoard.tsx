@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { useSnapshot } from '../api/useSnapshot';
+import { useState } from 'react';
+import { useSnapshotWithFinishedItems } from '../api/finishedItems';
 import {
   ALL_ITEMS_COLUMNS,
   ALL_ITEMS_PAGE,
@@ -12,10 +12,10 @@ import {
 import { allItemsFilterId } from '../allItemsTab';
 import { momentDateLabel } from '../dateFormat';
 import { dueDateLabel } from '../dueDate';
-import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
+import { useDashboardFilter } from '../dashboardFilter';
 import { useOpenItem } from '../itemForm';
-import { rowOf, settleLanding, useLanding, useLandingStep } from '../landOnItem';
 import { browserStore } from '../lastVisited';
+import { useIsOffline } from '../offline';
 import { PRIORITY_LABELS } from '../priority';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { LoadFailure } from './LoadFailure';
@@ -23,31 +23,31 @@ import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFi
 
 /**
  * Every item of the workspace in one table, finished ones included ("Put each
- * setting where a person looks for it", issue 688). Read from the snapshot the
- * workspace already holds, so it works offline and asks the server for nothing.
+ * setting where a person looks for it", issue 688). Drawn from the Workspace's
+ * read merged with its finished Items, which the first opening in a tab fetches
+ * and says so while they arrive ("Fetch a Workspace's finished Items the first
+ * time All items opens", issue 1434).
+ *
+ * **It needs a connection until the finished Items have been fetched**: they
+ * are not saved for offline use, so opened offline it says so rather than
+ * drawing a table that leaves them out.
  *
  * A row opens the item's form, whose Status control reopens a finished item. A
  * header sorts by its column; pressing it again reverses.
  *
  * **Sorted and filtered over every row, then drawn 50 at a time** with the
  * total said, so a filtered view never reads as the whole.
- *
- * **It takes Find's landing request for a finished Item** ("Include finished
- * Items in Find, and land on them in All items", issue 829): the filter that
- * hides the Item is cleared, rows are drawn until it is among them, and its row
- * is landed on, as a Dashboard's board does for an open one.
  */
 export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) {
-  const { data, error, refetch } = useSnapshot(workspaceId);
+  const { data, workspace, finished, reading: arriving } = useSnapshotWithFinishedItems(workspaceId);
+  const { error, refetch } = workspace;
+  const offline = useIsOffline();
   const openItem = useOpenItem();
   const [sort, setSort] = useState<AllItemsSort>(DEFAULT_SORT);
   const [filter] = useDashboardFilter(browserStore(), allItemsFilterId(workspaceId));
   // How many rows are drawn, and what they were drawn for: a different sort or
   // filter starts again from the first page.
   const [paging, setPaging] = useState({ of: '', shown: ALL_ITEMS_PAGE });
-  const landing = useLanding();
-  const stepLanding = useLandingStep();
-  const body = useRef<HTMLTableSectionElement>(null);
 
   const filtering = isFiltering(filter);
   const withAttachments = itemIdsWithAttachments(data?.attachments ?? []);
@@ -68,29 +68,14 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
   const shown = paging.of === viewKey ? paging.shown : ALL_ITEMS_PAGE;
   const drawn = rows.slice(0, shown);
 
-  // Find's request for a row of this table, and where in the rows it is (-1: not among them).
-  const landingHere = data && landing?.place.kind === 'allItems' && landing.place.workspaceId === workspaceId ? landing : null;
-  const at = landingHere ? rows.findIndex((row) => row.item.id === landingHere.itemId) : -1;
-  const pagesNeeded = at < 0 ? 0 : Math.ceil((at + 1) / ALL_ITEMS_PAGE) * ALL_ITEMS_PAGE;
-  useEffect(() => {
-    if (pagesNeeded > shown) setPaging({ of: viewKey, shown: pagesNeeded });
-  }, [pagesNeeded, shown, viewKey]);
-
-  useEffect(() => {
-    if (!landingHere) return;
-    if (at < 0) {
-      // Hidden by the filter: cleared, and the table draws again. Not there at all: nothing to land on.
-      if (filtering) clearDashboardFilter(browserStore(), allItemsFilterId(workspaceId));
-      else settleLanding(landingHere);
-      return;
-    }
-    // Rows are being drawn until it is among them.
-    if (at >= shown) return;
-    return stepLanding(landingHere, rowOf(body.current, landingHere.itemId));
-  });
-
   if (error && !data) return <LoadFailure error={error} onRetry={() => void refetch()} />;
   if (!data) return <p className="text-ink-faint">Loading…</p>;
+
+  // The finished Items are a read of their own: not yet fetched, and either
+  // nothing can fetch them now, the server refused, or they are on their way.
+  const arrived = finished.data !== undefined;
+  const needsAConnection = !arrived && (offline || finished.fetchStatus === 'paused');
+  const failed = !arrived && !needsAConnection && finished.isError;
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -102,7 +87,9 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
             {filtering ? `${rows.length} of ${data.items.length}` : rows.length}
           </span>
         </h2>
-        {data.items.length === 0 ? (
+        {needsAConnection ? (
+          <p className="text-sm text-ink-soft">All items needs a connection. Go online to see every Item.</p>
+        ) : data.items.length === 0 && arriving ? null : data.items.length === 0 ? (
           <p className="text-sm text-ink-faint">There are no items yet.</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-ink-faint">No item matches the filter.</p>
@@ -130,7 +117,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
                   ))}
                 </tr>
               </thead>
-              <tbody ref={body}>
+              <tbody>
                 {drawn.map((row) => (
                   <tr
                     key={row.item.id}
@@ -166,7 +153,20 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
             </table>
           </div>
         )}
-        {rows.length > shown && (
+        {arriving && (
+          <p role="status" className="mt-2 text-sm text-ink-faint">
+            Loading finished items…
+          </p>
+        )}
+        {failed && (
+          <p role="alert" className="mt-2 text-sm text-over-ink">
+            Finished items could not be read.{' '}
+            <button type="button" onClick={() => void finished.refetch()} className="underline">
+              Try again
+            </button>
+          </p>
+        )}
+        {!needsAConnection && rows.length > shown && (
           <button
             type="button"
             onClick={() => setPaging({ of: viewKey, shown: shown + ALL_ITEMS_PAGE })}
