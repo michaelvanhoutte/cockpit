@@ -87,7 +87,7 @@ pnpm stability:backfill --from 2026-10-12 --only branches   # carry on after a s
 nightly sends: `main`'s runs and attempts a week at a time, then every other branch's attempts a day at a time,
 both oldest first, by the sends above. It adds `--old-failures` to both, which reads a failed job's tests from
 GitHub's annotations (Playwright: the title names the spec and project, never the helper under `path`) or its
-log (Vitest's `FAIL <file> > <name>` lines, behind pnpm's prefixes and colour codes) where no record names them:
+log (Vitest's `FAIL <file> > <name>` lines, behind pnpm's prefixes and colour codes, the file put under its package's folder as a record has it, the package found from the workspace's own list) where no record names them:
 records exist only from the day they began to name tests and expire after 30 days. It costs a request for the
 annotations and one more for the log of each such job, and a job that ran no tests, or whose log names none,
 keeps its failed step alone.

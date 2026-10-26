@@ -163,6 +163,7 @@ describe('Harness Monitor', () => {
       const { results } = await env.DB.prepare('SELECT file, error FROM ci_failed_tests ORDER BY run_id').all();
       expect(results).toEqual([
         { file: 'tests/e2e/triage.test.ts', error: 'Error: strict mode violation' },
+        // The Worker pool has no checkout to read the workspace from, so the log's package is unresolved and the path stays as given (the mapping is proved in tools/ci-stability).
         { file: 'tests/unit/a.test.ts', error: 'Error: boom' },
       ]);
     });

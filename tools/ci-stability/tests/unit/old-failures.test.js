@@ -59,6 +59,37 @@ describe('CI stability', () => {
       expect(tests).toEqual([{ file: 'tests/unit/triage.test.ts', name: 'Triage > a dismissed item', project: null, error: 'Error: boom' }]);
     });
 
+    describe('a test read from a log is filed under its package\'s folder, as a record files it', () => {
+      const packages = [
+        { name: '@cockpit/web', dir: 'apps/web' },
+        { name: '@harness-monitor/worker', dir: 'apps/harness-monitor' },
+        { name: '@cockpit/architecture', dir: 'tools/architecture' },
+      ];
+      const fail = 'FAIL  tests/unit/a.test.ts > A > rule';
+
+      it.each([
+        { situation: "ci-test.mjs's bracket, with the package's name and its suffix", line: `2026-10-12T18:52:01.0Z [@cockpit/web (full)] ${fail}`, file: 'apps/web/tests/unit/a.test.ts' },
+        { situation: "pnpm -r's prefix with the package's folder", line: `2026-10-12T18:52:01.0Z tools/architecture test: ${fail}`, file: 'tools/architecture/tests/unit/a.test.ts' },
+        { situation: "pnpm -r's prefix with a package's name that is not its folder's", line: `2026-10-12T18:52:01.0Z @harness-monitor/worker test:unit: ${fail}`, file: 'apps/harness-monitor/tests/unit/a.test.ts' },
+      ])('$situation', ({ line, file }) => {
+        expect(testsFromLog(line, packages)).toEqual([{ file, name: 'A > rule', project: null, error: null }]);
+      });
+
+      it.each([
+        { situation: 'a package the workspace does not have', line: `[@cockpit/gone (full)] ${fail}` },
+        { situation: 'no prefix at all', line: fail },
+        { situation: 'no workspace to look in', line: `[@cockpit/web (full)] ${fail}`, none: true },
+      ])('$situation keeps the path as the log gave it', ({ line, none }) => {
+        expect(testsFromLog(line, none ? undefined : packages).map((test) => test.file)).toEqual(['tests/unit/a.test.ts']);
+      });
+
+      it('the same file of two packages is two tests', () => {
+        const log = [`[@cockpit/web (full)] ${fail}`, `[@cockpit/architecture (full)] ${fail}`].join('\n');
+
+        expect(testsFromLog(log, packages).map((test) => test.file)).toEqual(['apps/web/tests/unit/a.test.ts', 'tools/architecture/tests/unit/a.test.ts']);
+      });
+    });
+
     it('a Vitest annotation that names its file inside the test\'s name is the test with the file taken out of the name', () => {
       const tests = testsFromAnnotations([
         failure('apps/api/tests/unit/triage.test.ts > Triage > a dismissed item leaves the lists', "AssertionError: expected 1 to be 2\n  at ...", 'apps/api/tests/unit/triage.test.ts'),

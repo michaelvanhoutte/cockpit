@@ -67,36 +67,51 @@ export function testsFromAnnotations(annotations) {
   return [...tests.values()];
 }
 
-/** A line of a job's log without GitHub's timestamp, pnpm's `[package] ` or `package test: ` prefix and any colour. */
+/**
+ * A line of a job's log without GitHub's timestamp, pnpm's prefix and any colour, and the package
+ * the prefix named. `ci-test.mjs` prefixes a package's output with `[@cockpit/web (full)] `, and
+ * `pnpm -r` with `apps/harness-monitor test: ` (the package's folder, or its name).
+ */
 function bare(line) {
-  return line
-    .replace(ANSI, '')
-    .replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '')
-    .replace(/^\[[^\]]+\] /, '')
-    .replace(/^[\w./@-]+ test: /, '')
-    .trimEnd();
+  const plain = line.replace(ANSI, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, '');
+  const bracket = /^\[([^\]\s]+)[^\]]*\] /.exec(plain);
+  if (bracket) return { text: plain.slice(bracket[0].length).trimEnd(), prefix: bracket[1] };
+  const recursive = /^([\w./@-]+) test[\w:-]*: /.exec(plain);
+  if (recursive) return { text: plain.slice(recursive[0].length).trimEnd(), prefix: recursive[1] };
+  return { text: plain.trimEnd(), prefix: null };
+}
+
+/** The folder of the package a log's prefix names, by the package's name or its folder, or null where the workspace has none. */
+function folderOf(prefix, packages) {
+  if (prefix === null) return null;
+  return (packages.find((each) => each.name === prefix) ?? packages.find((each) => each.dir === prefix))?.dir ?? null;
 }
 
 /**
  * The failed tests a job's log names, by `FAIL <file> > <describe> > <name>`, each once however
  * often Vitest repeats it, with the next line of output as the error. A `FAIL` of a file that did
- * not load names no test, so none is read from it.
+ * not load names no test, so none is read from it. Vitest prints a file relative to its package,
+ * so it is put under the package's folder, as a record keeps it; where the prefix names no package
+ * of `packages`, the path stays as the log gave it.
  *
  * @param {string} log
+ * @param {{ name: string, dir: string }[]} [packages] the workspace's, `workspacePackages()`
  * @returns {{ file: string, name: string, project: null, error: string|null }[]}
  */
-export function testsFromLog(log) {
+export function testsFromLog(log, packages = []) {
   const lines = String(log ?? '').split('\n').map(bare);
   const tests = new Map();
-  for (const [index, line] of lines.entries()) {
-    const match = FAIL_LINE.exec(line);
+  for (const [index, { text, prefix }] of lines.entries()) {
+    const match = FAIL_LINE.exec(text);
     if (!match) continue;
-    const key = `${match[1]}|${match[2].trim()}`;
+    const folder = folderOf(prefix, packages);
+    const file = folder === null ? match[1] : `${folder}/${match[1]}`;
+    const key = `${file}|${match[2].trim()}`;
     if (tests.has(key)) continue;
     // The error is the next line that says anything, unless the output moves on to another section first.
-    const next = lines.slice(index + 1, index + 12).find((each) => each.trim() !== '');
-    const error = next === undefined || /^\s*(?:FAIL\b|⎯)/.test(next) ? null : cut(next.trim());
-    tests.set(key, { file: match[1], name: match[2].trim(), project: null, error });
+    const next = lines.slice(index + 1, index + 12).find((each) => each.text.trim() !== '')?.text;
+    const error = next === undefined || /^\s*(?:FAIL\b|\u23af)/.test(next) ? null : cut(next.trim());
+    tests.set(key, { file, name: match[2].trim(), project: null, error });
   }
   return [...tests.values()];
 }

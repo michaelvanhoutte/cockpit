@@ -26,6 +26,7 @@ import { collect, collectAttempts, dayChunks, GitHubError, listBranchRuns } from
 import { attemptRows, buildModel, monitorRows } from './model.js';
 import { MonitorError, newestStored, newestStoredAttempt, sendAttempts, sendRuns, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
+import { workspacePackages } from './workspace.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
@@ -352,7 +353,7 @@ async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trun
   const { cut, gap } = gapOf(collected, collected.runs.filter(inWindow), window, { backfill });
   let attempts;
   try {
-    const entries = await collectAttempts({ repo, runs: [...collected.runs, ...collected.dependabot], jobs: collected.jobs, since: window.since, oldFailures, token: resolveToken() });
+    const entries = await collectAttempts({ repo, runs: [...collected.runs, ...collected.dependabot], jobs: collected.jobs, since: window.since, oldFailures, packages: oldFailures ? workspacePackages() : [], token: resolveToken() });
     attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   } catch (error) {
     if (!(error instanceof GitHubError)) throw error;
@@ -396,6 +397,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
 
   const until = window.until ?? now;
   const token = resolveToken();
+  const packages = args.oldFailures ? workspacePackages() : [];
   const counter = { requests: 0 };
   const maxRuns = args.maxRuns ?? 800;
   let sent = 0;
@@ -418,7 +420,7 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
         process.stderr.write(`GitHub lists at most 1,000 runs of a span, and ${from.toISOString()} to ${to.toISOString()} holds more; the attempts of some of its runs were not sent.\n`);
       }
       runsRead += listed.runs.length;
-      const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, oldFailures: args.oldFailures, token, counter });
+      const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, oldFailures: args.oldFailures, packages, token, counter });
       // A re-run's attempt carries the time it started, which can be after this day. It waits for
       // the end, so a stop part-way cannot leave the Monitor's newest past days not yet sent.
       const attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));

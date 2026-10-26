@@ -135,11 +135,11 @@ describe('CI stability', () => {
     });
 
     it('reads the tests of a failure from its log, since no record names them, and sends them with the attempt', async () => {
-      const log = '2026-10-09T09:05:00.0Z [@cockpit/x] FAIL  tests/unit/a.test.ts > A > rule\n2026-10-09T09:05:00.0Z [@cockpit/x] Error: boom';
+      const log = '2026-10-09T09:05:00.0Z [@cockpit/web (full)] FAIL  tests/unit/a.test.ts > A > rule\n2026-10-09T09:05:00.0Z [@cockpit/web (full)] Error: boom';
       const { monitor, github } = await run(['--from', '2026-10-09', '--to', '2026-10-09', '--only', 'main'], { runs, logs: { 30: log } });
 
       const sent = monitor.find((call) => call.path === '/v1/ci-attempts').attempts;
-      expect(sent[0].failedJobs[0].tests).toEqual([{ file: 'tests/unit/a.test.ts', name: 'A > rule', project: null, error: 'Error: boom' }]);
+      expect(sent[0].failedJobs[0].tests).toEqual([{ file: 'apps/web/tests/unit/a.test.ts', name: 'A > rule', project: null, error: 'Error: boom' }]);
       expect(github.filter((call) => call.includes('/logs'))).toEqual(['/repos/o/r/actions/jobs/30/logs']);
     });
 

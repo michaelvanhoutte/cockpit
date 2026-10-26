@@ -467,13 +467,13 @@ const RAN_TESTS = /test|walks|e2e/i;
  * go after 90 days). An annotation costs a request and a log one more; a job that names no test
  * costs both. Only a spent allowance, or a bug in this code, throws.
  */
-async function readOldFailure({ repo, job, ...ctx }) {
+async function readOldFailure({ repo, job, packages, ...ctx }) {
   if (job.id === null || job.id === undefined || !RAN_TESTS.test(job.failedStep ?? '')) return null;
   try {
     const annotations = await request(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=${PER_PAGE}`, ctx);
     const named = asRecord(testsFromAnnotations(annotations));
     if (named) return named;
-    return asRecord(testsFromLog(await request(`/repos/${repo}/actions/jobs/${job.id}/logs`, ctx, (res) => res.text())));
+    return asRecord(testsFromLog(await request(`/repos/${repo}/actions/jobs/${job.id}/logs`, ctx, (res) => res.text()), packages));
   } catch (error) {
     if (error instanceof GitHubError && error.reason === 'rate-limit') throw error;
     if (error instanceof GitHubError) return null;
@@ -490,7 +490,8 @@ async function readOldFailure({ repo, job, ...ctx }) {
  * ran no job and cost nothing. `failedJobs` reads the jobs of any run whose latest attempt failed,
  * and no other's, for a caller that holds no job list: a feature branch's attempt keeps its failed
  * jobs alone, so a run that passed needs none. `oldFailures` reads the tests of a failed job whose
- * record names none (`readOldFailure`), for the backfill alone.
+ * record names none (`readOldFailure`), for the backfill alone; `packages` (`workspacePackages()`)
+ * puts a test read from a log under its package's folder, as a record has it.
  *
  * @param {{ repo: string, runs: Run[], jobs?: Job[], since: Date, failedJobs?: boolean, counter?: { requests: number } }} input
  * @returns {Promise<{ run: Run, attempt: number, jobs: Job[] }[]>} one per attempt, in no order
@@ -502,6 +503,7 @@ export async function collectAttempts({
   since,
   failedJobs = false,
   oldFailures = false,
+  packages = [],
   concurrency = 8,
   token,
   fetchImpl = globalThis.fetch,
@@ -540,7 +542,7 @@ export async function collectAttempts({
           let withRecord = job;
           if (classify(job) === 'fail' && recordArtifactFor(run.path, job.name)) withRecord = { ...job, record: await readRecord({ repo, run, job, artifacts, ...ctx }) };
           if (oldFailures && classify(job) === 'fail' && !namesTests(withRecord.record)) {
-            const found = await readOldFailure({ repo, job, ...ctx });
+            const found = await readOldFailure({ repo, job, packages, ...ctx });
             if (found) withRecord = { ...withRecord, record: found };
           }
           withRecords.push(withRecord);

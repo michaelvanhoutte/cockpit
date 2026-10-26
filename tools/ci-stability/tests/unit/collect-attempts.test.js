@@ -263,6 +263,13 @@ describe('CI stability', () => {
       expect(asked(stub, '/logs')).toEqual(['/repos/o/r/actions/jobs/77/logs']);
     });
 
+    it("files a test read from the log under its package's folder when given the workspace's packages", async () => {
+      const stub = stubGithub({ logs: { 77: log } });
+      const [entry] = await old(stub, [failing()], { packages: [{ name: '@cockpit/x', dir: 'tools/x' }] });
+
+      expect(entry.jobs[0].record.value.failedTests[0].file).toBe('tools/x/tests/unit/a.test.ts');
+    });
+
     it('keeps a record that names its tests, even none, and reads nothing else', async () => {
       const stub = stubGithub({ artifacts: [artifact(11, '08:11')], zips: { 11: zipOf(record()) }, logs: { 77: log } });
       const [entry] = await old(stub, [failing({ name: 'Test' })]);
