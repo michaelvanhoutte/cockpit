@@ -15,6 +15,7 @@
 // keeps, so each rule here is asserted by `node --test` without a checkout.
 //
 
+import { mergeFailedTests } from './failed-tests.mjs';
 import { isNonProduct } from './what-changed.mjs';
 
 /** `unit`, `integration` or `contract` from a test file's place under `tests/`, `other` for anywhere else. */
@@ -83,6 +84,8 @@ export function buildRecord({ event, baseCommit, changedFiles, plan, reports }) 
     baseCommit: baseCommit ?? null,
     changedFiles: changedFiles.map((path) => ({ path, ignored: isNonProduct(path) })),
     packages: plan.packages.map((pkg) => packageEntry(pkg, reports[pkg.name] ?? null, changed)),
+    // Every package's failed tests, capped together (failed-tests.mjs).
+    ...mergeFailedTests(plan.packages.map((pkg) => reports[pkg.name])),
   };
 }
 

@@ -175,6 +175,67 @@ export function whyText(text: string | null, path: string): string {
   return words.startsWith(head) ? `via ${words.slice(head.length)}` : words;
 }
 
+/** A file a check selected, as the read returns it. */
+export interface SelectedFile {
+  package: string;
+  path: string;
+  status: 'passed' | 'failed';
+  text: string | null;
+}
+
+/** The files that share the changed file their chain started from. */
+export interface StartGroup {
+  /** `file`: a changed file (or, for a spec, the area's own words); `itself`: the test files that changed themselves; `none`: no chain text was stored. */
+  kind: 'file' | 'itself' | 'none';
+  /** The changed file, or the words of the group. */
+  label: string;
+  files: SelectedFile[];
+  /** How many of its files each package ran, most first. */
+  byPackage: [string, number][];
+  /** The step most of the group's chains take just before the changed file, where it carries half of a group of five or more. */
+  through: { step: string; count: number } | null;
+}
+
+/** A group needs this many files before one step in front of the changed file can be said to carry them. */
+const THROUGH_MIN_FILES = 5;
+
+/**
+ * The files a check selected, grouped by the changed file each file's chain
+ * started from, largest group first and equal groups by their words. A file is
+ * counted under the one chain the record holds for it.
+ */
+export function groupByStart(files: SelectedFile[]): StartGroup[] {
+  const stepsOf = (f: SelectedFile) => (f.text ?? '').replaceAll('`', '').split(' → ');
+  const startOf = (f: SelectedFile): Pick<StartGroup, 'kind' | 'label'> => {
+    if (!f.text) return { kind: 'none', label: 'no import chain found' };
+    const words = f.text.replaceAll('`', '');
+    if (words === f.path || words === 'itself changed') return { kind: 'itself', label: 'The test files that changed themselves' };
+    const steps = stepsOf(f);
+    return { kind: 'file', label: steps.length > 1 ? steps.at(-1)! : words };
+  };
+  const groups = new Map<string, StartGroup>();
+  for (const f of files) {
+    const start = startOf(f);
+    const key = `${start.kind}:${start.label}`;
+    const group = groups.get(key) ?? { ...start, files: [], byPackage: [], through: null };
+    groups.set(key, group);
+    group.files.push(f);
+  }
+  for (const group of groups.values()) {
+    const packages = new Map<string, number>();
+    const before = new Map<string, number>();
+    for (const f of group.files) {
+      packages.set(f.package, (packages.get(f.package) ?? 0) + 1);
+      const steps = stepsOf(f);
+      if (group.kind === 'file' && steps.length > 2) before.set(steps.at(-2)!, (before.get(steps.at(-2)!) ?? 0) + 1);
+    }
+    group.byPackage = [...packages.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const hub = [...before.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    if (hub && group.files.length >= THROUGH_MIN_FILES && hub[1] / group.files.length >= 0.5) group.through = { step: hub[0], count: hub[1] };
+  }
+  return [...groups.values()].sort((a, b) => b.files.length - a.files.length || a.label.localeCompare(b.label));
+}
+
 /** The days the overview charts and lists: from the period's first, or the oldest pull request held where that is later, to today. */
 export function dayRange(period: Period, oldest: number | null, now: number): string[] {
   const days = PERIODS[period];

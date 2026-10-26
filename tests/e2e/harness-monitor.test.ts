@@ -664,6 +664,139 @@ test.describe('Harness Monitor', () => {
     await expect(page.locator('.chev')).toHaveCount(0);
   });
 
+  test("a Cycle time pull request's E2E (F3) and Test lines open what that check selected beneath them, from a click or the keyboard, with one request each and none to close, while no other line or row opens one, fitting a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
+    // Merged long before the 14 days the Test selection walk counts, so that walk's pull requests stay the only ones it sees.
+    const longAgo = new Date(Date.now() - 40 * 86_400_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const item = 'apps/api/src/item.ts';
+    const index = 'apps/api/src/index.ts';
+    const longPath = `apps/api/tests/unit/${'a-folder-with-a-long-name/'.repeat(4)}picked-by-the-client.test.ts`;
+    const picked = (path: string, from: string, ...steps: string[]) => ({ path, level: 'unit', status: 'passed', selectedBy: { kind: 'chain', chain: [path, ...steps, from], text: [path, ...steps, from].join(' → ') } });
+    const job = (name: 'test' | 'e2e', over: Record<string, unknown>) => ({ job: name, status: 'ran', ranEverything: false, selecting: true, filesRun: 1, filesTotal: 40, prDurationMs: null, mainDurationMs: null, changedFiles: [{ path: item, ignored: false }], packages: [], ...over });
+    const selected = {
+      number: 9001,
+      title: 'Add a filter panel',
+      url: 'https://github.com/o/r/pull/9001',
+      mergedAt: longAgo,
+      misses: [],
+      jobs: [
+        job('test', {
+          filesRun: 6,
+          packages: [{ name: 'api', dir: 'apps/api', mode: 'changed', report: 'written', reason: null, filesTotal: 40, files: [...[1, 2, 3, 4, 5].map((n) => picked(`apps/api/tests/unit/item-${n}.test.ts`, item, index)), picked(longPath, 'apps/api/src/client.ts')] }],
+        }),
+        job('e2e', {
+          ranEverything: true,
+          selecting: false,
+          filesRun: 32,
+          filesTotal: 32,
+          packages: [{ name: 'e2e', dir: 'tests/e2e', mode: 'full', report: 'written', reason: { rule: 'e2e support, registry or config', path: 'tools/test-explorer/concepts.json' }, filesTotal: 32, files: [] }],
+        }),
+      ],
+    };
+    const bars = { windowDays: 14, minPulls: 20, items: [{ id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: 0.25, minOver: null, alarmIssue: null }, { id: 'test-forced-full', name: 'Test forced to run everything', threshold: 0.25, minOver: null, alarmIssue: null }, { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null }, { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: 0.8, minOver: 10, alarmIssue: null }] };
+    expect((await api.post(`${monitor}/__e2e/seed-selection`, { data: { pulls: [selected], bars } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By pull request' });
+    const row = (number: number) => table.locator('tr[data-figures]', { hasText: `#${number}` });
+    const strip = (number: number) => row(number).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+    const lineOf = (number: number, name: string) => strip(number).getByRole('button', { name, exact: true });
+    const requests: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('/selection/check')) requests.push(new URL(r.url()).search);
+    });
+
+    // A pull request's strip offers its E2E (F3) and Test lines to open and no other, opening the row asks for nothing.
+    await row(9001).getByRole('button', { name: /^Open #9001 / }).click();
+    await expect(strip(9001)).toBeVisible();
+    await expect(strip(9001).getByRole('button')).toHaveCount(2);
+    await expect(lineOf(9001, 'E2E (F3)')).toHaveAttribute('aria-expanded', 'false');
+    await expect(strip(9001).locator('.o-sel')).toHaveCount(0);
+    expect(requests).toEqual([]);
+
+    // E2E (F3) ran every spec: the rule and path that forced it, its advice, and the link to the whole selection.
+    await lineOf(9001, 'E2E (F3)').click();
+    const e2eBox = strip(9001).locator('.o-sel').first();
+    await expect(lineOf(9001, 'E2E (F3)')).toHaveAttribute('aria-expanded', 'true');
+    await expect(e2eBox).toBeVisible();
+    await expect(e2eBox).toContainText('Ran everything: 32 of 32 specs, because');
+    await expect(e2eBox).toContainText('e2e support, registry or config: tools/test-explorer/concepts.json');
+    await expect(e2eBox).toContainText('shared by every walk, so it forces every spec, and should.');
+    await expect(e2eBox).toContainText('What its last CI run selected · Open its whole selection');
+    await expect(e2eBox.getByRole('link', { name: 'Open its whole selection' })).toHaveAttribute('href', '/selection?group=pr&job=e2e&pr=9001');
+    expect(requests).toEqual(['?pr=9001&job=e2e']);
+
+    // The same line again closes it, and the next click shows it as it was, with no second request.
+    await strip(9001).locator('.o-row', { hasText: 'E2E (F3)' }).locator('.tr').click();
+    await expect(e2eBox).toBeHidden();
+    await expect(lineOf(9001, 'E2E (F3)')).toHaveAttribute('aria-expanded', 'false');
+    await lineOf(9001, 'E2E (F3)').click();
+    await expect(e2eBox).toBeVisible();
+    expect(requests).toEqual(['?pr=9001&job=e2e']);
+
+    // Test, from the keyboard: it selected a subset, grouped by the changed file its chains started from, the largest group opening to its files.
+    await lineOf(9001, 'Test').focus();
+    await page.keyboard.press('Enter');
+    const testBox = strip(9001).locator('.o-sel').nth(1);
+    await expect(testBox).toBeVisible();
+    await expect(testBox).toContainText('Selected a subset: 6 of 40 test files · api 6 of 40');
+    await expect(testBox).toContainText('Reached from 2 starting points');
+    const groups = testBox.locator('summary');
+    await expect(groups.first()).toContainText('apps/api/src/item.ts → 5 test files · api 5');
+    await expect(groups.first()).toContainText(`mostly through ${index} (5 of 5)`);
+    await expect(groups.nth(1)).toContainText('apps/api/src/client.ts → 1 test file');
+    await expect(testBox.getByText('apps/api/tests/unit/item-1.test.ts')).toBeHidden();
+    await groups.first().click();
+    await expect(testBox.getByText('apps/api/tests/unit/item-1.test.ts')).toBeVisible();
+    await expect(testBox.getByText(`via ${index} → ${item}`).first()).toBeVisible();
+    await groups.nth(1).click();
+    // A long path wraps inside the box rather than past it, on a desk and on a phone.
+    await expect(testBox.getByText(longPath)).toBeVisible();
+    expect(await testBox.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await noSideways()).toBe(true);
+    if (onAPhone) {
+      const [box, panel] = await Promise.all([testBox.boundingBox(), table.locator('.well.table').boundingBox()]);
+      expect(box!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    }
+    await expect(testBox.getByRole('link', { name: 'Open its whole selection' })).toHaveAttribute('href', '/selection?group=pr&job=test&pr=9001');
+    await lineOf(9001, 'Test').focus();
+    await page.keyboard.press('Enter');
+    await expect(testBox).toBeHidden();
+    expect(requests).toEqual(['?pr=9001&job=e2e', '?pr=9001&job=test']);
+
+    // Its link opens that pull request's whole selection, for that job.
+    await e2eBox.getByRole('link', { name: 'Open its whole selection' }).click();
+    await expect(page).toHaveURL(/\/selection\?group=pr&job=e2e&pr=9001$/);
+    await expect(page.getByRole('region', { name: /#9001 Add a filter panel/ })).toContainText('E2E job');
+
+    // A pull request the selection rows do not hold says so, and links to nothing.
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await row(9003).getByRole('button', { name: /^Open #9003 / }).click();
+    await lineOf(9003, 'Test').click();
+    await expect(strip(9003).locator('.o-sel')).toHaveText('The Monitor holds no test selection record for this pull request.');
+
+    // A row that is not one pull request opens its strip with the same lines and none of them opens anything: a day, an issue and a size.
+    for (const [group, region] of [
+      ['day', 'By day merged'],
+      ['issue', 'By issue'],
+      ['size', 'By size'],
+    ] as const) {
+      await page.goto(`${monitor}/cycle-time?group=${group}`);
+      const rows = page.getByRole('region', { name: region });
+      for (const chevron of await rows.locator('.chev').all()) await chevron.click();
+      await expect(rows.locator('tr.detail .o-row', { hasText: 'E2E (F3)' })).toHaveCount(1);
+      await expect(rows.locator('tr.detail').getByRole('button')).toHaveCount(0);
+      await rows.locator('tr.detail .o-row', { hasText: 'E2E (F3)' }).locator('.nm').click();
+      await expect(rows.locator('.o-sel')).toHaveCount(0);
+    }
+    expect(requests).toEqual(['?pr=9001&job=e2e', '?pr=9001&job=test', '?pr=9003&job=test']);
+  });
+
   test("an (i) on Cycle time opens its explanation on pointing or a tap, keeps it on a click, and closes it on leaving, a second click, a click elsewhere or Escape, one at a time, with no request, inside the screen's width", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     await seedCycleTime(api);

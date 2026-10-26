@@ -476,10 +476,11 @@ describe('Harness Monitor', () => {
 
   describe("a table row's strip is laid out in the browser exactly as Where the time went is on the page", () => {
     // The strip's script draws from the figures a row carries, so its arithmetic is a second copy of the page's: held to it here, over every kind of row.
-    const browser = new Function(`${STRIP_LAYOUT_SOURCE}; return { hm, layOut, words };`)() as {
+    const browser = new Function(`${STRIP_LAYOUT_SOURCE}; return { hm, layOut, words, selectionOf };`)() as {
       hm: (ms: number) => string;
       layOut: (slots: unknown[], figures: (number | null)[]) => { total: number; rows: { slot: number; ms: number | null; share: number | null; left: number; width: number; spent: { ms: number | null; overlap: boolean } | null; stretch: { left: number; width: number } | null }[] };
       words: (part: number, row: unknown) => { spent: string | null; amount: string };
+      selectionOf: (label: string, part: number) => string | null;
     };
     const slots = OUTLINE_SLOTS.map((s) => [s.label, s.part ? 1 : 0, s.other ? 1 : 0, 'colour']);
     const a = split(1, [4, 1, 3, 1], { rounds: [round([check('Test', 2), check('E2E (F3)', 3, { last: true })])] });
@@ -513,6 +514,15 @@ describe('Harness Monitor', () => {
         expect(r.spent).toEqual(want.spent);
         expect(browser.words(OUTLINE_SLOTS[r.slot]!.part ? 1 : 0, r)).toEqual(words(want));
       }
+    });
+
+    it('opens what a check selected only from the E2E (F3) and Test lines, never from a phase or any other part', () => {
+      const opening = OUTLINE_SLOTS.filter((s) => browser.selectionOf(s.label, s.part ? 1 : 0) !== null);
+
+      expect(opening.map((s) => [s.key, browser.selectionOf(s.label, 1)])).toEqual([
+        ['check:E2E (F3)', 'e2e'],
+        ['check:Test', 'test'],
+      ]);
     });
 
     it('reads a duration as the page does', () => {

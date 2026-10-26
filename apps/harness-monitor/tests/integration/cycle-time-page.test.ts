@@ -492,7 +492,7 @@ describe('Harness Monitor', () => {
     /** Each row's figures as the page carries them, in minutes, named for the outline row each belongs to, null for a part's time spent not recorded; a row with no minutes in it has no entry. */
     function stripsOf(html: string): Record<string, number | null>[] {
       const slots = JSON.parse(/<script type="application\/json" id="outline-slots">(.*?)<\/script>/s.exec(html)![1]!) as [string, number, number, string][];
-      return [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => Object.fromEntries(m[1]!.split(',').flatMap((figure, i) => (figure === '' ? [] : [[slots[i]![0], figure === '-' ? null : parseInt(figure, 36) / MIN]]))));
+      return [...html.matchAll(/<tr data-figures="([^"]*)"[^>]*>/g)].map((m) => Object.fromEntries(m[1]!.split(',').flatMap((figure, i) => (figure === '' ? [] : [[slots[i]![0], figure === '-' ? null : parseInt(figure, 36) / MIN]]))));
     }
     /** A recorded pull request of `writing` minutes whose time adds up to its own start to merge. */
     const writing = (number: number, minutes: number, mergedAt = '2026-10-30T10:00:00Z', over: Record<string, unknown> = {}) => recorded(number, mergedAt, { codingMs: minutes * MIN, totalMs: (minutes + 11) * MIN, ...over });
@@ -518,6 +518,22 @@ describe('Harness Monitor', () => {
       expect(strip).toEqual({ Writing: 10, 'Local checks': 5, 'Code review': 3, 'Security review': 2, 'CI rounds': 5, Test: 5, 'Waiting to merge': 1 });
     });
 
+    it.each([
+      { tab: 'pull request', query: '?group=pr', named: [2, 1], count: 'both' },
+      { tab: 'day', query: '', named: [], count: 'none' },
+      { tab: 'issue', query: '?group=issue', named: [], count: 'none' },
+      { tab: 'size', query: '?group=size', named: [], count: 'none' },
+    ])('only a pull request’s row names its pull request, for its E2E (F3) and Test lines to open what they selected: the $tab tab names $count', async ({ query, named }) => {
+      await sendPulls([writing(1, 10, '2026-10-29T10:00:00Z'), writing(2, 10)]);
+      await costing(1, null, 7);
+      await costing(2, null, 7);
+
+      const html = await thePage(query);
+
+      expect([...html.matchAll(/<tr data-figures="[^"]*" data-pr="(\d+)">/g)].map((m) => Number(m[1]))).toEqual(named);
+      expect(html.match(/<tr data-figures="/g)?.length).toBeGreaterThan(0);
+    });
+
     it('a row with no minutes in it carries no figures, so it is not offered to open to an empty strip', async () => {
       const sent = await sendPulls([writing(1, 10), recorded(2, '2026-10-29T10:00:00Z', { rounds: [cycleRound([cycleCheck('Test', 0, { last: true })])], ciMs: 0, totalMs: 0, codingMs: 0, localMs: 0, waitingToMergeMs: 0, awayMs: 0, localReviews: { count: 0, ms: 0, byKind: { 'code-review': { count: 0, ms: 0 }, 'security-review': { count: 0, ms: 0 } } } })]);
       expect(sent.status).toBe(200);
@@ -526,7 +542,7 @@ describe('Harness Monitor', () => {
 
       const row = (number: number) => html.match(new RegExp(`<tr[^>]*>(?:(?!</tr>).)*?#${number}\\b.*?</tr>`, 's'))?.[0];
 
-      expect(row(1)).toMatch(/^<tr data-figures="[^"]+">/);
+      expect(row(1)).toMatch(/^<tr data-figures="[^"]+"( data-pr="1")?>/);
       expect(row(2)).toMatch(/^<tr>/);
     });
 
@@ -567,7 +583,7 @@ describe('Harness Monitor', () => {
 
       const html = await thePage('?group=pr');
       const [newer, older] = stripsOf(html);
-      const raw = [...html.matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => m[1]!);
+      const raw = [...html.matchAll(/<tr data-figures="([^"]*)"[^>]*>/g)].map((m) => m[1]!);
 
       expect(newer).toMatchObject({ 'CI rounds': 5, 'E2E (F3)': 40 });
       expect(older).toMatchObject({ 'CI rounds': 5, Test: null });
@@ -593,7 +609,7 @@ describe('Harness Monitor', () => {
     it('carries a pull request’s figures in under a hundred characters, a row of the page weighing little for being openable', async () => {
       await sendPulls([writing(1, 10, '2026-10-30T10:00:00Z', { localParts: { 'code-review': 3 * MIN, 'security-review': 2 * MIN, test: 0, browser: 0 } })]);
 
-      const [figures] = [...(await thePage('?group=pr')).matchAll(/<tr data-figures="([^"]*)">/g)].map((m) => m[1]!);
+      const [figures] = [...(await thePage('?group=pr')).matchAll(/<tr data-figures="([^"]*)"[^>]*>/g)].map((m) => m[1]!);
 
       expect(figures!.length).toBeLessThan(100);
     });
