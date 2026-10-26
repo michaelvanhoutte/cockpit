@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { causesOf, flakyAmong, periodDays, sortFigures, whereOf, workflowFigures, workflowPrompt, type Attempt, type FailedJob } from '../../src/ci-flakiness';
+import { causesOf, flakyAmong, fragileTests, periodDays, sortFigures, testPrompt, whereOf, workflowFigures, workflowPrompt, type Attempt, type FailedJob } from '../../src/ci-flakiness';
 
 const MINUTE = 60_000;
 const at = (minutes: number) => Date.UTC(2026, 9, 20, 10, 0) + minutes * MINUTE;
@@ -194,6 +194,129 @@ describe('Harness Monitor', () => {
         '  https://github.com/o/r/actions/runs/8/job/1 (feature branch, passed on a later attempt)',
         '',
         "Read the failed runs' logs to find the root cause of each, then fix it. A cause that failed and then passed on the same commit is not the change being wrong: find what makes it nondeterministic. A cause that stayed failed on main is a break: find what broke it. Never retry to green; fix, quarantine with an owner, or delete, per docs/testing-strategy.md. Say which causes you fixed and which need a decision from me.",
+      ]);
+    });
+  });
+
+  describe('a test is listed once it failed on a commit a later attempt passed, and counted on main and on branches apart', () => {
+    /** A failed job naming one test of `file`, in the Playwright project `project`, with `error`. */
+    const testJob = (name: string, over: { file?: string; project?: string | null; error?: string | null; job?: string } = {}): FailedJob => ({
+      name: over.job ?? 'Test',
+      step: 'Run pnpm test',
+      url: `https://github.com/o/r/actions/runs/1/job/${(over.job ?? 'Test').length}`,
+      tests: [{ file: over.file ?? 'apps/api/tests/integration/triage.test.ts', name, project: over.project ?? null, error: over.error === undefined ? 'AssertionError: expected 1 to be 2' : over.error }],
+    });
+    const listed = (attempts: Attempt[], sort = 'main') => fragileTests(attempts, flakyAmong(attempts), sort);
+    const counts = (attempts: Attempt[]) => listed(attempts).map((t) => [t.cause.label, t.cause.main, t.cause.branch]);
+    const x = () => ({ failedJobs: [testJob('Triage > x')] });
+
+    it.each([
+      { situation: 'a test that only ever failed on a commit a later commit replaced', attempts: () => [failing({ ...onBranch, ...x() }), attempt({ ...onBranch, sha: 'b', minutes: 5 })], expected: [] },
+      { situation: 'a test that failed on a branch and was never re-run', attempts: () => [failing({ ...onBranch, ...x() })], expected: [] },
+      { situation: 'a test that failed on main and was never re-run', attempts: () => [failing(x())], expected: [] },
+      { situation: 'a test flaky once on a branch', attempts: () => [failing({ ...onBranch, ...x() }), attempt({ ...onBranch, attempt: 2, minutes: 5 })], expected: [['Triage > x', 0, 1]] },
+      { situation: 'a test flaky once on main', attempts: () => [failing(x()), attempt({ attempt: 2, minutes: 5 })], expected: [['Triage > x', 1, 0]] },
+      {
+        situation: 'a test flaky on a branch and failing on main twice',
+        attempts: () => [failing({ ...onBranch, ...x() }), attempt({ ...onBranch, attempt: 2, minutes: 1 }), failing({ sha: 'b', minutes: 2, ...x() }), failing({ sha: 'c', minutes: 3, ...x() })],
+        expected: [['Triage > x', 2, 1]],
+      },
+      {
+        situation: "a branch's failure that stayed failed beside one that did not",
+        attempts: () => [failing({ ...onBranch, ...x() }), attempt({ ...onBranch, attempt: 2, minutes: 1 }), failing({ ...onBranch, sha: 'b', minutes: 2, ...x() })],
+        expected: [['Triage > x', 0, 1]],
+      },
+    ])('$situation', ({ attempts, expected }) => {
+      expect(counts(attempts())).toEqual(expected);
+    });
+
+    it('a step that failed and passed on a re-run is no test and is not listed', () => {
+      const attempts = [failing({ failedJobs: [job('Lint', [], 'Run pnpm lint')] }), attempt({ attempt: 2, minutes: 5 })];
+
+      expect(listed(attempts)).toEqual([]);
+    });
+
+    it('the same test failing on phone and desktop in one attempt is one test, counted once, both projects named', () => {
+      const e2e = (project: string) => testJob('Capture > a thought is kept', { file: 'tests/e2e/capture.test.ts', project, job: 'E2E (F3)' });
+      const attempts = [failing({ failedJobs: [e2e('desktop'), e2e('phone')] }), attempt({ attempt: 2, minutes: 5 })];
+
+      const [test, ...others] = listed(attempts);
+
+      expect(others).toEqual([]);
+      expect(test!.cause).toMatchObject({ main: 1, mainFlaky: 1, file: 'tests/e2e/capture.test.ts', projects: ['desktop', 'phone'], jobs: ['CI · E2E (F3)'] });
+    });
+
+    it("its error is the newest flaky failure's, not a later failure that stayed failed", () => {
+      const attempts = [
+        failing({ failedJobs: [testJob('Triage > x', { error: 'Timeout 5000ms' })] }),
+        attempt({ attempt: 2, minutes: 1 }),
+        failing({ sha: 'b', minutes: 9, failedJobs: [testJob('Triage > x', { error: 'a real break' })] }),
+      ];
+
+      expect(listed(attempts)[0]).toMatchObject({ error: 'Timeout 5000ms', last: { at: at(0), main: true } });
+    });
+
+    it('its last flaky failure is the newest one, on main or on a branch', () => {
+      const attempts = [
+        failing({ ...onBranch, minutes: 9, ...x() }),
+        attempt({ ...onBranch, attempt: 2, minutes: 10 }),
+        failing({ sha: 'b', minutes: 1, ...x() }),
+        attempt({ sha: 'b', attempt: 2, minutes: 2 }),
+      ];
+
+      expect(listed(attempts)[0]!.last).toMatchObject({ at: at(9), main: false });
+    });
+
+    describe('Most on main and Most in total order the list', () => {
+      const flakyOnMain = (name: string, minutes: number, sha: string) => [failing({ sha, minutes, failedJobs: [testJob(name)] }), attempt({ sha, attempt: 2, minutes: minutes + 1 })];
+      const flakyOnBranch = (name: string, minutes: number, sha: string) => [failing({ ...onBranch, sha, minutes, failedJobs: [testJob(name)] }), attempt({ ...onBranch, sha, attempt: 2, minutes: minutes + 1 })];
+      const scenario = [
+        // one on main and four on branches: five in total
+        ...flakyOnMain('on branches', 0, 'a'),
+        ...[1, 2, 3, 4].flatMap((i) => flakyOnBranch('on branches', 10 * i, `b${i}`)),
+        // three on main
+        ...[1, 2, 3].flatMap((i) => flakyOnMain('on main', 100 + 10 * i, `c${i}`)),
+        // one on each side, the newer of the two listed first
+        ...flakyOnMain('tied, older', 200, 'd'),
+        ...flakyOnBranch('tied, older', 205, 'e'),
+        ...flakyOnMain('tied, newer', 300, 'f'),
+        ...flakyOnBranch('tied, newer', 305, 'g'),
+      ];
+
+      it.each([
+        { situation: 'Most on main puts main first, then the branches, then the newest', sort: 'main', expected: ['on main', 'on branches', 'tied, newer', 'tied, older'] },
+        { situation: 'Most in total puts the sum first, then the newest', sort: 'all', expected: ['on branches', 'on main', 'tied, newer', 'tied, older'] },
+      ])('$situation', ({ sort, expected }) => {
+        expect(listed(scenario, sort).map((t) => t.cause.label)).toEqual(expected);
+      });
+    });
+  });
+
+  describe("a fragile test's prompt names the test, its file, its counts, its error and its runs, main first, and to fix the cause rather than retry", () => {
+    it('names the test with its file and projects, how often it failed on main and on branches, its latest error and its newest runs', () => {
+      const failed = (over: Partial<Attempt> & { minutes?: number }, url: string, project: string) =>
+        failing({ ...over, failedJobs: [{ name: 'E2E (F3)', step: 'Run pnpm test:e2e', url, tests: [{ file: 'tests/e2e/capture.test.ts', name: 'Capture > a thought is kept', project, error: 'Timeout 5000ms' }] }] });
+      const attempts = [
+        failed({}, 'https://github.com/o/r/actions/runs/7/job/1', 'phone'),
+        attempt({ attempt: 2, minutes: 5 }),
+        failed({ sha: 'b', minutes: 9 }, 'https://github.com/o/r/actions/runs/9/job/1', 'desktop'),
+        failed({ ...onBranch, sha: 'c', minutes: 12 }, 'https://github.com/o/r/actions/runs/8/job/1', 'phone'),
+        attempt({ ...onBranch, sha: 'c', attempt: 2, minutes: 14 }),
+      ];
+
+      const prompt = testPrompt(fragileTests(attempts, flakyAmong(attempts), 'main')[0]!);
+
+      expect(prompt.split('\n')).toEqual([
+        'The test "Capture > a thought is kept" in tests/e2e/capture.test.ts (Playwright projects: phone, desktop) is fragile in CI. It failed and then passed on the same commit 1 time on main and 1 time on feature branches, and failed on main without passing afterwards 1 time. It runs in CI · E2E (F3).',
+        '',
+        'Its latest error: Timeout 5000ms',
+        '',
+        'Failed runs, main first, newest first:',
+        '- https://github.com/o/r/actions/runs/9/job/1 (main, stayed failed)',
+        '- https://github.com/o/r/actions/runs/7/job/1 (main, passed on a later attempt)',
+        '- https://github.com/o/r/actions/runs/8/job/1 (feature branch, passed on a later attempt)',
+        '',
+        "Read those runs' logs and the test, find what makes it nondeterministic (timing, ordering, shared state, load), and fix the cause in the test or the code under test. Do not add retries or raise timeouts to hide it. Reproduce under load where you can (pin the suite to two cores). Follow the testing skill.",
       ]);
     });
   });

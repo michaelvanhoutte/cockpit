@@ -650,7 +650,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -677,6 +677,8 @@
         "apps/harness-monitor/src/stability-page.ts",
         "apps/harness-monitor/src/stability-explain.ts",
         "apps/harness-monitor/src/stability-workflow-page.ts",
+        "apps/harness-monitor/src/stability-fragile-page.ts",
+        "apps/harness-monitor/src/stability-rows.ts",
         "apps/harness-monitor/src/ci-flakiness.ts",
         "apps/harness-monitor/src/ci-flakiness-report.ts",
         "apps/harness-monitor/src/copy-prompt.ts",

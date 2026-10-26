@@ -65,18 +65,46 @@ export interface WorkflowData {
   redNow: RedNow[];
 }
 
+/** The files Test selection counted a miss on a pull request merged in the period: a test that failed on main where its pull request did not run it. */
+const MISSED_FILES = `SELECT DISTINCT m.path
+FROM selection_misses m JOIN selection_pulls p ON p.pull_number = m.pull_number AND p.job = 'test'
+WHERE p.merged_at >= ?1`;
+
+const startOf = (period: Period, now: number) => {
+  const first = periodFirstDay(period, now);
+  return first === null ? 0 : startOfDay(first);
+};
+
 /** Everything the Workflow tab draws, read in one round trip over the stored attempts. */
 export async function loadWorkflowData(db: D1Database, period: Period, now: number): Promise<WorkflowData> {
-  const first = periodFirstDay(period, now);
-  const start = first === null ? 0 : startOfDay(first);
-  const [attempts, jobs, tests, workflows, oldest, ...red] = await db.batch<Row>([
+  return (await load(db, period, now, [])).data;
+}
+
+export interface FragileData extends WorkflowData {
+  /** The files Test selection counts a miss, over the period. */
+  missed: string[];
+}
+
+/** Everything the Fragile tests tab draws: the Workflow tab's attempts and the stored misses, in the same one round trip. */
+export async function loadFragileData(db: D1Database, period: Period, now: number): Promise<FragileData> {
+  const { data, extra } = await load(db, period, now, [db.prepare(MISSED_FILES).bind(startOf(period, now))]);
+  return { ...data, missed: extra[0]!.results.map((r) => r.path as string) };
+}
+
+async function load(db: D1Database, period: Period, now: number, more: D1PreparedStatement[]): Promise<{ data: WorkflowData; extra: { results: Row[] }[] }> {
+  const start = startOf(period, now);
+  const redNow = redNowStatements(db);
+  const [attempts, jobs, tests, workflows, oldest, ...rest] = await db.batch<Row>([
     db.prepare(ATTEMPTS).bind(start),
     db.prepare(FAILED_JOBS).bind(start),
     db.prepare(FAILED_TESTS).bind(start),
     db.prepare('SELECT DISTINCT workflow FROM ci_attempts ORDER BY workflow'),
     db.prepare('SELECT MIN(created_at) AS oldest FROM ci_attempts'),
-    ...redNowStatements(db),
+    ...redNow,
+    ...more,
   ]);
+  const red = rest.slice(0, redNow.length);
+  const extra = rest.slice(redNow.length);
 
   const testsOf = new Map<string, FailedJob['tests']>();
   for (const t of tests!.results) {
@@ -88,7 +116,7 @@ export async function loadWorkflowData(db: D1Database, period: Period, now: numb
     const key = `${j.runId}|${j.attempt}`;
     jobsOf.set(key, [...(jobsOf.get(key) ?? []), { name: j.name as string, step: j.step as string | null, url: j.url as string | null, tests: testsOf.get(`${key}|${j.position}`) ?? [] }]);
   }
-  return {
+  const data: WorkflowData = {
     attempts: attempts!.results.map(
       (r): Attempt => ({
         runId: r.runId as number,
@@ -109,4 +137,5 @@ export async function loadWorkflowData(db: D1Database, period: Period, now: numb
     oldest: oldest!.results[0]!.oldest as number | null,
     redNow: redNowFrom(red as { results: Row[] }[]),
   };
+  return { data, extra };
 }

@@ -318,7 +318,7 @@ test.describe('Harness Monitor', () => {
   });
 
   /**
-   * CI's attempts on every branch, as the Workflow tab and the red-now line read them: CI failed on main once at a test and was green again, a pull request's
+   * CI's attempts on every branch, as the Workflow tab, the Fragile tests tab and the red-now line read them: CI failed on main once at a test and a re-run was green, a pull request's
    * attempt failed at another test and passed on a re-run, another pull request's failed and stayed failed, and Nightly's only run on main is red.
    */
   async function seedCiAttempts(api: APIRequestContext) {
@@ -348,6 +348,7 @@ test.describe('Harness Monitor', () => {
     const attempts = [
       attempt(9_002_001, 1, 'CI', 50, null),
       attempt(9_002_002, 1, 'CI', 40, { job: 'Test', step: 'Run the tests', tests: [triage] }),
+      attempt(9_002_002, 2, 'CI', 39, null),
       attempt(9_002_003, 1, 'CI', 30, null),
       attempt(9_002_010, 1, 'CI', 20, { job: 'E2E (F3)', step: 'Run pnpm test:e2e', tests: [capture] }, onPull(9_101)),
       attempt(9_002_010, 2, 'CI', 19, null, onPull(9_101)),
@@ -545,6 +546,82 @@ test.describe('Harness Monitor', () => {
     await expect(table.locator('tr.detail').first()).toBeVisible();
     await page.keyboard.press('Enter');
     await expect(table.locator('tr.detail').first()).toBeHidden();
+  });
+
+  test('a CI stability fragile test opens to its runs on main beside its runs on branches from its chevron, saying whether a re-run passed, main above the branches on a phone, and Copy prompt puts its prompt on the clipboard without opening it; the order changes with the sentence', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCiAttempts(api);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(monitor!).origin });
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/stability?group=tests`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'Fragile tests' });
+    const row = (name: string) => table.locator('tr[data-opens]', { hasText: name });
+    const stripOf = (name: string) => row(name).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+    const opening = (name: string) => row(name).getByRole('button', { name: new RegExp(`^(Open|Close) ${name}$`) });
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
+
+    // Only a test a later attempt passed is listed: the pull request's failure that stayed failed is not. Most on main first, every strip in the page and closed.
+    await expect(table.locator('tr[data-opens]')).toHaveCount(2);
+    await expect(table.locator('tr[data-opens] td.first')).toHaveText([/^›a dismissed item leaves the lists/, /^›a thought is kept/]);
+    await expect(table.locator('tr.detail')).toHaveCount(2);
+    await expect(table.locator('tr.detail').first()).toBeHidden();
+    await expect(opening('a dismissed item leaves the lists')).toHaveAttribute('aria-expanded', 'false');
+
+    // The chevron opens the failure that passed on a re-run on main beside the branches' sentence, which is below it on a phone.
+    await opening('a dismissed item leaves the lists').click();
+    const triage = stripOf('a dismissed item leaves the lists');
+    await expect(triage).toBeVisible();
+    await expect(triage.locator('.side.main li')).toHaveText([/re-run passed/]);
+    await expect(triage.locator('.side.branch')).toContainText('It has not flaked on a feature branch in this period.');
+    await expect(triage).toContainText('apps/api/tests/integration/triage.test.ts');
+    const [m, b] = await Promise.all([triage.locator('.side.main').boundingBox(), triage.locator('.side.branch').boundingBox()]);
+    if (onAPhone) expect(b!.y).toBeGreaterThan(m!.y + m!.height - 1);
+    else {
+      expect(Math.abs(b!.y - m!.y)).toBeLessThan(4);
+      expect(b!.x).toBeGreaterThan(m!.x + m!.width - 1);
+    }
+    if (onAPhone) {
+      // On a phone the strip stays inside the panel's width while the wide table scrolls beneath it.
+      const [strip, panel] = await Promise.all([triage.locator('.strip').boundingBox(), table.locator('.well.table').boundingBox()]);
+      expect(strip!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(strip!.x + strip!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    }
+    expect(await noSideways()).toBe(true);
+
+    // The other test flaked on a pull request only: nothing on main, and its run says a re-run passed.
+    await row('a thought is kept').locator('td').nth(1).click();
+    const capture = stripOf('a thought is kept');
+    await expect(capture.locator('.side.main')).toContainText('It has not failed on main in this period.');
+    await expect(capture.locator('.side.branch li')).toHaveText([/re-run passed.*pull request 9101 · CI/]);
+
+    // Copy prompt copies this row's prompt, says so for a moment, and neither opens nor closes the row it sits in.
+    await row('a thought is kept').getByRole('button', { name: 'Copy prompt' }).click();
+    await expect(row('a thought is kept').locator('.copy-prompt')).toHaveText('Copied');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('The test "Capture > a thought is kept" in tests/e2e/capture.test.ts (Playwright project: phone) is fragile in CI.');
+    expect(copied).toContain('It failed and then passed on the same commit 0 times on main and 1 time on feature branches.');
+    expect(copied).toContain('Its latest error: AssertionError: expected 1 to be 2');
+    expect(copied).toContain('(feature branch, passed on a later attempt)');
+    expect(copied).not.toContain('a dismissed item leaves the lists');
+    await expect(capture).toBeVisible();
+    await row('a dismissed item leaves the lists').getByRole('button', { name: 'Copy prompt' }).click();
+    const copiedTriage = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copiedTriage).toContain('It failed and then passed on the same commit 1 time on main and 0 times on feature branches.');
+    expect(copiedTriage).toContain('(main, passed on a later attempt)');
+    await expect(triage).toBeVisible();
+
+    // Nothing above sent a request: the strips and the prompts were in the page.
+    expect(requests).toEqual([]);
+    expect(await table.locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(onAPhone);
+    expect(await noSideways()).toBe(true);
+
+    // Most in total puts the test whose flake is newest first when both have one.
+    await choose(page, 'Order', 'most in total first', /[?&]sort=all(&|$)/);
+    await expect(table.locator('tr[data-opens] td.first')).toHaveText([/^›a thought is kept/, /^›a dismissed item leaves the lists/]);
   });
 
   /**

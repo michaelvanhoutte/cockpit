@@ -20,15 +20,11 @@ import { number } from './page';
 import { ORANGE, RED, VIOLET } from './palette';
 import { humanMs, outLink, pct, section, tile } from './report';
 import { WHAT } from './stability-explain';
+import { dash, OPEN_SCRIPT, shortName, strip, whereTag } from './stability-rows';
 import { sortOf, type StabilityQuery } from './stability-report';
 
 /** Green at 99% or more, red below 90%: how a pass rate is coloured on every tab. */
 export const bandOf = (rate: number) => (rate >= 0.99 ? 'ok' : rate >= 0.9 ? 'mid' : 'poor');
-
-const dash = '<span class="faint">—</span>';
-const whereTag = (a: Attempt) => (a.onMain ? '<span class="tag main">main</span>' : '<span class="tag">branch</span>');
-/** A cause's name without the describe blocks above it. */
-const shortName = (label: string) => label.split(' > ').pop()!.split(' › ').pop()!;
 
 /** Red now: a workflow whose newest attempt on main failed, on every tab. */
 export function redNowNotice(redNow: RedNow[], now: number): string {
@@ -150,7 +146,7 @@ function workflowView(q: StabilityQuery, f: WorkflowFigures, flaky: Set<Attempt>
   const list = failures
     .map((a) => {
       const jobs = a.failedJobs;
-      return `<tr${a.onMain ? ' class="open"' : ''}><td class="num">${whereTag(a)} ${outLink(a.url, esc(formatDateTime(a.at)))}<span class="of">${esc(whereOf(a))}${a.attempt > 1 ? ` · attempt ${a.attempt}` : ''}</span></td><td>${jobs.length ? jobs.map((j) => `${outLink(j.url, esc(j.name))}<span class="faint"> · ${esc(j.step ?? '—')}</span>`).join('<br>') : '<span class="faint">none recorded</span>'}</td><td class="step-cell">${jobs.flatMap((j) => j.tests).map((t) => esc(t.name)).join('<br>') || dash}</td><td>${flaky.has(a) ? 'passed on a later attempt' : '<span class="rate poor">stayed failed</span>'}</td></tr>`;
+      return `<tr${a.onMain ? ' class="open"' : ''}><td class="num">${whereTag(a.onMain)} ${outLink(a.url, esc(formatDateTime(a.at)))}<span class="of">${esc(whereOf(a))}${a.attempt > 1 ? ` · attempt ${a.attempt}` : ''}</span></td><td>${jobs.length ? jobs.map((j) => `${outLink(j.url, esc(j.name))}<span class="faint"> · ${esc(j.step ?? '—')}</span>`).join('<br>') : '<span class="faint">none recorded</span>'}</td><td class="step-cell">${jobs.flatMap((j) => j.tests).map((t) => esc(t.name)).join('<br>') || dash}</td><td>${flaky.has(a) ? 'passed on a later attempt' : '<span class="rate poor">stayed failed</span>'}</td></tr>`;
     })
     .join('');
   const causes = section(
@@ -192,17 +188,17 @@ export function workflowTab(q: StabilityQuery, data: WorkflowData, days: string[
       const top = r.causes[0];
       const commits = new Set(r.branchFlaky.map((a) => a.sha)).size;
       const pulls = new Set(r.branchFlaky.map((a) => a.pull ?? a.branch)).size;
-      const detail = `<div class="strip"><div class="sides">${side(
+      const detail = strip(side(
         'On main',
         r.main.length ? `${times(r.pass + r.failed.length, 'run')} · ${r.rate === null ? 'none finished' : `${pct(r.rate)} passed`} · ${times(r.failed.length, 'failure')}${r.failed.length ? `, ${r.mainFlaky} passed on a re-run` : ''}` : 'No run on main in this period.',
         causesOf(r.failed, flaky),
         'main',
-      )}${side(
+      ), side(
         'On feature branches',
         r.branchFlaky.length ? `${times(r.branchFlaky.length, 'failure')} a later attempt on the same commit passed · ${times(commits, 'commit')} · ${times(pulls, 'branch', 'es')}` : 'Nothing failed and then passed on a feature branch.',
         causesOf(r.branchFlaky, flaky),
         'branch',
-      )}</div><p class="side-foot"><a href="${link({ workflow: r.name })}">Runs per day and every failure of ${esc(r.name)}</a></p></div>`;
+      ), `<a href="${link({ workflow: r.name })}">Runs per day and every failure of ${esc(r.name)}</a>`);
       return `<tr data-opens><td class="first"><a href="${link({ workflow: r.name })}">${esc(r.name)}</a></td><td class="num">${r.rate === null ? '<span class="rate none">no run on main</span>' : `<span class="rate ${bandOf(r.rate)}">${pct(r.rate)}</span><span class="of">${number(r.pass)} of ${number(r.pass + r.failed.length)}</span>`}</td><td>${dayStrip(r.main, r.branchFlaky, days)}</td><td class="num">${r.failed.length ? `<span class="rate poor">${number(r.failed.length)}</span>` : dash}${r.branchFlaky.length ? `<span class="of">+${number(r.branchFlaky.length)} on branches</span>` : ''}</td><td>${top ? `${esc(shortName(top.label))}<div class="sub">${number(top.main + top.branch)} of ${number(r.failed.length + r.branchFlaky.length)}</div>` : dash}</td><td class="fix">${prompt}</td></tr><tr class="detail" hidden><td colspan="6">${detail}</td></tr>`;
     })
     .join('');
@@ -216,44 +212,6 @@ export function workflowTab(q: StabilityQuery, data: WorkflowData, days: string[
   );
 }
 
-/**
- * A row opens, from its chevron or a click outside its links and its Copy
- * prompt, as Cycle time's rows do (src/cycle-time-strip.ts): the chevron is the
- * script's own, so without it the table is as it was, a click with text selected
- * in the row selects rather than toggles, and the strip, already in the page,
- * is shown or hidden: opening sends nothing.
- */
-const OPEN_SCRIPT = `<script>(function(){
-  var table=document.querySelector('table.openable');
-  if(!table)return;
-  var body=table.tBodies[0];
-  function toggle(row){
-    var open=row.classList.toggle('open');
-    var button=row.querySelector('.chev');
-    button.setAttribute('aria-expanded',String(open));
-    button.setAttribute('aria-label',button.getAttribute('aria-label').replace(/^(Open|Close)/,open?'Close':'Open'));
-    row.nextElementSibling.hidden=!open;
-  }
-  body.addEventListener('click',function(e){
-    var row=e.target.closest('tr[data-opens]');
-    if(!row||!body.contains(row))return;
-    var inside=e.target.closest('a,.copy-prompt');
-    if(inside&&row.contains(inside))return;
-    var selected=window.getSelection();
-    if(selected&&String(selected)!==''&&row.contains(selected.anchorNode)&&!e.target.closest('button'))return;
-    toggle(row);
-  });
-  [].forEach.call(body.querySelectorAll('tr[data-opens]'),function(row){
-    var button=document.createElement('button');
-    button.type='button';
-    button.className='chev';
-    button.textContent='\\u203A';
-    button.setAttribute('aria-expanded','false');
-    button.setAttribute('aria-label','Open '+row.cells[0].textContent.replace(/\\s+/g,' ').trim());
-    row.cells[0].insertBefore(button,row.cells[0].firstChild);
-  });
-})();</script>`;
-
 export const WORKFLOW_STYLE = `
 .tile.name.cause .tile-value{font-size:17px}
 .day-strip{display:flex;gap:1px}.day-strip span{display:flex;flex-direction:column;align-items:center;gap:2px}
@@ -262,26 +220,4 @@ export const WORKFLOW_STYLE = `
 .day-strip b{display:block;width:5px;height:5px;border-radius:50%}.day-strip b.branch{background:${ORANGE};opacity:.55}
 .branch-bar{fill:${ORANGE};opacity:.45}
 .legend i.branch-key{background:${ORANGE};opacity:.45}
-.lasted .fill.branch{background:${ORANGE};opacity:.55}
-.tag{display:inline-block;font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--shade) 8%,transparent);color:var(--ink-soft);vertical-align:1px}
-.tag.main{background:color-mix(in srgb,var(--over) 22%,transparent);color:var(--over-ink)}
-td.fix{white-space:nowrap;text-align:right}
-.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-section[aria-labelledby=by-workflow] :is(th,td){padding-left:10px;padding-right:10px}
-section[aria-labelledby=by-workflow] td.first{min-width:0}
-.chev{border:0;background:none;color:var(--ink-faint);font-size:16px;line-height:1;width:18px;padding:0;margin-right:6px;cursor:pointer;transition:transform .15s}
-table.openable tr[data-opens]{cursor:pointer}table.openable tr.open .chev{transform:rotate(90deg)}table.openable tr.open[data-opens] td{background:var(--accent-tint)}
-tr.detail td{padding:4px 16px 16px;background:color-mix(in srgb,var(--accent-tint) 50%,transparent)}
-/* The table can be wider than its panel and scroll inside it; a strip stays as wide as the panel and keeps to the visible edge, as Cycle time's does, so its causes are never out of sight. */
-.well.table:has(>.openable){container-type:inline-size}
-.strip{position:sticky;left:0;width:calc(100cqw - 34px)}
-.sides{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-@media (max-width:720px){.sides{grid-template-columns:1fr}}
-.side h4{margin:8px 0 2px;font-size:12px;letter-spacing:.06em;text-transform:uppercase}.side.main h4{color:var(--over-ink)}.side.branch h4{color:var(--ink-soft)}
-.side .small{margin:0 0 8px}
-.causes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
-.causes li{display:flex;gap:10px;align-items:baseline;font-size:13px}
-.causes .n{flex:none;min-width:30px;font-size:12px;font-weight:600;text-align:right}.causes .n.main{color:var(--over-ink)}.causes .n.branch{color:var(--ink-soft)}
-.side-foot{margin:12px 0 0;font-size:12px;color:var(--ink-faint)}
-.err{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:var(--over-ink)}
 `;

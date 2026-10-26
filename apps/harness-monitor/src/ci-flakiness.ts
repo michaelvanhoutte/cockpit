@@ -53,8 +53,11 @@ export interface Run {
   url: string;
   main: boolean;
   flaky: boolean;
-  /** Where it ran and in which workflow, as plain text. */
+  /** Where it ran, and where it ran in which workflow, as plain text. */
+  where: string;
   label: string;
+  /** The error the failure carried, where it named one. */
+  error: string | null;
 }
 
 /** What made attempts fail: a failing test where the attempt names one, otherwise the job and step. */
@@ -72,6 +75,10 @@ export interface Cause {
   lastUrl: string;
   error: string | null;
   runs: Run[];
+  /** A test cause's file, the Playwright projects it failed in and the workflow and job it failed in, each once; empty for a step. */
+  file: string | null;
+  projects: string[];
+  jobs: string[];
 }
 
 export interface WorkflowFigures {
@@ -119,28 +126,63 @@ export function whereOf(a: Attempt): string {
 export function causesOf(failed: Attempt[], flaky: Set<Attempt>): Cause[] {
   const by = new Map<string, Cause>();
   const counted = new Set<string>();
-  const add = (key: string, label: string, sub: string, kind: Cause['kind'], a: Attempt, url: string | null, error: string | null) => {
+  const add = (key: string, label: string, sub: string, kind: Cause['kind'], a: Attempt, url: string | null, error: string | null, test?: FailedTest, job?: string) => {
+    const where = url ?? a.url;
+    const c = by.get(key) ?? { key, label, sub, kind, main: 0, mainFlaky: 0, branch: 0, last: a, lastUrl: where, error, runs: [], file: test?.file ?? null, projects: [], jobs: [] };
+    by.set(key, c);
+    // Every project and job a test failed in is named, though its attempt counts once.
+    if (test?.project && !c.projects.includes(test.project)) c.projects.push(test.project);
+    const ran = job === undefined ? null : `${a.workflow} · ${job}`;
+    if (ran !== null && !c.jobs.includes(ran)) c.jobs.push(ran);
     const once = `${key}|${a.runId}|${a.attempt}`;
     if (counted.has(once)) return;
     counted.add(once);
-    const where = url ?? a.url;
-    const c = by.get(key) ?? { key, label, sub, kind, main: 0, mainFlaky: 0, branch: 0, last: a, lastUrl: where, error, runs: [] };
     if (a.onMain) {
       c.main++;
       if (flaky.has(a)) c.mainFlaky++;
     } else c.branch++;
-    c.runs.push({ at: a.at, url: where, main: a.onMain, flaky: flaky.has(a), label: `${whereOf(a)} · ${a.workflow}` });
+    const place = whereOf(a);
+    c.runs.push({ at: a.at, url: where, main: a.onMain, flaky: flaky.has(a), where: place, label: `${place} · ${a.workflow}`, error });
     if (a.at >= c.last.at) Object.assign(c, { last: a, lastUrl: where, error: error ?? c.error });
-    by.set(key, c);
   };
   for (const a of failed) {
     if (!a.failedJobs.length) add('?', 'No failed job recorded', 'the run failed before or outside any job', 'unknown', a, a.url, null);
     for (const j of a.failedJobs) {
-      if (j.tests.length) for (const t of j.tests) add(`t|${t.file}|${t.name}`, t.name, `${t.file} · ${j.name}`, 'test', a, j.url, t.error);
+      if (j.tests.length) for (const t of j.tests) add(`t|${t.file}|${t.name}`, t.name, `${t.file} · ${j.name}`, 'test', a, j.url, t.error, t, j.name);
       else add(`s|${j.name}|${j.step}`, `${j.name} · ${j.step ?? 'no failing step'}`, 'no test named', 'step', a, j.url, null);
     }
   }
   return [...by.values()].sort((x, y) => y.main - x.main || y.branch - x.branch || y.last.at - x.last.at);
+}
+
+/** A test that failed and then passed on the same commit, on main or a feature branch, with what the page draws of it. */
+export interface FragileTest {
+  /** The test's failures: all on main, and the flaky ones on feature branches. */
+  cause: Cause;
+  /** Its newest flaky failure, which the bar's column and the error are read from. */
+  last: Run;
+  error: string | null;
+}
+
+/**
+ * The tests a set of attempts shows to be fragile: every test that failed in
+ * an attempt a later attempt on the same commit passed, on main or a branch,
+ * with its failures counted as a workflow's causes are (every one on main, the
+ * flaky ones on branches), most on main first or most in total first.
+ */
+export function fragileTests(attempts: Attempt[], flaky: Set<Attempt>, sort: string): FragileTest[] {
+  const counted = attempts.filter((a) => a.outcome === 'fail' && (a.onMain || flaky.has(a)));
+  return causesOf(counted, flaky)
+    .filter((c) => c.kind === 'test' && c.mainFlaky + c.branch > 0)
+    .map((cause): FragileTest => {
+      const last = cause.runs.filter((r) => r.flaky).reduce((newer, r) => (r.at >= newer.at ? r : newer));
+      return { cause, last, error: last.error ?? cause.error };
+    })
+    .sort((x, y) =>
+      sort === 'all'
+        ? y.cause.main + y.cause.branch - (x.cause.main + x.cause.branch) || y.last.at - x.last.at
+        : y.cause.main - x.cause.main || y.cause.branch - x.cause.branch || y.last.at - x.last.at,
+    );
 }
 
 /** A workflow's figures over the attempts in the period (every workflow's, which `flaky` was worked out over). */
@@ -205,6 +247,20 @@ export function workflowPrompt(f: WorkflowFigures, days: number): string {
     ]),
     '',
     "Read the failed runs' logs to find the root cause of each, then fix it. A cause that failed and then passed on the same commit is not the change being wrong: find what makes it nondeterministic. A cause that stayed failed on main is a break: find what broke it. Never retry to green; fix, quarantine with an owner, or delete, per docs/testing-strategy.md. Say which causes you fixed and which need a decision from me.",
+  ].join('\n');
+}
+
+/** What a fragile test's Copy prompt copies: the test, its file, its counts, its latest error and its newest failures, main first, and to fix the cause rather than retry. */
+export function testPrompt({ cause: c, error }: FragileTest): string {
+  const broke = c.main - c.mainFlaky;
+  return [
+    `The test "${c.label}" in ${c.file}${c.projects.length ? ` (Playwright project${c.projects.length === 1 ? '' : 's'}: ${c.projects.join(', ')})` : ''} is fragile in CI. It failed and then passed on the same commit ${times(c.mainFlaky, 'time')} on main and ${times(c.branch, 'time')} on feature branches${broke ? `, and failed on main without passing afterwards ${times(broke, 'time')}` : ''}. It runs in ${c.jobs.join(', ')}.`,
+    ...(error ? ['', `Its latest error: ${error}`] : []),
+    '',
+    'Failed runs, main first, newest first:',
+    ...newest(c.runs, 5).map((r) => `- ${runLine(r)}`),
+    '',
+    "Read those runs' logs and the test, find what makes it nondeterministic (timing, ordering, shared state, load), and fix the cause in the test or the code under test. Do not add retries or raise timeouts to hide it. Reproduce under load where you can (pin the suite to two cores). Follow the testing skill.",
   ].join('\n');
 }
 

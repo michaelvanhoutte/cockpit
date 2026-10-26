@@ -13,13 +13,14 @@ import { stabilityWindows, type Durations, type WindowSpan } from './stability-s
  * runs, jobs and steps the Stability job stored (src/stability-store.ts).
  */
 
-export const GROUPS = ['job', 'workflow'] as const;
+export const GROUPS = ['job', 'workflow', 'tests'] as const;
 export type Group = (typeof GROUPS)[number];
 
 /** The orders each tab can be read in; the first is its default. */
 export const SORTS: Record<Group, [key: string, label: string][]> = {
   job: [['worst', 'Least reliable'], ['slowest', 'Slowest'], ['failures', 'Most failures']],
   workflow: [['worst', 'Least reliable'], ['failures', 'Most failures']],
+  tests: [['main', 'Most on main'], ['all', 'Most in total']],
 };
 
 /** Tabs that were merged into Workflow: an address that names one still opens it. */
