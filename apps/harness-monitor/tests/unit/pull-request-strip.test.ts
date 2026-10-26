@@ -219,7 +219,6 @@ describe('Harness Monitor', () => {
     it('places nothing for a round whose jobs are not recorded', () => {
       expect(placeLanes(null)).toBeNull();
       expect(placeLanes(undefined)).toBeNull();
-      expect(placeLanes([])).toBeNull();
     });
   });
 
@@ -315,6 +314,10 @@ describe('Harness Monitor', () => {
       expect(round!.held).toEqual([{ name: 'Test', ms: 10 * MIN }, { name: 'Test', ms: 6 * MIN, rerun: true }, { name: 'Lint', ms: 4 * MIN }]);
       expect(round!.flukes).toEqual([{ name: 'Test', ms: 2 * MIN }]);
       expect([round!.red, round!.failed]).toEqual([true, ['Test']]);
+    });
+
+    it('reads a round with an empty list of jobs as one whose jobs were not recorded', () => {
+      expect(stripOf(stored(), timeline([[]])).rounds[0]!.lanes).toBeNull();
     });
 
     it('starts the coding at the stored start, and notes a pull request with no session record', () => {
