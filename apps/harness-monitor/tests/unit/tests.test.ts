@@ -118,6 +118,26 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("a tree's decided-not-to-test entries of the wrong shape are refused, naming the entry", () => {
+    const decided = (over: Record<string, unknown> = {}) => ({ file: 'apps/web/src/wiring.ts', reason: 'Wiring only', notRun: 3, ...over });
+
+    it.each([
+      { situation: 'an entry with no file', list: [decided(), decided({ file: undefined })], error: 'Entry 2 of the tree\'s not-worth-a-test list names no file.' },
+      { situation: 'an entry whose count is not a number', list: [decided({ notRun: 'three' })], error: 'The tree\'s not-worth-a-test entry for "apps/web/src/wiring.ts" has a count of statements not run that is not a whole number.' },
+      { situation: 'an entry with no reason', list: [decided({ reason: null })], error: 'The tree\'s not-worth-a-test entry for "apps/web/src/wiring.ts" has no reason.' },
+      { situation: 'a list that is not one', list: { 'apps/web/src/wiring.ts': 3 }, error: 'The tree\'s not-worth-a-test list is not a list.' },
+    ])('$situation is refused', async ({ list, error }) => {
+      expect(await readTree(COMMIT, await gzip(tree({ notWorthATest: list })))).toEqual({ ok: false, error });
+    });
+
+    it.each([
+      { situation: 'a tree with no list, from an older analyzer', over: {} },
+      { situation: 'a tree with a list', over: { notWorthATest: [decided()] } },
+    ])('$situation is read', async ({ over }) => {
+      expect(await readTree(COMMIT, await gzip(tree(over)))).toEqual({ ok: true, value: { commit: COMMIT, areas: ['Capture', 'Triage'] } });
+    });
+  });
+
   describe("tests are sent as main's or as one pull request's, and as nothing else", () => {
     it.each([
       { situation: "main's", raw: 'main', snapshot: 'main' },

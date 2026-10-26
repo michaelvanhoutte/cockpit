@@ -20,7 +20,7 @@ export const WHAT = {
   branches: {
     shows: 'How many branches, each side of an <code>if</code>, a condition or a <code>switch</code>, no test takes in the source files of the areas in view.',
     read: 'Measured by the instrumented run CI makes on every merge to <code>main</code>. A pull request&rsquo;s run is not instrumented, so its tests read <i>unknown</i> here, which is not zero. A file owned by two areas is counted once.',
-    look: 'A file with many branches nothing takes has paths no test has ever been down, often its error handling. The Gaps tab names the lines.',
+    look: 'A file with many branches nothing takes has paths no test has ever been down, often its error handling. An area&rsquo;s count opens its panel&rsquo;s Branches tab, which names the lines.',
   },
   empty: {
     shows: 'How many of the areas in view have no rule, neither their own nor inside them, and the first few by name.',
@@ -37,8 +37,19 @@ export const WHAT = {
     read: 'Rules are grouped by area and level, and a case&rsquo;s place opens the code around it. Files lists the lowest share first, Branches the file with most untaken first, each line opening the code on GitHub. Opening another name, count or tab changes only the panel: the table keeps its place, the address follows and Back returns the previous panel. <i>Copy prompt for missing tests</i> names the files under 80% and the untaken branches, for an agent to write what is missing. A pull request&rsquo;s snapshot has no coverage run, so its files and branches read <i>unknown</i>, which is not none.',
     look: 'Start on Files for where tests are missing, then read the area&rsquo;s rules for what is checked there and what is not. A rule with one case checks one situation only, and a file whose branches no test takes has paths no test has been down.',
   },
-  gapFiles: { shows: 'Each row is a source file of the areas in view with under 80% of its statements run by a test, the most statements no test runs first, with its share, the branches no test takes in it and the areas that own it; a file at or above 80% is not listed. Only <code>main</code>&rsquo;s instrumented run measures them, so a pull request&rsquo;s tests read unknown. The prompt to copy names the files listed, for an agent to write what is missing.' },
-  gapBranches: { shows: 'Each row is a source file with branches no test takes, the most first, with the lines they are on, each opening the code on GitHub, and the areas that own it. Only <code>main</code>&rsquo;s instrumented run measures them, so a pull request&rsquo;s tests read unknown.' },
+  ask: {
+    shows: 'The spark beside an area&rsquo;s share copies a prompt asking Claude to analyse the area and everything inside it, and to suggest the tests worth adding. It opens nothing and moves nothing on the page.',
+    read: 'The prompt carries what this page shows for the area under the filters in view: the share covered, the branches no test takes, its rules per testing level, <i>n/a</i> where a level cannot apply, and the 25 files with most statements no test runs, each with its lines, leaving out those Gaps lists as decided not to test. It asks for an analysis only, no code: each gap judged a test worth adding, dead code, or not worth a test, ranked by what a regression would cost. The spark shows on pointing at a row, on the row whose panel is open, and always on a touch screen, wherever <code>main</code>&rsquo;s coverage run measured the area.',
+    look: 'Copy it for a red share, or for an area whose panel shows no rule at the level it needs, and paste it into a new Claude Code session. A file it judges not worth a test is recorded in <code>tools/test-explorer/not-worth-a-test.json</code>, which moves it to Gaps&rsquo; <i>Decided not to test</i>.',
+  },
+  gapFiles: {
+    shows:
+      'Each row is a source file of the areas in view with under 80% of its statements run by a test, the most statements no test runs first, with its share, the branches no test takes in it and the areas that own it; a file at or above 80%, or decided not to test, is not listed. Only <code>main</code>&rsquo;s instrumented run measures them, so a pull request&rsquo;s tests read unknown. Tick files, or <i>Pick the top 5</i>, and <i>Copy prompt</i> copies one prompt for them, with each file&rsquo;s lines no test runs, asking a new Claude Code session to add the test, delete dead code, or record the file as not worth a test, in one pull request. <i>Changed since decided</i> marks a file decided not to test that has more statements no test runs than when it was decided.',
+  },
+  gapDecided: {
+    shows:
+      'Each row is a source file of the areas in view judged not worth a test, wiring, a type or a log line, with the reason given, folded away until opened. The decisions are a list checked in beside the area registry, <code>tools/test-explorer/not-worth-a-test.json</code>, changed only by a reviewed pull request. A file leaves it for <i>Files to test next</i>, marked changed since decided, once more of its statements go unrun than when it was decided.',
+  },
 } satisfies Record<string, Explanation>;
 
 /** What follows the question on the page's lead: the words a newcomer will not know. */

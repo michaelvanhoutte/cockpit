@@ -114,6 +114,24 @@ function wrongStatements(named: string, node: Record<string, unknown>): string |
   return null;
 }
 
+/**
+ * The first entry of the tree's list of files judged not worth a test the page
+ * could not draw, named, or null; a tree with no list, from an analyzer older
+ * than it, is read. Each entry needs its file, its reason and how many of its
+ * statements were not run when decided.
+ */
+function wrongDecided(list: unknown): string | null {
+  if (list === undefined || list === null) return null;
+  if (!Array.isArray(list)) return "The tree's not-worth-a-test list is not a list.";
+  for (const [i, entry] of list.entries()) {
+    if (!isRecord(entry) || typeof entry.file !== 'string' || entry.file === '') return `Entry ${i + 1} of the tree's not-worth-a-test list names no file.`;
+    const named = `The tree's not-worth-a-test entry for ${JSON.stringify(entry.file)}`;
+    if (typeof entry.reason !== 'string') return `${named} has no reason.`;
+    if (!isCount(entry.notRun)) return `${named} has a count of statements not run that is not a whole number.`;
+  }
+  return null;
+}
+
 /** A reference the page can draw and link: a file and a line from 1. */
 const isRef = (value: unknown): value is Record<string, unknown> => isRecord(value) && typeof value.file === 'string' && Number.isInteger(value.line) && (value.line as number) >= 1;
 
@@ -148,8 +166,8 @@ function wrongReference(named: string, node: Record<string, unknown>): string | 
  * node needs a key (unique: an area's part is filed under it), a label,
  * its counts, rules and children; every rule, case and gap a file and line,
  * a rule its statement and level, a case its text, a file's figures their
- * counts; no reference may carry its source lines, which belong in the area's
- * own part.
+ * counts, and a file judged not worth a test its reason and count; no
+ * reference may carry its source lines, which belong in the area's own part.
  */
 export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!isRecord(value)) return refused('The tree is not an object.');
@@ -159,6 +177,8 @@ export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!Array.isArray(value.tree)) return refused('The tree has no areas.');
   if (value.warnings !== undefined && !(Array.isArray(value.warnings) && value.warnings.every((w) => typeof w === 'string'))) return refused('The tree has warnings that are not a list of text.');
   if (value.commitUrl !== undefined && value.commitUrl !== null && typeof value.commitUrl !== 'string') return refused("The tree's commit link is not text.");
+  const decided = wrongDecided(value.notWorthATest);
+  if (decided) return refused(decided);
 
   const areas: string[] = [];
   const seen = new Set<string>();

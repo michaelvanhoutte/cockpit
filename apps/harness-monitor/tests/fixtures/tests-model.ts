@@ -54,6 +54,7 @@ export function model(tree: Area[], over: Partial<Model> = {}): Model {
     tree,
     coverageAvailable: false,
     availableLevels: { L3: false },
+    notWorthATest: [],
     warnings: [],
     ...over,
   };

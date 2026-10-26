@@ -8,7 +8,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { LEVEL_IDS } from '../model.js';
-import { annotateTree, buildTree, loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
+import { annotateTree, buildTree, loadConcepts, loadNotWorthATest, NOT_WORTH_A_TEST, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
 import { extractRules, levelForTestFile } from './rules.js';
 import { parseFile } from './ast.js';
 import { workspacePackages, sourceFiles, testFiles } from './workspace.js';
@@ -16,9 +16,10 @@ import { loadMergedCoverage, branchesNotTaken, statementsCovered } from './cover
 
 /**
  * @param {string} repo absolute path to the repository root
+ * @param {{ notWorthATest?: string }} [options] where the list of files judged not worth a test is read from: this tool's own, beside concepts.json, unless given
  * @returns {import('../model.js').Model}
  */
-export function analyze(repo) {
+export function analyze(repo, { notWorthATest = NOT_WORTH_A_TEST } = {}) {
   const warnings = [];
   const packages = workspacePackages(repo);
   const registry = loadConcepts();
@@ -98,6 +99,9 @@ export function analyze(repo) {
   for (const name of unregistered) {
     warnings.push(`feature area "${name}" is used in a describe but is not in concepts.json; add it or fix the typo.`);
   }
+
+  // ---- the files judged not worth a test, each held to a file walked here ----
+  const decisions = loadNotWorthATest(notWorthATest, new Set(relSourceFiles));
 
   // ---- merged coverage: statements run and branches taken ----------------
   const coverage = loadMergedCoverage(repo, packages);
@@ -179,6 +183,8 @@ export function analyze(repo) {
     coverageAvailable: coverage.available,
     availableLevels,
     unregisteredAreas: unregistered,
+    notWorthATest: decisions.decided,
+    notWorthATestProblems: decisions.problems,
     warnings,
   };
 }

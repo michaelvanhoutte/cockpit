@@ -11,6 +11,7 @@ import {
   DEFAULT_QUERY,
   deepRules,
   filesCovered,
+  gapLists,
   GROUPS,
   isThin,
   LEVELS,
@@ -42,6 +43,7 @@ import {
   type TestsView,
 } from './tests-report';
 import { LEAD_MORE, WHAT } from './tests-explain';
+import { analysisPrompt, askData, gapsPrompt, pickOf } from './tests-prompts';
 import type { PullRequestTests } from './tests-store';
 
 /** The page opens with the question its top tab names and the words a newcomer will not know, under the band, whatever it shows. */
@@ -201,6 +203,13 @@ ${onAreas ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['pac
     const { shown, matched } = showRows(rowsUnder(model, scope), q, keep, ix);
 
     const heads = series.map((s) => `<th scope="col" class="num" title="${esc(s.title)}">${swatch(s)}${esc(s.label)}</th>`).join('');
+    // What every spark icon builds its prompt from, carried once; an area no coverage run measured has none.
+    const asks = askData(model, ix, shown.map((r) => r.area), q);
+    const askInfo = Object.keys(asks.areas).length ? explain('ask', 'Suggest tests', WHAT.ask) : null;
+    const spark = (a: Area) =>
+      Object.hasOwn(asks.areas, a.key)
+        ? `<span class="ask"><button type="button" title="Suggest tests: copy a prompt asking Claude what ${esc(a.label)} is missing" aria-label="Suggest tests for ${esc(a.label)}" data-area="${esc(a.key)}">${ASK_ICON}</button></span>`
+        : '';
     const rows = shown
       .map(({ area: a, depth }) => {
         const o = ownRules(a, keep);
@@ -227,7 +236,7 @@ ${onAreas ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['pac
           : branchOwn || branchDeep
             ? toTests(pair(branchOwn, branchDeep, kids, true), 1, { node: a.key }, a.key, 'branches')
             : pair(0, 0, kids);
-        return `<tr id="${anchor(a.key)}" class="${matched.has(a.key) ? '' : 'context'}${selected ? ' selected' : ''}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key }, a.key)}</td><td class="num cover">${covered}</td><td class="num">${branches}</td></tr>`;
+        return `<tr id="${anchor(a.key)}" class="${matched.has(a.key) ? '' : 'context'}${selected ? ' selected' : ''}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key }, a.key)}</td><td class="num cover">${spark(a)}${covered}</td><td class="num">${branches}</td></tr>`;
       })
       .join('\n');
     const showNote = q.show === 'files' ? `areas under ${THIN}% covered` : q.show === 'empty' ? `areas with no ${q.level ? `${q.level} ` : ''}rule` : '';
@@ -242,8 +251,8 @@ ${onAreas ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['pac
           areasTitle,
           `${plural(matched.size, 'area')}${showNote ? ` · ${showNote}, with what holds them faint` : ''} · a row holding others counts its own, then (everything inside it)`,
           `<div class="well table"><table>
-<thead><tr><th scope="col">Area</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num" title="Share of the area&rsquo;s statements CI&rsquo;s coverage run executes">Covered</th><th scope="col" class="num wrap">Branches untaken</th></tr></thead>
-<tbody>${rows}</tbody></table></div>`,
+<thead><tr><th scope="col">Area</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num" title="Share of the area&rsquo;s statements CI&rsquo;s coverage run executes">${askInfo ? `<span class="nw">Covered${askInfo.button}</span>` : 'Covered'}</th><th scope="col" class="num wrap">Branches untaken</th></tr></thead>
+<tbody>${rows}</tbody></table></div>${askInfo ? `${askInfo.panel}<span class="sr-only" role="status" id="ask-said"></span><script type="application/json" id="ask-data">${JSON.stringify(asks).replace(/</g, '\\u003c')}</script>${ASK_SCRIPT}` : ''}`,
           'panel wide',
           areasInfo,
         )
@@ -362,44 +371,54 @@ ${tiles}`;
       .join('')}</ul>`;
   }
 
-  // ---- Gaps: the files under THIN covered, most statements no test runs first, then the branches no test takes ----
+  // ---- Gaps: the files under THIN covered still to test, most statements no test runs first, each picked into one prompt; then those decided not worth a test ----
   function gapsView(): string {
     const files = measured(inScope);
     const filesTitle = `Files to test next${scope ? ` in ${esc(scope.label)}` : ''}`;
     const filesInfo = explain('gap-files', filesTitle, WHAT.gapFiles);
-    if (files === null) return `${section('gap-files', filesTitle, '', `<p class="well empty">${UNKNOWN_COVERAGE}</p>`, 'panel wide', filesInfo)}\n${branchesPanel()}`;
+    if (files === null) return section('gap-files', filesTitle, '', `<p class="well empty">${UNKNOWN_COVERAGE}</p>`, 'panel wide', filesInfo);
     const owners = new Map<string, Area[]>();
     for (const a of inScope) for (const s of a.statements ?? []) owners.set(s.file, [...(owners.get(s.file) ?? []), a]);
+    const ownedBy = (file: string) => (owners.get(file) ?? []).map((a) => `<a href="${link({ group: 'area', list: listOf({ node: a.key }) })}#${anchor(a.key)}">${esc(a.label)}</a>`).join(', ');
     const branches = new Map([...branchesByFile(inScope)].map(([f, own]) => [f, own.count]));
-    const notRun = (f: FileStatements) => f.total - f.covered;
-    const thin = files.filter((f) => isThin(f)).sort((a, b) => notRun(b) - notRun(a) || (a.file < b.file ? -1 : 1));
-    const above = files.length - thin.length;
-    const body = thin
-      .map((f) => {
+    const notRun = (f: FileStatements) => `<strong>${number(f.total - f.covered)}</strong> <span class="faint">of ${number(f.total)}</span>`;
+    const { next, decided, above } = gapLists(files, model.notWorthATest);
+    const body = next
+      .map(({ file: f, changed }) => {
         const n = branches.get(f.file) ?? 0;
-        return `<tr><td class="first path">${fileLink(f.file, null)}</td><td class="num"><strong>${number(notRun(f))}</strong> <span class="faint">of ${number(f.total)}</span></td><td class="num cover">${share(coverageOf([f]))}</td><td class="num">${n ? `<span class="bad">${number(n)}</span>` : dash}</td><td>${(owners.get(f.file) ?? []).map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td></tr>`;
+        const pick = pickOf(f, owners.get(f.file) ?? []);
+        const mark = changed ? ` <span class="changed" title="${esc(`Decided not to test with ${number(changed.notRun)} not run: ${changed.reason}`)}">changed since decided</span>` : '';
+        return `<tr><td class="pick-cell"><input type="checkbox" class="pick" aria-label="Pick ${esc(f.file)}" data-file="${esc(pick.file)}" data-pct="${esc(pick.pct)}" data-lines="${esc(pick.lines)}" data-areas="${esc(pick.areas)}"></td><td class="first path">${fileLink(f.file, null)}${mark}</td><td class="num">${notRun(f)}</td><td class="num cover">${share(coverageOf([f]))}</td><td class="num">${n ? `<span class="bad">${number(n)}</span>` : dash}</td><td>${ownedBy(f.file)}</td></tr>`;
       })
       .join('\n');
-    const label = scope ? scope.label : 'Cockpit';
-    const prompt = thin.length
-      ? [`Tests are missing for these files in the "${label}" feature area:`, ...thin.map((f) => `- ${f.file}`), '', "Use this repo's test strategy and guidance when defining tests, to figure out which tests may need to be added to ensure this is covered."].join('\n')
-      : '';
-    const copy = prompt
-      ? ` · <textarea id="gap-prompt" hidden>${esc(prompt)}</textarea><button type="button" class="copy" onclick="navigator.clipboard.writeText(document.getElementById('gap-prompt').value).then(()=>{this.textContent='Copied'})">Copy prompt for missing tests</button>`
-      : '';
+    const bar = `<div class="gap-bar"><button type="button" class="copy primary" id="gap-copy" disabled>Copy prompt</button><button type="button" class="copy" id="gap-top">Pick the top 5</button><span id="gap-status" class="faint">Pick the files to work on, then paste the prompt into a new Claude Code session.</span></div>`;
     const table = section(
       'gap-files',
       filesTitle,
-      `${plural(thin.length, 'file')} under ${THIN}% covered, most statements no test runs first · ${plural(above, 'file')} at or above it not listed${q.package ? ` · ${esc(pkgLabel(q.package))} only` : ''}${copy}`,
-      thin.length
-        ? `<div class="well table"><table>
-<thead><tr><th scope="col">Source file</th><th scope="col" class="num wrap">Statements not run</th><th scope="col" class="num">Covered</th><th scope="col" class="num wrap">Branches untaken</th><th scope="col">Owned by</th></tr></thead>
-<tbody>${body}</tbody></table></div>`
-        : `<p class="well empty">None: every file here has at least ${THIN}% of its statements run by a test.</p>`,
+      `${plural(next.length, 'file')} under ${THIN}% covered, most statements no test runs first · ${plural(above, 'file')} at or above it not listed${decided.length ? ` · ${plural(decided.length, 'file')} decided not to test` : ''}${q.package ? ` · ${esc(pkgLabel(q.package))} only` : ''}`,
+      next.length
+        ? `${bar}<div class="well table"><table>
+<thead><tr><th scope="col"><span class="sr-only">Pick</span></th><th scope="col">Source file</th><th scope="col" class="num wrap">Statements not run</th><th scope="col" class="num">Covered</th><th scope="col" class="num wrap">Branches untaken</th><th scope="col">Owned by</th></tr></thead>
+<tbody>${body}</tbody></table></div>${GAPS_SCRIPT}`
+        : `<p class="well empty">${decided.some(({ file: f }) => isThin(f)) ? `None left: every file here under ${THIN}% of its statements run is decided not to test.` : `None: every file here has at least ${THIN}% of its statements run by a test.`}</p>`,
       'panel wide',
       filesInfo,
     );
-    return `${table}\n${branchesPanel()}`;
+    if (!decided.length) return table;
+    const why = decided
+      .map(({ file: f, decision }) => `<tr><td class="first path">${fileLink(f.file, null)}</td><td class="num">${notRun(f)}</td><td class="num cover">${share(coverageOf([f]))}</td><td class="reason">${esc(decision.reason)}</td></tr>`)
+      .join('\n');
+    const decidedSection = section(
+      'gap-decided',
+      'Decided not to test',
+      `${plural(decided.length, 'file')} judged not worth a test, each with its reason`,
+      `<details class="decided"><summary>Show ${decided.length === 1 ? 'it' : `all ${number(decided.length)}`} and why</summary><div class="well table"><table>
+<thead><tr><th scope="col">Source file</th><th scope="col" class="num wrap">Statements not run</th><th scope="col" class="num">Covered</th><th scope="col">Why not</th></tr></thead>
+<tbody>${why}</tbody></table></div></details>`,
+      'panel wide',
+      explain('gap-decided', 'Decided not to test', WHAT.gapDecided),
+    );
+    return `${table}\n${decidedSection}`;
   }
 
   /** The branches no test takes across areas, per file: its lines, how many, and the areas owning it. A file owned by several areas is counted once, by the most any one holds (as `branchGaps` does). */
@@ -417,34 +436,6 @@ ${tiles}`;
       }
     }
     return byFile;
-  }
-
-  /** The branches no test takes, a row per file with its lines; unknown, not none, when the snapshot had no coverage. */
-  function branchesPanel(): string {
-    const info = (title: string) => explain('gap-branches', title, WHAT.gapBranches);
-    if (!model.coverageAvailable) {
-      return section('gap-branches', 'Branches nothing takes', '', '<p class="well empty">Unknown, not zero: the branches no test takes come from CI&rsquo;s instrumented run on main, and this snapshot had none.</p>', 'panel wide', info('Branches nothing takes'));
-    }
-    const byFile = branchesByFile(inScope);
-    if (!byFile.size) return section('gap-branches', 'Branches nothing takes', '', `<p class="well empty">None: every branch ${scope ? `${esc(scope.label)} owns` : 'here'} is taken by at least one test.</p>`, 'panel wide', info('Branches nothing takes'));
-    const body = [...byFile]
-      .sort(([fa, a], [fb, b]) => b.count - a.count || (fa < fb ? -1 : 1))
-      .map(
-        ([file, own]) =>
-          `<tr><td class="first path">${fileLink(file, null)}</td><td class="num">${number(own.count)}</td><td class="path">${[...new Set(own.lines)].sort((x, y) => x - y).map((n) => fileLink(file, n, `${n}`)).join(', ')}</td><td>${own.areas.map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td></tr>`,
-      )
-      .join('\n');
-    const title = `Branches nothing takes${scope ? ` in ${esc(scope.label)}` : ''}`;
-    return section(
-      'gap-branches',
-      title,
-      `${plural(branchGaps(inScope, keep), 'branch', 'branches')} in ${plural(byFile.size, 'file')}`,
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Source file</th><th scope="col" class="num">Branches</th><th scope="col">Lines</th><th scope="col">Owned by</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
-      'panel wide',
-      info(title),
-    );
   }
 }
 
@@ -519,6 +510,82 @@ const PANE_SCRIPT = `<script>
 })();
 </script>`;
 
+/** The spark beside an area's Covered: asking Claude, not opening anything. */
+const ASK_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z"/></svg>';
+
+/**
+ * The page runs each prompt's builder as its source here, compiled. A bundler
+ * keeping function names wraps an inner function in `__name`, which the page
+ * defines as nothing more than a pass-through.
+ */
+const KEEP_NAMES = 'var __name = function (f) { return f; };';
+
+/**
+ * A spark icon copies its area's analysis prompt, built from the data the
+ * table carries once, and says Copied beside itself for a moment without
+ * taking any room, and to a screen reader in a status line no one sees; where the clipboard refuses, the prompt is shown to copy by
+ * hand. It opens nothing: it is not a link, and the panel's script acts on
+ * links alone.
+ */
+const ASK_SCRIPT = `<script>
+(function(){
+  ${KEEP_NAMES}
+  var analysisPrompt = ${analysisPrompt.toString()};
+  var data = null;
+  document.addEventListener('click', function(e){
+    var b = e.target.closest && e.target.closest('.ask button');
+    if (!b) return;
+    data = data || JSON.parse(document.getElementById('ask-data').textContent);
+    var text = analysisPrompt(data, b.dataset.area);
+    var said = function(){
+      b.classList.add('done');
+      document.getElementById('ask-said').textContent = 'Copied the prompt for ' + data.areas[b.dataset.area].label + '. Paste it into a new Claude Code session.';
+      clearTimeout(b.doneTimer);
+      b.doneTimer = setTimeout(function(){ b.classList.remove('done'); }, 2000);
+    };
+    var by_hand = function(){ window.prompt('Copy this prompt', text); };
+    try { navigator.clipboard.writeText(text).then(said, by_hand); } catch (x) { by_hand(); }
+  });
+})();
+</script>`;
+
+/**
+ * Gaps' one action: ticking files, or Pick the top 5, offers Copy prompt for
+ * that many, which copies one prompt for them, built from what each checkbox
+ * carries. Where the clipboard refuses, the prompt replaces the hint, selected,
+ * until a copy succeeds.
+ */
+const GAPS_SCRIPT = `<script>
+(function(){
+  ${KEEP_NAMES}
+  var gapsPrompt = ${gapsPrompt.toString()};
+  var copy = document.getElementById('gap-copy'), top5 = document.getElementById('gap-top'), status = document.getElementById('gap-status');
+  var picks = function(){ return Array.prototype.slice.call(document.querySelectorAll('input.pick')); };
+  var picked = function(){ return picks().filter(function(p){ return p.checked; }); };
+  function refresh(){
+    var n = picked().length;
+    copy.disabled = n === 0;
+    copy.textContent = n ? 'Copy prompt for ' + n + (n === 1 ? ' file' : ' files') : 'Copy prompt';
+  }
+  document.addEventListener('change', function(e){ if (e.target.matches && e.target.matches('input.pick')) refresh(); });
+  top5.addEventListener('click', function(){ picks().forEach(function(p, i){ p.checked = i < 5; }); refresh(); });
+  copy.addEventListener('click', function(){
+    var text = gapsPrompt(picked().map(function(p){ return p.dataset; }));
+    // The hint and the prompt to copy by hand take turns in one place: a later copy that succeeds puts the hint back.
+    var swapTo = function(tag){
+      if (status.tagName === tag) return;
+      var next = document.createElement(tag);
+      if (tag === 'TEXTAREA') { next.className = 'fallback'; next.setAttribute('aria-label', 'The prompt, to copy'); } else { next.id = 'gap-status'; next.className = 'faint'; }
+      status.replaceWith(next); status = next;
+    };
+    var said = function(){ swapTo('SPAN'); status.textContent = 'Copied. Paste it into a new Claude Code session.'; };
+    var by_hand = function(){ swapTo('TEXTAREA'); status.value = text; status.select(); };
+    try { navigator.clipboard.writeText(text).then(said, by_hand); } catch (x) { by_hand(); }
+  });
+  refresh();
+})();
+</script>`;
+
 const EXTRA = `
 main{max-width:1800px}
 .stamp{margin:0;font-size:13px;color:var(--ink-faint)}.stamp a{color:inherit}
@@ -564,6 +631,22 @@ details.code .src{margin-top:6px;font-size:12px;color:var(--ink-faint)}
 .with-pane td.num{font-size:13px}
 .with-pane .first{min-width:150px}
 .with-pane .meter{width:22px;margin-right:4px}
+.gap-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:4px 4px 10px}
+.copy.primary{background:var(--accent-deep);color:var(--surface)}.copy.primary:hover{background:var(--accent-deep);opacity:.9}.copy:disabled{opacity:.45;cursor:default}
+/* The spark sits on its figure's line and keeps its room while hidden, so a row's height never changes; Copied is drawn over the cell beside it, taking none. */
+.ask{position:relative;display:inline-block;margin-right:6px;vertical-align:-3px}
+.with-pane .ask{margin-right:4px}
+.ask button{position:relative;display:grid;place-items:center;width:22px;height:20px;padding:0;border:1px solid color-mix(in srgb,var(--accent-deep) 40%,transparent);border-radius:var(--radius-sm);background:none;color:var(--accent-deep);cursor:pointer;opacity:0}
+.ask button svg{width:13px;height:13px}
+tr:hover .ask button,tr.selected .ask button,.ask button:focus-visible,.ask button.done{opacity:1}
+.ask button:hover{background:var(--accent-tint)}
+.ask button.done::after{content:'Copied';position:absolute;right:calc(100% + 4px);top:50%;transform:translateY(-50%);padding:1px 6px;border-radius:var(--radius-sm);background:var(--accent-deep);color:var(--surface);font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none}
+@media (hover:none){.ask button{opacity:1}}
+td.pick-cell{width:28px;padding-right:0}td.pick-cell input{width:16px;height:16px;cursor:pointer}
+textarea.fallback{width:100%;min-height:160px;font:12px ui-monospace,Consolas,monospace}
+.changed{display:inline-block;margin-left:6px;padding:0 6px;border-radius:var(--radius-sm);font-size:12px;background:var(--due-soft);color:var(--due-ink);word-break:normal}
+details.decided summary{cursor:pointer;padding:4px 4px 10px;font-size:14px;font-weight:500;color:var(--accent-deep)}
+td.reason{color:var(--ink-soft)}
 /* Pinned below the band, which is pinned too and about 110px tall, so the head is never under it. */
 .pane{position:sticky;top:124px;max-height:calc(100vh - 136px);display:flex;flex-direction:column;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 10%,transparent);border-radius:var(--radius-sm);overflow:hidden}
 .pane > .well.empty{padding:24px 18px;box-shadow:none;border:0}

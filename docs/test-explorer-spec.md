@@ -443,6 +443,11 @@ the file-pattern check originally specced — §2a covers why that stopped being
 It guards the registry's names; its patterns are guarded by the test named in "The area
 registry" (§5), which is where a rename lands.
 
+It also fails on an entry of `tools/test-explorer/not-worth-a-test.json` it cannot place: a
+file the analyzer does not walk, no reason, or no count of statements not run, each named.
+The list is carried into the snapshot, so a rename or deletion of a listed file is a
+change to it too.
+
 ## 8. CLI, scripts, CI
 
 ```bash
@@ -479,7 +484,7 @@ suite once in CI, not once to gate and once to measure", issue 289). The artifac
 that draft avoided is what replaced it.
 
 **This publishes, and does not gate.** No job fails on a red cell; `check-concepts` only
-fails on registry drift, which is build hygiene rather than a coverage judgment. Gating on
+fails on registry drift or a not-worth-a-test entry it cannot place, which is build hygiene rather than a coverage judgment. Gating on
 content is the last step of the suggested order (generate → publish → live with it → gate)
 precisely because gating creates the incentive to argue a node into a thinner obligation
 rather than test it. Only the first two steps of that order have been taken.

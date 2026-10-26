@@ -105,7 +105,9 @@ async function send(file, pullRequest) {
  * file actually declares (its outer describe) must be registered in
  * concepts.json. Exits nonzero listing every unregistered name — this is the
  * check CI runs, and it is a build-hygiene failure (a typo, or a new area
- * nobody added yet), not a judgment about test coverage.
+ * nobody added yet), not a judgment about test coverage. It also fails on an
+ * entry of not-worth-a-test.json it cannot place, as it does on an
+ * unregistered area (`conceptsCheck`).
  *
  * This replaced the original "every source file matches exactly one area"
  * check: once a file could legitimately back more than one feature area
@@ -113,17 +115,38 @@ async function send(file, pullRequest) {
  * left for a file-overlap check to reject.
  */
 function checkConcepts(model) {
-  if (!model.unregisteredAreas.length) {
-    const nodes = [...walkTree(model.tree)];
-    const total = nodes.reduce((sum, n) => sum + n.rules.length, 0);
-    process.stdout.write(`concepts.json OK: ${total} rule(s) across ${nodes.length} area(s), nothing unregistered.\n`);
-    return 0;
-  }
+  const { code, text } = conceptsCheck(model);
+  process.stdout.write(text);
+  return code;
+}
 
-  process.stdout.write(`${model.unregisteredAreas.length} feature area(s) used in tests but missing from concepts.json:\n\n`);
-  for (const name of model.unregisteredAreas) process.stdout.write(`  ${name}\n`);
-  process.stdout.write('\nAdd the area to tools/test-explorer/concepts.json, or fix the typo in the describe.\n');
-  return 1;
+/**
+ * The check's verdict on a model, as the exit code and what it prints: it fails
+ * on an unregistered area, and on an entry of not-worth-a-test.json the analyzer
+ * could not place, each named. Pure, so a test can hold it to an analyzed
+ * fixture repository.
+ *
+ * @param {import('./model.js').Model} model
+ * @returns {{ code: number, text: string }}
+ */
+export function conceptsCheck(model) {
+  const problems = model.notWorthATestProblems ?? [];
+  const lines = [];
+  if (model.unregisteredAreas.length) {
+    lines.push(`${model.unregisteredAreas.length} feature area(s) used in tests but missing from concepts.json:`, '');
+    for (const name of model.unregisteredAreas) lines.push(`  ${name}`);
+    lines.push('', 'Add the area to tools/test-explorer/concepts.json, or fix the typo in the describe.');
+  }
+  if (problems.length) {
+    if (lines.length) lines.push('');
+    lines.push(`${problems.length} entr${problems.length === 1 ? 'y' : 'ies'} of tools/test-explorer/not-worth-a-test.json that cannot be placed:`, '');
+    for (const problem of problems) lines.push(`  ${problem}`);
+    lines.push('', 'Each entry names a source file the analyzer walks, with a reason and how many of its statements were not run when decided.');
+  }
+  if (lines.length) return { code: 1, text: `${lines.join('\n')}\n` };
+  const nodes = [...walkTree(model.tree)];
+  const total = nodes.reduce((sum, n) => sum + n.rules.length, 0);
+  return { code: 0, text: `concepts.json OK: ${total} rule(s) across ${nodes.length} area(s), nothing unregistered; ${(model.notWorthATest ?? []).length} file(s) decided not worth a test, each placed.\n` };
 }
 
 function write(file, contents) {
@@ -175,7 +198,8 @@ const USAGE = `Usage: node src/cli.js [options]
   --send <file>      Send the model a --json or --model run wrote to the Harness Monitor at
                        $HARNESS_MONITOR_URL with $HARNESS_WRITE_KEY, as main's tests, and write nothing.
   --pull-request <n> With --send: send them as pull request n's tests instead.
-  --check-concepts   Fail if any test declares a feature area missing from concepts.json.
+  --check-concepts   Fail if any test declares a feature area missing from concepts.json, or if
+                       not-worth-a-test.json has an entry it cannot place.
   --help                This.
 `;
 

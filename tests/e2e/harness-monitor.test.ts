@@ -1308,6 +1308,68 @@ test.describe('Harness Monitor', () => {
     }
   });
 
+  test("Test coverage copies a prompt to the clipboard from Gaps' picked files, offered once one is picked, or from an area's spark icon, which opens nothing, moves nothing and shows without pointing on a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    // Seven files under 80%: Panels owns parts 1 to 4, Layouts 5 to 7; part 1 has the most statements no test runs.
+    const files = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((n) => ({ file: `apps/web/src/part-${n}.ts`, total: 100, covered: n * 10, uncovered: [`${n}-${n + 40}`] }));
+    const area = (key: string, statements: unknown[], children: unknown[] = []) => ({
+      key,
+      label: key,
+      counts: { L1: 1, F3: 0, Contract: null },
+      rules: [{ concept: key, statement: `${key} holds`, level: 'L1', file: `apps/web/tests/unit/${key.toLowerCase()}.test.ts`, line: 10, cases: [], todoCases: [] }],
+      statements,
+      branchesNothingTakes: [],
+      children,
+    });
+    const tree = {
+      commit: 'abc1234',
+      commitUrl: 'https://github.com/o/r/commit/abc1234',
+      generatedAt: '2026-10-24T03:00:00.000Z',
+      coverageAvailable: true,
+      availableLevels: { L3: false },
+      warnings: [],
+      tree: [area('Dashboards', [], [area('Panels', files(1, 4)), area('Layouts', files(5, 7))])],
+    };
+    expect((await api.post(`${monitor}/__e2e/seed-tests`, { data: { tree } })).ok()).toBe(true);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(monitor!).origin });
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+    // Gaps with nothing picked offers no copy; Pick the top 5 counts them on the button, and Copy puts a prompt naming those five on the clipboard.
+    await page.goto(`${monitor}/tests?group=gaps`);
+    const copy = page.locator('#gap-copy');
+    await expect(copy).toHaveText('Copy prompt');
+    await expect(copy).toBeDisabled();
+    await page.getByRole('button', { name: 'Pick the top 5' }).click();
+    await expect(copy).toHaveText('Copy prompt for 5 files');
+    await expect(page.locator('input.pick:checked')).toHaveCount(5);
+    await copy.click();
+    await expect(page.locator('#gap-status')).toHaveText('Copied. Paste it into a new Claude Code session.');
+    const picked = (await clipboard()).split(/\r?\n/).filter((l) => l.startsWith('- apps/'));
+    expect(picked).toEqual([1, 2, 3, 4, 5].map((n) => `- apps/web/src/part-${n}.ts (${n * 10}% of statements run; area: ${n <= 4 ? 'Panels' : 'Layouts'}): lines ${n}-${n + 40}`));
+
+    // On Concept area with Panels' panel open, its row's spark shows without pointing; another row's shows only on a phone, where nothing points.
+    await page.goto(`${monitor}/tests?tests=Panels%7E%7E`);
+    const table = page.getByRole('region', { name: 'Every area' });
+    const pane = page.locator('#pane');
+    const spark = (name: string) => table.getByRole('button', { name: `Suggest tests for ${name}` });
+    const opacity = (target: Locator) => target.evaluate((el) => getComputedStyle(el).opacity);
+    expect(await opacity(spark('Panels'))).toBe('1');
+    expect(await opacity(spark('Layouts'))).toBe(onAPhone ? '1' : '0');
+
+    // The spark puts Panels' analysis prompt on the clipboard and says so, while the address, the panel, the table and the page stay where they were.
+    await spark('Panels').scrollIntoViewIfNeeded();
+    const before = { url: page.url(), y: await page.evaluate(() => Math.round(window.scrollY)), pane: await pane.boundingBox(), table: await table.boundingBox() };
+    await spark('Panels').click();
+    await expect(spark('Panels')).toHaveClass(/done/);
+    await expect(page.locator('#ask-said')).toHaveText('Copied the prompt for Panels. Paste it into a new Claude Code session.');
+    const asked = await clipboard();
+    expect(asked).toMatch(/^Analyse the test coverage of the "Panels" area of Cockpit \(Dashboards › Panels\), and suggest the tests worth adding\./);
+    expect(asked).toContain('  - apps/web/src/part-1.ts (10% run, 90 of 100 statements not run): lines 1-41');
+    expect({ url: page.url(), y: await page.evaluate(() => Math.round(window.scrollY)), pane: await pane.boundingBox(), table: await table.boundingBox() }).toEqual(before);
+    await expect(pane.getByRole('heading', { level: 2 })).toContainText('Panels');
+  });
+
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
