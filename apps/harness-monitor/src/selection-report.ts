@@ -336,7 +336,7 @@ export function rankRules(pulls: ViewPull[], jobs: Job[], checkMs: CheckMs, expe
 
 /** What the first tile of each day says: the time the rules to fix could have saved, and every full run per job. */
 export interface RanMoreThanNeeded {
-  /** The time the full runs a rule to fix forced could have saved; null where none of them has a typical selected run to be measured against, and zero where no rule needs fixing. */
+  /** The time the full runs a rule to fix forced could have saved; null where no shown job has a typical selected run to measure against, and otherwise the sum over the jobs that have one, so a job without one adds nothing. */
   savedMs: number | null;
   /** How many full runs a rule to fix forced. */
   fixRuns: number;
