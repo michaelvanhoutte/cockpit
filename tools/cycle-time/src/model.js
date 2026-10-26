@@ -1183,7 +1183,9 @@ export function monitorRows({ pulls, trunk = 'main' }) {
  * not read (or where no job drew a lane), and the local review and run slices, none without a session record.
  */
 function timelineOf(pull) {
-  return { lanes: pull.rounds.map((round) => round.lanes), reviewSlices: pull.reviewSlices, runSlices: pull.runSlices };
+  // A hand-edited record can leave a review's level word empty (`code-review :2`), which the Monitor refuses as a level: it is sent as no level, so one body never holds up a send.
+  const reviewSlices = pull.reviewSlices.map(({ level, ...slice }) => (level ? { ...slice, level } : slice));
+  return { lanes: pull.rounds.map((round) => round.lanes), reviewSlices, runSlices: pull.runSlices };
 }
 
 /**

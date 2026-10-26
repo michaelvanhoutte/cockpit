@@ -124,24 +124,30 @@ export function sendPulls({ url, key, pulls, fetchImpl = globalThis.fetch, maxPu
  */
 export async function sendTimelines({ url, key, timelines, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
   const refused = [];
-  const result = await sendBatches({
-    url,
-    key,
-    path: '/v1/cycle-time/timelines',
-    field: 'timelines',
-    rows: timelines,
-    rest: 'the same backfill run again sends the rest, and stores each timeline once',
-    fetchImpl,
-    maxPulls,
-    maxChars,
-    refused,
-  });
+  const named = () =>
+    `Running the window again refuses ${refused.length === 1 ? 'it' : 'them'} again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps whatever timeline it already has.\n` +
+    refused.map((reason) => `  ${reason}`).join('\n');
+  let result;
+  try {
+    result = await sendBatches({
+      url,
+      key,
+      path: '/v1/cycle-time/timelines',
+      field: 'timelines',
+      rows: timelines,
+      rest: 'the same backfill run again sends the rest, and stores each timeline once',
+      fetchImpl,
+      maxPulls,
+      maxChars,
+      refused,
+    });
+  } catch (error) {
+    // A send stopped later still names what was refused before it, which running it again will not store either.
+    if (error instanceof MonitorError && refused.length > 0) throw new MonitorError(`${error.message}\nBefore it stopped, it refused ${refused.length} timeline${refused.length === 1 ? '' : 's'}. ${named()}`);
+    throw error;
+  }
   if (refused.length > 0) {
-    throw new MonitorError(
-      `The Harness Monitor refused ${refused.length} timeline${refused.length === 1 ? '' : 's'} and stored the other ${result.pulls}. ` +
-        `Running the window again refuses ${refused.length === 1 ? 'it' : 'them'} again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps no timeline.\n` +
-        refused.map((reason) => `  ${reason}`).join('\n'),
-    );
+    throw new MonitorError(`The Harness Monitor refused ${refused.length} timeline${refused.length === 1 ? '' : 's'} and stored the other ${result.pulls}. ${named()}`);
   }
   return result;
 }

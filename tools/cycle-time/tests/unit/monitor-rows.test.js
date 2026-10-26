@@ -372,6 +372,13 @@ describe('Cycle time', () => {
         reviewSlices: [],
         runSlices: [],
       },
+      {
+        situation: 'a review whose level word a hand edit left empty, which is sent with no level',
+        body: localWork.replaceAll(' code-review high', ' code-review :2'),
+        lanes: [[['Checks', 0, 3, 0], ['Test', 1, 9, 1]], null],
+        reviewSlices: [{ kind: 'code-review', gap: 0, at: at(0), ms: MIN }],
+        runSlices: [{ kind: 'test', scopes: ['api'], gap: 1, at: at(13), ms: 5 * MIN }],
+      },
     ])('$situation', ({ body, lanes, reviewSlices, runSlices }) => {
       const [row] = monitorRows({ pulls: [pull({ body, commits: twoRounds })] });
 

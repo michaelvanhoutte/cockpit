@@ -162,7 +162,7 @@ describe('Cycle time', () => {
       const sending = sendTimelines({ url: 'https://monitor.test', key: 'k', timelines, fetchImpl, maxPulls: 3 });
 
       await expect(sending).rejects.toThrow(
-        'The Harness Monitor refused 1 timeline and stored the other 4. Running the window again refuses it again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps no timeline.\n  Timeline 0 (#2): has a timeline of 2 rounds, but the stored pull request has 1.',
+        'The Harness Monitor refused 1 timeline and stored the other 4. Running the window again refuses it again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps whatever timeline it already has.\n  Timeline 0 (#2): has a timeline of 2 rounds, but the stored pull request has 1.',
       );
       expect(sent).toEqual([[1, 2, 3], [1], [2], [3], [4, 5]]);
     });
@@ -172,6 +172,21 @@ describe('Cycle time', () => {
 
       await expect(sendTimelines({ url: 'https://monitor.test', key: 'k', timelines, fetchImpl, maxPulls: 3 })).rejects.toThrow('The Harness Monitor refused batch 1 of 2 (500');
       expect(sent).toEqual([[1, 2, 3]]);
+    });
+
+    it('a send stopped by a later batch still names the timeline refused before it', async () => {
+      const fetchImpl = async (_url, init) => {
+        const numbers = JSON.parse(init.body).timelines.map((t) => t.number);
+        if (numbers.includes(2)) return { ok: false, status: 400, json: async () => ({ error: 'Timeline 0 (#2): is for a pull request the Monitor does not hold; send the pull request first.' }) };
+        if (numbers.includes(4)) return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => ({ stored: numbers.length }) };
+      };
+
+      const sending = sendTimelines({ url: 'https://monitor.test', key: 'k', timelines, fetchImpl, maxPulls: 3 });
+
+      await expect(sending).rejects.toThrow('The Harness Monitor refused batch 2 of 2 (500)');
+      await expect(sending).rejects.toThrow('Before it stopped, it refused 1 timeline.');
+      await expect(sending).rejects.toThrow('  Timeline 0 (#2): is for a pull request the Monitor does not hold');
     });
   });
 });
