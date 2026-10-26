@@ -43,6 +43,15 @@ describe('pullModel: Rule 1, a miss is a test that failed on main and was not ru
     expect(pullModel(data).misses).toEqual([{ path: 'a.test.ts', level: 'unit', reason: null }]);
   });
 
+  it('failed on main with its failed tests named in the record: the same miss as from a record that names none', () => {
+    const prRecord = record({ packages: [pkg({ mode: 'changed', files: [file({ path: 'a.test.ts', status: 'not run' })] })] });
+    const mainPackages = [pkg({ mode: 'full', files: [file({ path: 'a.test.ts', status: 'failed' })] })];
+    const named = { ...record({ event: 'push', packages: mainPackages }), failedTests: [{ file: 'a.test.ts', name: 'Triage > a', error: 'expected 1 to be 2' }], failedTestsMore: 2 };
+    const bare = record({ event: 'push', packages: mainPackages });
+    expect(pullModel(pullData({ prRecord, mainRecord: named })).misses).toEqual(pullModel(pullData({ prRecord, mainRecord: bare })).misses);
+    expect(pullModel(pullData({ prRecord, mainRecord: named })).misses).toEqual([{ path: 'a.test.ts', level: 'unit', reason: null }]);
+  });
+
   it('failed on main, run and passed on the pull request: not a miss', () => {
     const data = pullData({
       prRecord: record({ packages: [pkg({ mode: 'changed', files: [file({ path: 'a.test.ts', status: 'passed' })] })] }),
