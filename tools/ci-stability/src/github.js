@@ -286,7 +286,8 @@ const DAY_MS = 86_400_000;
 /** The window from `since` to `until` cut into spans of a day, oldest first, the last one shorter. @returns {{ from: Date, to: Date }[]} */
 export function dayChunks(since, until) {
   const chunks = [];
-  for (let from = since; from < until; ) {
+  // The API's range is to the second, so a boundary with milliseconds would drop the runs of its second.
+  for (let from = new Date(Math.floor(since.getTime() / 1000) * 1000); from < until; ) {
     const to = new Date(Math.min(from.getTime() + DAY_MS, until.getTime()));
     chunks.push({ from, to });
     from = to;

@@ -134,6 +134,12 @@ describe('CI stability', () => {
       ]);
     });
 
+    it('starts on a whole second, since the API reads a range to the second and would drop the runs of the second a boundary splits', () => {
+      const chunks = dayChunks(new Date('2026-10-20T08:00:00.700Z'), new Date('2026-10-22T08:00:00Z'));
+
+      expect(chunks.map(({ from }) => from.toISOString())).toEqual(['2026-10-20T08:00:00.000Z', '2026-10-21T08:00:00.000Z']);
+    });
+
     it('gives none for a window with no length', () => {
       expect(dayChunks(new Date('2026-10-20T08:00:00Z'), new Date('2026-10-20T08:00:00Z'))).toEqual([]);
     });

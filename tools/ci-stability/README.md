@@ -73,8 +73,10 @@ send. A branch attempt keeps its verdict, branch, pull request and failed jobs w
 no passing job or step. A day sent stays stored whatever stops the next; `--max-runs` stops it after
 the day that reaches it, and a stop of any kind fails the run, naming where, for the next night to
 carry on from. A re-run's attempt, which carries the time it started, is sent after the last day
-when that is later than its run's day, so a stop leaves it unsent and says `--from` sends it. A pull request's `pull_requests` list is empty on GitHub for a run whose pull request
-has since closed, so an older run is stored with its branch and no pull request.
+when that is later than its run's day, so a stop leaves it unsent and says `--from` sends it.
+
+A run's `pull_requests` list is empty on GitHub once its pull request has closed. The Monitor keeps the pull
+request an attempt was stored with, so only a run first read after that is stored with its branch alone.
 
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
