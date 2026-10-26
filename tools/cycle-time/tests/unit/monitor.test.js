@@ -140,4 +140,38 @@ describe('Cycle time', () => {
       ]);
     });
   });
+
+  describe('a timeline the Monitor refuses keeps no other timeline from being stored, and the send fails naming it', () => {
+    const timelines = Array.from({ length: 5 }, (_, i) => ({ number: i + 1, timeline: { lanes: [], reviewSlices: [], runSlices: [] } }));
+
+    /** A Monitor that answers `status` to any send holding pull request 2, and stores every other. */
+    function refusingTwo(status) {
+      const sent = [];
+      const fetchImpl = async (_url, init) => {
+        const numbers = JSON.parse(init.body).timelines.map((t) => t.number);
+        sent.push(numbers);
+        if (!numbers.includes(2)) return { ok: true, status: 200, json: async () => ({ stored: numbers.length }) };
+        return { ok: false, status, json: async () => ({ error: 'Timeline 0 (#2): has a timeline of 2 rounds, but the stored pull request has 1.' }) };
+      };
+      return { fetchImpl, sent };
+    }
+
+    it('a batch refused for what the Monitor holds is sent again one timeline at a time, and the batches after it are still sent', async () => {
+      const { fetchImpl, sent } = refusingTwo(400);
+
+      const sending = sendTimelines({ url: 'https://monitor.test', key: 'k', timelines, fetchImpl, maxPulls: 3 });
+
+      await expect(sending).rejects.toThrow(
+        'The Harness Monitor refused 1 timeline and stored the other 4. Running the window again refuses it again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps no timeline.\n  Timeline 0 (#2): has a timeline of 2 rounds, but the stored pull request has 1.',
+      );
+      expect(sent).toEqual([[1, 2, 3], [1], [2], [3], [4, 5]]);
+    });
+
+    it('a batch the Monitor fails on for any other reason stops the send, as a send of pull requests does', async () => {
+      const { fetchImpl, sent } = refusingTwo(500);
+
+      await expect(sendTimelines({ url: 'https://monitor.test', key: 'k', timelines, fetchImpl, maxPulls: 3 })).rejects.toThrow('The Harness Monitor refused batch 1 of 2 (500');
+      expect(sent).toEqual([[1, 2, 3]]);
+    });
+  });
 });

@@ -16,7 +16,8 @@
 --   batches before a failure keep their timelines and the later pull requests have
 --   none until a re-run.
 -- - Runs twice: a timeline is replaced by the same one, and the timeline-only send
---   touches no pull request, round or check, so a re-run loses nothing.
+--   touches no pull request, round or check and keeps a round's stored lanes where
+--   it sends none, so a re-run loses nothing.
 -- - Rows that break the rule: a stored pull request with no timeline is not
 --   recorded. A timeline whose round count differs from its pull request's, or
 --   for a pull request not stored, is refused whole, naming it, never stored.

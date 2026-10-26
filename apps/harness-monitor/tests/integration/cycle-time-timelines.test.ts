@@ -102,6 +102,15 @@ describe('Harness Monitor', () => {
       expect(await storedTimelines()).toEqual({ 5: cycleTimeline(2), 6: cycleTimeline(1) });
     });
 
+    it('a round sent with no lanes keeps the lanes already stored for it, and a round sent with lanes replaces them', async () => {
+      await sendPulls([twoRounds(5, { timeline: cycleTimeline(2, 'Lint') })]);
+      const later = cycleTimeline(2, 'Test');
+
+      await sendTimelines([{ number: 5, timeline: { ...later, lanes: [null, later.lanes[1]] } }]);
+
+      expect(await storedTimelines()).toEqual({ 5: { ...later, lanes: [cycleTimeline(1, 'Lint').lanes[0], later.lanes[1]] } });
+    });
+
     it.each([
       { situation: 'with no key', headers: {} },
       { situation: 'with a wrong key', headers: { authorization: 'Bearer not-the-key' } },

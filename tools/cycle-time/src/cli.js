@@ -270,6 +270,11 @@ async function send(monitor, collected, window, { backfill, branch, timelinesOnl
   const unreadable = collected.failed.length
     ? `${collected.failed.length} pull request${collected.failed.length === 1 ? '' : 's'} could not be read and ${collected.failed.length === 1 ? 'was' : 'were'} not sent: ${collected.failed.map((pull) => `#${pull.number}`).join(', ')}.\n`
     : '';
+  // A timeline-only send carries nothing but the lanes, so a job list the allowance cut short is a send that did not do its work, never "not recorded".
+  const limited = timelinesOnly ? pulls.filter((pull) => pull.commits.some((commit) => commit.checks.some((check) => check.queue?.why === 'rate-limit'))).length : 0;
+  const spent = limited
+    ? `GitHub's rate limit ran out before the job lists of ${limited} pull request${limited === 1 ? '' : 's'} were read, so some of ${limited === 1 ? 'its' : 'their'} rounds were sent without lanes. Run the same window again once it resets: that adds them, and never takes away lanes already stored.\n`
+    : '';
   let result;
   try {
     result = timelinesOnly
@@ -277,14 +282,14 @@ async function send(monitor, collected, window, { backfill, branch, timelinesOnl
       : await sendPulls({ url: monitor.url, key: monitor.key, pulls: monitorRows({ pulls, trunk: branch }) });
   } catch (error) {
     if (!(error instanceof MonitorError)) throw error;
-    process.stderr.write(`${error.message}\n${unreadable}${gap}`);
+    process.stderr.write(`${error.message}\n${unreadable}${gap}${spent}`);
     return 1;
   }
   process.stderr.write(
-    `sent ${result.pulls} ${timelinesOnly ? "pull requests' timelines" : 'pull requests'} merged from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${unreadable}${gap}`,
+    `sent ${result.pulls} ${timelinesOnly ? "pull requests' timelines" : 'pull requests'} merged from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${unreadable}${gap}${spent}`,
   );
   // A pull request that could not be read is not sent, and once a later merge is stored the next send's window starts past it: the run fails so it is looked at while it still reaches.
-  return cut || collected.failed.length > 0 ? 1 : 0;
+  return cut || collected.failed.length > 0 || limited > 0 ? 1 : 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. */

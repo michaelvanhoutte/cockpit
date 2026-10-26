@@ -1,6 +1,6 @@
 import { addDays, belgianDay, startOfDay } from './belgium';
 import { PERIODS, type Period } from './costs';
-import { timelineMisfit, type CyclePull, type LocalParts, type TimelineOf } from './cycle-time';
+import { timelineMisfit, type CyclePull, type CycleTimeline, type LocalParts, type TimelineOf } from './cycle-time';
 
 /** The windows each answer carries, in days, the shortest first: every one no longer than the period, and all of it for all time. 14 is the one `harness-cost-review` reads. */
 const WINDOW_DAYS = [7, 14, 30, 90] as const;
@@ -112,27 +112,34 @@ export type StoredTimelines = { ok: true; stored: number } | { ok: false; error:
  * Stores timelines sent alone (the backfill) beside pull requests the Monitor
  * already holds, each replacing the one stored under its number, and touches no
  * pull request, round or check: re-sending a whole pull request could replace it
- * with less than it had, once GitHub has dropped what it was first read from. A
- * timeline for a pull request not held, or one that does not fit the rounds
+ * with less than it had, once GitHub has dropped what it was first read from. For
+ * the same reason a round sent with no lanes keeps the lanes already stored for
+ * it. A timeline for a pull request not held, or one that does not fit the rounds
  * held, refuses the whole send, naming it. One read, then one batch of one statement.
  */
 export async function storeTimelines(db: D1Database, timelines: TimelineOf[], now = Date.now()): Promise<StoredTimelines> {
   const { results } = await db
     .prepare(
-      `SELECT p.pull_number AS number, (SELECT COUNT(*) FROM cycle_time_rounds r WHERE r.pull_number = p.pull_number) AS rounds
-       FROM cycle_time_pulls p WHERE p.pull_number IN (SELECT value FROM json_each(?1))`,
+      `SELECT p.pull_number AS number, (SELECT COUNT(*) FROM cycle_time_rounds r WHERE r.pull_number = p.pull_number) AS rounds, t.timeline AS stored
+       FROM cycle_time_pulls p LEFT JOIN cycle_time_timelines t ON t.pull_number = p.pull_number
+       WHERE p.pull_number IN (SELECT value FROM json_each(?1))`,
     )
     .bind(JSON.stringify(timelines.map((t) => t.number)))
-    .all<{ number: number; rounds: number }>();
-  const held = new Map(results.map((r) => [r.number, r.rounds]));
+    .all<{ number: number; rounds: number; stored: string | null }>();
+  const held = new Map(results.map((r) => [r.number, r]));
+  const rows: { pull_number: number; timeline: CycleTimeline; received_at: number }[] = [];
   for (const [index, { number, timeline }] of timelines.entries()) {
     const label = `Timeline ${index} (#${number})`;
-    const rounds = held.get(number);
-    if (rounds === undefined) return { ok: false, error: `${label}: is for a pull request the Monitor does not hold; send the pull request first.` };
-    const misfit = timelineMisfit(timeline, rounds, 'the stored pull request has');
+    const pull = held.get(number);
+    if (pull === undefined) return { ok: false, error: `${label}: is for a pull request the Monitor does not hold; send the pull request first.` };
+    const misfit = timelineMisfit(timeline, pull.rounds, 'the stored pull request has');
     if (misfit) return { ok: false, error: `${label}: ${misfit}` };
+    // A round whose job list this read missed (the allowance ran out, or GitHub has since dropped it) is no reason to lose the lanes an earlier read stored.
+    const stored = pull.stored === null ? null : (JSON.parse(pull.stored) as CycleTimeline);
+    const lanes = timeline.lanes.map((round, at) => round ?? stored?.lanes[at] ?? null);
+    rows.push({ pull_number: number, timeline: { ...timeline, lanes }, received_at: now });
   }
-  await db.batch([db.prepare(UPSERT_TIMELINES).bind(JSON.stringify(timelines.map((t) => ({ pull_number: t.number, timeline: t.timeline, received_at: now }))))]);
+  await db.batch([db.prepare(UPSERT_TIMELINES).bind(JSON.stringify(rows))]);
   return { ok: true, stored: timelines.length };
 }
 

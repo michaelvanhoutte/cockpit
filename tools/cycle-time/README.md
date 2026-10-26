@@ -74,8 +74,11 @@ timeline does not have lanes for exactly the pull request's rounds. Batches clos
 well as 50 pull requests, timelines counted, and a pull request too large for a batch alone fails the send,
 named. `--timelines-only` sends each pull request's timeline alone, to `POST /v1/cycle-time/timelines`,
 which stores it beside the pull request the Monitor holds and never replaces the pull request: the safe
-way to re-send a window whose first pushes GitHub may no longer hold. A timeline for a pull request the
-Monitor does not hold, or whose rounds differ from the stored ones, refuses the batch, named.
+way to re-send a window whose first pushes GitHub may no longer hold. A round sent without lanes keeps
+the lanes stored for it. A timeline for a pull request the Monitor does not hold, or whose rounds differ
+from the stored ones, refuses its batch, which is then sent one timeline at a time, so every other is
+stored and the send fails naming it. A send whose job lists the rate limit cut short fails too, after
+sending, since its lanes are all it carries: run the same window again once the limit resets.
 
 The `Cycle time` job in [`nightly.yml`](../../.github/workflows/nightly.yml) sends every night. The
 backfill is the *Cycle time backfill* workflow, run by hand, its `timelines-only` box sending `--timelines-only`

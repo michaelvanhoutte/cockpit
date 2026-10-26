@@ -114,38 +114,84 @@ export function sendPulls({ url, key, pulls, fetchImpl = globalThis.fetch, maxPu
 
 /**
  * Sends each pull request's timeline alone, `{ number, timeline }`, beside the pull requests the
- * Monitor already holds: the backfill, which never replaces a pull request. Batches as `sendPulls` does.
+ * Monitor already holds: the backfill, which never replaces a pull request. Batches as `sendPulls` does,
+ * except that a batch the Monitor refuses for what it holds is sent again one timeline at a time and
+ * the send goes on: a timeline that does not fit is refused on every run, and would otherwise keep
+ * every other timeline of its batch, and every batch after it, from ever being stored. The send then
+ * fails, naming each timeline refused.
  *
  * @returns {Promise<{ batches: number, pulls: number }>}
  */
-export function sendTimelines({ url, key, timelines, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
-  return sendBatches({ url, key, path: '/v1/cycle-time/timelines', field: 'timelines', rows: timelines, rest: 'the same backfill run again sends the rest, and stores each timeline once', fetchImpl, maxPulls, maxChars });
+export async function sendTimelines({ url, key, timelines, fetchImpl = globalThis.fetch, maxPulls, maxChars }) {
+  const refused = [];
+  const result = await sendBatches({
+    url,
+    key,
+    path: '/v1/cycle-time/timelines',
+    field: 'timelines',
+    rows: timelines,
+    rest: 'the same backfill run again sends the rest, and stores each timeline once',
+    fetchImpl,
+    maxPulls,
+    maxChars,
+    refused,
+  });
+  if (refused.length > 0) {
+    throw new MonitorError(
+      `The Harness Monitor refused ${refused.length} timeline${refused.length === 1 ? '' : 's'} and stored the other ${result.pulls}. ` +
+        `Running the window again refuses ${refused.length === 1 ? 'it' : 'them'} again: a pull request the Monitor does not hold needs sending first, and one whose rounds differ from the stored ones keeps no timeline.\n` +
+        refused.map((reason) => `  ${reason}`).join('\n'),
+    );
+  }
+  return result;
 }
 
-async function sendBatches({ url, key, path, field, rows, rest, fetchImpl, maxPulls, maxChars }) {
+/** The error the Monitor gave for a refused request, or null when it gave none. */
+const reasonOf = (res) =>
+  res
+    .json()
+    .then((body) => body?.error ?? null)
+    .catch(() => null);
+
+/**
+ * Sends `rows` in batches, stopping at the first the Monitor does not store. Given `refused`, a batch
+ * refused as the wrong shape for what the Monitor holds (400) is sent again one row at a time instead,
+ * each row refused alone is added to `refused`, and the send goes on.
+ */
+async function sendBatches({ url, key, path, field, rows, rest, fetchImpl, maxPulls, maxChars, refused = null }) {
   const batches = cutBatches(rows, { maxPulls, maxChars });
   let sent = 0;
   for (const [index, batch] of batches.entries()) {
-    const stored = `${index} batch${index === 1 ? '' : 'es'} of ${batches.length} ${index === 1 ? 'was' : 'were'} stored (${sent} pull requests); ${rest}.`;
-    let res;
-    try {
-      res = await fetchImpl(address(url, path), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-        body: JSON.stringify({ [field]: batch }),
-        signal: AbortSignal.timeout(REQUEST_MS),
-      });
-    } catch (error) {
-      throw new MonitorError(`Could not reach the Harness Monitor with batch ${index + 1} of ${batches.length}: ${error.message}. ${stored}`);
+    const stored = () => `${index} batch${index === 1 ? '' : 'es'} of ${batches.length} ${index === 1 ? 'was' : 'were'} stored (${sent} pull requests); ${rest}.`;
+    const post = async (body) => {
+      try {
+        return await fetchImpl(address(url, path), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+          body: JSON.stringify({ [field]: body }),
+          signal: AbortSignal.timeout(REQUEST_MS),
+        });
+      } catch (error) {
+        throw new MonitorError(`Could not reach the Harness Monitor with batch ${index + 1} of ${batches.length}: ${error.message}. ${stored()}`);
+      }
+    };
+    const refusal = async (res) => {
+      const reason = await reasonOf(res);
+      return new MonitorError(`The Harness Monitor refused batch ${index + 1} of ${batches.length} (${res.status}${reason ? `: ${reason}` : ''}). ${stored()}`);
+    };
+
+    const res = await post(batch);
+    if (res.ok) {
+      sent += batch.length;
+      continue;
     }
-    if (!res.ok) {
-      const reason = await res
-        .json()
-        .then((body) => body?.error)
-        .catch(() => null);
-      throw new MonitorError(`The Harness Monitor refused batch ${index + 1} of ${batches.length} (${res.status}${reason ? `: ${reason}` : ''}). ${stored}`);
+    if (!refused || res.status !== 400) throw await refusal(res);
+    for (const row of batch) {
+      const alone = batch.length === 1 ? res : await post([row]);
+      if (alone.ok) sent += 1;
+      else if (alone.status === 400) refused.push((await reasonOf(alone)) ?? `#${row.number}: refused.`);
+      else throw await refusal(alone);
     }
-    sent += batch.length;
   }
   return { batches: batches.length, pulls: sent };
 }

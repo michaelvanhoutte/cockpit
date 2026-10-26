@@ -12,8 +12,10 @@ const listed = (number, merged) => ({ number, merged_at: merged, updated_at: mer
 /**
  * GitHub, holding `listing`'s merged pulls, each with one commit that one check ran on, and the
  * Harness Monitor, storing whatever it is sent. Every request the tool makes is kept, in order.
+ * With `allowanceSpent`, the check belongs to a CI run, and the allowance runs out at the listing
+ * of CI runs, the last read, so no job list is read.
  */
-function stubNetwork(listing) {
+function stubNetwork(listing, { allowanceSpent = false } = {}) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     const { origin, pathname, searchParams } = new URL(url);
@@ -35,7 +37,11 @@ function stubNetwork(listing) {
       return ok({ number: pull.number, title: `Pull ${pull.number}`, html_url: 'u', created_at: '2026-09-10T08:00:00Z', merged_at: pull.merged_at, body: '', base: pull.base, head: pull.head, additions: 1, deletions: 1, changed_files: 1, commits: 1 });
     }
     if (pathname.includes('/check-runs')) {
-      return ok({ total_count: 1, check_runs: [{ id: 1, name: 'Test', status: 'completed', conclusion: 'success', started_at: '2026-09-10T09:05:00Z', completed_at: '2026-09-10T09:15:00Z', check_suite: { id: 7 } }] });
+      const run = allowanceSpent ? { details_url: 'https://github.com/o/r/actions/runs/55/job/1' } : {};
+      return ok({ total_count: 1, check_runs: [{ id: 1, name: 'Test', status: 'completed', conclusion: 'success', started_at: '2026-09-10T09:05:00Z', completed_at: '2026-09-10T09:15:00Z', check_suite: { id: 7 }, ...run }] });
+    }
+    if (allowanceSpent && pathname.endsWith('/actions/workflows/ci.yml/runs')) {
+      return { ok: false, status: 403, headers: { get: (name) => (name === 'x-ratelimit-remaining' ? '0' : null) }, json: async () => ({}) };
     }
     return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({}) };
   };
@@ -57,8 +63,8 @@ afterEach(() => {
   stderr.mockRestore();
 });
 
-const backfill = async (listing, extra = []) => {
-  const network = stubNetwork(listing);
+const backfill = async (listing, extra = [], options = {}) => {
+  const network = stubNetwork(listing, options);
   vi.stubGlobal('fetch', network.fetchImpl);
   const code = await main(['--repo', 'o/r', '--send', '--from', '2026-09-08', '--to', '2026-09-21', '--timelines-only', ...extra]);
   return { code, monitorCalls: network.monitorCalls(), said: stderr.mock.calls.map(([text]) => text).join('') };
@@ -79,6 +85,15 @@ describe('Cycle time', () => {
       expect(code).toBe(1);
       expect(monitorCalls.map((call) => call.numbers)).toEqual([[2, 1]]);
       expect(said).toContain('Send them with --from 2026-09-08 --to 2026-09-18 --timelines-only.');
+    });
+
+    it('the allowance running out before the job lists were read fails it, after sending, saying to run the same window again', async () => {
+      const { code, monitorCalls, said } = await backfill(fourPulls, [], { allowanceSpent: true });
+
+      expect(code).toBe(1);
+      expect(monitorCalls.map((call) => call.numbers)).toEqual([[4, 3, 2, 1]]);
+      expect(said).toContain("GitHub's rate limit ran out before the job lists of 4 pull requests were read");
+      expect(said).toContain('Run the same window again once it resets');
     });
   });
 });
