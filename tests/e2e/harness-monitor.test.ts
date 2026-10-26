@@ -1073,7 +1073,7 @@ test.describe('Harness Monitor', () => {
     await expect(toFix.getByRole('button')).toHaveText('Copy prompt');
   });
 
-  test("Test coverage opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, each gap offers neither tiles nor a Level filter, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open rule closed", async ({ page, request: api }) => {
+  test('Test coverage opens from the top bar, drills through the Area filter, each gap offers neither tiles nor a Level filter, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open panel closed', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const rule = (concept: string, statement: string, level: string, file: string, line: number) => ({ concept, statement, level, file, line, cases: [], todoCases: [] });
     const area = (key: string, rules: ReturnType<typeof rule>[], children: unknown[] = []) => ({
@@ -1121,20 +1121,10 @@ test.describe('Harness Monitor', () => {
     expect(await noSidewaysScroll()).toBe(true);
     if (onAPhone) expect(await page.getByRole('region', { name: 'Every area' }).locator('.table').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
-    // Open Inbox: the tree starts at it, and the breadcrumb names the area above.
-    await page.getByRole('region', { name: 'Every area' }).getByRole('link', { name: 'Inbox', exact: true }).click();
-    await expect(page).toHaveURL(/[?&]node=Inbox(&|$)/);
+    // Drill into Inbox through the Area filter: the tree starts at it, and the breadcrumb names the area above.
+    await choose(page, 'Area', 'Inbox', /[?&]node=Inbox(&|$)/);
     await expect(page.getByRole('navigation', { name: 'Area' })).toHaveText('All areas›Workspaces›Inbox');
-    const drilled = page.getByRole('region', { name: 'Inbox, area by area' });
-
-    // Its F3 count of 3 opens those 3 rules above the tree, under the areas that own them; Level is as it was.
-    await drilled.getByRole('link', { name: '1 (3)' }).click();
-    await expect(page).toHaveURL(/[?&]tests=Inbox%7EF3%7E(&|#|$)/);
-    const opened = page.getByRole('region', { name: /^Tests: 3 rules in Inbox and inside it · F3/ });
-    await expect(opened.getByRole('row')).toHaveCount(1 + 2 + 3);
-    await expect(opened).toContainText('Workspaces › Inbox › Capture');
-    await expect(choice(page, 'Level')).toHaveValue('');
-    expect((await opened.boundingBox())!.y).toBeLessThan((await drilled.boundingBox())!.y);
+    await expect(page.getByRole('region', { name: 'Inbox, area by area' })).toBeVisible();
     expect(await noSidewaysScroll()).toBe(true);
 
     // Each gap has no tiles, no Level filter and no Count by, and its files read unknown on a snapshot without coverage.
@@ -1144,16 +1134,16 @@ test.describe('Harness Monitor', () => {
     await expect(choice(page, 'Level')).toHaveCount(0);
     await expect(choice(page, 'Count by')).toHaveCount(0);
 
-    // Back on each concept area, main's, with a rule open and a Package filter: picking the pull request shows its own tree at its own commit, without Inbox, which it does not have, the rows and the filter kept, and the rule closed.
+    // Back on each concept area, main's, with a panel open and a Package filter: picking the pull request shows its own tree at its own commit, without Inbox, which it does not have, the rows and the filter kept, and the panel closed.
     await choose(page, 'Rows', 'each concept area', /[?&]group=area(&|$)/);
     await choose(page, 'Package', 'apps/api', /[?&]package=api(&|$)/);
-    await page.goto(`${page.url()}&rule=${encodeURIComponent('apps/api/tests/unit/triage.test.ts:10')}`);
-    await expect(page.getByRole('navigation', { name: 'Area' })).toContainText('Rule');
+    await page.goto(`${page.url()}&tests=Inbox%7E%7E`);
+    await expect(page.locator('#pane').getByRole('heading', { level: 2 })).toContainText('Inbox');
     const picker = choice(page, 'Tests of');
     await expect(picker).toHaveValue('');
     await picker.selectOption({ label: '#9201' });
     await expect(page).toHaveURL(/[?&]pr=9201(&|$)/);
-    expect(new URL(page.url()).searchParams.has('rule')).toBe(false);
+    expect(new URL(page.url()).searchParams.has('tests')).toBe(false);
     await expect(choice(page, 'Package')).toHaveValue('api');
     await expect(choice(page, 'Rows')).toHaveValue('area');
     await expect(page.locator('.stamp')).toContainText('at def5678');
@@ -1161,6 +1151,141 @@ test.describe('Harness Monitor', () => {
     await expect(every.getByRole('link', { name: 'Sharing', exact: true })).toBeVisible();
     await expect(every.getByRole('link', { name: 'Inbox', exact: true })).toHaveCount(0);
     expect(await noSidewaysScroll()).toBe(true);
+  });
+
+  test("Test coverage opens an area's tests in a panel beside the table that changes alone: a count far down leaves the table where it is and starts the panel at its top, its tabs and Back follow the address, a case's source loads when it is opened, a failed fetch loads the address in full, and the table fits beside the panel from 1,300px, below which the panel sits above the table and a click scrolls it into view", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    const names = Array.from({ length: 24 }, (_, i) => `Area ${String(i + 1).padStart(2, '0')}`);
+    const unit = (name: string) => `apps/api/tests/unit/${name.toLowerCase().replace(' ', '-')}.test.ts`;
+    const rule = (name: string, statement: string, level: string, file: string, line: number) => ({
+      concept: name,
+      statement,
+      level,
+      file,
+      line,
+      cases: [{ text: `${statement}, in one case`, file, line: line + 2 }],
+      todoCases: [],
+    });
+    const area = (name: string, i: number) => ({
+      key: name,
+      label: name,
+      counts: { L1: 1, F3: 1, Contract: null },
+      rules: [rule(name, `${name} holds`, 'L1', unit(name), 10), rule(name, `${name} works in a browser`, 'F3', 'tests/e2e/capture.test.ts', 10 + i * 30)],
+      statements: [{ file: `apps/api/src/${name.toLowerCase().replace(' ', '-')}.ts`, total: 100, covered: 30 + i * 2, uncovered: ['10-60'] }],
+      branchesNothingTakes: [{ file: `apps/api/src/${name.toLowerCase().replace(' ', '-')}.ts`, line: 7 }],
+      children: [],
+    });
+    const tree = {
+      commit: 'abc1234',
+      commitUrl: 'https://github.com/o/r/commit/abc1234',
+      generatedAt: '2026-10-24T03:00:00.000Z',
+      coverageAvailable: true,
+      availableLevels: { L3: false },
+      warnings: [],
+      tree: [{ key: 'Workspaces', label: 'Workspaces', counts: { L1: 0, F3: 0, Contract: null }, rules: [], statements: [], branchesNothingTakes: [], children: names.map(area) }],
+    };
+    // Area 20's rule has its source stored, around line 10; the case two lines below it has none.
+    const around = [{ line: 9, text: '  // above' }, { line: 10, text: "  describe('Area 20 holds', () => {" }, { line: 11, text: '  // below' }];
+    expect((await api.post(`${monitor}/__e2e/seed-tests`, { data: { tree, areas: { 'Area 20': { [`${unit('Area 20')}:10`]: around } } } })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+    const scrollY = () => page.evaluate(() => Math.round(window.scrollY));
+    const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    const table = page.getByRole('region', { name: 'Every area' });
+    const pane = page.locator('#pane');
+    const boxOf = async (target: ReturnType<Page['locator']>) => (await target.boundingBox())!;
+    const sources: string[] = [];
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/tests/source') sources.push(r.url());
+    });
+
+    // A desk opens it at 1,333px: Workspaces' count of every rule inside it opens beside the table, the table fitting without scrolling sideways. A phone has the panel under the table.
+    if (!onAPhone) await page.setViewportSize({ width: 1333, height: 800 });
+    await page.goto(`${monitor}/tests`);
+    await expect(pane).toContainText('Pick an area, or any count');
+    await table.getByRole('row', { name: /^Workspaces/ }).locator('td').nth(8).getByRole('link').click();
+    await expect(pane.getByRole('heading', { level: 2 })).toContainText('Workspaces');
+    await expect(pane.locator('.pane-rule')).toHaveCount(48);
+    const asideBox = await boxOf(pane);
+    const tableBox = await boxOf(table.locator('.table'));
+    if (onAPhone) expect(asideBox.y + asideBox.height).toBeLessThanOrEqual(tableBox.y + 1);
+    else {
+      expect(asideBox.x).toBeGreaterThanOrEqual(tableBox.x + tableBox.width - 1);
+      expect(asideBox.y).toBeLessThan(tableBox.y + tableBox.height);
+      expect(await table.locator('.table').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    }
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // A count far down the table: on a desk the page does not move; stacked above the table, the panel is scrolled into view. Either way it shows that count's rules from its top, though the panel before it was scrolled.
+    const heading = pane.getByRole('heading', { level: 2 });
+    const far = table.getByRole('row', { name: /^Area 20/ });
+    await far.scrollIntoViewIfNeeded();
+    await pane.locator('.pane-body').evaluate((el) => (el.scrollTop = el.scrollHeight));
+    const before = await scrollY();
+    expect(before).toBeGreaterThan(0);
+    await far.locator('td').nth(6).getByRole('link').click();
+    await expect(page).toHaveURL(/[?&]tests=Area\+20%7EF3%7E(&|$)/);
+    await expect(pane.getByRole('heading', { level: 2 })).toContainText('Area 20');
+    await expect(pane.locator('.pane-rule')).toHaveCount(1);
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
+    expect(await pane.locator('.pane-body').evaluate((el) => el.scrollTop)).toBe(0);
+    await expect(far).toHaveClass(/selected/);
+
+    // Its Files tab: the table does not move on a desk, the stacked panel stays in view, and the address names the tab.
+    await pane.getByRole('link', { name: /^Files/ }).click();
+    await expect(page).toHaveURL(/[?&]pane=files(&|$)/);
+    await expect(pane.locator('.pane-files li')).toHaveCount(1);
+    await expect(pane.locator('.pane-files')).toContainText('apps/api/src/area-20.ts');
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
+
+    // Back returns the previous panel, the table where it was.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/pane=files/);
+    await expect(pane.getByRole('link', { name: /^Rules/ })).toHaveAttribute('aria-current', 'page');
+    await expect(pane.locator('.pane-rule')).toHaveCount(1);
+    if (onAPhone) await expect(heading).toBeInViewport();
+    else expect(await scrollY()).toBe(before);
+
+    // The area's name opens every rule of it, and a case's place opens the source around it, read once, when it is opened.
+    await far.getByRole('link', { name: 'Area 20', exact: true }).click();
+    await expect(pane.locator('.pane-rule')).toHaveCount(2);
+    expect(sources).toEqual([]);
+    const place = pane.locator('details.code').first();
+    await place.locator('summary').press('Enter');
+    await expect(place.locator('pre .hit')).toContainText("describe('Area 20 holds'");
+    expect(sources).toHaveLength(1);
+    expect(sources[0]).toContain('area=Area%2020');
+    // Opening it moves nothing on a desk.
+    if (!onAPhone) expect(await scrollY()).toBe(before);
+
+    // A fetch that fails loads the address in full.
+    await page.route(/\/tests\?tests=Area\+21/, (route) => route.abort(), { times: 1 });
+    await table.getByRole('row', { name: /^Area 21/ }).getByRole('link', { name: 'Area 21', exact: true }).click();
+    await expect(page).toHaveURL(/[?&]tests=Area\+21%7E%7E(&|$)/);
+    await expect(pane.getByRole('heading', { level: 2 })).toContainText('Area 21');
+
+    // Below 1,300px the panel is above the table on a desk too, a count far down brings it into view, and the page still does not scroll sideways.
+    if (!onAPhone) {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(`${monitor}/tests`);
+      const lower = table.getByRole('row', { name: /^Area 22/ });
+      await lower.scrollIntoViewIfNeeded();
+      await lower.locator('td').nth(6).getByRole('link').click();
+      await expect(heading).toContainText('Area 22');
+      await expect(heading).toBeInViewport();
+      const stacked = await boxOf(pane);
+      const below = await boxOf(table.locator('.table'));
+      expect(stacked.y + stacked.height).toBeLessThanOrEqual(below.y + 1);
+      expect(await noSidewaysScroll()).toBe(true);
+
+      // Closing it, with nothing to show, does not scroll the page.
+      const open = await scrollY();
+      await pane.getByRole('link', { name: 'Close the panel' }).click();
+      await expect(pane).toBeHidden();
+      const furthest = await page.evaluate(() => Math.round(document.documentElement.scrollHeight - window.innerHeight));
+      expect(await scrollY()).toBe(Math.min(open, furthest));
+    }
   });
 
   test('the page is drawn in Inter, which the Monitor serves itself', async ({ page, request: api }) => {
