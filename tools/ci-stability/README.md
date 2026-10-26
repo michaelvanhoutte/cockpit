@@ -57,6 +57,24 @@ failed step and names no test. Dependabot's runs, named for their update, are on
 `Dependabot`, whose jobs are read only where the run failed. A re-run costs a request for each
 earlier attempt, and a failed job with a record two more.
 
+```bash
+node src/cli.js --branches --send                       # every other branch's attempts, no page
+node src/cli.js --branches --send --from 2026-10-01     # that window, whatever the Monitor holds
+```
+
+`--branches` sends every attempt of every run on a branch other than `main`'s (a pull request's run,
+or a push to another branch) and nothing else: no page, no run. It is the `Branch attempts` job in
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), every night. It starts from the
+newest *branch* attempt the Monitor holds less two days (`GET /v1/ci-attempts?on=branches`), so
+`main`'s send never moves it, and goes a day at a time, oldest first: list the day's runs by their
+`created` time (GitHub's `branch=` filter is exact, and a list ends at 1,000 runs, so a fuller span
+is read as halves), read the jobs of the attempts that failed and each earlier attempt of a re-run,
+send. A branch attempt keeps its verdict, branch, pull request and failed jobs with their tests, and
+no passing job or step. A day sent stays stored whatever stops the next; `--max-runs` stops it after
+the day that reaches it, and a stop of any kind fails the run, naming where, for the next night to
+carry on from. A pull request's `pull_requests` list is empty on GitHub for a run whose pull request
+has since closed, so an older run is stored with its branch and no pull request.
+
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
 one the API allows 60 requests an hour, which is not enough for a full window.

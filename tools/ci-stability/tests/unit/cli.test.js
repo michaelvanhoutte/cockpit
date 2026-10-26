@@ -82,4 +82,21 @@ describe('CI stability', () => {
       expect(parseArgs(argv).invalid).toContain(complaint);
     });
   });
+
+  describe("the attempts on branches other than main's are only ever sent, and write no page", () => {
+    it('takes --branches with --send, and a window by hand beside it', () => {
+      const args = parseArgs(['--send', '--branches', '--from', '2026-10-01']);
+      expect(args).toMatchObject({ send: true, branches: true, from: new Date('2026-10-01T00:00:00Z') });
+      expect(args.invalid).toBeUndefined();
+    });
+
+    it.each([
+      { situation: 'sending nothing', argv: ['--branches'], complaint: '--branches needs --send' },
+      { situation: 'a page to write', argv: ['--send', '--branches', '--out', 'a.html'], complaint: '--branches writes no page' },
+      { situation: 'a model to write', argv: ['--send', '--branches', '--model', 'm.json'], complaint: '--branches writes no page' },
+      { situation: 'the model written instead of the page', argv: ['--send', '--branches', '--json'], complaint: '--branches writes no page' },
+    ])('refuses --branches with $situation', ({ argv, complaint }) => {
+      expect(parseArgs(argv).invalid).toContain(complaint);
+    });
+  });
 });

@@ -20,7 +20,7 @@
 
 import { matchArtifact } from '../../cycle-time/src/model.js';
 import { readZipJson } from '../../selection/src/zip.js';
-import { classify, isDependabot, recordArtifactFor } from './model.js';
+import { classify, isDependabot, onMainOf, recordArtifactFor } from './model.js';
 
 const API = 'https://api.github.com';
 const RECORD_FILE = 'record.json';
@@ -95,12 +95,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * 404 or a spent allowance will say the same thing however many times it is
  * asked.
  */
-async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250 }, parse = (res) => res.json()) {
+async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250, counter = null }, parse = (res) => res.json()) {
   let lastError;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     if (attempt > 0) await sleep(retryDelayMs * attempt);
 
+    // Every request counts against the hour's allowance, a retry as much as the first.
+    if (counter) counter.requests += 1;
     let res;
     try {
       res = await fetchImpl(`${API}${path}`, {
@@ -279,6 +281,75 @@ export async function listRuns({ repo, branch = 'main', since, until = null, max
 /** A time as the API's search syntax takes it: to the second, in UTC. */
 const apiTime = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
+const DAY_MS = 86_400_000;
+
+/** The window from `since` to `until` cut into spans of a day, oldest first, the last one shorter. @returns {{ from: Date, to: Date }[]} */
+export function dayChunks(since, until) {
+  const chunks = [];
+  for (let from = since; from < until; ) {
+    const to = new Date(Math.min(from.getTime() + DAY_MS, until.getTime()));
+    chunks.push({ from, to });
+    from = to;
+  }
+  return chunks;
+}
+
+/**
+ * Every run created in `[from, to)` on any branch but the trunk's own: a pull request's run, or a
+ * push or manual run on another branch. `listRuns` cannot do this, since GitHub's `branch=` filter
+ * is exact, so this lists by `created` alone and drops the trunk's runs here.
+ *
+ * A list filtered by `created` ends at 1,000 runs as an empty page, so a span that fills all ten
+ * pages is read again as two halves, until each half fits; a span of one second that still fills
+ * them is counted as `truncated`. Workflow runs and runs of no workflow file other than Dependabot's
+ * are left out as `listRuns` leaves them out. Dependabot's are kept: they belong to no branch of the
+ * trunk's, and the attempts' reader takes their jobs where they failed.
+ *
+ * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number }>}
+ */
+export async function listBranchRuns({ repo, trunk = 'main', from, to, token, fetchImpl = globalThis.fetch, retries, retryDelayMs, counter }) {
+  if (typeof fetchImpl !== 'function') {
+    throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
+  }
+  const ctx = { token, fetchImpl, retries, retryDelayMs, counter };
+
+  /** The raw runs created in [start, end] (the API's range is inclusive), or what the first ten pages held. */
+  async function span(start, end) {
+    const created = encodeURIComponent(`${apiTime(start)}..${apiTime(end)}`);
+    const raw = [];
+    for (let page = 1; ; page += 1) {
+      const body = await request(`/repos/${repo}/actions/runs?created=${created}&per_page=${PER_PAGE}&page=${page}`, ctx);
+      const batch = body.workflow_runs ?? [];
+      raw.push(...batch);
+      if (batch.length < PER_PAGE) return { raw, truncated: false };
+      if (page * PER_PAGE >= LISTED_AT_MOST) break;
+    }
+    const half = Math.floor((end.getTime() - start.getTime()) / 2000) * 1000;
+    if (half < 1000) return { raw, truncated: true };
+    const middle = new Date(start.getTime() + half);
+    const first = await span(start, middle);
+    const second = await span(new Date(middle.getTime() + 1000), end);
+    return { raw: [...first.raw, ...second.raw], truncated: first.truncated || second.truncated };
+  }
+
+  // The range is inclusive at both ends, and the window is not at its end.
+  const { raw, truncated } = await span(from, new Date(to.getTime() - 1000));
+  const runs = new Map();
+  let ignored = 0;
+  for (const each of raw) {
+    const run = normalizeRun(each);
+    const created = new Date(run.createdAt);
+    if (created < from || created >= to || runs.has(run.id)) continue;
+    if (each.event === 'workflow_run' || onMainOf(run, trunk)) continue;
+    if (!run.path?.startsWith('.github/workflows/') && !isDependabot(run)) {
+      ignored += 1;
+      continue;
+    }
+    runs.set(run.id, run);
+  }
+  return { runs: [...runs.values()], truncated, ignored };
+}
+
 /** Every job of one run's latest attempt, or of the earlier `attempt` named. @returns {Promise<Job[]>} */
 export async function listJobs({ repo, runId, attempt = null, ...ctx }) {
   const attemptPath = attempt === null ? '' : `/attempts/${attempt}`;
@@ -389,26 +460,30 @@ async function readRecord({ repo, run, job, artifacts, ...ctx }) {
  * one request each, so only a re-run costs more than today), and a failed job that keeps a record
  * carrying the `record` it uploaded. The runs are `collect`'s plus Dependabot's, whose jobs are
  * read only where the run failed, since the page needs no job of a run that passed. Skipped runs
- * ran no job and cost nothing.
+ * ran no job and cost nothing. `failedJobs` reads the jobs of any run whose latest attempt failed,
+ * and no other's, for a caller that holds no job list: a feature branch's attempt keeps its failed
+ * jobs alone, so a run that passed needs none.
  *
- * @param {{ repo: string, runs: Run[], jobs: Job[], since: Date }} input
+ * @param {{ repo: string, runs: Run[], jobs?: Job[], since: Date, failedJobs?: boolean, counter?: { requests: number } }} input
  * @returns {Promise<{ run: Run, attempt: number, jobs: Job[] }[]>} one per attempt, in no order
  */
 export async function collectAttempts({
   repo,
   runs,
-  jobs,
+  jobs = [],
   since,
+  failedJobs = false,
   concurrency = 8,
   token,
   fetchImpl = globalThis.fetch,
   retries,
   retryDelayMs,
+  counter,
 }) {
   if (typeof fetchImpl !== 'function') {
     throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
   }
-  const ctx = { token, fetchImpl, retries, retryDelayMs };
+  const ctx = { token, fetchImpl, retries, retryDelayMs, counter };
   const latestJobs = new Map();
   for (const job of jobs) latestJobs.set(job.runId, [...(latestJobs.get(job.runId) ?? []), job]);
   const artifacts = new Map();
@@ -429,7 +504,7 @@ export async function collectAttempts({
         } else if (latestJobs.has(run.id)) {
           own = latestJobs.get(run.id);
         } else {
-          own = isDependabot(run) && classify(run) === 'fail' ? await listJobs({ repo, runId: run.id, ...ctx }) : [];
+          own = (isDependabot(run) || failedJobs) && classify(run) === 'fail' ? await listJobs({ repo, runId: run.id, ...ctx }) : [];
         }
         const withRecords = [];
         for (const job of own) {

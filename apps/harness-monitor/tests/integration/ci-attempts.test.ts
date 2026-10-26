@@ -102,6 +102,45 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe("a feature branch's attempt is stored with its branch, its pull request, its verdict and only its failures", () => {
+    const onBranch = { onMain: false, jobs: [], branch: 'claude/1582-nightly' };
+
+    it.each([
+      {
+        situation: "a pull request's attempt that passed",
+        attempt: ciAttempt(11, 1, { ...onBranch, event: 'pull_request', pullRequest: 1604 }),
+        stored: { run_id: 11, attempt: 1, outcome: 'pass', jobs: 0, steps: 0, failed_jobs: 0 },
+        where: { branch: 'claude/1582-nightly', pull_number: 1604, on_main: 0 },
+        tests: [],
+      },
+      {
+        situation: "a pull request's attempt that failed",
+        attempt: failed(12, 1, {
+          ...onBranch,
+          event: 'pull_request',
+          pullRequest: 1604,
+          failedJobs: [failedJob('Test', [failedTest('Triage > a dismissed item leaves the lists')])],
+        }),
+        stored: { run_id: 12, attempt: 1, outcome: 'fail', jobs: 0, steps: 0, failed_jobs: 1 },
+        where: { branch: 'claude/1582-nightly', pull_number: 1604, on_main: 0 },
+        tests: [{ run_id: 12, attempt: 1, job: 'Test', step: 'Run pnpm test', name: 'Triage > a dismissed item leaves the lists', project: null }],
+      },
+      {
+        situation: 'a push to a branch with no pull request',
+        attempt: ciAttempt(13, 1, { ...onBranch, event: 'push', pullRequest: null }),
+        stored: { run_id: 13, attempt: 1, outcome: 'pass', jobs: 0, steps: 0, failed_jobs: 0 },
+        where: { branch: 'claude/1582-nightly', pull_number: null, on_main: 0 },
+        tests: [],
+      },
+    ])('$situation', async ({ attempt, stored, where, tests }) => {
+      expect((await sendAttempts([attempt])).status).toBe(200);
+
+      expect(await storedAttempts()).toEqual([stored]);
+      expect((await env.DB.prepare('SELECT branch, pull_number, on_main FROM ci_attempts').all()).results).toEqual([where]);
+      expect(await storedFailedTests()).toEqual(tests);
+    });
+  });
+
   describe("a send of CI's attempts without the write key stores nothing", () => {
     it.each([
       { situation: 'with no key', headers: {}, status: 401 },
