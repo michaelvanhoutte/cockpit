@@ -42,6 +42,7 @@ class MainActivity : Activity() {
         column.addView(status)
         column.addView(action)
         column.addView(secondary)
+        column.keepClearOfSystemBars()
         setContentView(column)
         // A turned screen is built again with the same intent, which must not begin a second sign-in.
         if (savedInstanceState == null) handle(intent) else show()

@@ -37,7 +37,8 @@
         <!-- Placing a widget, or choosing another Panel for one. -->
         <activity
             android:name=".PickerActivity"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/picker_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>

@@ -67,13 +67,14 @@ class PickerActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, pad)
         }
-        column.addView(TextView(this).apply { text = "Pick a Panel"; textSize = 22f })
+        column.addView(TextView(this).apply { text = "Pick a Panel for this widget"; textSize = 22f })
         status = TextView(this).apply { setPadding(0, pad, 0, pad / 2) }
         action = Button(this)
         list = ListView(this)
         column.addView(status)
         column.addView(action)
         column.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        column.keepClearOfSystemBars()
         setContentView(column)
     }
 
