@@ -2,21 +2,25 @@ import { describe, expect, it } from 'vitest';
 import {
   branchGaps,
   countOf,
+  coverageOf,
   deepRules,
   DEFAULT_QUERY,
-  distinctFiles,
+  filesCovered,
   indexOf,
+  isThin,
   keepOf,
-  ownFiles,
   ownRules,
   parseTestsQuery,
+  percent,
   rowsUnder,
   showRows,
   testsAddress,
   testsBehind,
+  walk,
+  type Area,
   type TestsQuery,
 } from '../../src/tests-report';
-import { area, model, rule, rules } from '../fixtures/tests-model';
+import { area, model, rule, rules, statements } from '../fixtures/tests-model';
 
 const API = 'apps/api/tests/unit/a.test.ts';
 const WEB = 'apps/web/tests/unit/w.test.ts';
@@ -80,27 +84,14 @@ describe('Harness Monitor', () => {
       expect(deepRules(tree[0]!, keep)).toHaveLength(3);
     });
 
-    it('Package apps/api on Gaps counts only the files of apps/api nothing runs', () => {
-      const gaps = area('Offline', [], [], { filesNothingRuns: [{ file: 'apps/api/src/a.ts', line: 1 }, { file: 'apps/web/src/b.ts', line: 1 }, { file: 'apps/api/src/c.ts', line: 1 }] });
+    it('Show: areas under 80% covered keeps those areas, and draws what holds them faint', () => {
+      const thin = area('Offline', [], [], { statements: [statements('apps/web/src/o.ts', 100, 40)] });
+      const t = [area('Workspaces', [], [thin, area('Panels', [], [], { statements: [statements('apps/web/src/p.ts', 100, 90)] })], { statements: [] })];
 
-      expect(ownFiles(gaps, keepOf(query({ package: 'api' }))).map((f) => f.file)).toEqual(['apps/api/src/a.ts', 'apps/api/src/c.ts']);
-    });
-
-    it('a file owned by two areas is one gap', () => {
-      const shared = [{ file: 'apps/api/src/shared.ts', line: 1 }];
-      const a = area('One', [], [], { filesNothingRuns: shared });
-      const b = area('Two', [], [], { filesNothingRuns: shared });
-
-      expect(distinctFiles([a, b], keepOf(query())).size).toBe(1);
-    });
-
-    it('Show: areas with files nothing runs keeps the areas that own one', () => {
-      const withGap = area('Offline', [], [], { filesNothingRuns: [{ file: 'apps/web/src/o.ts', line: 1 }] });
-      const t = [area('Workspaces', [], [withGap, area('Panels')])];
-
-      const { matched } = showRows(rowsUnder(model(t), null), query({ show: 'files' }), keepOf(query()), indexOf(model(t)));
+      const { shown, matched } = showRows(rowsUnder(model(t), null), query({ show: 'files' }), keepOf(query()), indexOf(model(t)));
 
       expect([...matched]).toEqual(['Offline']);
+      expect(shown.map((r) => r.area.key)).toEqual(['Workspaces', 'Offline']);
     });
 
     it('branches nothing takes are counted once per file, by the most any one area holds of it', () => {
@@ -110,6 +101,38 @@ describe('Harness Monitor', () => {
 
       expect(branchGaps([a, b], keepOf(query()))).toBe(2);
       expect(branchGaps([a, b], keepOf(query({ package: 'web' })))).toBe(0);
+    });
+  });
+
+  describe("an area's Covered figure is the share of its own files' statements CI's run on main executes, then its subtree's in brackets, with a file owned by two areas counted once", () => {
+    const capture = area('Capture', [], [], { statements: [statements('apps/api/src/capture.ts', 10, 8), statements('apps/web/src/Capture.tsx', 4, 3)] });
+    const triage = area('Triage', [], [], { statements: [statements('apps/api/src/triage.ts', 6, 6)] });
+    const inbox = area('Inbox', [], [capture, triage], { statements: [] });
+    const menu = statements('apps/web/src/Menu.tsx', 10, 5);
+    const dashboards = area('Dashboards', [], [area('Panels', [], [], { statements: [menu] }), area('Layouts', [], [], { statements: [menu, statements('apps/web/src/Grid.tsx', 10, 10)] })], { statements: [] });
+    const types = area('Shared types', [], [], { statements: [statements('packages/shared/src/types.ts', 0, 0)] });
+    /** What the page prints for the share across `areas`: a whole percentage, or null for the dash. */
+    const shareOf = (areas: Area[], q = query()) => {
+      const c = coverageOf(filesCovered(areas, keepOf(q)));
+      return c && percent(c);
+    };
+
+    it.each([
+      { situation: 'Capture, its own files only, floored', areas: [capture], q: query(), expected: '78%' },
+      { situation: 'Inbox, owning no file: a dash', areas: [inbox], q: query(), expected: null },
+      { situation: 'Inbox in brackets, across Capture and Triage', areas: [...walk([inbox])], q: query(), expected: '85%' },
+      { situation: 'Dashboards in brackets, a file Panels and Layouts both own counted once', areas: [...walk([dashboards])], q: query(), expected: '75%' },
+      { situation: 'an area whose files have no statements, types only: a dash, never 0%', areas: [types], q: query(), expected: null },
+      { situation: 'Capture with Package apps/web, only its apps/web file', areas: [capture], q: query({ package: 'web' }), expected: '75%' },
+    ])('$situation reads $expected', ({ areas, q, expected }) => {
+      expect(shareOf(areas, q)).toBe(expected);
+    });
+
+    it.each([
+      { situation: '79% run', covered: 79, thin: true },
+      { situation: '80% run', covered: 80, thin: false },
+    ])('$situation reads red: $thin', ({ covered, thin }) => {
+      expect(isThin(coverageOf([statements('apps/web/src/a.ts', 100, covered)]))).toBe(thin);
     });
   });
 
@@ -123,19 +146,12 @@ describe('Harness Monitor', () => {
 
       expect(opened.map((x) => [x.area.key, x.rules.length])).toEqual([['Inbox', 1], ['Capture', 2]]);
     });
-
-    it("a package column's count on Testing level opens that level's rules in that package", () => {
-      const opened = testsBehind(snapshot, ix, { node: null, level: 'F3', package: 'e2e' });
-
-      expect(opened.reduce((n, x) => n + x.rules.length, 0)).toBe(4);
-      expect(testsBehind(snapshot, ix, { node: null, level: 'F3', package: 'api' })).toEqual([]);
-    });
   });
 
   describe('a view lives in its address, so a link reopens exactly it', () => {
     it.each([
       { situation: 'the bare address', address: '/tests', q: query() },
-      { situation: 'a drilled-in area on another tab', address: '/tests?group=level&node=Inbox', q: query({ group: 'level', node: 'Inbox' }) },
+      { situation: 'a drilled-in area on another tab', address: '/tests?group=gaps&node=Inbox', q: query({ group: 'gaps', node: 'Inbox' }) },
       { situation: 'filters and a count by package', address: '/tests?level=F3&package=api&show=empty&split=package', q: query({ level: 'F3', package: 'api', show: 'empty', split: 'package' }) },
       { situation: 'the tests behind a count, with the page filters kept', address: '/tests?level=L1&tests=Inbox%7EF3%7E', q: query({ level: 'L1', list: { node: 'Inbox', level: 'F3', package: null } }) },
       { situation: 'a rule', address: '/tests?rule=a.test.ts%3A12', q: query({ rule: 'a.test.ts:12' }) },
@@ -143,15 +159,6 @@ describe('Harness Monitor', () => {
     ])('$situation', ({ address, q }) => {
       expect(parseTestsQuery(new URL(`https://monitor.test${address}`).searchParams)).toEqual(q);
       expect(testsAddress(q, { rule: q.rule, list: q.list })).toBe(address);
-    });
-
-    it.each([
-      { situation: 'each testing level with a Level filter', address: '/tests?group=level&level=L1&package=api', expected: { level: null, package: 'api' } },
-      { situation: 'each package with a Package filter', address: '/tests?group=package&level=L1&package=api', expected: { level: 'L1', package: null } },
-      { situation: 'each concept area with both', address: '/tests?level=L1&package=api', expected: { level: 'L1', package: 'api' } },
-      { situation: 'each gap with both', address: '/tests?group=gaps&level=L1&package=api', expected: { level: 'L1', package: 'api' } },
-    ])('an address never filters to what the rows already are: $situation', ({ address, expected }) => {
-      expect(parseTestsQuery(new URL(`https://monitor.test${address}`).searchParams)).toMatchObject(expected);
     });
 
     it('a level, package or tab it does not know falls back to the default instead of failing', () => {

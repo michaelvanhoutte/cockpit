@@ -88,7 +88,7 @@ describe('Harness Monitor', () => {
       const html = await thePage();
 
       expect(html).toMatch(/<a href="\/cycle-time" title="[^"]*" aria-current="page">Cycle time<\/a>/);
-      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Tests</a>', '>CI stability</a>']);
+      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Test coverage</a>', '>CI stability</a>']);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
 
@@ -860,7 +860,7 @@ describe('Harness Monitor', () => {
       { tab: 'Cockpit’s Claude calls', question: 'What do the app’s own AI features cost to run?' },
       { tab: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
       { tab: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
-      { tab: 'Tests', question: 'What do the tests cover, and at which level?' },
+      { tab: 'Test coverage', question: 'What do the tests cover, and at which level?' },
       { tab: 'CI stability', question: 'How often do the automated checks fail, and which ones?' },
     ])('the $tab tab carries its question', async ({ tab, question }) => {
       const bar = [...(await thePage()).matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0];

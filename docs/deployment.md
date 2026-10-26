@@ -200,8 +200,8 @@ The hook never sends conversation text, and a request it could not send goes aga
 
 | Job | Sends |
 |---|---|
-| `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, or the last 30 days when it holds none |
-| *Stability backfill* (`stability-backfill.yml`), by hand | the runs of the window it is given |
+| `Stability` in `ci.yml`, on every merge to `main` | each run, job and step from the newest run the Monitor holds less two days, and each attempt of those runs with its failed jobs' tests from the newest attempt it holds less two days, or the last 30 days of either when it holds none |
+| *Stability backfill* (`stability-backfill.yml`), by hand | the runs and attempts of the window it is given |
 | `Tests snapshot` in `ci.yml`, on every merge to `main` that `Test Explorer` runs on | the model `Test Explorer` built, as the tree, each area's source lines and the switch that shows them, or nothing when the Monitor already shows this commit's or a newer one's |
 | *Pull request tests* (`pr-tests.yml`), when CI finishes on a pull request from a branch of this repository | the model that run's `Test Explorer` built, as `Tests snapshot` sends it, filed under the pull request number GitHub gives the run; nothing for a fork, a run that is not the pull request's latest push, or one with no model. It alone holds the key for a pull request's tests, and reads the artifact as data, never running the pull request's code |
 | `Cycle time` in `nightly.yml`, every night | each pull request merged since the newest merge the Monitor holds less two days, or the last 14 days when it holds none, with its rounds and their checks |

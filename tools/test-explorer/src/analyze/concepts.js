@@ -163,10 +163,10 @@ export function buildTree(concepts, makeNode) {
  * carries both: `counts` stays its own (the Rules tab lists exactly those),
  * and `subtree` is what it plus everything under it holds.
  *
- * Files and branches are counted once per file, not summed. One source file
+ * Branches are counted once per file, not summed. One source file
  * legitimately belongs to several areas ("The area registry" in
  * docs/test-explorer-spec.md), and `Menu.tsx` under both Dashboards and Panels
- * is one file nothing runs, not two. Branches go through `countBranchGaps` in
+ * holds its gaps once, not twice. They go through `countBranchGaps` in
  * model.js, which the masthead's totals share so the two cannot drift.
  *
  * A level that is `null` is n/a rather than zero, so a total ignores the nulls
@@ -194,9 +194,6 @@ function annotate(node, ancestorLabels) {
     counts[id] = known.length ? known.reduce((a, b) => a + b, 0) : null;
   }
 
-  const files = new Set();
-  for (const n of inSubtree) for (const f of n.filesNothingRuns) files.add(f.file);
-
   // Counted once per file by `countBranchGaps`, which the masthead's totals
   // also use — the two must agree, or the page total prints smaller than a row
   // beneath it.
@@ -204,7 +201,6 @@ function annotate(node, ancestorLabels) {
 
   node.subtree = {
     counts,
-    filesNothingRuns: files.size,
     branchesNothingTakes: measured.length ? countBranchGaps(measured) : null,
   };
   return inSubtree;

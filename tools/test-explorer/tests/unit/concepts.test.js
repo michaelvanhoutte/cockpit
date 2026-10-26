@@ -115,7 +115,7 @@ describe('annotateTree', () => {
    * shape the registry actually has now (Workspaces > Inbox > Triage) and the
    * one where "total everything beneath" and "total the row below" differ.
    */
-  function chain({ own = [1, 3, 4], files = [[], [], []], branches = [[], [], []] } = {}) {
+  function chain({ own = [1, 3, 4], branches = [[], [], []] } = {}) {
     const concepts = [
       { key: 'Top', label: 'Top' },
       { key: 'Middle', label: 'Middle', parent: 'Top' },
@@ -133,7 +133,6 @@ describe('annotateTree', () => {
         label: c.label,
         counts,
         rules: [],
-        filesNothingRuns: files[i].map((file) => ({ file, line: 1, context: [] })),
         branchesNothingTakes: branches[i] === null ? null : branches[i].map((b) => ({ file: b.file, line: b.line, context: [] })),
       };
     });
@@ -161,13 +160,6 @@ describe('annotateTree', () => {
   it('leaves a row its own count as well, which is what the Rules tab lists', () => {
     const { find } = chain();
     expect(find('Top').counts.L1).toBe(1);
-  });
-
-  it('counts a file belonging to two rows beneath it once, not once per row', () => {
-    // One source file legitimately backs several areas, so a plain sum would
-    // report one untested file as two.
-    const { find } = chain({ files: [[], ['apps/web/src/components/Menu.tsx'], ['apps/web/src/components/Menu.tsx']] });
-    expect(find('Top').subtree.filesNothingRuns).toBe(1);
   });
 
   it("counts a shared file's branch gaps once, and both gaps on a line that holds two", () => {

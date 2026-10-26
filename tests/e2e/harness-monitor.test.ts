@@ -1073,7 +1073,7 @@ test.describe('Harness Monitor', () => {
     await expect(toFix.getByRole('button')).toHaveText('Copy prompt');
   });
 
-  test("Tests opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open rule closed", async ({ page, request: api }) => {
+  test("Test coverage opens from the top bar, drills through the tree, opens a count's tests above it with the filters as they were, each gap offers neither tiles nor a Level filter, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open rule closed", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const rule = (concept: string, statement: string, level: string, file: string, line: number) => ({ concept, statement, level, file, line, cases: [], todoCases: [] });
     const area = (key: string, rules: ReturnType<typeof rule>[], children: unknown[] = []) => ({
@@ -1081,7 +1081,6 @@ test.describe('Harness Monitor', () => {
       label: key,
       counts: { L1: rules.filter((r) => r.level === 'L1').length, F3: rules.filter((r) => r.level === 'F3').length, Contract: null },
       rules,
-      filesNothingRuns: [],
       branchesNothingTakes: null,
       children,
     });
@@ -1110,7 +1109,7 @@ test.describe('Harness Monitor', () => {
 
     // From the costs page, the top bar's own tab opens it on each concept area, with the tiles an overview has.
     await page.goto(`${monitor}/`);
-    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Tests', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Test coverage', exact: true }).click();
     await expect(choice(page, 'Rows')).toHaveValue('area');
     await expect(choice(page, 'Count by')).toHaveValue('level');
     await expect(page.locator('.tile')).toHaveCount(5);
@@ -1138,10 +1137,10 @@ test.describe('Harness Monitor', () => {
     expect((await opened.boundingBox())!.y).toBeLessThan((await drilled.boundingBox())!.y);
     expect(await noSidewaysScroll()).toBe(true);
 
-    // Each testing level has no tiles, no Level filter that would repeat its rows and no Count by.
-    await choose(page, 'Rows', 'each testing level', /[?&]group=level(&|$)/);
+    // Each gap has no tiles, no Level filter and no Count by, and its files read unknown on a snapshot without coverage.
+    await choose(page, 'Rows', 'each gap', /[?&]group=gaps(&|$)/);
     await expect(page.locator('.tile')).toHaveCount(0);
-    await expect(page.getByRole('region', { name: 'By testing level' })).toBeVisible();
+    await expect(page.getByRole('region', { name: /^Files to test next/ })).toContainText('Unknown, not none');
     await expect(choice(page, 'Level')).toHaveCount(0);
     await expect(choice(page, 'Count by')).toHaveCount(0);
 

@@ -57,25 +57,25 @@ export type CheckedRuns = { ok: true; runs: StabilityRun[] } | { ok: false; erro
 
 /** A four-digit year and an explicit zone, as GitHub writes every time. */
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
-const SHA = /^[0-9a-f]{7,64}$/;
+export const SHA = /^[0-9a-f]{7,64}$/;
 
-type Fields = Record<string, unknown>;
+export type Fields = Record<string, unknown>;
 
-const isObject = (value: unknown): value is Fields => typeof value === 'object' && value !== null && !Array.isArray(value);
+export const isObject = (value: unknown): value is Fields => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-function text(value: unknown, max: number, { empty = false } = {}): string | null {
+export function text(value: unknown, max: number, { empty = false } = {}): string | null {
   return typeof value === 'string' && (empty || value.trim() !== '') && value.length <= max ? value : null;
 }
 
 /** A time GitHub wrote, as epoch milliseconds; null when absent; undefined when it is not a time. */
-function time(value: unknown): number | null | undefined {
+export function time(value: unknown): number | null | undefined {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string' || !ISO_TIME.test(value)) return undefined;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-function wholeOrNull(value: unknown, min: number): number | null | undefined {
+export function wholeOrNull(value: unknown, min: number): number | null | undefined {
   if (value === null || value === undefined) return null;
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= min ? value : undefined;
 }
@@ -84,13 +84,13 @@ function wholeOrNull(value: unknown, min: number): number | null | undefined {
  * A conclusion is always sent: a string once the run or job completed, null
  * while it has not. A completed one with none, or a missing key, is refused.
  */
-function conclusionOf(r: Fields, status: string): string | null | { error: string } {
+export function conclusionOf(r: Fields, status: string): string | null | { error: string } {
   if (r.conclusion === undefined) return { error: 'has no conclusion.' };
   if (r.conclusion === null) return status === 'completed' ? { error: 'has no conclusion, though it completed.' } : null;
   return text(r.conclusion, 50) ?? { error: `has conclusion ${JSON.stringify(r.conclusion)}, which is not a short string.` };
 }
 
-function outcomeOf(value: unknown): Outcome | null {
+export function outcomeOf(value: unknown): Outcome | null {
   return typeof value === 'string' && (OUTCOMES as readonly string[]).includes(value) ? (value as Outcome) : null;
 }
 
@@ -118,7 +118,7 @@ function checkStep(raw: unknown, position: number): StabilityStep | string {
   return { position, number, name, occurrence, conclusion, startedAt, completedAt, durationMs };
 }
 
-function checkJob(raw: unknown, jobIndex: number): StabilityJob | string {
+export function checkJob(raw: unknown, jobIndex: number): StabilityJob | string {
   if (!isObject(raw)) return 'is not an object.';
   const name = text(raw.name, 300);
   if (!name) return 'has no name.';

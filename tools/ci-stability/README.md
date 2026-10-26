@@ -47,6 +47,16 @@ and steps, counted as this page counts them, from the newest run the Monitor hol
 days. The `Stability` job does it on every merge; the backfill is the *Stability backfill*
 workflow ([deployment.md](../../docs/deployment.md), "The Harness Monitor").
 
+It also sends every attempt of those runs, a re-run's each its own, from the newest attempt the
+Monitor holds less two days (the last 30 days when it holds none). An attempt carries its verdict
+(an earlier one's read from its own jobs), the branch and pull request it ran for, and on `main` its
+jobs and steps. Each failed job carries the tests that failed in it, read from the record the job
+uploaded during that attempt (`test-selection-record`, `e2e-selection-record`, or
+`failed-tests-record`); a job with no record, an expired one or one that cannot be read keeps its
+failed step and names no test. Dependabot's runs, named for their update, are one workflow,
+`Dependabot`, whose jobs are read only where the run failed. A re-run costs a request for each
+earlier attempt, and a failed job with a record two more.
+
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
 one the API allows 60 requests an hour, which is not enough for a full window.

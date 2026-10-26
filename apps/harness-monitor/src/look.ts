@@ -32,7 +32,7 @@ export const PAGES = [
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls', question: 'What do the app&rsquo;s own AI features cost to run?' },
   { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
   { name: 'selection', href: '/selection', label: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
-  { name: 'tests', href: '/tests', label: 'Tests', question: 'What do the tests cover, and at which level?' },
+  { name: 'tests', href: '/tests', label: 'Test coverage', question: 'What do the tests cover, and at which level?' },
   { name: 'stability', href: '/stability', label: 'CI stability', question: 'How often do the automated checks fail, and which ones?' },
 ] as const;
 export type PageName = (typeof PAGES)[number]['name'];

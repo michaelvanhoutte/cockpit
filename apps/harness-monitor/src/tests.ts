@@ -95,7 +95,23 @@ function* references(node: Record<string, unknown>): Generator<unknown> {
       for (const list of [rule.cases, rule.todoCases]) if (Array.isArray(list)) yield* list;
     }
   }
-  for (const list of [node.filesNothingRuns, node.branchesNothingTakes]) if (Array.isArray(list)) yield* list;
+  if (Array.isArray(node.branchesNothingTakes)) yield* node.branchesNothingTakes;
+}
+
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
+
+/** The first of `node`'s files' figures the page could not draw, named, or null; a tree with none, from an analyzer older than them or a run without coverage, is read. */
+function wrongStatements(named: string, node: Record<string, unknown>): string | null {
+  const files = node.statements;
+  if (files === undefined || files === null) return null;
+  if (!Array.isArray(files)) return `${named}'s statements are not a list.`;
+  for (const f of files) {
+    if (!isRecord(f) || typeof f.file !== 'string' || !isCount(f.total) || !isCount(f.covered)) return `${named}'s statements are not a list of {file, total, covered}.`;
+    const at = `${named}: ${JSON.stringify(f.file)}`;
+    if (f.covered > f.total) return `${at} has more statements run than it has.`;
+    if (f.uncovered !== undefined && !(Array.isArray(f.uncovered) && f.uncovered.every((l) => typeof l === 'string'))) return `${at} has lines not run that are not a list of text.`;
+  }
+  return null;
 }
 
 /** A reference the page can draw and link: a file and a line from 1. */
@@ -119,14 +135,11 @@ function wrongReference(named: string, node: Record<string, unknown>): string | 
       if (!cases.every((c) => isRef(c) && typeof c.text === 'string')) return `${at} has a case that is not {file, line, text}.`;
     }
   }
-  // A gap's line can be missing: coverage gives an untaken implicit `else` none.
+  // A gap's line can be missing in a tree from an analyzer older than the fallback to the branch's own line.
   const isGap = (value: unknown) => isRecord(value) && typeof value.file === 'string' && (value.line === undefined || value.line === null || Number.isInteger(value.line));
-  for (const list of ['filesNothingRuns', 'branchesNothingTakes'] as const) {
-    const refs = node[list];
-    if (refs === undefined || refs === null) continue;
-    if (!Array.isArray(refs) || !refs.every(isGap)) return `${named}'s ${list} is not a list of {file, line}.`;
-  }
-  return null;
+  const refs = node.branchesNothingTakes;
+  if (refs !== undefined && refs !== null && (!Array.isArray(refs) || !refs.every(isGap))) return `${named}'s branchesNothingTakes is not a list of {file, line}.`;
+  return wrongStatements(named, node);
 }
 
 /**
@@ -134,8 +147,9 @@ function wrongReference(named: string, node: Record<string, unknown>): string | 
  * Its warnings, where it has any, are text, and so is its commit link. Each
  * node needs a key (unique: an area's part is filed under it), a label,
  * its counts, rules and children; every rule, case and gap a file and line,
- * a rule its statement and level, a case its text; no reference may carry its
- * source lines, which belong in the area's own part.
+ * a rule its statement and level, a case its text, a file's figures their
+ * counts; no reference may carry its source lines, which belong in the area's
+ * own part.
  */
 export function checkTree(value: unknown): Checked<TreeFacts> {
   if (!isRecord(value)) return refused('The tree is not an object.');

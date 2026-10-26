@@ -1,7 +1,7 @@
 /**
- * Reading pnpm-workspace.yaml and package manifests. Ported from
- * poc/coverage-explorer/src/analyze/nodes.js's workspacePackages/packageName/
- * packageEntry — layer classification and package "kind" are dropped, since
+ * Reading pnpm-workspace.yaml and walking each package's files. Ported from
+ * poc/coverage-explorer/src/analyze/nodes.js's workspacePackages — layer
+ * classification and package "kind" are dropped, since
  * this tool's rows are feature areas (concepts.js), not the structural tree
  * the POC rendered.
  */
@@ -50,28 +50,6 @@ export function workspacePackages(repo) {
     }
   }
   return [...new Set(dirs)].sort();
-}
-
-/** Package name from its manifest, used to resolve workspace-specifier imports. */
-export function packageName(repo, rel) {
-  try {
-    return JSON.parse(readFileSync(path.join(repo, rel, 'package.json'), 'utf8')).name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** Entry file a workspace specifier resolves to, per the manifest's exports map. */
-export function packageEntry(repo, rel) {
-  try {
-    const manifest = JSON.parse(readFileSync(path.join(repo, rel, 'package.json'), 'utf8'));
-    const entry = typeof manifest.exports?.['.'] === 'string' ? manifest.exports['.'] : null;
-    if (!entry) return null;
-    const abs = path.resolve(repo, rel, entry);
-    return existsSync(abs) ? abs : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Every .ts/.tsx file under a package's src/, repo-relative. */

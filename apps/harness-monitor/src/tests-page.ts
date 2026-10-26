@@ -7,16 +7,18 @@ import { reportPage, section, tile } from './report';
 import {
   branchGaps,
   countOf,
+  coverageOf,
   DEFAULT_QUERY,
   deepRules,
-  distinctFiles,
+  filesCovered,
   GROUPS,
+  isThin,
   LEVELS,
   levelName,
-  ownFiles,
   ownRules,
   PACKAGES,
   pathOf,
+  percent,
   pkgLabel,
   pkgOf,
   rowsUnder,
@@ -24,10 +26,13 @@ import {
   showRows,
   testsAddress,
   testsBehind,
+  THIN,
   walk,
   keepOf,
   type Area,
   type Case,
+  type Coverage,
+  type FileStatements,
   type ListSpec,
   type Ref,
   type Rule,
@@ -40,12 +45,15 @@ import type { PullRequestTests } from './tests-store';
 /** The page opens with the question its top tab names and the words a newcomer will not know, under the band, whatever it shows. */
 const PAGE_LEAD = lead(questionOf('tests'), LEAD_MORE);
 
-/** The one colour a bar takes when its parts are packages, which are not told apart by colour. */
-const PLAIN = VIOLET;
+/** A non-breaking space, which indents an Area option where a browser drops a plain one; built from its code so no editor can turn it back into a space. */
+const NBSP = String.fromCharCode(160);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 
-const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', level: 'each testing level', package: 'each package', gaps: 'each gap' };
+const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', gaps: 'each gap' };
+
+/** What unknown coverage says, wherever a figure needs a run the snapshot had none of. */
+const UNKNOWN_COVERAGE = 'Unknown, not none: the share covered comes from CI&rsquo;s coverage run on main, and this snapshot had none.';
 
 /**
  * Whose tests the page shows, the sentence's first word: a select of `main`'s
@@ -82,10 +90,10 @@ function renderNothing({ asked, pulls }: TestsView, now: number): string {
     asked.pr === null
       ? 'No snapshot of main&rsquo;s tests has arrived yet. The page shows the latest one once CI has sent it after a merge to main.'
       : `Pull request #${asked.pr} has no snapshot of its tests here. One arrives when CI finishes on its latest push, and goes once it merges or closes.`;
-  return reportPage({ current: 'tests', controls, body: `${PAGE_LEAD}\n${section('nothing', 'Tests', '', `<p class="well empty">${said}</p>`)}`, style: EXTRA + EXPLAIN_STYLE }, now);
+  return reportPage({ current: 'tests', controls, body: `${PAGE_LEAD}\n${section('nothing', 'Test coverage', '', `<p class="well empty">${said}</p>`)}`, style: EXTRA + EXPLAIN_STYLE }, now);
 }
 
-/** The Tests page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package, each count opening the tests behind it. */
+/** The Test coverage page: the shown snapshot, `main`'s or a pull request's, as a tree of areas, counted by level or package with the share of each area's code its tests run, each count opening the tests behind it. */
 export function renderTests(view: TestsView, now: number): string {
   if (!view.data) return renderNothing(view, now);
   const { model, index: ix, query: q, lines } = view.data;
@@ -96,33 +104,33 @@ export function renderTests(view: TestsView, now: number): string {
     blob ? `<a href="${esc(`${blob}/${file.split('/').map(encodeURIComponent).join('/')}${line ? `#L${line}` : ''}`)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label);
 
   const keep = keepOf(q);
-  const deepFiles = (areas: Area[]) => distinctFiles(areas, keep);
   const scopeRules = inScope.flatMap((a) => ownRules(a, keep));
-  const scopeFiles = deepFiles(inScope);
   const qualifier = [q.level ? `${q.level} only` : '', q.package ? `${pkgLabel(q.package)} only` : ''].filter(Boolean).join(' · ');
   const link = (over: Partial<TestsQuery> = {}) => esc(testsAddress(q, over));
+  /** The files of `areas` with their statements, or null where coverage is unknown: no run, or a tree older than the figures. */
+  const measured = (areas: Area[]) => (model.coverageAvailable ? filesCovered(areas, keep) : null);
 
   // ---- filters ----
   const areaOptions: [string, string][] = [['', 'All areas']];
   const addOptions = (areas: Area[], depth: number) => {
     for (const a of areas) {
-      areaOptions.push([a.key, `${'   '.repeat(depth)}${a.label}`]);
+      areaOptions.push([a.key, `${NBSP.repeat(3 * depth)}${a.label}`]);
       addOptions(a.children, depth + 1);
     }
   };
   addOptions(model.tree, 0);
   const hidden = (name: string, value: string) => `<input type="hidden" name="${name}" value="${esc(value)}">`;
   const onAreas = q.group === 'area';
-  // The controls as one sentence on the band; a filter that repeats the rows is not offered, and a choice the sentence has no room for rides along as a hidden field.
+  // The controls as one sentence on the band; a control is offered only where it changes what the tab draws (Gaps lists files, so no Level; Show and Count by act on the areas' table), and a choice the sentence has no room for rides along as a hidden field.
   const controls = sentenceForm(
     '/tests',
     `Show ${whose(q, view.pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
 ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['package', 'package']], q.split)}` : ''}`,
     [
       inline('node', 'Area', areaOptions, q.node ?? '', ''),
-      q.group === 'gaps' || q.group === 'level' ? '' : inline('level', 'Level', [['', 'All levels'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '', ''),
-      q.group === 'package' ? '' : inline('package', 'Package', [['', 'All packages'], ...PACKAGES.filter((p) => p.key !== 'other').map((p): [string, string] => [p.key, p.label])], q.package ?? '', ''),
-      onAreas ? inline('show', 'Show', [['all', 'Every area'], ['files', 'Areas with files nothing runs'], ['empty', q.level ? `Areas with no ${q.level} rule` : 'Areas with no rule']], q.show, 'all') : '',
+      q.group === 'gaps' ? '' : inline('level', 'Level', [['', 'All levels'], ...LEVELS.map((l): [string, string] => [l.id, `${l.id} · ${l.name}`])], q.level ?? '', ''),
+      inline('package', 'Package', [['', 'All packages'], ...PACKAGES.filter((p) => p.key !== 'other').map((p): [string, string] => [p.key, p.label])], q.package ?? '', ''),
+      onAreas ? inline('show', 'Show', [['all', 'Every area'], ['files', `Areas under ${THIN}% covered`], ['empty', q.level ? `Areas with no ${q.level} rule` : 'Areas with no rule']], q.show, 'all') : '',
     ],
     [],
     [
@@ -155,17 +163,9 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
   const levelSeries: Series[] = LEVELS.filter((l) => q.level === null || l.id === q.level).map((l) => ({ key: l.id, label: l.id, title: l.name, colour: l.colour, swatch: true }));
   const pkgSeries = (rules: Rule[]): Series[] => {
     const seen = new Set(rules.map((r) => pkgOf(r.file)));
-    return PACKAGES.filter((p) => seen.has(p.key)).map((p) => ({ key: p.key, label: p.label, title: p.label, colour: PLAIN, swatch: false }));
+    return PACKAGES.filter((p) => seen.has(p.key)).map((p) => ({ key: p.key, label: p.label, title: p.label, colour: VIOLET, swatch: false }));
   };
   const swatch = (s: Series) => (s.swatch ? `<i style="background:${s.colour}"></i>` : '');
-  /** A row's bar: one segment per level, or one plain segment for its total when the parts are packages. */
-  const barOf = (series: Series[], counts: number[], max: number) => {
-    if (series.length && !series[0]!.swatch) {
-      const total = counts.reduce((a, b) => a + b, 0);
-      return total ? `<div style="width:${((total / max) * 100).toFixed(1)}%;background:${PLAIN}"></div>` : '';
-    }
-    return series.map((s, i) => (counts[i] ? `<div style="width:${((counts[i]! / max) * 100).toFixed(1)}%;background:${s.colour}" title="${esc(s.label)} ${counts[i]}"></div>` : '')).join('');
-  };
   const dash = '<span class="faint">0</span>';
   /** Wraps a count so a click opens the tests behind it above the tab; what the count did not name stays as the page's filters have it. */
   const toTests = (cell: string, n: number, over: Partial<ListSpec>) => {
@@ -176,12 +176,14 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
   /** A row's own figure, then everything inside it in brackets. */
   const pair = (ownN: number | null, subN: number | null, hasKids: boolean, bad = false) =>
     `${ownN === null ? '<span class="na">n/a</span>' : ownN === 0 ? dash : bad ? `<span class="bad">${number(ownN)}</span>` : number(ownN)}${hasKids && subN !== null ? ` <span class="subtotal">(${number(subN)})</span>` : ''}`;
+  const unknown = '<span class="na">unknown</span>';
+  /** A share of statements run, red under THIN, with a small meter; a dash where there is nothing to run. */
+  const share = (c: Coverage | null) =>
+    c === null ? '<span class="faint">—</span>' : `<span class="meter"><i style="width:${(c.rate * 100).toFixed(1)}%"></i></span><span${isThin(c) ? ' class="bad"' : ''}>${percent(c)}</span>`;
 
   let body: string;
   if (q.rule) body = ruleDetail(ix.rules.get(q.rule)!.rule, ix.rules.get(q.rule)!.area);
   else if (q.group === 'area') body = `${q.list ? testsList(q.list) : ''}${areaView()}`;
-  else if (q.group === 'level') body = `${q.list ? testsList(q.list) : ''}${levelView()}`;
-  else if (q.group === 'package') body = `${q.list ? testsList(q.list) : ''}${packageView()}`;
   else body = gapsView();
 
   const commit = model.commitUrl && blob ? `<a href="${esc(model.commitUrl)}" target="_blank" rel="noopener noreferrer">${esc(model.commit)}</a>` : esc(model.commit);
@@ -192,9 +194,7 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
   // ---- Concept area: the tree under the chosen area, then that area's own rules ----
   function areaView(): string {
     const series = q.split === 'level' ? levelSeries : pkgSeries(scopeRules);
-    const seriesOf = (r: Rule) => (q.split === 'level' ? r.level : pkgOf(r.file));
     const { shown, matched } = showRows(rowsUnder(model, scope), q, keep, ix);
-    const max = Math.max(...shown.map((r) => deepRules(r.area, keep).length), 1);
 
     const heads = series.map((s) => `<th scope="col" class="num" title="${esc(s.title)}">${swatch(s)}${esc(s.label)}</th>`).join('');
     const rows = shown
@@ -202,7 +202,6 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
         const o = ownRules(a, keep);
         const d = deepRules(a, keep);
         const kids = a.children.length > 0;
-        const bar = barOf(series, series.map((s) => d.filter((r) => seriesOf(r) === s.key).length), max);
         const name = a.key === q.node ? `<strong>${esc(a.label)}</strong>` : `<a href="${link({ node: a.key })}">${esc(a.label)}</a>`;
         const sub = kids ? `<div class="sub">${plural([...walk(a.children)].length, 'area')} inside</div>` : '';
         const cells = series
@@ -211,34 +210,39 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
             return `<td class="num">${toTests(pair(countOf(model, a, q.split, s.key, o, false), deep, kids), deep ?? 0, q.split === 'level' ? { node: a.key, level: s.key as ListSpec['level'] } : { node: a.key, package: s.key as ListSpec['package'] })}</td>`;
           })
           .join('');
-        const filesOwn = ownFiles(a, keep).length;
-        const filesDeep = deepFiles([...walk([a])]).size;
-        const files = filesOwn || filesDeep ? `<a href="${link({ group: 'gaps', node: a.key })}">${pair(filesOwn, filesDeep, kids, true)}</a>` : pair(0, 0, kids);
+        const deepFiles = measured([...walk([a])]);
+        const deepCover = coverageOf(deepFiles);
+        const ownCover = coverageOf(measured([a]));
+        const shareCell = deepFiles === null ? unknown : `${share(ownCover)}${kids && deepCover !== null ? ` <span class="subtotal">(${percent(deepCover)})</span>` : ''}`;
+        const covered = deepCover !== null ? `<a href="${link({ group: 'gaps', node: a.key })}">${shareCell}</a>` : shareCell;
         const branchOwn = branchGaps([a], keep);
         const branchDeep = branchGaps([...walk([a])], keep);
         const branches = !model.coverageAvailable
-          ? '<span class="na">unknown</span>'
+          ? unknown
           : branchOwn || branchDeep
             ? `<a href="${link({ group: 'gaps', node: a.key })}">${pair(branchOwn, branchDeep, kids, true)}</a>`
             : pair(0, 0, kids);
-        return `<tr class="${matched.has(a.key) ? '' : 'context'}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td><td class="split-cell"><div class="split">${bar}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key })}</td><td class="num">${files}</td><td class="num">${branches}</td></tr>`;
+        return `<tr class="${matched.has(a.key) ? '' : 'context'}"><td class="first"><div class="tree" style="--depth:${depth}">${name}${sub}</div></td>${cells}<td class="num total">${toTests(pair(o.length, d.length, kids), d.length, { node: a.key })}</td><td class="num cover">${covered}</td><td class="num">${branches}</td></tr>`;
       })
       .join('\n');
-    const showNote = q.show === 'files' ? 'areas with files nothing runs' : q.show === 'empty' ? `areas with no ${q.level ? `${q.level} ` : ''}rule` : '';
+    const showNote = q.show === 'files' ? `areas under ${THIN}% covered` : q.show === 'empty' ? `areas with no ${q.level ? `${q.level} ` : ''}rule` : '';
     const areasTitle = shown.length ? (scope ? `${esc(scope.label)}, area by area` : 'Every area') : 'Areas';
     const areasInfo = explain('areas', areasTitle, WHAT.areas);
+    const scopeFiles = measured(inScope);
+    /** Areas under THIN asked for where coverage is unknown: an empty table is then unknown, not none. */
+    const showUnknown = q.show === 'files' && scopeFiles === null;
     const table = shown.length
       ? section(
           'areas',
           areasTitle,
           `${plural(matched.size, 'area')}${showNote ? ` · ${showNote}, with what holds them faint` : ''} · a row holding others counts its own, then (everything inside it)`,
           `<div class="well table"><table>
-<thead><tr><th scope="col">Area</th><th scope="col">Rules by ${q.split}</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num">Files nothing runs</th><th scope="col" class="num">Branches nothing takes</th></tr></thead>
+<thead><tr><th scope="col">Area</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num" title="Share of the area&rsquo;s statements CI&rsquo;s coverage run executes">Covered</th><th scope="col" class="num wrap">Branches untaken</th></tr></thead>
 <tbody>${rows}</tbody></table></div>`,
           'panel wide',
           areasInfo,
         )
-      : section('areas', areasTitle, '', `<p class="well empty">No area here matches: there are no ${showNote}.</p>`, 'panel wide', areasInfo);
+      : section('areas', areasTitle, '', `<p class="well empty">${showUnknown ? UNKNOWN_COVERAGE : `No area here matches: there are no ${showNote}.`}</p>`, 'panel wide', areasInfo);
 
     // The tiles.
     const cases = scopeRules.reduce((n, r) => n + r.cases.length, 0);
@@ -246,51 +250,25 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
     const testFiles = new Set(scopeRules.map((r) => r.file)).size;
     const emptyAreas = inScope.filter((a) => deepRules(a, keep).length === 0);
     const where = scope ? `in ${esc(scope.label)}${scope.children.length ? ` and the ${plural([...walk(scope.children)].length, 'area')} inside it` : ''}` : 'in every area';
+    const scopeCover = coverageOf(scopeFiles);
+    const untouched = (scopeFiles ?? []).filter((f) => f.covered === 0).length;
+    const coveredTile =
+      scopeFiles === null
+        ? tile('Covered', 'unknown', 'measured by CI&rsquo;s coverage run on main, which this snapshot had none of', '', explain('t-covered', 'Covered', WHAT.covered))
+        : scopeCover === null
+          ? tile('Covered', '—', 'no statements to run here', '', explain('t-covered', 'Covered', WHAT.covered))
+          : tile('Covered', percent(scopeCover), `${number(scopeCover.covered)} of ${plural(scopeCover.total, 'statement')} run · ${plural(untouched, 'file')} nothing runs`, '', explain('t-covered', 'Covered', WHAT.covered));
     const tiles = `<div class="tiles">
 ${tile('Rules', number(scopeRules.length), `${where}${qualifier ? ` · ${qualifier}` : ''}`, '', explain('t-rules', 'Rules', WHAT.rules))}
 ${tile('Cases', number(cases), `in ${plural(testFiles, 'test file')}${todos ? ` · ${number(todos)} not written yet` : ''}`, '', explain('t-cases', 'Cases', WHAT.cases))}
-${tile('Files nothing runs', number(scopeFiles.size), 'source files no test imports, at any level', '', explain('t-files', 'Files nothing runs', WHAT.files))}
+${coveredTile}
 ${tile('Branches nothing takes', model.coverageAvailable ? number(branchGaps(inScope, keep)) : 'unknown', model.coverageAvailable ? 'branches no test takes, measured by CI&rsquo;s coverage run on main' : 'measured by CI&rsquo;s coverage run on main, which this snapshot had none of', '', explain('t-branches', 'Branches nothing takes', WHAT.branches))}
 ${tile('Areas with no rule', `${number(emptyAreas.length)} <small>of ${number(inScope.length)}</small>`, emptyAreas.length ? esc(emptyAreas.slice(0, 3).map((a) => a.label).join(', ')) + (emptyAreas.length > 3 ? '…' : '') : q.level ? `every area has a ${q.level} rule` : 'every area has a rule', '', explain('t-empty', 'Areas with no rule', WHAT.empty))}
 </div>`;
 
-    // Where the rules are, and the areas with most untested files.
-    const totals = series.map((s) => ({ ...s, n: scopeRules.filter((r) => seriesOf(r) === s.key).length }));
-    const shares = totals.filter((t) => t.n > 0);
-    const whereTitle = `Where the ${plural(scopeRules.length, 'rule')} are`;
-    const wherePanel = section(
-      'where',
-      whereTitle,
-      `by ${q.split}`,
-      `<div class="well where">
-${shares.length && q.split === 'level' ? `<div class="bar" role="img" aria-label="${esc(shares.map((t) => `${t.label} ${t.n}`).join(', '))}">${shares.map((t) => `<div style="flex:${t.n};background:${t.colour}" title="${esc(t.label)} ${t.n}"></div>`).join('')}</div>` : ''}
-<ul class="shares">${totals.map((t) => `<li>${swatch(t)}<span class="name">${esc(t.label)}${t.title !== t.label ? ` <span class="faint">${esc(t.title)}</span>` : ''}</span><span class="amount">${t.n ? number(t.n) : dash}</span></li>`).join('')}</ul>
-</div>`,
-      'panel wide',
-      explain('where', whereTitle, WHAT.where),
-    );
-    const worst = inScope
-      .map((a) => ({ a, n: ownFiles(a, keep).length }))
-      .filter((x) => x.n > 0)
-      .sort((x, y) => y.n - x.n)
-      .slice(0, 5);
-    const worstPanel = section(
-      'worst',
-      'Most files nothing runs',
-      '',
-      `<ul class="well changes">${
-        worst.length
-          ? worst.map((x) => `<li><a class="name" href="${link({ group: 'gaps', node: x.a.key })}">${esc(x.a.label)}</a><span class="delta up">${number(x.n)}</span><span class="from">${esc([...pathOf(ix, x.a)].join(' › ') || 'top level')}</span></li>`).join('')
-          : '<li class="faint">None: every source file here is imported by a test.</li>'
-      }</ul>`,
-      'panel narrow',
-      explain('worst', 'Most files nothing runs', WHAT.worst),
-    );
-
     return `${table}
 ${scope ? ownRulesPanel(scope) : ''}
-${tiles}
-<div class="row">${wherePanel}${worstPanel}</div>`;
+${tiles}`;
   }
 
   // ---- the tests behind a clicked count: every rule in scope the count names, area by area ----
@@ -387,107 +365,61 @@ ${code(r)}
     );
   }
 
-  // ---- Testing level: one row per level, split by package ----
-  function levelView(): string {
-    const series = pkgSeries(scopeRules);
-    const rows = LEVELS.filter((l) => q.level === null || l.id === q.level).map((l) => ({ l, rules: scopeRules.filter((r) => r.level === l.id) }));
-    const max = Math.max(...rows.map((x) => x.rules.length), 1);
-    const heads = series.map((s) => `<th scope="col" class="num">${esc(s.label)}</th>`).join('');
-    const body = rows
-      .map(({ l, rules }) => {
-        const absent = model.availableLevels[l.id] === false;
-        const bar = rules.length ? `<div style="width:${((rules.length / max) * 100).toFixed(1)}%;background:${l.colour}"></div>` : '';
-        const cells = series.map((s) => {
-          const n = rules.filter((r) => pkgOf(r.file) === s.key).length;
-          return `<td class="num">${absent ? '<span class="na">n/a</span>' : n ? toTests(number(n), n, { level: l.id, package: s.key as ListSpec['package'] }) : dash}</td>`;
-        });
-        const areas = new Set(rules.map((r) => r.concept)).size;
-        return `<tr><td class="first"><a href="${link({ group: 'area', level: l.id })}"><i class="dot" style="background:${l.colour}"></i>${l.id} · ${l.name}</a><div class="sub">${l.description}</div></td><td class="split-cell"><div class="split">${bar}</div></td>${cells.join('')}<td class="num total">${rules.length ? toTests(number(rules.length), rules.length, { level: l.id }) : dash}</td><td class="num">${number(rules.reduce((n, r) => n + r.cases.length, 0))}</td><td class="num">${number(new Set(rules.map((r) => r.file)).size)}</td><td class="num">${number(areas)}</td></tr>`;
-      })
-      .join('\n');
-    const title = `By testing level${scope ? ` in ${esc(scope.label)}` : ''}`;
-    return section(
-      'by-level',
-      title,
-      'testing-strategy&rsquo;s order · a level&rsquo;s name opens the areas at that level',
-      `<div class="well table"><table>
-<thead><tr><th scope="col" class="wide-name">Level</th><th scope="col"><span class="sr-only">Rules, drawn</span></th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num">Cases</th><th scope="col" class="num">Test files</th><th scope="col" class="num">Areas</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
-      'panel wide',
-      explain('by-level', title, WHAT.level),
-    );
-  }
-
-  // ---- Package: one row per package, split by level, with its untested files ----
-  function packageView(): string {
-    const series = levelSeries;
-    const allFiles = [...new Set(inScope.flatMap((a) => a.filesNothingRuns.map((f) => f.file)))];
-    const keys = PACKAGES.filter((p) => (q.package === null || p.key === q.package) && (scopeRules.some((r) => pkgOf(r.file) === p.key) || allFiles.some((f) => pkgOf(f) === p.key)));
-    const rows = keys.map((p) => ({ p, rules: scopeRules.filter((r) => pkgOf(r.file) === p.key), files: allFiles.filter((f) => pkgOf(f) === p.key).length }));
-    const max = Math.max(...rows.map((x) => x.rules.length), 1);
-    const heads = series.map((s) => `<th scope="col" class="num" title="${esc(s.title)}">${swatch(s)}${esc(s.label)}</th>`).join('');
-    const body = rows
-      .map(({ p, rules, files }) => {
-        const bar = barOf(series, series.map((s) => rules.filter((r) => r.level === s.key).length), max);
-        const cells = series.map((s) => {
-          const n = rules.filter((r) => r.level === s.key).length;
-          return `<td class="num">${model.availableLevels[s.key] === false ? '<span class="na">n/a</span>' : n ? toTests(number(n), n, { package: p.key, level: s.key as ListSpec['level'] }) : dash}</td>`;
-        });
-        const filesCell = files ? `<a href="${link({ group: 'gaps', package: p.key })}"><span class="bad">${number(files)}</span></a>` : dash;
-        return `<tr><td class="first"><a href="${link({ group: 'area', package: p.key })}">${esc(p.label)}</a><div class="sub">${plural(new Set(rules.map((r) => r.file)).size, 'test file')} · ${plural(rules.reduce((n, r) => n + r.cases.length, 0), 'case')}</div></td><td class="split-cell"><div class="split">${bar}</div></td>${cells.join('')}<td class="num total">${rules.length ? toTests(number(rules.length), rules.length, { package: p.key }) : dash}</td><td class="num">${filesCell}</td></tr>`;
-      })
-      .join('\n');
-    const title = `By package${scope ? ` in ${esc(scope.label)}` : ''}`;
-    return section(
-      'by-package',
-      title,
-      'where the test file, or the untested source file, lives · a name opens the areas it tests',
-      `<div class="well table"><table>
-<thead><tr><th scope="col">Package</th><th scope="col">Rules by level</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num">Files nothing runs</th></tr></thead>
-<tbody>${body || `<tr><td colspan="${series.length + 4}" class="empty">Nothing here.</td></tr>`}</tbody></table></div>`,
-      'panel wide',
-      explain('by-package', title, WHAT.package),
-    );
-  }
-
-  // ---- Gaps: every source file nothing imports, with the areas that own it ----
+  // ---- Gaps: the files under THIN covered, most statements no test runs first, then the branches no test takes ----
   function gapsView(): string {
-    const files = new Map<string, Area[]>();
-    for (const a of inScope) for (const f of ownFiles(a, keep)) files.set(f.file, [...(files.get(f.file) ?? []), a]);
-    const list = [...files].sort(([fa, aa], [fb, ab]) => inScope.indexOf(aa[0]!) - inScope.indexOf(ab[0]!) || (fa < fb ? -1 : 1));
-    const body = list
-      .map(([file, areas]) => `<tr><td class="first path">${fileLink(file, null)}</td><td>${areas.map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td><td class="faint-num">${esc(pkgLabel(pkgOf(file)))}</td></tr>`)
+    const files = measured(inScope);
+    const filesTitle = `Files to test next${scope ? ` in ${esc(scope.label)}` : ''}`;
+    const filesInfo = explain('gap-files', filesTitle, WHAT.gapFiles);
+    if (files === null) return `${section('gap-files', filesTitle, '', `<p class="well empty">${UNKNOWN_COVERAGE}</p>`, 'panel wide', filesInfo)}\n${branchesPanel()}`;
+    const owners = new Map<string, Area[]>();
+    for (const a of inScope) for (const s of a.statements ?? []) owners.set(s.file, [...(owners.get(s.file) ?? []), a]);
+    const branches = new Map([...branchesByFile(inScope)].map(([f, own]) => [f, own.count]));
+    const notRun = (f: FileStatements) => f.total - f.covered;
+    const thin = files.filter((f) => isThin(f)).sort((a, b) => notRun(b) - notRun(a) || (a.file < b.file ? -1 : 1));
+    const above = files.length - thin.length;
+    const body = thin
+      .map((f) => {
+        const n = branches.get(f.file) ?? 0;
+        return `<tr><td class="first path">${fileLink(f.file, null)}</td><td class="num"><strong>${number(notRun(f))}</strong> <span class="faint">of ${number(f.total)}</span></td><td class="num cover">${share(coverageOf([f]))}</td><td class="num">${n ? `<span class="bad">${number(n)}</span>` : dash}</td><td>${(owners.get(f.file) ?? []).map((a) => `<a href="${link({ group: 'area', node: a.key })}">${esc(a.label)}</a>`).join(', ')}</td></tr>`;
+      })
       .join('\n');
     const label = scope ? scope.label : 'Cockpit';
-    const prompt = list.length
-      ? [`Tests are missing for these files in the "${label}" feature area:`, ...list.map(([f]) => `- ${f}`), '', "Use this repo's test strategy and guidance when defining tests, to figure out which tests may need to be added to ensure this is covered."].join('\n')
+    const prompt = thin.length
+      ? [`Tests are missing for these files in the "${label}" feature area:`, ...thin.map((f) => `- ${f.file}`), '', "Use this repo's test strategy and guidance when defining tests, to figure out which tests may need to be added to ensure this is covered."].join('\n')
       : '';
     const copy = prompt
-      ? `<textarea id="gap-prompt" hidden>${esc(prompt)}</textarea><button type="button" class="copy" onclick="navigator.clipboard.writeText(document.getElementById('gap-prompt').value).then(()=>{this.textContent='Copied'})">Copy prompt for missing tests</button>`
+      ? ` · <textarea id="gap-prompt" hidden>${esc(prompt)}</textarea><button type="button" class="copy" onclick="navigator.clipboard.writeText(document.getElementById('gap-prompt').value).then(()=>{this.textContent='Copied'})">Copy prompt for missing tests</button>`
       : '';
-    const warning = model.warnings
-      .map((w) => {
-        const at = w.indexOf(': apps/');
-        if (at < 0) return `<p class="warning">${esc(w)}</p>`;
-        const tests = w.slice(at + 2).replace(/\.$/, '').split(', ');
-        return `<details class="warning"><summary><strong>Some of these may be false positives.</strong> ${plural(tests.length, 'test')} drive the real Worker over HTTP rather than importing what they exercise, so a file reached only through routing still shows here. Check the test before treating a hit as a gap.</summary><ul>${tests.map((t) => `<li>${fileLink(t, null)}</li>`).join('')}</ul></details>`;
-      })
-      .join('');
-    const filesTitle = list.length ? `Files nothing runs${scope ? ` in ${esc(scope.label)}` : ''}` : 'Files nothing runs';
-    const filesInfo = explain('gap-files', filesTitle, WHAT.gapFiles);
-    const table = list.length
-      ? section(
-          'gap-files',
-          filesTitle,
-          `${plural(list.length, 'file')}${q.package ? ` · ${esc(pkgLabel(q.package))} only` : ''} · ${copy}`,
-          `<div class="well table"><table>
-<thead><tr><th scope="col">Source file</th><th scope="col">Owned by</th><th scope="col">Package</th></tr></thead>
-<tbody>${body}</tbody></table></div>`,
-          'panel wide',
-          filesInfo,
-        )
-      : section('gap-files', filesTitle, '', `<p class="well empty">None: every source file ${scope ? `${esc(scope.label)} owns` : 'here'} is imported by at least one test.</p>`, 'panel wide', filesInfo);
-    return `${warning}\n${table}\n${branchesPanel()}`;
+    const table = section(
+      'gap-files',
+      filesTitle,
+      `${plural(thin.length, 'file')} under ${THIN}% covered, most statements no test runs first · ${plural(above, 'file')} at or above it not listed${q.package ? ` · ${esc(pkgLabel(q.package))} only` : ''}${copy}`,
+      thin.length
+        ? `<div class="well table"><table>
+<thead><tr><th scope="col">Source file</th><th scope="col" class="num wrap">Statements not run</th><th scope="col" class="num">Covered</th><th scope="col" class="num wrap">Branches untaken</th><th scope="col">Owned by</th></tr></thead>
+<tbody>${body}</tbody></table></div>`
+        : `<p class="well empty">None: every file here has at least ${THIN}% of its statements run by a test.</p>`,
+      'panel wide',
+      filesInfo,
+    );
+    return `${table}\n${branchesPanel()}`;
+  }
+
+  /** The branches no test takes across areas, per file: its lines, how many, and the areas owning it. A file owned by several areas is counted once, by the most any one holds (as `branchGaps` does). */
+  function branchesByFile(areas: Area[]): Map<string, { lines: number[]; count: number; areas: Area[] }> {
+    const byFile = new Map<string, { lines: number[]; count: number; areas: Area[] }>();
+    for (const a of areas) {
+      const here = new Map<string, number[]>();
+      for (const b of a.branchesNothingTakes ?? []) if (keep.file(b)) here.set(b.file, [...(here.get(b.file) ?? []), b.line]);
+      for (const [file, ls] of here) {
+        const own = byFile.get(file) ?? { lines: [], count: 0, areas: [] };
+        own.lines.push(...ls);
+        own.count = Math.max(own.count, ls.length);
+        own.areas.push(a);
+        byFile.set(file, own);
+      }
+    }
+    return byFile;
   }
 
   /** The branches no test takes, a row per file with its lines; unknown, not none, when the snapshot had no coverage. */
@@ -496,19 +428,7 @@ ${code(r)}
     if (!model.coverageAvailable) {
       return section('gap-branches', 'Branches nothing takes', '', '<p class="well empty">Unknown, not zero: the branches no test takes come from CI&rsquo;s instrumented run on main, and this snapshot had none.</p>', 'panel wide', info('Branches nothing takes'));
     }
-    // A file owned by several areas is counted once, by the most any one holds (as `branchGaps` does).
-    const byFile = new Map<string, { lines: number[]; count: number; areas: Area[] }>();
-    for (const a of inScope) {
-      const here = new Map<string, number[]>();
-      for (const b of a.branchesNothingTakes ?? []) if (keep.file(b)) here.set(b.file, [...(here.get(b.file) ?? []), b.line]);
-      for (const [file, lines] of here) {
-        const own = byFile.get(file) ?? { lines: [], count: 0, areas: [] };
-        own.lines.push(...lines);
-        own.count = Math.max(own.count, lines.length);
-        own.areas.push(a);
-        byFile.set(file, own);
-      }
-    }
+    const byFile = branchesByFile(inScope);
     if (!byFile.size) return section('gap-branches', 'Branches nothing takes', '', `<p class="well empty">None: every branch ${scope ? `${esc(scope.label)} owns` : 'here'} is taken by at least one test.</p>`, 'panel wide', info('Branches nothing takes'));
     const body = [...byFile]
       .sort(([fa, a], [fb, b]) => b.count - a.count || (fa < fb ? -1 : 1))
@@ -546,7 +466,10 @@ tr.context td{opacity:.55}
 .na{display:inline-block;padding:0 6px;border-radius:var(--radius-sm);font-size:12px;color:var(--ink-faint);background:color-mix(in srgb,var(--shade) 6%,transparent)}
 .bad{color:var(--over-ink);font-weight:600}
 td.num a{text-decoration:none}
-i.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+td.cover{white-space:nowrap}
+th.wrap{white-space:normal;width:80px}
+.meter{display:inline-block;width:36px;height:6px;margin-right:6px;vertical-align:1px;border-radius:3px;background:color-mix(in srgb,var(--shade) 12%,transparent);overflow:hidden}
+.meter i{display:block;height:100%;background:${VIOLET}}
 tr.group th{position:static;padding-top:16px;font-size:12px;color:var(--accent-deep);background:none}
 tr.group th i{margin-right:8px}
 table.rules{min-width:720px}
@@ -562,10 +485,6 @@ details.code summary{cursor:pointer;font-size:13px;color:var(--ink-faint);list-s
 details.code pre{margin:6px 0 0;padding:8px 0;overflow-x:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--field);border:1px solid color-mix(in srgb,var(--shade) 10%,transparent);border-radius:var(--radius-sm)}
 details.code pre span{display:block;padding:0 10px;white-space:pre}details.code pre b{display:inline-block;width:42px;color:var(--ink-faint);font-weight:400}
 details.code pre .hit{background:var(--accent-tint)}
-details.warning summary{cursor:pointer}details.warning ul{margin:8px 0 0;padding-left:20px;font-size:13px;columns:2 360px}details.warning a{color:inherit}
 .copy{height:30px;padding:0 12px;border:0;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);font:inherit;font-size:13px;font-weight:500;color:var(--ink-strong);cursor:pointer}
 .copy:hover{background:var(--field)}
-.changes a.name{text-decoration:none}
-.split-cell{width:130px}
-th.wide-name{min-width:260px}
 `;

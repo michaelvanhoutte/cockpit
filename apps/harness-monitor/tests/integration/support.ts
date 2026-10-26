@@ -48,6 +48,11 @@ export async function emptyTheDatabase() {
     env.DB.prepare('DELETE FROM stability_runs'),
     env.DB.prepare('DELETE FROM stability_jobs'),
     env.DB.prepare('DELETE FROM stability_steps'),
+    env.DB.prepare('DELETE FROM ci_attempts'),
+    env.DB.prepare('DELETE FROM ci_attempt_jobs'),
+    env.DB.prepare('DELETE FROM ci_attempt_steps'),
+    env.DB.prepare('DELETE FROM ci_failed_jobs'),
+    env.DB.prepare('DELETE FROM ci_failed_tests'),
     env.DB.prepare('DELETE FROM cycle_time_pulls'),
     env.DB.prepare('DELETE FROM cycle_time_rounds'),
     env.DB.prepare('DELETE FROM cycle_time_checks'),
@@ -127,6 +132,77 @@ export async function storedRuns(): Promise<{ run_id: number; conclusion: string
             (SELECT COUNT(*) FROM stability_steps s WHERE s.run_id = r.run_id) AS steps
      FROM stability_runs r ORDER BY r.run_id`,
   ).all<{ run_id: number; conclusion: string | null; jobs: number; steps: number }>();
+  return results;
+}
+
+/** A test that failed in a failed job, as its record names it. */
+export const failedTest = (name: string, over: Record<string, unknown> = {}) => ({
+  file: 'apps/api/tests/integration/triage.test.ts',
+  name,
+  project: null,
+  error: 'AssertionError: expected 1 to be 2',
+  ...over,
+});
+
+/** A failed job of an attempt, naming the step it died on and the tests that failed in it. */
+export const failedJob = (name: string, tests: unknown[] = [], over: Record<string, unknown> = {}) => ({
+  name,
+  step: 'Run pnpm test',
+  url: 'https://github.com/o/r/actions/runs/1/job/2',
+  tests,
+  testsMore: 0,
+  ...over,
+});
+
+/** An attempt of a run on `main` as the Stability job sends it, that passed unless told otherwise. */
+export const ciAttempt = (runId: number, attempt = 1, over: Record<string, unknown> = {}) => ({
+  runId,
+  attempt,
+  workflow: 'CI',
+  path: '.github/workflows/ci.yml',
+  event: 'push',
+  branch: 'main',
+  pullRequest: null,
+  onMain: true,
+  headSha: 'a'.repeat(40),
+  status: 'completed',
+  conclusion: 'success',
+  outcome: 'pass',
+  createdAt: '2026-10-01T10:00:00Z',
+  url: `https://github.com/o/r/actions/runs/${runId}${attempt > 1 ? `/attempts/${attempt}` : ''}`,
+  jobs: [stabilityJob('Test', 300_000, { steps: [stabilityStep('Run the tests', 240_000)] })],
+  failedJobs: [],
+  ...over,
+});
+
+/** A send of attempts as the Stability job makes it, with the right key unless told otherwise. */
+export function sendAttempts(attempts: unknown[], headers: Record<string, string> = { authorization: `Bearer ${WRITE_KEY}` }) {
+  return SELF.fetch('https://monitor.test/v1/ci-attempts', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ attempts }),
+  });
+}
+
+/** What is stored: each attempt with its verdict, and how many jobs, steps and failed jobs sit under it. */
+export async function storedAttempts(): Promise<{ run_id: number; attempt: number; outcome: string; jobs: number; steps: number; failed_jobs: number }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT a.run_id, a.attempt, a.outcome,
+            (SELECT COUNT(*) FROM ci_attempt_jobs j WHERE j.run_id = a.run_id AND j.attempt = a.attempt) AS jobs,
+            (SELECT COUNT(*) FROM ci_attempt_steps s WHERE s.run_id = a.run_id AND s.attempt = a.attempt) AS steps,
+            (SELECT COUNT(*) FROM ci_failed_jobs f WHERE f.run_id = a.run_id AND f.attempt = a.attempt) AS failed_jobs
+     FROM ci_attempts a ORDER BY a.run_id, a.attempt`,
+  ).all<{ run_id: number; attempt: number; outcome: string; jobs: number; steps: number; failed_jobs: number }>();
+  return results;
+}
+
+/** Every stored failed test with the failed job it sits under, in order. */
+export async function storedFailedTests(): Promise<{ run_id: number; attempt: number; job: string; step: string | null; name: string; project: string | null }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT t.run_id, t.attempt, f.name AS job, f.step, t.name, t.project
+     FROM ci_failed_tests t JOIN ci_failed_jobs f ON f.run_id = t.run_id AND f.attempt = t.attempt AND f.position = t.position
+     ORDER BY t.run_id, t.attempt, t.position, t.test_index`,
+  ).all<{ run_id: number; attempt: number; job: string; step: string | null; name: string; project: string | null }>();
   return results;
 }
 
@@ -313,7 +389,6 @@ export const testsTree = (commit: string, areas: string[], over: Record<string, 
     label: key,
     counts: { L1: 1 },
     rules: [{ concept: key, statement: `a rule of ${key}`, level: 'L1', file: 'a.test.ts', line: 3, cases: [], todoCases: [] }],
-    filesNothingRuns: [],
     branchesNothingTakes: null,
     path: [],
     children: [] as unknown[],

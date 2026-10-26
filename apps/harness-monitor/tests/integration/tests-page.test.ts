@@ -1,10 +1,10 @@
 import { createExecutionContext, env, SELF, waitOnExecutionContext } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../../src/worker';
-import { area, kase, model, rule, rules } from '../fixtures/tests-model';
+import { area, kase, model, rule, rules, statements } from '../fixtures/tests-model';
 import { withoutExplanations } from './cockpit-support';
 import { emptyTheDatabase, merged, sendTestsModel, theSentence } from './support';
-import { coloursOf, GREY, segments, slot, swatches } from './series-colours';
+import { GREY, slot, swatches } from './series-colours';
 
 beforeEach(emptyTheDatabase);
 
@@ -36,7 +36,7 @@ const INBOX_LINES = {
   [`${API_INT}:54`]: around(54, "    it.todo('a forwarded email');"),
 };
 
-/** Inbox: 2 L1, 1 L2, 1 F3 of its own; Capture inside it: 2 F3. Offline holds a file nothing runs. */
+/** Inbox: 2 L1, 1 L2, 1 F3 of its own; Capture inside it: 2 F3. No coverage run. */
 const TREE = [
   area(
     'Workspaces',
@@ -46,9 +46,27 @@ const TREE = [
       area('Panels'),
     ],
   ),
-  area('Offline', rules(1, 'L1', WEB), [], { filesNothingRuns: [{ file: 'apps/web/src/offline.ts', line: 1 }, { file: 'apps/api/src/sync.ts', line: 1 }] }),
+  area('Offline', rules(1, 'L1', WEB)),
 ];
 const SNAPSHOT = model(TREE);
+
+/**
+ * A coverage run on main: Menu.tsx is 20% run and owned by Panels and Layouts,
+ * Grid.tsx 76% with more statements not run, offline.ts 85%, sync.ts in apps/api 30%.
+ */
+const COVERED = model(
+  [
+    area('Workspaces', [], [
+      area('Panels', [], [], { statements: [statements('apps/web/src/Menu.tsx', 25, 5)], branchesNothingTakes: [{ file: 'apps/web/src/Menu.tsx', line: 3 }, { file: 'apps/web/src/Menu.tsx', line: 9 }] }),
+      area('Layouts', [], [], { statements: [statements('apps/web/src/Menu.tsx', 25, 5), statements('apps/web/src/Grid.tsx', 100, 76)], branchesNothingTakes: [] }),
+    ], { statements: [], branchesNothingTakes: [] }),
+    area('Offline', rules(1, 'L1', WEB), [], { statements: [statements('apps/web/src/offline.ts', 100, 85), statements('apps/api/src/sync.ts', 100, 30)], branchesNothingTakes: [] }),
+  ],
+  { coverageAvailable: true },
+);
+
+/** A non-breaking space, built from its code so the expectations cannot quietly hold plain ones. */
+const NBSP = String.fromCharCode(160);
 
 const thePage = async (query = '', init: RequestInit = {}) => {
   const response = await SELF.fetch(`https://monitor.test/tests${query}`, init);
@@ -63,22 +81,45 @@ const hasSection = (html: string, id: string) => sectionOf(html, id) !== '';
 /** A table row of a section, as markup, by the text its first cell starts with. */
 const rowOf = (html: string, id: string, name: string) => [...sectionOf(html, id).matchAll(/<tr[ >].*?<\/tr>/gs)].map((m) => m[0]).find((row) => plain(row).startsWith(name)) ?? '';
 const cellsOf = (row: string) => [...row.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
-/** The cell a level's count sits in on the Concept area tab: after the area's name and its bar, one per level in testing-strategy's order. */
-const levelCell = (row: string, level: string) => cellsOf(row)[2 + ['L1', 'L2', 'L3', 'F1', 'F2', 'F3', 'Contract'].indexOf(level)]!;
+/** The cell a level's count sits in on the Concept area tab: after the area's name, one per level in testing-strategy's order. */
+const levelCell = (row: string, level: string) => cellsOf(row)[1 + ['L1', 'L2', 'L3', 'F1', 'F2', 'F3', 'Contract'].indexOf(level)]!;
+/** An area's Covered cell, the last but one. */
+const coveredCell = (row: string) => cellsOf(row).at(-2)!;
+/** The tiles as text, each label followed by its figure and note. */
+const tilesOf = (html: string) => plain(/<div class="tiles">\n.*?\n<\/div>/s.exec(html)?.[0] ?? '');
 const hrefOf = (markup: string) => /href="([^"]*)"/.exec(markup)?.[1]?.replace(/&#38;/g, '&');
 
 describe('Harness Monitor', () => {
-  describe("main's tests are a page, and the same address answers JSON to a request that asks", () => {
-    it('opens as a page from its own tab in the top bar, between Test selection and CI stability', async () => {
+  describe('the page is Test coverage with two tabs, and an old tab’s address opens Concept area', () => {
+    it('opens as a page from its own tab in the top bar, Test coverage, between Test selection and CI stability', async () => {
       await sendTestsModel(SNAPSHOT);
 
       const html = await thePage();
 
-      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Tests<\/a>/);
-      expect(plain(html.match(/<nav class="pages".*?<\/nav>/s)![0])).toBe('Claude Code costs Cockpit s Claude calls Cycle time Test selection Tests CI stability');
+      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Test coverage<\/a>/);
+      expect(plain(html.match(/<nav class="pages".*?<\/nav>/s)![0])).toBe('Claude Code costs Cockpit s Claude calls Cycle time Test selection Test coverage CI stability');
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
       expect(html).toContain('abc1234');
     });
+
+    it.each([['?group=level'], ['?group=package']])('%s opens Concept area', async (query) => {
+      await sendTestsModel(SNAPSHOT);
+
+      const html = await thePage(query);
+
+      expect(theSentence(html).choices.group!.chosen).toBe('each concept area');
+      expect(hasSection(html, 'areas')).toBe(true);
+      expect(hasSection(html, 'by-level') || hasSection(html, 'by-package')).toBe(false);
+    });
+
+    it('the sentence offers each concept area and each gap only', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      expect(theSentence(await thePage()).choices.group!.offered).toEqual(['each concept area', 'each gap']);
+    });
+  });
+
+  describe("main's tests are a page, and the same address answers JSON to a request that asks", () => {
 
     it.each([
       { situation: 'format=json in the address', query: '?format=json', headers: {} },
@@ -126,19 +167,6 @@ describe('Harness Monitor', () => {
 
       expect(plain(sectionOf(html, 'tests'))).toContain('Tests: 3 rules in Inbox and inside it · F3 · End-to-end');
       expect(theSentence(html).choices.level).toMatchObject({ chosen: 'L1 · Unit', held: true });
-    });
-
-    it("a package column's count on Testing level opens that level's rules in that package", async () => {
-      await sendTestsModel(SNAPSHOT);
-      const html = await thePage('?group=level');
-      const l1 = cellsOf(rowOf(html, 'by-level', 'L1 · Unit'));
-      // After the level's name and its bar, the packages seen: apps/api, apps/web, tests/e2e.
-      const api = hrefOf(l1[2]!)!;
-      expect(api).toBe('/tests?group=level&tests=%7EL1%7Eapi#tests');
-
-      const opened = await thePage(api.slice('/tests'.length).replace('#tests', ''));
-
-      expect(plain(sectionOf(opened, 'tests'))).toContain('Tests: 2 rules · L1 · Unit · apps/api');
     });
 
     it('a count of 0 is not a link', async () => {
@@ -190,19 +218,44 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('Gaps lists every file nothing runs with the areas that own it, and branches nothing takes say unknown without coverage', () => {
-    it('every file nothing runs is listed with the area that owns it, narrowed by Package', async () => {
-      await sendTestsModel(SNAPSHOT);
+  describe('Gaps lists the files under 80% covered, most statements not run first, each with its share, branches untaken and the areas owning it', () => {
+    /** The files Gaps lists, in its order, each as its row reads. */
+    const listed = (html: string) => [...sectionOf(html, 'gap-files').matchAll(/<tr><td.*?<\/tr>/gs)].map((m) => plain(m[0]));
 
-      const all = sectionOf(await thePage('?group=gaps'), 'gap-files');
-      const narrowed = sectionOf(await thePage('?group=gaps&package=api'), 'gap-files');
+    it('three files at 20%, 76% and 85% list the first two, the one with more statements not run first, and a file two areas own once, naming both', async () => {
+      await sendTestsModel(COVERED);
 
-      expect(plain(all)).toContain('apps/web/src/offline.ts Offline apps/web');
-      expect(plain(all)).toContain('apps/api/src/sync.ts Offline apps/api');
-      expect(plain(narrowed)).toContain('apps/api/src/sync.ts');
-      expect(plain(narrowed)).not.toContain('offline.ts');
+      const html = await thePage('?group=gaps&package=web');
+
+      expect(listed(html)).toEqual(['apps/web/src/Grid.tsx 24 of 100 76% 0 Layouts', 'apps/web/src/Menu.tsx 20 of 25 20% 2 Panels , Layouts']);
+      expect(plain(sectionOf(html, 'gap-files'))).toContain('2 files under 80% covered, most statements no test runs first · 1 file at or above it not listed');
     });
 
+    it('Package apps/api lists only the files of apps/api', async () => {
+      await sendTestsModel(COVERED);
+
+      expect(listed(await thePage('?group=gaps&package=api'))).toEqual(['apps/api/src/sync.ts 70 of 100 30% 0 Offline']);
+    });
+
+    it('a snapshot without coverage says the files are unknown, not none', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const files = plain(sectionOf(await thePage('?group=gaps'), 'gap-files'));
+
+      expect(files).toContain('Unknown, not none');
+      expect(files).not.toContain('None:');
+    });
+
+    it('the prompt to copy names the files listed', async () => {
+      await sendTestsModel(COVERED);
+
+      const prompt = /<textarea id="gap-prompt" hidden>(.*?)<\/textarea>/s.exec(sectionOf(await thePage('?group=gaps'), 'gap-files'))![1]!;
+
+      expect(prompt.split('\n').filter((l) => l.startsWith('- '))).toEqual(['- apps/api/src/sync.ts', '- apps/web/src/Grid.tsx', '- apps/web/src/Menu.tsx']);
+    });
+  });
+
+  describe('Gaps lists the branches nothing takes per file with their lines, and says unknown without coverage', () => {
     it('a snapshot without coverage says branches nothing takes are unknown, never 0', async () => {
       await sendTestsModel(SNAPSHOT);
 
@@ -241,45 +294,89 @@ describe('Harness Monitor', () => {
       expect(plain(gaps)).toContain('2 branches in 1 file');
       expect(plain(gaps)).toContain('apps/web/src/offline.ts 2 7 , 12 Offline , Sync');
     });
+  });
 
-    it('a warning that tests drive the Worker over HTTP is drawn on Gaps with each test named', async () => {
-      await sendTestsModel(model(TREE, { warnings: ['No import edge from: apps/api/tests/integration/a.test.ts, apps/api/tests/integration/b.test.ts.'] }));
+  describe('Covered, its tile and the branch counts read unknown, never 0%, where the snapshot had no coverage', () => {
+    it.each([
+      { situation: "main's snapshot without coverage", send: () => sendTestsModel(SNAPSHOT), query: '' },
+      { situation: "a pull request's snapshot", send: () => sendTestsModel(model(TREE, { commit: 'def5678' }), {}, 'pr-9001'), query: '?pr=9001' },
+      { situation: 'a tree from an older analyzer, with no figures', send: () => sendTestsModel(model(TREE, { coverageAvailable: true })), query: '' },
+    ])('$situation reads unknown in the column and the tile', async ({ send, query }) => {
+      await send();
 
-      const html = await thePage('?group=gaps');
+      const html = await thePage(query);
 
-      expect(plain(html)).toContain('Some of these may be false positives. 2 tests drive the real Worker');
-      expect(html).toContain('apps/api/tests/integration/b.test.ts');
+      expect(plain(coveredCell(rowOf(html, 'areas', 'Offline')))).toBe('unknown');
+      expect(plain(coveredCell(rowOf(html, 'areas', 'Workspaces')))).toBe('unknown');
+      expect(tilesOf(html)).toContain('Covered unknown');
+      expect(tilesOf(html)).not.toContain('0%');
+    });
+
+    it('Show areas under 80% covered on a snapshot without coverage says unknown, not that no area is under it', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const table = plain(sectionOf(await thePage('?show=files'), 'areas'));
+
+      expect(table).toContain('Unknown, not none');
+      expect(table).not.toContain('No area here matches');
+    });
+
+    it('a snapshot with coverage draws each share, its subtree in brackets, red under 80%, and the tile its statements', async () => {
+      await sendTestsModel(COVERED);
+
+      const html = await thePage();
+
+      expect(plain(coveredCell(rowOf(html, 'areas', 'Workspaces')))).toBe('— (64%)');
+      expect(coveredCell(rowOf(html, 'areas', 'Panels'))).toContain('<span class="bad">20%</span>');
+      expect(coveredCell(rowOf(html, 'areas', 'Offline'))).toContain('57%');
+      expect(tilesOf(html)).toContain('Covered 60% 196 of 325 statements run · 0 files nothing runs');
     });
   });
 
-  describe('tiles and overview panels are on Concept area only', () => {
+  describe('Concept area draws no files nothing runs anywhere, and its tiles are on Concept area only', () => {
     it.each([
-      { tab: 'group=area', tiles: 5, where: true },
-      { tab: 'group=level', tiles: 0, where: false },
-      { tab: 'group=package', tiles: 0, where: false },
-      { tab: 'group=gaps', tiles: 0, where: false },
-    ])('$tab draws its tiles and overview panels: $where', async ({ tab, tiles, where }) => {
+      { tab: 'group=area', tiles: 5 },
+      { tab: 'group=gaps', tiles: 0 },
+    ])('$tab draws $tiles tiles', async ({ tab, tiles }) => {
       await sendTestsModel(SNAPSHOT);
 
-      const html = await thePage(`?${tab}`);
-
-      expect(html.match(/<div class="tile /g) ?? []).toHaveLength(tiles);
-      expect(hasSection(html, 'where')).toBe(where);
-      expect(hasSection(html, 'worst')).toBe(where);
+      expect((await thePage(`?${tab}`)).match(/<div class="tile /g) ?? []).toHaveLength(tiles);
     });
 
-    it('the tiles count the rules, cases and files nothing runs of the area drilled into', async () => {
+    it('Concept area has neither Where the rules are nor Most files nothing runs, and no files column, tile or rules bar', async () => {
+      await sendTestsModel(COVERED);
+
+      const html = await thePage();
+      const head = plain(sectionOf(html, 'areas').match(/<thead>.*?<\/thead>/s)![0]);
+
+      expect(hasSection(html, 'where')).toBe(false);
+      expect(hasSection(html, 'worst')).toBe(false);
+      expect(head).toBe('Area L1 L2 L3 F1 F2 F3 Contract Rules Covered Branches untaken');
+      expect([...html.matchAll(/<span class="tile-label">(.*?)<span class="tile-value">/gs)].map((m) => plain(m[1]!))).toEqual(['Rules', 'Cases', 'Covered', 'Branches nothing takes', 'Areas with no rule']);
+      expect(html).not.toContain('class="split"');
+    });
+
+    it('the tiles count the rules, cases and share covered of the area drilled into', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      const tiles = plain((await thePage('?node=Inbox')).match(/<div class="tiles">.*?<\/div>\s*<div class="row">/s)![0]);
+      const tiles = tilesOf(await thePage('?node=Inbox'));
 
       expect(tiles).toContain('Rules 6 in Inbox and the 1 area inside it');
       expect(tiles).toContain('Cases 9 in 3 test files · 1 not written yet');
-      expect(tiles).toContain('Files nothing runs 0');
+      expect(tiles).toContain('Covered unknown');
     });
   });
 
   describe('Show keeps the areas asked for, with what holds them faint', () => {
+    it('areas under 80% covered keeps Panels, Layouts and Offline, and draws Workspaces, which holds them, faint', async () => {
+      await sendTestsModel(COVERED);
+
+      const table = sectionOf(await thePage('?show=files'), 'areas');
+
+      const rows = [...table.matchAll(/<tr class="(context)?"><td class="first">.*?<a href="[^"]*">(.*?)<\/a>/gs)].map((m) => [m[2], m[1] ?? 'kept']);
+      expect(rows).toEqual([['Workspaces', 'context'], ['Panels', 'kept'], ['Layouts', 'kept'], ['Offline', 'kept']]);
+    });
+
     it('areas with no F3 rule keeps Panels and Offline, and draws Workspaces, which holds Panels, faint', async () => {
       await sendTestsModel(SNAPSHOT);
 
@@ -327,7 +424,7 @@ describe('Harness Monitor', () => {
     it('changing a word of the sentence on another tab sends split along', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      const html = await thePage('?group=level&split=package');
+      const html = await thePage('?group=gaps&split=package');
 
       expect(html.match(/<form class="sentence-form".*?<\/form>/s)![0]).toContain('<input type="hidden" name="split" value="package">');
     });
@@ -466,15 +563,21 @@ describe('Harness Monitor', () => {
       const { text, choices } = theSentence(await thePage());
 
       expect(text).toBe('Show main’s tests for [each concept area] counted by [level]');
-      expect(choices.group!.offered).toEqual(['each concept area', 'each testing level', 'each package', 'each gap']);
+      expect(choices.group!.offered).toEqual(['each concept area', 'each gap']);
       expect(choices.split!.offered).toEqual(['level', 'package']);
       expect(Object.keys(choices)).toEqual(['group', 'split', 'node', 'level', 'package', 'show']);
       expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
     });
 
+    it('the Area picker indents an area inside another by non-breaking spaces, which a browser keeps', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const { choices } = theSentence(await thePage());
+
+      expect(choices.node!.offered).toEqual(['All areas', 'Workspaces', `${NBSP.repeat(3)}Inbox`, `${NBSP.repeat(6)}Capture`, `${NBSP.repeat(3)}Panels`, 'Offline']);
+    });
+
     it.each([
-      { situation: 'each testing level, which counts by package and offers no Level filter', query: '?group=level&level=L1', keys: ['group', 'node', 'package'] },
-      { situation: 'each package, which offers no Package filter', query: '?group=package&package=api', keys: ['group', 'node', 'level'] },
       { situation: 'each gap, which offers no Level filter and carries a level held in the form', query: '?group=gaps&level=L1', keys: ['group', 'node', 'package'] },
       { situation: 'a rule opened, which counts by nothing', query: `?rule=${encodeURIComponent(`${API_INT}:20`)}`, keys: ['group', 'node', 'level', 'package', 'show'] },
     ])('$situation', async ({ query, keys }) => {
@@ -484,7 +587,7 @@ describe('Harness Monitor', () => {
 
       expect(Object.keys(theSentence(html).choices)).toEqual(keys);
       if (query.startsWith('?group=gaps')) expect(html).toContain('<input type="hidden" name="level" value="L1">');
-      if (!query.startsWith('?group=') || query.startsWith('?group=gaps')) expect(theSentence(html).text).not.toContain('counted by');
+      expect(theSentence(html).text).not.toContain('counted by');
     });
 
     it('a pull request picked in the first word is read in the sentence and in the stamp', async () => {
@@ -511,7 +614,7 @@ describe('Harness Monitor', () => {
       const html = await thePage(query);
 
       expect(plain(sectionOf(html, 'nothing'))).toContain('No snapshot of main s tests has arrived yet.');
-      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Tests<\/a>/);
+      expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Test coverage<\/a>/);
       expect(theSentence(html).text).toMatch(/^Show main’s tests for \[each [a-z ]+\]$/);
       expect(html).not.toContain('class="only"');
     });
@@ -524,11 +627,10 @@ describe('Harness Monitor', () => {
   });
 
   describe('a level has its own colour wherever the page counts by level, and a package has none', () => {
-    it('the Concept area tab keys L1 to F3 in the first six slots and Contract in grey, and an area’s bar uses the same ones', async () => {
+    it('the Concept area tab keys L1 to F3 in the first six slots and Contract in grey', async () => {
       await sendTestsModel(SNAPSHOT);
 
       const html = await thePage();
-      const inbox = rowOf(html, 'areas', 'Inbox');
 
       expect(swatches(sectionOf(html, 'areas')).slice(0, 7)).toEqual([
         ['L1', slot(1)],
@@ -539,21 +641,12 @@ describe('Harness Monitor', () => {
         ['F3', slot(6)],
         ['Contract', GREY],
       ]);
-      // Inbox holds L1, L2 and F3 rules of its own: its bar has a segment for each, in their colours.
-      expect(segments(cellsOf(inbox).join('')).map(([title, colour]) => [title.replace(/ \d+$/, ''), colour])).toEqual([
-        ['L1', slot(1)],
-        ['L2', slot(2)],
-        ['F3', slot(6)],
-      ]);
     });
 
-    it('counted by package, every bar is violet', async () => {
+    it('counted by package, no column has a colour', async () => {
       await sendTestsModel(SNAPSHOT);
 
-      const bars = segments(sectionOf(await thePage('?split=package'), 'areas'));
-
-      expect(bars.length).toBeGreaterThan(0);
-      expect(new Set(coloursOf(bars))).toEqual(new Set([slot(1)]));
+      expect(swatches(sectionOf(await thePage('?split=package'), 'areas'))).toEqual([]);
     });
   });
 
