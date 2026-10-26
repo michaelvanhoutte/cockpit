@@ -371,7 +371,11 @@ export function axisFor(startedAt: number, fitted: Fitted): Tick[] {
     }
     clock += part.ms;
   }
-  edge(clock, fitted.shownMs, fitted.parts.filter((part) => part.type === 'away').length, 'end');
+  const breaks = fitted.parts.filter((part) => part.type === 'away').length;
+  // The clock picking up after the last time away gives way to the merge where the two would crowd, since its label would hang past the axis's end.
+  const last = ticks[ticks.length - 1]!;
+  if (ticks.length > 1 && last.breaksBefore === breaks && fitted.shownMs - last.startMs < fitted.shownMs * AXIS_CROWD) ticks.pop();
+  edge(clock, fitted.shownMs, breaks, 'end');
 
   const step = AXIS_STEPS_MS.find((each) => fitted.shownMs / each <= AXIS_TICKS) ?? AXIS_STEPS_MS[AXIS_STEPS_MS.length - 1]!;
   const crowded = (offsetMs: number, breaksBefore: number) =>
