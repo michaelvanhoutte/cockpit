@@ -3,6 +3,7 @@
  *
  *   collect(repo) -> buildModel(...) -> renderHtml(Model) -> a file
  *                 -> monitorRows(...) -> sendRuns(...)  -> the Harness Monitor, with --send
+ *                 -> collectAttempts(...) -> attemptRows(...) -> sendAttempts(...)  -> likewise
  *
  * `--json` stops after the second arrow, so anything else can consume the
  * model. `--send` reads once for both, back to whichever window starts earlier,
@@ -18,9 +19,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { collect, GitHubError } from './github.js';
-import { buildModel, monitorRows } from './model.js';
-import { MonitorError, newestStored, sendRuns, sendWindow } from './monitor.js';
+import { collect, collectAttempts, GitHubError } from './github.js';
+import { attemptRows, buildModel, monitorRows } from './model.js';
+import { MonitorError, newestStored, newestStoredAttempt, sendAttempts, sendRuns, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -36,9 +37,10 @@ const USAGE = `Usage: node src/cli.js [options]
   --max-runs <n>      stop after this many runs, and report the shorter window (default 800)
   --repo <owner/name> default: $GITHUB_REPOSITORY, else this checkout's origin
   --branch <name>     default: main
-  --send              also send the runs to the Harness Monitor at $HARNESS_MONITOR_URL with
-                      $HARNESS_WRITE_KEY: those from its newest stored run less two days, or
-                      the --days window when it holds none
+  --send              also send the runs, and every attempt of them with its failed tests, to the
+                      Harness Monitor at $HARNESS_MONITOR_URL with $HARNESS_WRITE_KEY: those from
+                      its newest stored run (or attempt) less two days, or the --days window when
+                      it holds none
   --from <YYYY-MM-DD> with --send, send the runs of this window instead and write nothing (the backfill)
   --to <YYYY-MM-DD>   the window's last day, inclusive (default today)
   --help
@@ -214,16 +216,29 @@ export async function main(argv) {
   const pageSince = new Date(now.getTime() - days * DAY_MS);
   const backfill = Boolean(args.from);
 
-  // A Monitor that cannot say where to start costs the send, never the page.
+  // A Monitor that cannot say where to start costs the send, never the page. The attempts start
+  // from their own newest, and a Monitor that cannot say costs only them: the runs still go.
   let window = null;
   let unsent = null;
+  let attemptWindow = null;
+  let attemptsUnsent = null;
   if (monitor) {
+    const given = { from: args.from, to: args.to ?? (backfill ? now : null) };
     try {
       const newest = backfill ? null : await newestStored({ url: monitor.url });
-      window = sendWindow({ newest, now, days, from: args.from, to: args.to ?? (backfill ? now : null) });
+      window = sendWindow({ newest, now, days, ...given });
     } catch (error) {
       if (!(error instanceof MonitorError)) throw error;
       unsent = error;
+    }
+    if (window) {
+      try {
+        const newest = backfill ? null : await newestStoredAttempt({ url: monitor.url });
+        attemptWindow = sendWindow({ newest, now, days, ...given });
+      } catch (error) {
+        if (!(error instanceof MonitorError)) throw error;
+        attemptsUnsent = error;
+      }
     }
   }
 
@@ -233,7 +248,7 @@ export async function main(argv) {
     collected = await collect({
       repo,
       branch,
-      since: backfill ? window.since : window && window.since < pageSince ? window.since : pageSince,
+      since: backfill ? window.since : new Date(Math.min(pageSince, window?.since ?? pageSince, attemptWindow?.since ?? pageSince)),
       until: backfill ? window.until : null,
       maxRuns: args.maxRuns ?? 800,
       token: resolveToken(),
@@ -256,7 +271,10 @@ export async function main(argv) {
     process.stderr.write(`${unsent.message}\nNothing was sent; the next send's window reaches back for it.\n`);
     return 1;
   }
-  return monitor ? send(monitor, collected, window, { backfill }) : 0;
+  if (!monitor) return 0;
+  const runsCode = await send(monitor, collected, window, { backfill });
+  const attemptsCode = await sendEveryAttempt({ monitor, collected, window: attemptWindow, unsent: attemptsUnsent, repo, trunk: branch, backfill });
+  return runsCode || attemptsCode;
 }
 
 /**
@@ -269,12 +287,7 @@ export async function main(argv) {
 async function send(monitor, collected, window, { backfill }) {
   // listRuns reads newest first.
   const runs = collected.runs.filter((run) => new Date(run.createdAt) >= window.since);
-  // A read that went on past the window's start read all of it, whatever stopped it after.
-  const cut = collected.truncated && runs.length === collected.runs.length;
-  const oldest = runs.at(-1)?.createdAt ?? '';
-  const gap = cut
-    ? `The run budget (--max-runs), or the 1,000 runs GitHub lists at most, stopped the read at ${oldest}; the runs before it were not sent. Send them with ${backfill ? '' : `the Stability backfill, --from ${window.since.toISOString().slice(0, 10)} `}--to ${oldest.slice(0, 10)}.\n`
-    : '';
+  const { cut, gap } = gapOf(collected, runs, window, { backfill });
   const ids = new Set(runs.map((run) => run.id));
   let result;
   try {
@@ -290,6 +303,57 @@ async function send(monitor, collected, window, { backfill }) {
   }
   process.stderr.write(
     `sent ${result.runs} runs from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${gap}`,
+  );
+  return cut ? 1 : 0;
+}
+
+/**
+ * Whether the read stopped inside the send's window, and the sentence naming the backfill that
+ * sends what it left unread. A read that went on past the window's start read all of it,
+ * whatever stopped it after.
+ */
+function gapOf(collected, runs, window, { backfill }) {
+  const cut = collected.truncated && runs.length === collected.runs.length;
+  const oldest = runs.at(-1)?.createdAt ?? '';
+  const gap = cut
+    ? `The run budget (--max-runs), or the 1,000 runs GitHub lists at most, stopped the read at ${oldest}; the runs before it were not sent. Send them with ${backfill ? '' : `the Stability backfill, --from ${window.since.toISOString().slice(0, 10)} `}--to ${oldest.slice(0, 10)}.\n`
+    : '';
+  return { cut, gap };
+}
+
+/**
+ * Sends every attempt of the runs inside the attempts' window, oldest first, like the runs: a send
+ * that stops partway leaves the Monitor's newest attempt where the next send's overlap picks up
+ * the rest. Reading them costs a request per re-run and per failed job's record, so a spent
+ * allowance or an unreachable Monitor costs these alone: the runs were sent before.
+ */
+async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trunk, backfill }) {
+  if (unsent) {
+    process.stderr.write(`${unsent.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    return 1;
+  }
+  if (!window) return 0;
+  const inWindow = (run) => new Date(run.createdAt) >= window.since;
+  const { cut, gap } = gapOf(collected, collected.runs.filter(inWindow), window, { backfill });
+  let attempts;
+  try {
+    const entries = await collectAttempts({ repo, runs: [...collected.runs, ...collected.dependabot], jobs: collected.jobs, since: window.since, token: resolveToken() });
+    attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  } catch (error) {
+    if (!(error instanceof GitHubError)) throw error;
+    process.stderr.write(`${error.message}\nNo attempt was sent; the next send's window reaches back for them.\n`);
+    return 1;
+  }
+  let result;
+  try {
+    result = await sendAttempts({ url: monitor.url, key: monitor.key, attempts });
+  } catch (error) {
+    if (!(error instanceof MonitorError)) throw error;
+    process.stderr.write(`${error.message}\n${gap}`);
+    return 1;
+  }
+  process.stderr.write(
+    `sent ${result.attempts} attempts from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${gap}`,
   );
   return cut ? 1 : 0;
 }

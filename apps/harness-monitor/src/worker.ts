@@ -3,6 +3,8 @@ import { exportClaudeCalls } from './claude-calls-export';
 import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
 import { renderClaudeCalls } from './claude-calls-view';
 import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
+import { checkAttempts } from './ci-attempts';
+import { newestAttempt, parseScope, storeAttempts } from './ci-attempts-store';
 import { checkPulls } from './cycle-time';
 import { renderCycleTime } from './cycle-time-page';
 import { cycleTimeAddress, loadCycleTime, parseCycleTimeQuery } from './cycle-time-report';
@@ -97,6 +99,17 @@ async function writeStability(request: Request, env: Env): Promise<Response> {
   const checked = checkRuns(read.body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storeRuns(env.DB, checked.runs));
+}
+
+/** A send of CI stability's attempts, stored whole or refused whole. */
+async function writeAttempts(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkAttempts(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeAttempts(env.DB, checked.attempts));
 }
 
 /** A send of cycle time's merged pull requests, stored whole or refused whole. */
@@ -470,6 +483,15 @@ export default {
       if (request.method === 'POST') return writeStability(request, env);
       // Where the next send starts reading: public, as every read here is.
       if (request.method === 'GET') return json({ newestRun: await newestRun(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/v1/ci-attempts') {
+      if (request.method === 'POST') return writeAttempts(request, env);
+      // Where the next send of main's attempts, or of every other branch's, starts reading: public, as every read here is.
+      if (request.method === 'GET') {
+        const scope = parseScope(new URL(request.url).searchParams.get('on'));
+        return scope === null ? json({ error: 'on must be main or branches.' }, 400) : json({ newestAttempt: await newestAttempt(env.DB, scope) });
+      }
       return json({ error: 'Use GET or POST.' }, 405);
     }
     if (pathname === '/stability' && request.method === 'GET') return stability(request, env, ctx);
