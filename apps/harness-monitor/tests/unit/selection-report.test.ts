@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { barsOf, type CheckMs, checkKey, dayRange, groupByStart, type Job, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, rankRules, ruleRows, rulePrompt, selectionAddress, type SelectedFile, verdictOf, whyText } from '../../src/selection-report';
+import { barsOf, dayRange, groupByStart, type Job, matchesOutcome, outcomeOf, overBar, packageRows, parseSelectionQuery, rankRules, ruleRows, rulePrompt, selectionAddress, type SelectedFile, verdictOf, whyText } from '../../src/selection-report';
+import { type CheckMs, checkKey } from '../../src/selection-store';
 import type { PackageRun, ViewJob, ViewPull } from '../../src/selection-view';
 
 const ran = (over: Partial<ViewJob> = {}): ViewJob => ({ status: 'ran', ranEverything: false, selecting: true, filesRun: 12, filesTotal: 300, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [], ...over });

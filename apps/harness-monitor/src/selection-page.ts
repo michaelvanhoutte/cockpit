@@ -107,7 +107,7 @@ const fileItem = (f: Pick<SelectedFile, 'path' | 'status' | 'text'>) =>
 const OWN_ADDRESS = parseSelectionQuery(new URLSearchParams());
 
 /** Copies the prompt a button sits beside, which is in the page and never shown, and says so for a moment. */
-const COPY_SCRIPT = `<script>document.addEventListener('click',function(e){var b=e.target.closest('.copy-prompt');if(!b)return;var pre=b.parentNode.querySelector('pre');var say=function(t){b.textContent=t;setTimeout(function(){b.textContent='Copy prompt'},1500)};navigator.clipboard.writeText(pre.textContent).then(function(){say('Copied')},function(){say('Could not copy')})});</script>`;
+const COPY_SCRIPT = `<script>document.addEventListener('click',function(e){var b=e.target.closest('.copy-prompt');if(!b)return;var pre=b.parentNode.querySelector('pre');var say=function(t){b.textContent=t;setTimeout(function(){b.textContent='Copy prompt'},1500)};var fail=function(){say('Could not copy')};try{navigator.clipboard.writeText(pre.textContent).then(function(){say('Copied')},fail)}catch(x){fail()}});</script>`;
 
 /**
  * What one job selected on one pull request's last CI run, as the fragment a

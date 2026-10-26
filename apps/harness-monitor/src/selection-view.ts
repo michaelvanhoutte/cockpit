@@ -1,6 +1,5 @@
-import { type JobFilter, inPeriod, MOST_SELECTED, type PullRef, refOf, SCOPE } from './selection-store';
+import { CHECK_NAMES, checkKey, type JobFilter, inPeriod, MOST_SELECTED, type PullRef, refOf, SCOPE } from './selection-store';
 import type { BarId, SelectionJob, SelectionStatus } from './selection';
-import { CHECK_NAMES, checkKey } from './selection-report';
 
 /**
  * What the test selection page reads of the stored rows. The queries only
@@ -90,7 +89,7 @@ export interface SelectionView {
   packages: PackageRun[];
   pullDrill: PullDrill | null;
   testDrill: TestDrill | null;
-  /** The time each pull request's Test and E2E checks held it up in cycle time's rounds, by `checkKey` (selection-report.ts); empty where the view did not ask. */
+  /** The time each pull request's Test and E2E checks held it up in cycle time's rounds, by `checkKey` (selection-store.ts); empty where the view did not ask. */
   checkMs: Map<string, number>;
 }
 

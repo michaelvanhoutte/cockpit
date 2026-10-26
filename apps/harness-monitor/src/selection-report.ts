@@ -2,7 +2,7 @@ import { addDays, belgianDay, formatDay, startOfDay } from './belgium';
 import { plural, quantile } from './cycle-time-report';
 import { number } from './page';
 import { humanMs } from './report';
-import { leadingRule, type JobFilter, verdictOf } from './selection-store';
+import { type CheckMs, checkKey, leadingRule, type JobFilter, verdictOf } from './selection-store';
 import type { BarId, SelectionJob } from './selection';
 import type { PackageRun, StoredBar, ViewJob, ViewPull, ViewWants } from './selection-view';
 
@@ -298,13 +298,6 @@ export const RULE_GROUP_LABELS: Record<RuleGroup, string> = {
   expected: 'Expected: they force a full run by design',
   stopped: `Stopped: none of the last ${STOPPED_AFTER_PULLS} pull requests`,
 };
-
-/** The time each pull request's check held it up in cycle time's rounds, by `checkKey`. */
-export type CheckMs = Map<string, number>;
-export const checkKey = (job: Job, pull: number) => `${job}:${pull}`;
-
-/** Cycle time's name for the check a job runs as. */
-export const CHECK_NAMES: Record<Job, string> = { test: 'Test', e2e: 'E2E (F3)' };
 
 /**
  * The median time a job's check held a pull request up where it selected: what
