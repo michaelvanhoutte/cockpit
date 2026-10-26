@@ -5,6 +5,9 @@
  *                 -> monitorRows(...) -> sendRuns(...)  -> the Harness Monitor, with --send
  *                 -> collectAttempts(...) -> attemptRows(...) -> sendAttempts(...)  -> likewise
  *
+ * `--branches --send` is the nightly send of every other branch's attempts: no page, no run, and
+ * a day at a time (sendBranches).
+ *
  * `--json` stops after the second arrow, so anything else can consume the
  * model. `--send` reads once for both, back to whichever window starts earlier,
  * and sends after the page is written, so a Monitor that refuses costs the send
@@ -19,7 +22,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { collect, collectAttempts, GitHubError } from './github.js';
+import { collect, collectAttempts, dayChunks, GitHubError, listBranchRuns } from './github.js';
 import { attemptRows, buildModel, monitorRows } from './model.js';
 import { MonitorError, newestStored, newestStoredAttempt, sendAttempts, sendRuns, sendWindow } from './monitor.js';
 import { renderHtml } from './render/html.js';
@@ -43,6 +46,10 @@ const USAGE = `Usage: node src/cli.js [options]
                       it holds none
   --from <YYYY-MM-DD> with --send, send the runs of this window instead and write nothing (the backfill)
   --to <YYYY-MM-DD>   the window's last day, inclusive (default today)
+  --branches          with --send, send every attempt of every run on a branch other than main's (a
+                      pull request's run, or a push to another branch) instead, from the newest such
+                      attempt the Monitor holds less two days, a day at a time, oldest first; writes
+                      no page and sends no run. --max-runs stops it after the day that reaches it
   --help
 `;
 
@@ -117,6 +124,7 @@ export function parseArgs(argv) {
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
+    else if (arg === '--branches') args.branches = true;
     else if (arg === '--from') args.from = day(value(), '--from', args);
     // The last day is inclusive, so the window ends at the start of the day after it.
     else if (arg === '--to') {
@@ -152,6 +160,8 @@ export function parseArgs(argv) {
   if (args.to && !args.from) args.invalid ??= '--to needs --from';
   if (args.from && !args.send) args.invalid ??= '--from needs --send: a window given by hand is only ever sent';
   if (args.from && args.to && args.to <= args.from) args.invalid ??= '--to cannot be before --from';
+  if (args.branches && !args.send) args.invalid ??= '--branches needs --send: it writes no page, only sends';
+  if (args.branches && (args.json || args.out || args.model)) args.invalid ??= '--branches writes no page or model, so --json, --out and --model do not apply';
   return args;
 }
 
@@ -215,6 +225,7 @@ export async function main(argv) {
   const now = new Date();
   const pageSince = new Date(now.getTime() - days * DAY_MS);
   const backfill = Boolean(args.from);
+  if (args.branches) return sendBranches({ args, monitor, repo, trunk: branch, days, now, backfill });
 
   // A Monitor that cannot say where to start costs the send, never the page. The attempts start
   // from their own newest, and a Monitor that cannot say costs only them: the runs still go.
@@ -356,6 +367,84 @@ async function sendEveryAttempt({ monitor, collected, window, unsent, repo, trun
     `sent ${result.attempts} attempts from ${window.since.toISOString()} to the Harness Monitor in ${result.batches} batch${result.batches === 1 ? '' : 'es'}\n${gap}`,
   );
   return cut ? 1 : 0;
+}
+
+/**
+ * Sends every attempt of every run on a branch other than the trunk's, from the newest such attempt
+ * the Monitor holds less two days (`on=branches`, so `main`'s send never moves it), one day at a
+ * time and oldest first: list the day, read its attempts, send them. A day sent stays stored
+ * whatever stops the next, and a send cut short by the run budget or GitHub leaves the Monitor's
+ * newest where the next night's overlap carries on. An attempt started after its run's day (a
+ * re-run) is held to the end, so the newest never passes a day not yet sent; a stop leaves it unsent.
+ * A branch's attempt keeps its failed jobs alone, so only a failed attempt's jobs are read (a
+ * re-run's earlier attempts are read for their verdict).
+ */
+async function sendBranches({ args, monitor, repo, trunk, days, now, backfill }) {
+  let window;
+  try {
+    const newest = backfill ? null : await newestStoredAttempt({ url: monitor.url, on: 'branches' });
+    window = sendWindow({ newest, now, days, from: args.from, to: args.to ?? (backfill ? now : null) });
+  } catch (error) {
+    if (!(error instanceof MonitorError)) throw error;
+    process.stderr.write(`${error.message}\nNothing was sent; the next send's window reaches back for it.\n`);
+    return 1;
+  }
+
+  const until = window.until ?? now;
+  const token = resolveToken();
+  const counter = { requests: 0 };
+  const maxRuns = args.maxRuns ?? 800;
+  let sent = 0;
+  let runsRead = 0;
+  let capped = false;
+  let stoppedAt = null;
+  const deferred = [];
+  const heldBack = () =>
+    deferred.length > 0 ? ` ${deferred.length} re-run attempts started after their day were held back; --from ${window.since.toISOString().slice(0, 10)} sends them.` : '';
+
+  for (const { from, to } of dayChunks(window.since, until)) {
+    if (runsRead >= maxRuns) {
+      stoppedAt = from;
+      break;
+    }
+    try {
+      const listed = await listBranchRuns({ repo, trunk, from, to, token, counter });
+      if (listed.truncated) {
+        capped = true;
+        process.stderr.write(`GitHub lists at most 1,000 runs of a span, and ${from.toISOString()} to ${to.toISOString()} holds more; the attempts of some of its runs were not sent.\n`);
+      }
+      runsRead += listed.runs.length;
+      const entries = await collectAttempts({ repo, runs: listed.runs, since: from, failedJobs: true, token, counter });
+      // A re-run's attempt carries the time it started, which can be after this day. It waits for
+      // the end, so a stop part-way cannot leave the Monitor's newest past days not yet sent.
+      const attempts = attemptRows(entries, { trunk }).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      const due = [];
+      for (const attempt of attempts) (Date.parse(attempt.createdAt) < to.getTime() ? due : deferred).push(attempt);
+      sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: due })).attempts;
+    } catch (error) {
+      if (!(error instanceof GitHubError || error instanceof MonitorError)) throw error;
+      process.stderr.write(`${error.message}\nThe day from ${from.toISOString()} was not sent; ${sent} attempts were sent before it, and the next send continues from the newest the Monitor holds.${heldBack()}\n`);
+      return 1;
+    }
+  }
+
+  if (!stoppedAt && deferred.length > 0) {
+    try {
+      deferred.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      sent += (await sendAttempts({ url: monitor.url, key: monitor.key, attempts: deferred })).attempts;
+    } catch (error) {
+      if (!(error instanceof MonitorError)) throw error;
+      process.stderr.write(`${error.message}\nThe re-runs started after their day were not sent; ${sent} attempts were sent before them, and the next send continues from the newest the Monitor holds.\n`);
+      return 1;
+    }
+  }
+
+  process.stderr.write(`sent ${sent} attempts on branches from ${window.since.toISOString()} to the Harness Monitor, ${counter.requests} GitHub requests\n`);
+  if (stoppedAt) {
+    const rest = backfill ? `Send the rest with --from ${stoppedAt.toISOString().slice(0, 10)}.` : 'The next night continues from the newest the Monitor holds.';
+    process.stderr.write(`The run budget (--max-runs ${maxRuns}) stopped the read at ${stoppedAt.toISOString()}; the attempts from there were not sent. ${rest}${heldBack()}\n`);
+  }
+  return stoppedAt || capped ? 1 : 0;
 }
 
 /** The page, or the model, over its own window, and the model beside it with --model. Returns the paths written. */
