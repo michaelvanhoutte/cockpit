@@ -45,8 +45,8 @@ export interface FileStatements {
   file: string;
   total: number;
   covered: number;
-  /** The lines no test runs, as ranges ("40-58"). */
-  uncovered: string[];
+  /** The lines no test runs, as ranges ("40-58"); the check accepts a file without them. */
+  uncovered?: string[];
 }
 export interface Model {
   commit: string;

@@ -65,6 +65,9 @@ const COVERED = model(
   { coverageAvailable: true },
 );
 
+/** A non-breaking space, built from its code so the expectations cannot quietly hold plain ones. */
+const NBSP = String.fromCharCode(160);
+
 const thePage = async (query = '', init: RequestInit = {}) => {
   const response = await SELF.fetch(`https://monitor.test/tests${query}`, init);
   expect(response.status).toBe(200);
@@ -307,6 +310,15 @@ describe('Harness Monitor', () => {
       expect(plain(coveredCell(rowOf(html, 'areas', 'Workspaces')))).toBe('unknown');
       expect(tilesOf(html)).toContain('Covered unknown');
       expect(tilesOf(html)).not.toContain('0%');
+    });
+
+    it('Show areas under 80% covered on a snapshot without coverage says unknown, not that no area is under it', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const table = plain(sectionOf(await thePage('?show=files'), 'areas'));
+
+      expect(table).toContain('Unknown, not none');
+      expect(table).not.toContain('No area here matches');
     });
 
     it('a snapshot with coverage draws each share, its subtree in brackets, red under 80%, and the tile its statements', async () => {
@@ -555,6 +567,14 @@ describe('Harness Monitor', () => {
       expect(choices.split!.offered).toEqual(['level', 'package']);
       expect(Object.keys(choices)).toEqual(['group', 'split', 'node', 'level', 'package', 'show']);
       expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
+    });
+
+    it('the Area picker indents an area inside another by non-breaking spaces, which a browser keeps', async () => {
+      await sendTestsModel(SNAPSHOT);
+
+      const { choices } = theSentence(await thePage());
+
+      expect(choices.node!.offered).toEqual(['All areas', 'Workspaces', `${NBSP.repeat(3)}Inbox`, `${NBSP.repeat(6)}Capture`, `${NBSP.repeat(3)}Panels`, 'Offline']);
     });
 
     it.each([

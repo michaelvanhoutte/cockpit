@@ -45,6 +45,9 @@ import type { PullRequestTests } from './tests-store';
 /** The page opens with the question its top tab names and the words a newcomer will not know, under the band, whatever it shows. */
 const PAGE_LEAD = lead(questionOf('tests'), LEAD_MORE);
 
+/** A non-breaking space, which indents an Area option where a browser drops a plain one; built from its code so no editor can turn it back into a space. */
+const NBSP = String.fromCharCode(160);
+
 const plural = (n: number, one: string, many = `${one}s`) => `${number(n)} ${n === 1 ? one : many}`;
 
 const ROW_WORDS: Record<TestsQuery['group'], string> = { area: 'each concept area', gaps: 'each gap' };
@@ -111,14 +114,14 @@ export function renderTests(view: TestsView, now: number): string {
   const areaOptions: [string, string][] = [['', 'All areas']];
   const addOptions = (areas: Area[], depth: number) => {
     for (const a of areas) {
-      areaOptions.push([a.key, `${'   '.repeat(depth)}${a.label}`]);
+      areaOptions.push([a.key, `${NBSP.repeat(3 * depth)}${a.label}`]);
       addOptions(a.children, depth + 1);
     }
   };
   addOptions(model.tree, 0);
   const hidden = (name: string, value: string) => `<input type="hidden" name="${name}" value="${esc(value)}">`;
   const onAreas = q.group === 'area';
-  // The controls as one sentence on the band; a filter that repeats the rows is not offered, and a choice the sentence has no room for rides along as a hidden field.
+  // The controls as one sentence on the band; a control is offered only where it changes what the tab draws (Gaps lists files, so no Level; Show and Count by act on the areas' table), and a choice the sentence has no room for rides along as a hidden field.
   const controls = sentenceForm(
     '/tests',
     `Show ${whose(q, view.pulls)} tests for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), q.group)}
@@ -225,6 +228,9 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
     const showNote = q.show === 'files' ? `areas under ${THIN}% covered` : q.show === 'empty' ? `areas with no ${q.level ? `${q.level} ` : ''}rule` : '';
     const areasTitle = shown.length ? (scope ? `${esc(scope.label)}, area by area` : 'Every area') : 'Areas';
     const areasInfo = explain('areas', areasTitle, WHAT.areas);
+    const scopeFiles = measured(inScope);
+    /** Areas under THIN asked for where coverage is unknown: an empty table is then unknown, not none. */
+    const showUnknown = q.show === 'files' && scopeFiles === null;
     const table = shown.length
       ? section(
           'areas',
@@ -236,7 +242,7 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
           'panel wide',
           areasInfo,
         )
-      : section('areas', areasTitle, '', `<p class="well empty">No area here matches: there are no ${showNote}.</p>`, 'panel wide', areasInfo);
+      : section('areas', areasTitle, '', `<p class="well empty">${showUnknown ? UNKNOWN_COVERAGE : `No area here matches: there are no ${showNote}.`}</p>`, 'panel wide', areasInfo);
 
     // The tiles.
     const cases = scopeRules.reduce((n, r) => n + r.cases.length, 0);
@@ -244,7 +250,6 @@ ${onAreas && !q.rule ? `counted by ${inline('split', 'Count by', [['level', 'lev
     const testFiles = new Set(scopeRules.map((r) => r.file)).size;
     const emptyAreas = inScope.filter((a) => deepRules(a, keep).length === 0);
     const where = scope ? `in ${esc(scope.label)}${scope.children.length ? ` and the ${plural([...walk(scope.children)].length, 'area')} inside it` : ''}` : 'in every area';
-    const scopeFiles = measured(inScope);
     const scopeCover = coverageOf(scopeFiles);
     const untouched = (scopeFiles ?? []).filter((f) => f.covered === 0).length;
     const coveredTile =

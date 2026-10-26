@@ -213,8 +213,7 @@ Easy to conflate, so stated precisely:
   `concepts.json` becomes a row, `parent` and all, whether or not any test names it —
   areas are declared ahead of the code and stay at zero until real tests land.
 - **What populates a row is test-derived, without exception.** Every count, rule, case
-  and coverage gap comes from real `describe`/`it` blocks, real import graphs and real
-  coverage data.
+  and coverage figure comes from real `describe`/`it` blocks and real coverage data.
 
 `tools/test-explorer/README.md` exists to make this distinction explicit for anyone
 reading the registry cold.
@@ -244,7 +243,7 @@ always a root and always last.
 **A row carries two numbers per column: its own, and its whole subtree's including
 itself.** Own counts alone were the rule until rows existed that hold other rows; such a
 row has no test filed against its own name, so it read as an untested part of the product
-and collapsing it hid everything underneath. Files and branches are counted once per file
+and collapsing it hid everything underneath. Statements and branches are counted once per file
 rather than summed, because one source file belongs to several areas ("The area registry"
 below) and `Menu.tsx` under both Dashboards and Panels is one file. The file
 is the identity and the line is not: an `if/else` with neither path taken is two gaps on

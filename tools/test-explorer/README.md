@@ -68,7 +68,7 @@ under another entry — which is what makes the rows read as the product's own c
 a Workspace holding an Inbox and Dashboards, a Dashboard holding Panels. Both are
 registry decisions, unconnected to whether any test exists.
 
-**What populates a row** — every count, rule, case and coverage gap — is derived from
+**What populates a row** — every count, rule, case and coverage figure — is derived from
 what is really in the repository: real `describe`/`it` blocks and real merged coverage. None of it is ever invented.
 
 So a row at zero across the board is not a bug: the registry knows the area's name and

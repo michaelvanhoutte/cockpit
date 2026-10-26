@@ -92,8 +92,7 @@ export function loadMergedCoverage(repo, packageDirs) {
  *   the file has no coverage data at all
  */
 export function branchesNotTaken(map, absFile) {
-  const key = normalizedKeys(map).get(normalizeSeparators(absFile));
-  const fileCoverage = key !== undefined ? map.data[key] : undefined;
+  const fileCoverage = fileCoverageOf(map, absFile);
   if (!fileCoverage) return null;
   const out = [];
   for (const [branchId, hitsPerPath] of Object.entries(fileCoverage.b)) {
@@ -121,8 +120,7 @@ export function branchesNotTaken(map, absFile) {
  * @returns {{ total: number, covered: number, uncovered: string[] } | null}
  */
 export function statementsCovered(map, absFile) {
-  const key = normalizedKeys(map).get(normalizeSeparators(absFile));
-  const fileCoverage = key !== undefined ? map.data[key] : undefined;
+  const fileCoverage = fileCoverageOf(map, absFile);
   if (!fileCoverage) return null;
   const hits = Object.entries(fileCoverage.s ?? {});
   const lines = new Set();
@@ -144,6 +142,12 @@ export function statementsCovered(map, absFile) {
     covered: hits.filter(([, n]) => n > 0).length,
     uncovered: ranges.map(([a, b]) => (a === b ? String(a) : `${a}-${b}`)),
   };
+}
+
+/** A file's entry in the merged map, looked up by its separator-normalized path, or undefined when unmeasured. */
+function fileCoverageOf(map, absFile) {
+  const key = normalizedKeys(map).get(normalizeSeparators(absFile));
+  return key !== undefined ? map.data[key] : undefined;
 }
 
 function normalizeSeparators(p) {
