@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from './support/app';
 
 /**
@@ -1026,6 +1026,51 @@ test.describe('Harness Monitor', () => {
     await page.getByRole('link', { name: 'owned by no concept' }).click();
     await expect(page.getByRole('region', { name: /E2E job: owned by no concept/ })).toContainText('apps/api/src/b.ts');
     expect(await noSidewaysScroll()).toBe(true);
+  });
+
+  test("Test selection's rules that forced a full run sit in three groups, and Copy prompt on a rule to fix puts its prompt on the clipboard, with no prompt shown, on a desk and a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    // Merged long before the 14 days the Test selection walk counts, so that walk's pull requests stay the only ones it sees; this one reads every pull request held.
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const job = (name: 'test' | 'e2e', over: Record<string, unknown>) => ({ job: name, status: 'ran', ranEverything: false, selecting: true, filesRun: 1, filesTotal: 40, prDurationMs: null, mainDurationMs: null, changedFiles: [{ path: 'apps/api/src/b.ts', ignored: false }], packages: [], ...over });
+    const everySpec = (rule: string, path: string) =>
+      job('e2e', { ranEverything: true, selecting: false, filesRun: 32, filesTotal: 32, packages: [{ name: 'e2e', dir: 'tests/e2e', mode: 'full', report: 'written', reason: { rule, path }, filesTotal: 32, files: [] }] });
+    const pull = (number: number, title: string, days: number, e2e: unknown) => ({ number, title, url: `https://github.com/o/r/pull/${number}`, mergedAt: daysAgo(days), jobs: [job('test', {}), e2e], misses: [] });
+    const pulls = [
+      pull(9201, 'Add a settings page', 45, everySpec('spec with no area', 'tests/e2e/settings.test.ts')),
+      pull(9202, 'Update the lockfile', 46, everySpec('lockfile', 'pnpm-lock.yaml')),
+    ];
+    const bars = { windowDays: 14, minPulls: 20, items: [{ id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: 0.25, minOver: null, alarmIssue: null }, { id: 'test-forced-full', name: 'Test forced to run everything', threshold: 0.25, minOver: null, alarmIssue: null }, { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null }, { id: 'most-selected', name: 'A test selected on nearly every pull request', threshold: 0.8, minOver: 10, alarmIssue: null }] };
+    expect((await api.post(`${monitor}/__e2e/seed-selection`, { data: { pulls, bars } })).ok()).toBe(true);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(monitor!).origin });
+    const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    await page.goto(`${monitor}/selection?group=rule&period=all`);
+    const rules = page.getByRole('region', { name: 'Ran more than needed: what forced a full run' });
+    await expect(rules).toBeVisible();
+
+    // The rule to fix sits under its own heading, above the expected one, and only it offers Copy prompt; the prompt is in the page and not shown.
+    const ruleRow = (name: string) => rules.getByRole('row').filter({ has: page.getByRole('link', { name, exact: true }) });
+    const toFix = ruleRow('spec with no area');
+    const expected = ruleRow('lockfile');
+    const top = async (target: Locator) => (await target.boundingBox())!.y;
+    const order = [rules.locator('tr.tier th', { hasText: 'Rules to fix' }), toFix, rules.locator('tr.tier th', { hasText: 'Expected: they force a full run by design' }), expected];
+    const tops = [];
+    for (const each of order) tops.push(await top(each));
+    expect(tops).toEqual([...tops].sort((a, b) => a - b));
+    await expect(toFix.getByRole('button', { name: 'Copy prompt' })).toBeVisible();
+    await expect(expected.getByRole('button')).toHaveCount(0);
+    await expect(toFix.locator('pre')).toBeHidden();
+    expect(await noSideways()).toBe(true);
+
+    // Clicking it puts the prompt on the clipboard, says Copied for a moment, and then offers it again.
+    await toFix.getByRole('button', { name: 'Copy prompt' }).click();
+    await expect(toFix.getByRole('button')).toHaveText('Copied');
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('forced by the rule "spec with no area" in scripts/lib/e2e-selection.mjs');
+    expect(copied).toContain('- tests/e2e/settings.test.ts: 1 pull request (#9201)');
+    expect(copied).toContain('Scope the fix with /scoping before building it.');
+    await expect(toFix.getByRole('button')).toHaveText('Copy prompt');
   });
 
   test('Test coverage opens from the top bar, drills through the Area filter, each gap offers neither tiles nor a Level filter, the four filters sit in one row on a desk and two to a row on a phone, a phone scrolls the tree inside its panel, and picking a pull request in the sentence shows its own tests with the rows and filters kept and the open panel closed', async ({ page, request: api }) => {

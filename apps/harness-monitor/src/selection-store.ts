@@ -15,6 +15,13 @@ export const DEFAULT_SELECTION_PERIOD: SelectionPeriod = '14d';
 
 export type JobFilter = 'both' | SelectionJob;
 
+/** The time each pull request's check held it up in cycle time's rounds, by `checkKey`. */
+export type CheckMs = Map<string, number>;
+export const checkKey = (job: SelectionJob, pull: number) => `${job}:${pull}`;
+
+/** Cycle time's name for the check a job runs as. */
+export const CHECK_NAMES: Record<SelectionJob, string> = { test: 'Test', e2e: 'E2E (F3)' };
+
 export function parseSelectionPeriod(raw: string | null): SelectionPeriod {
   return raw !== null && Object.hasOwn(SELECTION_PERIODS, raw) ? (raw as SelectionPeriod) : DEFAULT_SELECTION_PERIOD;
 }
