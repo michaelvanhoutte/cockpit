@@ -652,7 +652,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 20,
+      "browserWalks": 21,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -669,6 +669,8 @@
         "apps/harness-monitor/src/export.ts",
         "apps/harness-monitor/src/pull-request.ts",
         "apps/harness-monitor/src/pull-request-page.ts",
+        "apps/harness-monitor/src/pull-request-strip.ts",
+        "apps/harness-monitor/src/pull-request-timeline.ts",
         "apps/harness-monitor/src/costs-explain.ts",
         "apps/harness-monitor/src/github.ts",
         "apps/harness-monitor/src/claude-calls.ts",
@@ -708,6 +710,11 @@
         "apps/harness-monitor/src/claude-calls-explain.ts",
         "apps/harness-monitor/src/claude-calls-export.ts"
       ]
+    },
+    {
+      "key": "Home-screen widget",
+      "label": "Home-screen widget",
+      "sourcePatterns": []
     }
   ]
 }

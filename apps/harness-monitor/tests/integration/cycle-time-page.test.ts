@@ -178,14 +178,19 @@ describe('Harness Monitor', () => {
       expect(row![0]).not.toContain('Fix the review findings');
     });
 
-    it('a pull request the Monitor has no branch link for has no Sessions link, which would be nothing found', async () => {
+    it('every pull request the Monitor holds links to its page from its row, its scatter dot and its bar, whether or not a branch is linked', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z')]);
       await costing(1, 4.2);
 
-      const html = await thePage('?group=pr');
+      // The rows are one to a pull request; the scatter and the bars are the overview a day's rows come with.
+      const rows = await thePage('?group=pr');
+      const overview = await thePage();
 
-      expect(html).toContain('<a href="/pr/1">Sessions</a>');
-      expect(html).not.toContain('/pr/2');
+      for (const number of [1, 2]) {
+        expect(rows).toContain(`<a href="/pr/${number}">Sessions</a>`);
+        expect(overview).toMatch(new RegExp(`<a href="/pr/${number}"><circle`));
+        expect(overview).toMatch(new RegExp(`<a href="/pr/${number}"><rect`));
+      }
     });
 
     it('the Over time tiles name how many pull requests are priced and what each cost', async () => {

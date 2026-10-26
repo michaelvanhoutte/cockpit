@@ -62,7 +62,7 @@ The desktop-app tools named here are missing from a terminal, scheduled or remot
 
 **Mark a chapter at each phase boundary** — scoping settled, built, review findings in, browser pass done — with `mark_chapter`, which is what lets a long thread be re-entered without scrolling it. Three to eight in a session, not one per tool call.
 
-**Rename the session with `set_session_title` when its scope moves**, since the sidebar is how parallel threads are told apart.
+**Rename the session with `set_session_title` only when the deliverable it was started for changes.** A `/build` run keeps the title of the issue it was given through its children, units and follow-ups: the sidebar is how parallel threads are told apart, and a title that follows the latest task stops saying what the session is for.
 
 **`/where` prints this session's position** for a reader who has lost the thread.
 

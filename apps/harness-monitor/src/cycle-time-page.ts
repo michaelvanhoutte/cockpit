@@ -74,10 +74,9 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const { list, previous } = filtered(view.pulls, q, now);
   const cost = (p: Pull) => costOf(view.costs, p);
   const issueOf = (p: Pull) => view.costs.get(p.number)?.issue ?? null;
-  /** A pull request's Sessions page exists only for one the Monitor has a branch link for; any other would be nothing found. */
-  const sessions = (number: number) => view.costs.has(number);
-  const sessionsLink = (number: number, text: string) => (sessions(number) ? `<a href="/pr/${number}">${text}</a>` : '');
-  const opening = (number: number, inner: string) => (sessions(number) ? `<a href="/pr/${number}">${inner}</a>` : inner);
+  /** Every pull request on this page is stored, so every one has a page of its own: its timeline, and its sessions where any are linked. */
+  const sessionsLink = (number: number, text: string) => `<a href="/pr/${number}">${text}</a>`;
+  const opening = (number: number, inner: string) => `<a href="/pr/${number}">${inner}</a>`;
 
   /** The tiles: a pull request's start to merge, how much of it was the harness, CI rounds, and what the Claude Code sessions cost. */
   function stats(): string {
@@ -339,7 +338,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const body = rows
       .map(
         (r) =>
-          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => (sessions(n) ? `<a href="/pr/${n}">#${n}</a>` : `#${n}`)).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
+          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => `<a href="/pr/${n}">#${n}</a>`).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
       )
       .join('\n');
     return section(

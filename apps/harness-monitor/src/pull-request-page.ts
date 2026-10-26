@@ -5,6 +5,8 @@ import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain } from './explain';
 import { band, esc, selectField, shell } from './look';
 import { COLOURS, costsLead, dollars, number, PERIOD_LABELS, WHO_LABELS } from './page';
 import type { CategoryLine, PullRequestPage, SessionLine } from './pull-request';
+import { stripOf } from './pull-request-strip';
+import { renderTimeline } from './pull-request-timeline';
 import { CATEGORIES } from './validate';
 
 const WHERE_NAMES: Record<string, string> = { local: 'Local', cloud: 'Cloud', actions: 'GitHub Actions' };
@@ -29,7 +31,11 @@ function detail(c: CategoryLine): string {
   return measured;
 }
 
+/** What both cost sections say of a pull request that has no branch link: nothing was spent on it that the Monitor can tie to it. */
+const NO_SESSIONS = 'No Claude Code sessions are linked to this pull request.';
+
 function categories(page: PullRequestPage): string {
+  if (page.branches.length === 0) return `<section class="panel" aria-labelledby="bycat">${band('By category', '', 'bycat', explain('bycat', 'By category', WHAT.byCategory).both)}<p class="well empty">${NO_SESSIONS}</p></section>`;
   // Unphased is listed only when it holds cost; a category filter lists the one it names.
   const shown =
     page.query.category === null
@@ -67,6 +73,7 @@ function sessionRows(s: SessionLine): string {
 
 function sessions(page: PullRequestPage): string {
   const title = band('Sessions', '', 'sessions', explain('sessions', 'Sessions', WHAT.sessions).both);
+  if (page.branches.length === 0) return `<section class="panel" aria-labelledby="sessions">${title}<p class="well empty">${NO_SESSIONS}</p></section>`;
   if (page.sessions.length === 0) return `<section class="panel" aria-labelledby="sessions">${title}<p class="well empty">No requests match the filters.</p></section>`;
   return `<section class="panel" aria-labelledby="sessions">${title}<div class="well scroll"><table class="sessions">
 <thead><tr><th scope="col" class="first">Session / agent</th><th scope="col">Where</th><th scope="col">Models</th><th scope="col" class="num">Requests</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Cost</th><th scope="col" class="num">Share</th></tr></thead>
@@ -95,6 +102,11 @@ const periodNote = (q: CostQuery) => PERIOD_LABELS[q.period].toLowerCase();
 
 function summary(page: PullRequestPage): string {
   const merged = page.mergedAt !== null ? `merged ${formatDate(Date.parse(page.mergedAt))}` : page.state.toLowerCase();
+  // A pull request only cycle time holds has no branch, so no sessions and no cost to total.
+  if (page.branches.length === 0) {
+    return `<div class="head"><div class="title"><h1>#${page.number} ${esc(page.title)}</h1>
+<div class="muted">${esc(merged)} · no Claude Code sessions are linked</div></div></div>`;
+  }
   const sessionCount = page.sessions.length;
   const afterPush = page.categories.find((c) => c.category === 'after-push')!;
   const share = page.totalMicros > 0 && page.query.category === null ? ` · ${Math.round((afterPush.costMicros / page.totalMicros) * 100)}% after push` : '';
@@ -103,16 +115,32 @@ function summary(page: PullRequestPage): string {
 <div class="total-box"><div class="mono big" id="pr-total">${dollars(page.totalMicros)}${unpriced(page.unpricedRequests)}</div><div class="muted">at API list price, ${periodNote(page.query)}${share}</div></div></div>`;
 }
 
+/**
+ * The pull request's timeline above its sessions: its strip from the stored rows, or "timeline not recorded" where the
+ * Monitor holds none that fits, never an empty strip. Nothing where cycle time holds no such pull request.
+ */
+function timeline(page: PullRequestPage): { html: string; style: string } {
+  if (page.timeline === null) return { html: '', style: '' };
+  const { pull, timeline: stored } = page.timeline;
+  const title = band('Timeline', '', 'timeline');
+  if (stored === null) return { html: `<section class="panel" aria-labelledby="timeline">${title}<p class="well empty">Timeline not recorded.</p></section>`, style: '' };
+  const drawn = renderTimeline(stripOf(pull, stored), { name: pull.base, trunk: pull.base === 'main', landing: pull.landing, head: pull.head });
+  return { html: `<section class="panel tl" aria-labelledby="timeline">${title}<div class="well pad">${drawn.html}</div></section>`, style: drawn.style };
+}
+
 /** A pull request's page is part of the costs page: its tab stays current, over a band with no groupings, and it opens with that tab's lead. */
-const framed = (body: string, now: number) =>
-  shell({ current: 'costs', body: `${costsLead()}\n<a class="back" href="/">&larr; All costs</a>\n${body}\n${EXPLAIN_SCRIPT}`, style: EXPLAIN_STYLE }, now);
+const framed = (body: string, now: number, style = '') =>
+  shell({ current: 'costs', body: `${costsLead()}\n<a class="back" href="/">&larr; All costs</a>\n${body}\n${EXPLAIN_SCRIPT}`, style: EXPLAIN_STYLE + style }, now);
 
 /** One pull request's cost. Counts, dollars and opaque ids only; never an email or any content. */
 export function renderPullRequest(page: PullRequestPage, now = Date.now()): string {
-  return framed(`${summary(page)}\n${filters(page)}\n${categories(page)}\n${sessions(page)}`, now);
+  const drawn = timeline(page);
+  // The filters narrow the cost, and a pull request with no branch link has none.
+  const narrowing = page.branches.length === 0 ? '' : `${filters(page)}\n`;
+  return framed(`${summary(page)}\n${drawn.html}\n${narrowing}${categories(page)}\n${sessions(page)}`, now, drawn.style);
 }
 
 /** A number no pull request is known by. */
 export function renderNothingFound(now = Date.now()): string {
-  return framed(`<h1 class="sr-only">Pull request</h1><section class="panel">${band('Pull request')}<p class="well empty">Nothing found. No pull request with that number has been linked to any Claude Code request.</p></section>`, now);
+  return framed(`<h1 class="sr-only">Pull request</h1><section class="panel">${band('Pull request')}<p class="well empty">Nothing found. No pull request with that number has been linked to a Claude Code request or stored by cycle time.</p></section>`, now);
 }
