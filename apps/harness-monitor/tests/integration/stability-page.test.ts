@@ -457,7 +457,7 @@ describe('Harness Monitor', () => {
       expect(every[0]![2]).toBe('x y');
     });
 
-    it("a workflow's runs-per-day chart labels each gridline with a different whole number, whatever its busiest day", async () => {
+    it("a workflow's runs-per-day chart labels its gridlines 0 and 1, not a repeated 1, when its busiest day has one run", async () => {
       await sendAttempts([on(1, 1, '2026-10-30T10:00:00Z', 'pass')]);
 
       const ticks = [...(await thePage('?group=workflow&workflow=CI')).matchAll(/text-anchor="end" class="axis">(\d+)</g)].map((m) => m[1]);
