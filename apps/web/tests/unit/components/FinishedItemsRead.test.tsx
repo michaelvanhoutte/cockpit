@@ -160,6 +160,19 @@ function Reopen({ itemId }: { itemId: string }) {
   );
 }
 
+/** What the tab sends when an Item is dismissed or a Workspace is added, from controls of the test's own. */
+function Send({ name, payload, label }: { name: 'set_dismissed' | 'create_workspace'; payload: Record<string, unknown>; label: string }) {
+  const send = useSendCommand();
+  return (
+    <button
+      type="button"
+      onClick={() => void send({ name, payload: { commandId: 'c-send', issuedAt: '2026-10-20T10:30:00.000Z', ...payload } } as never)}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** A screen that is showing the Workspace's read and not its finished Items, as a Dashboard is. */
 function OnADashboard() {
   useSnapshot('ws-work');
@@ -401,6 +414,61 @@ describe('Dashboards', () => {
 
       expect(await screen.findByText(/could not be looked up/)).toBeInTheDocument();
       expect(screen.queryByText('That item is not here any more.')).toBeNull();
+    });
+
+    it('says it is opening, not that the Item is gone, while a copy that is out of date is read again for an Item it lacks', async () => {
+      const first = render(theBoard());
+      await waitFor(() => expect(titles()).toHaveLength(2));
+      first.unmount();
+      stored = [...stored, finishedOn('2026-10-19', 'new-1', 'Sent the report')];
+      await doneElsewhere('open-1');
+      let arrive: () => void = () => {};
+      finishedGate = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      opened.item = 'new-1';
+
+      render(theForm());
+
+      await waitFor(() => expect(reads.finished).toBe(2));
+      expect(screen.getByText('Opening…')).toBeInTheDocument();
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
+      await act(async () => arrive());
+      expect(await screen.findByDisplayValue('Sent the report')).toBeInTheDocument();
+    });
+
+    it('reads no finished Items when this tab dismisses the Item the form is open on', async () => {
+      opened.item = 'open-1';
+      render(
+        <QueryClientProvider client={client}>
+          <Send name="set_dismissed" payload={{ workspaceId: 'ws-work', itemId: 'open-1', dismissed: true }} label="Dismiss" />
+          <UndoWhatJustHappened>
+            <ItemForm />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByDisplayValue('Reply to Bart')).toBeInTheDocument();
+
+      act(() => screen.getByRole('button', { name: 'Dismiss', hidden: true }).click());
+
+      await waitFor(() => expect(waiting).toHaveLength(1));
+      expect(reads.finished).toBe(0);
+    });
+
+    it('reads no finished Items for a Workspace this tab has just added and the server does not have yet', async () => {
+      render(
+        <QueryClientProvider client={client}>
+          <Send name="create_workspace" payload={{ workspaceId: 'ws-work', panelId: 'p-first', name: 'Work' }} label="Add" />
+        </QueryClientProvider>,
+      );
+      act(() => screen.getByRole('button', { name: 'Add' }).click());
+      await waitFor(() => expect(waiting).toHaveLength(1));
+      cleanup();
+
+      render(theBoard());
+
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(reads.finished).toBe(0);
     });
 
     it('reads no finished Items for an Item the Workspace read holds', async () => {

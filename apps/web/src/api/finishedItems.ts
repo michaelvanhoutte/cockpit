@@ -44,19 +44,25 @@ export const finishedItemsQuery = (workspaceId: string) =>
 export function useSnapshotWithFinishedItems(workspaceId: string, { itemId }: { itemId?: string } = {}) {
   const workspace = useQuery(snapshotQuery(workspaceId));
   const drawn = useDrawnSelect();
-  // An Item is lacking when the Workspace as drawn does not hold it, so one this tab has just made (still being
-  // answered) never asks. A Workspace this tab has just added is not on the server yet, as `snapshotQuery` knows.
-  const lacking = workspace.data !== undefined && !drawn(workspace.data).items.some((item) => item.id === itemId);
+  // An Item is lacking when neither the Workspace's read nor the Workspace as drawn holds it: one this tab has just
+  // made is drawn but not read yet, and one it has just dismissed is read but no longer drawn, and neither asks.
+  // A Workspace this tab has just added is not on the server yet, as `snapshotQuery` knows.
+  const lacking =
+    itemId !== undefined &&
+    workspace.data !== undefined &&
+    !workspace.data.items.some((item) => item.id === itemId) &&
+    !drawn(workspace.data).items.some((item) => item.id === itemId);
   const wanted = (itemId === undefined || lacking) && !changes.beingAdded(workspaceId);
   const finished = useQuery({ ...finishedItemsQuery(workspaceId), enabled: wanted });
   const data = useMemo(
     () => (workspace.data ? drawn(withFinishedItems(workspace.data, finished.data)) : undefined),
     [workspace.data, finished.data, drawn],
   );
-  // Asked for and not yet answered: not refused (unless asked again), nor waiting for a connection that is not there.
-  const refused = finished.isError && finished.fetchStatus !== 'fetching';
-  const reading = wanted && finished.data === undefined && !refused && finished.fetchStatus !== 'paused';
+  // Asked for and not yet answered, nor refused, nor waiting for a connection that is not there.
+  const reading = wanted && finished.data === undefined && !finished.isError && finished.fetchStatus !== 'paused';
   // Asked for and not answered because it could not be: refused, or waiting on a connection that is not there.
   const unread = wanted && finished.data === undefined && !reading;
-  return { data, workspace, finished, reading, unread };
+  // A copy held and out of date, being read again: an Item it lacks may be in what is coming.
+  const refreshing = wanted && finished.data !== undefined && finished.isFetching;
+  return { data, workspace, finished, reading, unread, refreshing };
 }

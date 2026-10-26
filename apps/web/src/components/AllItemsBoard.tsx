@@ -39,7 +39,7 @@ import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFi
  * total said, so a filtered view never reads as the whole.
  */
 export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) {
-  const { data, workspace, finished, reading: arriving } = useSnapshotWithFinishedItems(workspaceId);
+  const { data, workspace, finished, reading: arriving, unread } = useSnapshotWithFinishedItems(workspaceId);
   const { error, refetch } = workspace;
   const offline = useIsOffline();
   const openItem = useOpenItem();
@@ -75,7 +75,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
   // nothing can fetch them now, the server refused, or they are on their way.
   const arrived = finished.data !== undefined;
   const needsAConnection = !arrived && (offline || finished.fetchStatus === 'paused');
-  const failed = !arrived && !needsAConnection && !arriving && finished.isError;
+  const failed = unread && !needsAConnection;
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -89,7 +89,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
         </h2>
         {needsAConnection ? (
           <p className="text-sm text-ink-soft">All items needs a connection. Go online to see every Item.</p>
-        ) : data.items.length === 0 && (arriving || failed) ? null : data.items.length === 0 ? (
+        ) : rows.length === 0 && (arriving || failed) ? null : data.items.length === 0 ? (
           <p className="text-sm text-ink-faint">There are no items yet.</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-ink-faint">No item matches the filter.</p>

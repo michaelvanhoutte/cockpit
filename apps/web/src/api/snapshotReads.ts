@@ -130,11 +130,11 @@ export function readForAnnouncement(client: QueryClient, event: Exclude<ServerEv
       client.getQueryCache().findAll({ queryKey: workspaceId ? [kind, workspaceId] : [kind] });
     const held = copies('snapshot');
     const upToAt = (query: { state: { data: unknown } }) => ((query.state.data as { upTo?: string } | undefined)?.upTo ?? '') >= at;
-    // A finished copy nothing shows that is already marked out of date is read on its next opening whatever this says, so it holds nothing back.
+    // A finished copy nothing shows, marked out of date and not being read, is read on its next opening whatever this says, so it holds nothing back.
     const holds =
       held.length > 0 &&
       held.every(upToAt) &&
-      copies('finishedItems').every((query) => upToAt(query) || (!query.isActive() && query.state.isInvalidated));
+      copies('finishedItems').every((query) => upToAt(query) || (!query.isActive() && query.state.isInvalidated && query.state.fetchStatus !== 'fetching'));
     // Owed for this Workspace, or for every one; nothing owed, or an answer without a stamp, is '' and covers nothing.
     if (holds || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
   }
