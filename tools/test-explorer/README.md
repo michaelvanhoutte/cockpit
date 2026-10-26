@@ -135,9 +135,11 @@ analyzer does not walk, giving no reason, or with no count of statements not run
 ## Files decided not worth a test
 
 [`not-worth-a-test.json`](./not-worth-a-test.json), beside `concepts.json`, lists the source
-files judged not worth a test (wiring, a type, a log line): each one's path, the reason, and
-how many of its statements CI's coverage run left unrun when it was decided (`notRun`).
-Whoever acts on a prompt copied from the Harness Monitor's Test coverage page writes the
+files judged not worth a test (wiring, a type, a log line): each one's path as the analyzer
+walks it, the reason, in a sentence a reviewer can disagree with, and how many of its
+statements CI's coverage run on main left unrun when it was decided (`notRun`): the Test
+coverage page's Statements not run for it, or its `total` less `covered` in the model
+`pnpm test:coverage` then `node tools/test-explorer/src/cli.js --json` writes. Whoever acts on a prompt copied from the Harness Monitor's Test coverage page writes the
 entry, in the pull request that decides it, so the decision is reviewed like code. The
 analyzer carries the list into the model, where the Monitor's Gaps tab shows the file under
 Decided not to test with its reason, until more than `notRun` of its statements go unrun and

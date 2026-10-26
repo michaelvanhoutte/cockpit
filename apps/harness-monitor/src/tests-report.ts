@@ -367,23 +367,38 @@ export interface DecidedFile {
 }
 
 /**
- * Which of Gaps' lists each measured file is on, each list most statements not
- * run first. A file decided not worth a test stays under Decided not to test
- * while no more of its statements go unrun than when it was decided; once more
- * do, it is a file to test next again, if under THIN, carrying the decision as
- * changed since. Any other file under THIN is to test next.
+ * Each file's decision not to test it, and whether it still holds: it does
+ * while no more of the file's statements go unrun than when it was decided.
  */
-export function gapLists(files: FileStatements[], decided: Decided[]): { next: NextFile[]; decided: DecidedFile[] } {
+export function decisionsOf(decided: Decided[]): (f: FileStatements) => { decision: Decided; holds: boolean } | null {
   const decisions = new Map(decided.map((d) => [d.file, d]));
+  return (f) => {
+    const decision = decisions.get(f.file);
+    return decision === undefined ? null : { decision, holds: f.total - f.covered <= decision.notRun };
+  };
+}
+
+/**
+ * Which of Gaps' lists each measured file is on, each list most statements not
+ * run first, and how many files are on neither, all at or above THIN. A file
+ * decided not worth a test stays under Decided not to test while its decision
+ * holds; once it does not, it is a file to test next again, if under THIN,
+ * carrying the decision as changed since. Any other file under THIN is to test
+ * next.
+ */
+export function gapLists(files: FileStatements[], decided: Decided[]): { next: NextFile[]; decided: DecidedFile[]; above: number } {
+  const decisionOf = decisionsOf(decided);
   const notRun = (f: FileStatements) => f.total - f.covered;
   const next: NextFile[] = [];
   const kept: DecidedFile[] = [];
+  let above = 0;
   for (const file of [...files].sort((a, b) => notRun(b) - notRun(a) || (a.file < b.file ? -1 : 1))) {
-    const decision = decisions.get(file.file) ?? null;
-    if (decision !== null && notRun(file) <= decision.notRun) kept.push({ file, decision });
-    else if (isThin(file)) next.push({ file, changed: decision });
+    const d = decisionOf(file);
+    if (d?.holds) kept.push({ file, decision: d.decision });
+    else if (isThin(file)) next.push({ file, changed: d?.decision ?? null });
+    else above += 1;
   }
-  return { next, decided: kept };
+  return { next, decided: kept, above };
 }
 
 /** Branches nothing takes across areas, counted once per file by the most any one area holds of it, as the explorer's own totals are. */

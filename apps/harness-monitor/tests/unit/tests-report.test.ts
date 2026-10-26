@@ -156,6 +156,15 @@ describe('Harness Monitor', () => {
     it('nothing decided: every file under 80% is to test next, and nothing is decided', () => {
       expect(listsWith(40, [])).toEqual({ next: [['apps/web/src/wiring.ts', null], ['apps/web/src/Menu.tsx', null]], decided: [] });
     });
+
+    it.each([
+      { situation: 'a decided file at 94% with no more unrun since is decided, and not counted at or above 80% as well', notRun: 3, above: 1, decided: 1 },
+      { situation: 'a decided file at 90% with more unrun since is on neither list, and counted at or above 80%', notRun: 5, above: 2, decided: 0 },
+    ])('$situation', ({ notRun, above, decided }) => {
+      const lists = gapLists([statements('apps/web/src/wiring.ts', 50, 50 - notRun), statements('apps/web/src/Grid.tsx', 100, 90), statements('apps/web/src/Menu.tsx', 25, 5)], [decision]);
+
+      expect([lists.next.length, lists.above, lists.decided.length]).toEqual([1, above, decided]);
+    });
   });
 
   describe('a count opens exactly the tests behind it, area by area', () => {

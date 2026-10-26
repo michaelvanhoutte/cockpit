@@ -252,7 +252,7 @@ ${onAreas ? `counted by ${inline('split', 'Count by', [['level', 'level'], ['pac
           `${plural(matched.size, 'area')}${showNote ? ` · ${showNote}, with what holds them faint` : ''} · a row holding others counts its own, then (everything inside it)`,
           `<div class="well table"><table>
 <thead><tr><th scope="col">Area</th>${heads}<th scope="col" class="num">Rules</th><th scope="col" class="num" title="Share of the area&rsquo;s statements CI&rsquo;s coverage run executes">${askInfo ? `<span class="nw">Covered${askInfo.button}</span>` : 'Covered'}</th><th scope="col" class="num wrap">Branches untaken</th></tr></thead>
-<tbody>${rows}</tbody></table></div>${askInfo ? `${askInfo.panel}<script type="application/json" id="ask-data">${JSON.stringify(asks).replace(/</g, '\\u003c')}</script>${ASK_SCRIPT}` : ''}`,
+<tbody>${rows}</tbody></table></div>${askInfo ? `${askInfo.panel}<span class="sr-only" role="status" id="ask-said"></span><script type="application/json" id="ask-data">${JSON.stringify(asks).replace(/</g, '\\u003c')}</script>${ASK_SCRIPT}` : ''}`,
           'panel wide',
           areasInfo,
         )
@@ -382,8 +382,7 @@ ${tiles}`;
     const ownedBy = (file: string) => (owners.get(file) ?? []).map((a) => `<a href="${link({ group: 'area', list: listOf({ node: a.key }) })}#${anchor(a.key)}">${esc(a.label)}</a>`).join(', ');
     const branches = new Map([...branchesByFile(inScope)].map(([f, own]) => [f, own.count]));
     const notRun = (f: FileStatements) => `<strong>${number(f.total - f.covered)}</strong> <span class="faint">of ${number(f.total)}</span>`;
-    const { next, decided } = gapLists(files, model.notWorthATest);
-    const above = files.filter((f) => !isThin(f)).length;
+    const { next, decided, above } = gapLists(files, model.notWorthATest);
     const body = next
       .map(({ file: f, changed }) => {
         const n = branches.get(f.file) ?? 0;
@@ -401,7 +400,7 @@ ${tiles}`;
         ? `${bar}<div class="well table"><table>
 <thead><tr><th scope="col"><span class="sr-only">Pick</span></th><th scope="col">Source file</th><th scope="col" class="num wrap">Statements not run</th><th scope="col" class="num">Covered</th><th scope="col" class="num wrap">Branches untaken</th><th scope="col">Owned by</th></tr></thead>
 <tbody>${body}</tbody></table></div>${GAPS_SCRIPT}`
-        : `<p class="well empty">${decided.length ? `None left: every file here under ${THIN}% of its statements run is decided not to test.` : `None: every file here has at least ${THIN}% of its statements run by a test.`}</p>`,
+        : `<p class="well empty">${decided.some(({ file: f }) => isThin(f)) ? `None left: every file here under ${THIN}% of its statements run is decided not to test.` : `None: every file here has at least ${THIN}% of its statements run by a test.`}</p>`,
       'panel wide',
       filesInfo,
     );
@@ -524,7 +523,7 @@ const KEEP_NAMES = 'var __name = function (f) { return f; };';
 /**
  * A spark icon copies its area's analysis prompt, built from the data the
  * table carries once, and says Copied beside itself for a moment without
- * taking any room; where the clipboard refuses, the prompt is shown to copy by
+ * taking any room, and to a screen reader in a status line no one sees; where the clipboard refuses, the prompt is shown to copy by
  * hand. It opens nothing: it is not a link, and the panel's script acts on
  * links alone.
  */
@@ -540,6 +539,7 @@ const ASK_SCRIPT = `<script>
     var text = analysisPrompt(data, b.dataset.area);
     var said = function(){
       b.classList.add('done');
+      document.getElementById('ask-said').textContent = 'Copied the prompt for ' + data.areas[b.dataset.area].label + '. Paste it into a new Claude Code session.';
       clearTimeout(b.doneTimer);
       b.doneTimer = setTimeout(function(){ b.classList.remove('done'); }, 2000);
     };
@@ -552,7 +552,8 @@ const ASK_SCRIPT = `<script>
 /**
  * Gaps' one action: ticking files, or Pick the top 5, offers Copy prompt for
  * that many, which copies one prompt for them, built from what each checkbox
- * carries. Where the clipboard refuses, the prompt replaces the hint, selected.
+ * carries. Where the clipboard refuses, the prompt replaces the hint, selected,
+ * until a copy succeeds.
  */
 const GAPS_SCRIPT = `<script>
 (function(){
@@ -570,11 +571,16 @@ const GAPS_SCRIPT = `<script>
   top5.addEventListener('click', function(){ picks().forEach(function(p, i){ p.checked = i < 5; }); refresh(); });
   copy.addEventListener('click', function(){
     var text = gapsPrompt(picked().map(function(p){ return p.dataset; }));
-    var by_hand = function(){
-      var ta = document.createElement('textarea'); ta.value = text; ta.className = 'fallback'; ta.setAttribute('aria-label', 'The prompt, to copy');
-      status.replaceWith(ta); status = ta; ta.select();
+    // The hint and the prompt to copy by hand take turns in one place: a later copy that succeeds puts the hint back.
+    var swapTo = function(tag){
+      if (status.tagName === tag) return;
+      var next = document.createElement(tag);
+      if (tag === 'TEXTAREA') { next.className = 'fallback'; next.setAttribute('aria-label', 'The prompt, to copy'); } else { next.id = 'gap-status'; next.className = 'faint'; }
+      status.replaceWith(next); status = next;
     };
-    try { navigator.clipboard.writeText(text).then(function(){ status.textContent = 'Copied. Paste it into a new Claude Code session.'; }, by_hand); } catch (x) { by_hand(); }
+    var said = function(){ swapTo('SPAN'); status.textContent = 'Copied. Paste it into a new Claude Code session.'; };
+    var by_hand = function(){ swapTo('TEXTAREA'); status.value = text; status.select(); };
+    try { navigator.clipboard.writeText(text).then(said, by_hand); } catch (x) { by_hand(); }
   });
   refresh();
 })();

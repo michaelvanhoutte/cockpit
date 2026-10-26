@@ -1342,6 +1342,7 @@ test.describe('Harness Monitor', () => {
     const before = { url: page.url(), y: await page.evaluate(() => Math.round(window.scrollY)), pane: await pane.boundingBox(), table: await table.boundingBox() };
     await spark('Panels').click();
     await expect(spark('Panels')).toHaveClass(/done/);
+    await expect(page.locator('#ask-said')).toHaveText('Copied the prompt for Panels. Paste it into a new Claude Code session.');
     const asked = await clipboard();
     expect(asked).toMatch(/^Analyse the test coverage of the "Panels" area of Cockpit \(Dashboards › Panels\), and suggest the tests worth adding\./);
     expect(asked).toContain('  - apps/web/src/part-1.ts (10% run, 90 of 100 statements not run): lines 1-41');

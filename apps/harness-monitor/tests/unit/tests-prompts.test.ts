@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analysisPrompt, askData, gapsPrompt, pickOf } from '../../src/tests-prompts';
-import { indexOf, type Area, type TestsQuery } from '../../src/tests-report';
+import { indexOf, type Area, type Model, type TestsQuery } from '../../src/tests-report';
 import { area, model, rules, statements } from '../fixtures/tests-model';
 
 const API = 'apps/api/tests/unit/a.test.ts';
@@ -55,8 +55,8 @@ describe('Harness Monitor', () => {
       ],
       { statements: [], branchesNothingTakes: [] },
     );
-    const promptFor = (tree: Area[], key: string, q: Pick<TestsQuery, 'level' | 'package'> = { level: null, package: null }) => {
-      const m = model([area('Workspaces', [], tree, { statements: [], branchesNothingTakes: [] })], { coverageAvailable: true });
+    const promptFor = (tree: Area[], key: string, q: Pick<TestsQuery, 'level' | 'package'> = { level: null, package: null }, notWorthATest: Model['notWorthATest'] = []) => {
+      const m = model([area('Workspaces', [], tree, { statements: [], branchesNothingTakes: [] })], { coverageAvailable: true, notWorthATest });
       const ix = indexOf(m);
       return analysisPrompt(askData(m, ix, [ix.byKey.get(key)!], q), key);
     };
@@ -72,6 +72,16 @@ describe('Harness Monitor', () => {
         '  - apps/web/src/Grid.tsx (76% run, 24 of 100 statements not run): lines 40-58',
         '  - apps/web/src/Menu.tsx (20% run, 20 of 25 statements not run): lines 3-9',
       ]);
+    });
+
+    it.each([
+      { situation: 'a file decided not worth a test with no more of it unrun since is left out', notRun: 20, files: ['apps/web/src/Grid.tsx'] },
+      { situation: 'a file decided not worth a test with more of it unrun since is named', notRun: 5, files: ['apps/web/src/Grid.tsx', 'apps/web/src/Menu.tsx'] },
+    ])('$situation', ({ notRun, files }) => {
+      const prompt = promptFor([DASHBOARDS], 'Dashboards', undefined, [{ file: 'apps/web/src/Menu.tsx', reason: 'Wiring only', notRun }]);
+
+      expect(prompt).toContain('- 67% of 135 statements run; 2 branches no test takes.');
+      expect(fileLines(prompt).map((l) => l.trim().split(' ')[1])).toEqual(files);
     });
 
     it('a level that is n/a says n/a, never 0, and the Level filter names only its own', () => {

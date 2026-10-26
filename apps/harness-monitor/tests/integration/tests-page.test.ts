@@ -443,6 +443,20 @@ describe('Harness Monitor', () => {
       expect(hasSection(html, 'gap-decided')).toBe(false);
     });
 
+    it('decided at 94% with nothing under 80%: counted once, as decided, and no file here is said to be under 80%', async () => {
+      await sendTestsModel(
+        model([area('Offline', rules(1, 'L1', WEB), [], { statements: [statements('apps/web/src/wiring.ts', 50, 47), statements('apps/api/src/sync.ts', 100, 90)], branchesNothingTakes: [] })], {
+          coverageAvailable: true,
+          notWorthATest: [{ file: 'apps/web/src/wiring.ts', reason: 'Wiring only', notRun: 3 }],
+        }),
+      );
+
+      const files = plain(withoutExplanations(sectionOf(await thePage('?group=gaps'), 'gap-files')));
+
+      expect(files).toContain('0 files under 80% covered, most statements no test runs first · 1 file at or above it not listed · 1 file decided not to test');
+      expect(files).toContain('None: every file here has at least 80% of its statements run by a test.');
+    });
+
     it('nothing decided: no Decided not to test list', async () => {
       await sendTestsModel(withDecision(null));
 

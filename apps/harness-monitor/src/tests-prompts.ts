@@ -1,4 +1,4 @@
-import { branchGaps, coverageOf, deepRules, filesCovered, keepOf, LEVELS, levelNotApplicable, pathOf, percent, pkgLabel, walk, type Area, type FileStatements, type Index, type Model, type TestsQuery } from './tests-report';
+import { branchGaps, coverageOf, decisionsOf, deepRules, filesCovered, keepOf, LEVELS, levelNotApplicable, pathOf, percent, pkgLabel, walk, type Area, type FileStatements, type Index, type Model, type TestsQuery } from './tests-report';
 
 /**
  * The two prompts Test coverage copies, built in the browser from data the
@@ -58,7 +58,7 @@ export interface AskArea {
   where: string;
   /** The labels of every area inside it, in the tree's order. */
   inside: string[];
-  /** Its files with lines no test runs, as places in `AskData.files`, most statements not run first. */
+  /** Its files with lines no test runs, but for those still decided not worth a test, as places in `AskData.files`, most statements not run first. */
   files: number[];
   total: number;
   covered: number;
@@ -110,10 +110,12 @@ export function analysisPrompt(data: AskData, key: string): string {
  * What the page carries for the spark icons of `areas`, the rows it draws:
  * each area a coverage run measured, with the figures the page shows for it
  * and everything inside it under the filters, and each file with lines no
- * test runs once, however many areas hold it.
+ * test runs once, however many areas hold it. A file still decided not worth a
+ * test is left out of the files, as Gaps leaves it out of Files to test next.
  */
 export function askData(model: Model, ix: Index, areas: Area[], q: Pick<TestsQuery, 'level' | 'package'>): AskData {
   const keep = keepOf(q);
+  const decisionOf = decisionsOf(model.notWorthATest);
   const files: AskFile[] = [];
   const at = new Map<string, number>();
   const place = (f: FileStatements) => {
@@ -136,7 +138,7 @@ export function askData(model: Model, ix: Index, areas: Area[], q: Pick<TestsQue
       where: [...pathOf(ix, a), a.label].join(' › '),
       inside: inside.slice(1).map((x) => x.label),
       files: measured
-        .filter((f) => f.covered < f.total)
+        .filter((f) => f.covered < f.total && !decisionOf(f)?.holds)
         .sort((x, y) => notRun(y) - notRun(x) || (x.file < y.file ? -1 : 1))
         .map(place),
       total: cover.total,
