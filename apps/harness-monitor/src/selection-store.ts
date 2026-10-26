@@ -132,9 +132,6 @@ export interface SelectionBar {
   of: number | null;
   value: number | null;
   threshold: number;
-  minOver: number | null;
-  /** The test file or spec behind a most-selected bar. */
-  path: string | null;
   /** The rule that forced the most of the pull requests that ran everything, for a forced-full bar. */
   cause: { rule: string; count: number } | null;
   /** crossed or within; unread where the period holds fewer pull requests than the bars need or the figure cannot be given. */
@@ -164,17 +161,6 @@ export interface SelectionMissRow {
   pull: PullRef;
 }
 
-export interface MostSelected {
-  job: SelectionJob;
-  path: string;
-  level: string;
-  selectedPulls: number;
-  /** The pull requests whose package selected rather than ran everything: those that could have skipped it. */
-  selectingPulls: number;
-  fullRunPulls: number;
-  mostCommonChain: string | null;
-}
-
 export interface SelectionAnswer {
   period: SelectionPeriod;
   job: JobFilter;
@@ -191,10 +177,7 @@ export interface SelectionAnswer {
   /** Each package of the jobs and the most test files any pull request of the period found in it; null where none sent a total. */
   packages: { job: SelectionJob; name: string; filesTotal: number | null }[];
   misses: SelectionMissRow[];
-  mostSelected: MostSelected[];
 }
-
-const MOST_SELECTED_ROWS = 15;
 
 interface PullRow {
   pull_number: number;
@@ -208,50 +191,6 @@ interface PullRow {
 }
 
 export const inPeriod = `p.merged_at >= ?1 AND (?2 = 'both' OR p.job = ?2)`;
-
-/** The pull requests of the period that ran a job, and the packages of those: the scope the file queries count over. */
-export const SCOPE = `scoped AS (SELECT pull_number, job, merged_at FROM selection_pulls p WHERE status = 'ran' AND ${inPeriod})`;
-
-/**
- * Per package, the pull requests that selected in it rather than ran it whole
- * (and whose process wrote its report): what a file of it could have skipped.
- * `tally` is the one pass over the period's file rows, which both the table and
- * the bar read.
- */
-const SELECTING = `selecting AS (
-  SELECT k.job, k.name AS package, COUNT(*) AS pulls FROM selection_packages k JOIN scoped s ON s.pull_number = k.pull_number AND s.job = k.job
-  WHERE k.mode = 'changed' AND k.report = 'written' GROUP BY k.job, k.name
-), tally AS MATERIALIZED (
-  SELECT f.job, f.package, f.path, MAX(f.level) AS level, SUM(f.chain_kind <> 'full') AS selected, SUM(f.chain_kind = 'full') AS full_run
-  FROM selection_files f JOIN scoped s ON s.pull_number = f.pull_number AND s.job = f.job GROUP BY f.job, f.package, f.path
-)`;
-
-/**
- * The table's rows (`top`, in order) and the bar's one file (`worst`), in one statement so the
- * period's file rows are grouped once. `worst` is the file selected on the largest share of the
- * pull requests that could have skipped it, among those with at least the bar's `min_over` of them.
- */
-export const MOST_SELECTED = `WITH ${SCOPE}, ${SELECTING}
-SELECT 'top' AS kind, ROW_NUMBER() OVER (ORDER BY r.selected DESC, r.full_run DESC, r.path) AS rank, r.job, r.path, r.selected, r.selecting, r.full_run, r.level, (
-  SELECT f.chain_text FROM selection_files f JOIN scoped s ON s.pull_number = f.pull_number AND s.job = f.job
-  WHERE f.job = r.job AND f.path = r.path AND f.chain_kind <> 'full'
-  GROUP BY f.chain_text ORDER BY COUNT(*) DESC, MAX(s.merged_at) DESC LIMIT 1
-) AS chain
-FROM (
-  SELECT t.job, t.path, t.level, t.selected, t.full_run, COALESCE(c.pulls, 0) AS selecting
-  FROM tally t LEFT JOIN selecting c ON c.job = t.job AND c.package = t.package
-  ORDER BY t.selected DESC, t.full_run DESC, t.path LIMIT ?3
-) r
-UNION ALL
-SELECT * FROM (
-  SELECT 'worst', 1, t.job, t.path, t.selected, c.pulls, t.full_run, t.level, NULL
-  FROM tally t JOIN selecting c ON c.job = t.job AND c.package = t.package
-  WHERE c.pulls >= (SELECT min_over FROM selection_bars WHERE id = 'most-selected')
-  ORDER BY t.selected * 1.0 / c.pulls DESC, c.pulls DESC, t.path LIMIT 1
-)
-UNION ALL
-SELECT 'count', 1, NULL, NULL, COUNT(*), NULL, NULL, NULL, NULL FROM tally WHERE selected > 0
-ORDER BY 1, 2`;
 
 const share = (count: number, of: number) => (of > 0 ? count / of : null);
 
@@ -280,7 +219,6 @@ interface BarRow {
   id: BarId;
   name: string;
   threshold: number;
-  min_over: number | null;
   window_days: number;
   min_pulls: number;
   alarm_issue: number | null;
@@ -289,8 +227,8 @@ interface BarRow {
 /**
  * The stored pull requests of a period and job: how many ran, ran everything
  * or were documentation only, each bar read against the thresholds the last
- * send carried, the rules that forced a full run with their paths, the misses
- * and the files selected most often. A period starts at the beginning of its
+ * send carried, the rules that forced a full run with their paths, the misses.
+ * A period starts at the beginning of its
  * first Belgian day. One batch.
  */
 export async function selectionAnswer(db: D1Database, period: SelectionPeriod, job: JobFilter, now: number): Promise<SelectionAnswer> {
@@ -298,7 +236,7 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const firstDay = length === null ? null : addDays(belgianDay(now), -(length - 1));
   const from = firstDay === null ? 0 : startOfDay(firstDay);
 
-  const [pulls, reasons, misses, bars, selected, oldest, packages] = await db.batch([
+  const [pulls, reasons, misses, bars, oldest, packages] = await db.batch([
     db.prepare(`SELECT p.pull_number, p.job, p.title, p.url, p.merged_at, p.status, p.ran_everything, p.unplaced_files FROM selection_pulls p WHERE ${inPeriod} ORDER BY p.merged_at DESC, p.pull_number DESC, p.job`).bind(from, job),
     db.prepare(
       `SELECT DISTINCT k.pull_number, k.job, k.reason_rule AS rule, k.reason_path AS path
@@ -310,8 +248,7 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
        FROM selection_misses m JOIN selection_pulls p ON p.pull_number = m.pull_number AND p.job = 'test'
        WHERE p.merged_at >= ?1 AND (?2 = 'both' OR m.job = ?2) ORDER BY p.merged_at DESC, p.pull_number DESC, m.position`,
     ).bind(from, job),
-    db.prepare('SELECT id, name, threshold, min_over, window_days, min_pulls, alarm_issue FROM selection_bars'),
-    db.prepare(MOST_SELECTED).bind(from, job, MOST_SELECTED_ROWS),
+    db.prepare('SELECT id, name, threshold, window_days, min_pulls, alarm_issue FROM selection_bars'),
     db.prepare('SELECT MIN(merged_at) AS oldest FROM selection_pulls'),
     db.prepare(
       `SELECT k.job, k.name, MAX(k.files_total) AS files_total
@@ -329,7 +266,6 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
   const read = minPulls !== null && total >= minPulls;
   const setting = (id: BarId) => barRows.find((each) => each.id === id) ?? null;
 
-  const selectedRows = selected!.results as unknown as { kind: 'top' | 'worst' | 'count'; job: SelectionJob; path: string; level: string; selected: number; selecting: number; full_run: number; chain: string | null }[];
   const reasonsOf = new Map<string, typeof reasonRows>();
   for (const reason of reasonRows) {
     const key = `${reason.job}:${reason.pull_number}`;
@@ -348,7 +284,7 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     const verdict = verdictOf(read, value, stored.threshold);
     return {
       id, name: stored.name, job: each, count: ran.length === 0 ? null : everything.length, of: ran.length === 0 ? null : ran.length, value,
-      threshold: stored.threshold, minOver: null, path: null,
+      threshold: stored.threshold,
       cause: leadingRule(everything.map((row) => rulesOf(each, row.pull_number).map((r) => r.rule))),
       verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: stored.alarm_issue,
     };
@@ -359,22 +295,11 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     const count = total === 0 ? null : misses!.results.length;
     const verdict = verdictOf(read, count, stored.threshold);
     return {
-      id: 'misses', name: stored.name, job, count, of: null, value: count, threshold: stored.threshold, minOver: null, path: null, cause: null,
+      id: 'misses', name: stored.name, job, count, of: null, value: count, threshold: stored.threshold, cause: null,
       verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: stored.alarm_issue,
     };
   };
-  const mostBar = (): SelectionBar | null => {
-    const stored = setting('most-selected');
-    if (!stored) return null;
-    const top = selectedRows.find((row) => row.kind === 'worst') ?? null;
-    const value = top ? top.selected / top.selecting : null;
-    const verdict = verdictOf(read, value, stored.threshold);
-    return {
-      id: 'most-selected', name: stored.name, job, count: top?.selected ?? null, of: top?.selecting ?? null, value, threshold: stored.threshold, minOver: stored.min_over, path: top?.path ?? null,
-      cause: null, verdict, unread: verdict !== 'unread' ? null : read ? 'figure' : 'window', alarmIssue: stored.alarm_issue,
-    };
-  };
-  const items = [forcedBar('e2e'), forcedBar('test'), missBar(), mostBar()].filter((bar): bar is SelectionBar => bar !== null && (bar.id !== 'e2e-forced-full' || jobs.includes('e2e')) && (bar.id !== 'test-forced-full' || jobs.includes('test')));
+  const items = [forcedBar('e2e'), forcedBar('test'), missBar()].filter((bar): bar is SelectionBar => bar !== null && (bar.id !== 'e2e-forced-full' || jobs.includes('e2e')) && (bar.id !== 'test-forced-full' || jobs.includes('test')));
 
   const forcedFullRules: ForcedFullRule[] = [];
   for (const each of jobs) {
@@ -432,8 +357,5 @@ export async function selectionAnswer(db: D1Database, period: SelectionPeriod, j
     misses: (misses!.results as unknown as { job: SelectionJob; path: string; level: string; reason: string | null; pull_number: number; title: string; url: string; merged_at: number }[]).map(
       (row) => ({ job: row.job, path: row.path, level: row.level, reason: row.reason, pull: refOf(row) }),
     ),
-    mostSelected: selectedRows
-      .filter((row) => row.kind === 'top')
-      .map((row) => ({ job: row.job, path: row.path, level: row.level, selectedPulls: row.selected, selectingPulls: row.selecting, fullRunPulls: row.full_run, mostCommonChain: row.chain })),
   };
 }

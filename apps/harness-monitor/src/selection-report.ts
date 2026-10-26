@@ -1,10 +1,9 @@
-import { addDays, belgianDay, formatDay, startOfDay } from './belgium';
+import { addDays, belgianDay, formatDateTime, formatDay, startOfDay } from './belgium';
 import { plural, quantile } from './cycle-time-report';
-import { number } from './page';
 import { humanMs } from './report';
-import { type CheckMs, checkKey, leadingRule, type JobFilter, verdictOf } from './selection-store';
-import type { BarId, SelectionJob } from './selection';
-import type { PackageRun, StoredBar, ViewJob, ViewPull, ViewWants } from './selection-view';
+import { type CheckMs, checkKey, type JobFilter, verdictOf } from './selection-store';
+import type { SelectionJob } from './selection';
+import type { StoredBar, ViewJob, ViewPull, ViewWants } from './selection-view';
 
 /**
  * What the test selection page works out of the stored rows: the view an
@@ -18,7 +17,10 @@ export const JOB_NAMES: Record<Job, string> = { test: 'Test job', e2e: 'E2E job'
 /** What a job's files are called: a test file, or a spec. */
 export const UNIT: Record<Job, [string, string]> = { test: ['test file', 'test files'], e2e: ['spec', 'specs'] };
 
-export const GROUPS = ['day', 'pr', 'rule', 'package', 'test', 'miss'] as const;
+/** The rows the sentence offers. */
+export const ROWS = ['day', 'rule', 'miss'] as const;
+/** The views an address can open: the rows, and one pull request's whole selection, which only a link opens. */
+export const GROUPS = [...ROWS, 'pr'] as const;
 export type Group = (typeof GROUPS)[number];
 
 /** The Period choice, in days; `all` is every pull request held, which reaches about 90 days. */
@@ -31,62 +33,45 @@ export const DEFAULT_PERIOD: Period = '14d';
 /** The job as a word of the page's sentence ("in the E2E job"). */
 export const JOB_CHOICES: [JobFilter, string][] = [['both', 'both jobs'], ['test', 'the Test job'], ['e2e', 'the E2E job']];
 
-export const OUTCOME_FILTERS = ['selected', 'full', 'miss', 'docs'] as const;
-export type OutcomeFilter = (typeof OUTCOME_FILTERS)[number];
-export const OUTCOME_CHOICES: [string, string][] = [
-  ['', 'Every pull request'],
-  ['selected', 'Selected a subset'],
-  ['full', 'Ran everything'],
-  ['miss', 'With a miss'],
-  ['docs', 'Documentation only'],
-];
-
 export type Outcome = 'selected' | 'full' | 'docs' | 'none';
 export const OUTCOME_LABELS: Record<Outcome, string> = { selected: 'Selected a subset', full: 'Ran everything', docs: 'Skipped: documentation only', none: 'No record' };
 export const OUTCOMES: Outcome[] = ['selected', 'full', 'docs', 'none'];
-
-/** The most test files the Most selected tests tab lists. */
-export const TEST_ROWS = 50;
 
 export interface SelectionQuery {
   group: Group;
   period: Period;
   job: JobFilter;
-  outcome: OutcomeFilter | null;
-  /** The drill-downs: one pull request, one rule (`job:rule`), one test. Each belongs to its own tab. */
+  /** The drill-downs: one pull request, one rule (`job:rule`). Each belongs to its own view. */
   pr: number | null;
   rule: string | null;
-  test: string | null;
 }
 
 const DEFAULTS = { group: 'day', period: DEFAULT_PERIOD, job: 'both' } as const;
 
-/** The view the address asks for; anything unrecognised falls back to the default, and a drill-down only counts on its own tab. */
+/** The view the address asks for; anything the sentence does not offer falls back to each day, as does one pull request's view without a pull request, and a drill-down only counts on its own view. */
 export function parseSelectionQuery(params: URLSearchParams): SelectionQuery {
-  const group = GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group;
-  const pr = Number(params.get('pr'));
+  const asked = GROUPS.find((g) => g === params.get('group')) ?? DEFAULTS.group;
+  const raw = Number(params.get('pr'));
+  const pr = Number.isInteger(raw) && raw > 0 ? raw : null;
+  const group = asked === 'pr' && pr === null ? DEFAULTS.group : asked;
   return {
     group,
     period: (Object.keys(PERIODS) as Period[]).find((p) => p === params.get('period')) ?? DEFAULTS.period,
     job: JOB_CHOICES.find(([v]) => v === params.get('job'))?.[0] ?? DEFAULTS.job,
-    outcome: group === 'pr' ? (OUTCOME_FILTERS.find((o) => o === params.get('outcome')) ?? null) : null,
-    pr: group === 'pr' && Number.isInteger(pr) && pr > 0 ? pr : null,
+    pr: group === 'pr' ? pr : null,
     rule: group === 'rule' ? params.get('rule') || null : null,
-    test: group === 'test' ? params.get('test') || null : null,
   };
 }
 
 /** The address of a view: a query with some of it changed. A drill-down is dropped unless `over` names it, and defaults are left out, so one view has one address (and one cache entry). */
 export function selectionAddress(q: SelectionQuery, over: Partial<SelectionQuery> = {}): string {
-  const all = { ...q, pr: null, rule: null, test: null, ...over };
+  const all = { ...q, pr: null, rule: null, ...over };
   const params = new URLSearchParams();
   if (all.group !== DEFAULTS.group) params.set('group', all.group);
   if (all.period !== DEFAULTS.period) params.set('period', all.period);
   if (all.job !== DEFAULTS.job) params.set('job', all.job);
-  if (all.group === 'pr' && all.outcome !== null) params.set('outcome', all.outcome);
   if (all.group === 'pr' && all.pr !== null) params.set('pr', String(all.pr));
   if (all.group === 'rule' && all.rule !== null) params.set('rule', all.rule);
-  if (all.group === 'test' && all.test !== null) params.set('test', all.test);
   const text = params.toString();
   return text === '' ? '/selection' : `/selection?${text}`;
 }
@@ -97,14 +82,12 @@ export function periodStart(period: Period, now: number): number {
   return days === null ? 0 : startOfDay(addDays(belgianDay(now), -(days - 1)));
 }
 
-/** What the tab needs read: each asks for its own rows, so a tab never pays for another's. */
+/** What the view needs read: each asks for its own rows, so a view never pays for another's. */
 export function wantsOf(q: SelectionQuery): ViewWants {
-  const none: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, checks: false, pull: null, test: null };
-  if (q.group === 'day') return { ...none, pulls: true, reasons: true, misses: true, tally: 0 };
-  if (q.group === 'pr') return q.pr !== null ? { ...none, pull: q.pr } : { ...none, pulls: true, reasons: true, misses: true };
+  const none: ViewWants = { pulls: false, reasons: false, misses: false, checks: false, pull: null };
+  if (q.group === 'day') return { ...none, pulls: true, reasons: true, misses: true, checks: true };
+  if (q.group === 'pr') return { ...none, pull: q.pr };
   if (q.group === 'rule') return q.rule ? { ...none, pulls: true, reasons: true } : { ...none, pulls: true, reasons: true, checks: true };
-  if (q.group === 'package') return { ...none, pulls: true, packages: true };
-  if (q.group === 'test') return q.test !== null ? { ...none, test: q.test } : { ...none, pulls: true, tally: TEST_ROWS };
   return { ...none, pulls: true, misses: true };
 }
 
@@ -120,32 +103,17 @@ export const median = (values: number[]) => quantile(values, 0.5);
 export interface Bars {
   minPulls: number;
   forcedFull: Record<Job, number>;
-  misses: number;
-  mostShare: number;
-  mostMinOver: number;
-  alarm: Record<BarId, number | null>;
 }
 
 export function barsOf(stored: StoredBar[]): Bars {
-  const bar = (id: BarId) => stored.find((each) => each.id === id);
+  const bar = (id: StoredBar['id']) => stored.find((each) => each.id === id);
   return {
     minPulls: stored[0]?.minPulls ?? 20,
     forcedFull: { test: bar('test-forced-full')?.threshold ?? 0.25, e2e: bar('e2e-forced-full')?.threshold ?? 0.25 },
-    misses: bar('misses')?.threshold ?? 1,
-    mostShare: bar('most-selected')?.threshold ?? 0.8,
-    mostMinOver: bar('most-selected')?.minOver ?? 10,
-    alarm: {
-      'e2e-forced-full': bar('e2e-forced-full')?.alarmIssue ?? null,
-      'test-forced-full': bar('test-forced-full')?.alarmIssue ?? null,
-      misses: bar('misses')?.alarmIssue ?? null,
-      'most-selected': bar('most-selected')?.alarmIssue ?? null,
-    },
   };
 }
 
 export { verdictOf };
-export type Verdict = ReturnType<typeof verdictOf>;
-export const tileClass = (verdict: Verdict) => (verdict === 'crossed' ? 'up' : verdict === 'within' ? 'down' : '');
 
 /** A job that left no record of a pull request: counted in neither direction. */
 const NO_RECORD: ViewJob = { status: 'no-record', ranEverything: false, selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null, unplacedFiles: null, reasons: [], misses: [] };
@@ -160,12 +128,6 @@ export function overBar(pulls: ViewPull[], job: Job, bars: Bars): boolean {
   const ran = pulls.map((p) => jobOf(p, job)).filter((v) => v.status === 'ran');
   return pulls.length >= bars.minPulls && ran.length > 0 && verdictOf(true, ran.filter((v) => v.ranEverything).length / ran.length, bars.forcedFull[job]) === 'crossed';
 }
-
-/** Of the pull requests that ran everything, the rule that forced the most of them. */
-export const leadingRuleOf = (full: ViewJob[]) => leadingRule(full.map((v) => v.reasons.map((r) => r.rule)));
-
-/** The share of the pull requests that could have skipped a file which selected it. */
-export const shareOf = (row: { selected: number; selecting: number }) => (row.selecting > 0 ? row.selected / row.selecting : 0);
 
 /** A selection in words as the page reads it: an import chain without the test itself at its head, behind "via". */
 export function whyText(text: string | null, path: string): string {
@@ -313,6 +275,19 @@ export function typicalSelectedMs(pulls: ViewPull[], job: Job, checkMs: CheckMs)
   );
 }
 
+/**
+ * What full runs of a job could have saved: each one's time in its check, less
+ * a typical selected run, never below zero for one run, and a pull request
+ * cycle time does not hold counting nothing. Null where there is no typical
+ * selected run to measure against.
+ */
+function totalSaved(job: Job, runs: Iterable<number>, typical: number | null, checkMs: CheckMs): number | null {
+  if (typical === null) return null;
+  let saved = 0;
+  for (const n of runs) saved += Math.max(0, (checkMs.get(checkKey(job, n)) ?? 0) - typical);
+  return saved;
+}
+
 /** One rule with the group it sits in and what its full runs cost over a typical selected run. */
 export interface RankedRule extends RuleRow {
   group: RuleGroup;
@@ -343,8 +318,7 @@ export function rankRules(pulls: ViewPull[], jobs: Job[], checkMs: CheckMs, expe
     if (ran.length) span[job] = [Math.min(...ran.map((p) => p.mergedAt)), Math.max(...ran.map((p) => p.mergedAt))];
   }
   const rules = ruleRows(pulls, jobs).map((row): RankedRule => {
-    const selected = typical[row.job];
-    const savedMs = selected === null ? null : [...row.everything].reduce((all, n) => all + Math.max(0, (checkMs.get(checkKey(row.job, n)) ?? 0) - selected), 0);
+    const savedMs = totalSaved(row.job, row.everything, typical[row.job], checkMs);
     const stopped = ![...row.pulls.keys()].some((n) => recent[row.job].has(n));
     return {
       ...row,
@@ -357,6 +331,41 @@ export function rankRules(pulls: ViewPull[], jobs: Job[], checkMs: CheckMs, expe
   return {
     rules: rules.sort((a, b) => RULE_GROUPS.indexOf(a.group) - RULE_GROUPS.indexOf(b.group) || (b.savedMs ?? 0) - (a.savedMs ?? 0) || b.pulls.size - a.pulls.size || a.job.localeCompare(b.job) || a.rule.localeCompare(b.rule)),
     typical,
+  };
+}
+
+/** What the first tile of each day says: the time the rules to fix could have saved, and every full run per job. */
+export interface RanMoreThanNeeded {
+  /** The time the full runs a rule to fix forced could have saved; null where none of them has a typical selected run to be measured against, and zero where no rule needs fixing. */
+  savedMs: number | null;
+  /** How many full runs a rule to fix forced. */
+  fixRuns: number;
+  /** Every full run in the period, the expected ones and stopped rules' too, per job, against the pull requests the job ran. */
+  perJob: { job: Job; full: number; ran: number }[];
+  /** The time every one of those could have saved. */
+  allSavedMs: number | null;
+}
+
+/**
+ * The first tile of each day. A full run counts for the rules to fix when any
+ * rule that forced it is one to fix (`rankRules`' own groups), so the figure
+ * agrees with the table it opens and counts a pull request once however many
+ * rules forced it.
+ */
+export function ranMoreThanNeeded(pulls: ViewPull[], jobs: Job[], checkMs: CheckMs, expected: (job: Job, rule: string) => boolean): RanMoreThanNeeded {
+  const { rules, typical } = rankRules(pulls, jobs, checkMs, expected);
+  const fix = new Set(rules.filter((r) => r.group === 'fix').flatMap((r) => [...r.everything].map((n) => checkKey(r.job, n))));
+  const saved = (job: Job, runs: number[]) => totalSaved(job, runs, typical[job], checkMs);
+  const sum = (parts: (number | null)[]) => (parts.every((part) => part === null) && parts.length > 0 ? null : parts.reduce<number>((all, part) => all + (part ?? 0), 0));
+  const perJob = jobs.map((job) => {
+    const ran = pulls.filter((p) => jobOf(p, job).status === 'ran');
+    return { job, ran: ran.length, full: ran.filter((p) => jobOf(p, job).ranEverything).map((p) => p.number) };
+  });
+  return {
+    savedMs: sum(perJob.map(({ job, full }) => saved(job, full.filter((n) => fix.has(checkKey(job, n)))))),
+    fixRuns: fix.size,
+    perJob: perJob.map(({ job, ran, full }) => ({ job, ran, full: full.length })),
+    allSavedMs: sum(perJob.map(({ job, full }) => saved(job, full))),
   };
 }
 
@@ -394,49 +403,33 @@ export function rulePrompt(r: RankedRule, advice: string): string {
   ].join('\n');
 }
 
-export interface PackageSummary {
+/** One test or spec that failed on main after its pull request skipped it. */
+export interface MissRow {
+  pull: ViewPull;
   job: Job;
-  name: string;
-  /** Most test files any pull request found in it; null where none sent a total. */
-  files: number | null;
-  /** The pull requests it selected on, and those on which something of it ran. */
-  changed: number;
-  touched: number;
-  runs: number[];
-  full: number;
-  reasons: Map<string, number>;
+  path: string;
+  level: string;
+  /** `docs only` where the pull request changed only documents, so its job never started. */
+  reason: string | null;
 }
 
-/** A row per package (every E2E spec as one), the most often touched first. */
-export function packageRows(runs: PackageRun[]): PackageSummary[] {
-  const map = new Map<string, PackageSummary>();
-  for (const run of runs) {
-    const name = run.job === 'e2e' ? 'Every E2E spec' : run.name;
-    const row = map.get(`${run.job}:${name}`) ?? { job: run.job, name, files: null as number | null, changed: 0, touched: 0, runs: [], full: 0, reasons: new Map<string, number>() };
-    map.set(`${run.job}:${name}`, row);
-    if (run.filesTotal !== null) row.files = Math.max(row.files ?? 0, run.filesTotal);
-    if (run.mode === 'full') {
-      row.full++;
-      if (run.rule) row.reasons.set(run.rule, (row.reasons.get(run.rule) ?? 0) + 1);
-      continue;
-    }
-    // A package that wrote no report says nothing of what it ran, so it is neither a selection nor a miss of one.
-    if (run.report === 'none') continue;
-    row.changed++;
-    if (run.ran > 0) {
-      row.touched++;
-      row.runs.push(run.ran);
-    }
-  }
-  return [...map.values()].sort((a, b) => (b.changed ? b.touched / b.changed : 0) - (a.changed ? a.touched / a.changed : 0) || b.full - a.full);
+/** The misses of the pull requests the jobs ran, newest pull request first. */
+export const missRows = (pulls: ViewPull[], jobs: Job[]): MissRow[] =>
+  pulls.flatMap((pull) => jobs.flatMap((job) => jobOf(pull, job).misses.map((m): MissRow => ({ pull, job, path: m.path, level: m.level, reason: m.reason }))));
+
+/**
+ * What an agent in this repository is asked, to settle a miss: which test, in
+ * which job, on which pull request and when it merged, and the two outcomes it
+ * has to tell apart, the selection that skipped what it should have run and a
+ * test that is flaky or broken.
+ */
+export function missPrompt(m: MissRow): string {
+  const { pull: p } = m;
+  return [
+    `${m.path} (${m.level}, ${JOB_NAMES[m.job]}) failed on main's run of the merge of #${p.number} "${p.title}" (merged ${formatDateTime(p.mergedAt)}), and #${p.number}'s own last run did not run it${m.reason === 'docs only' ? ', its change being documentation only' : ''}.`,
+    '',
+    `Decide whether #${p.number}'s change could have broken it: compare what the change touched with what the test exercises, and look at main's runs of this test around the merge. If the change could have broken it, find the import or runtime edge the selection did not follow, close it in ${RULE_FILES[m.job]}${m.job === 'test' ? " (or the package's Vitest config)" : ''}, and prove it with a case in ${RULE_TESTS[m.job]}. If it could not, say what did break it, so it is treated as a flaky or broken test rather than a selection gap. Scope any fix with /scoping before building it.`,
+  ].join('\n');
 }
 
 export const jobsOf = (job: JobFilter): Job[] => (job === 'both' ? ['test', 'e2e'] : [job]);
-
-/** The pull requests the Pull request tab lists for an outcome filter. */
-export function matchesOutcome(p: ViewPull, jobs: Job[], outcome: OutcomeFilter | null): boolean {
-  if (outcome === null) return true;
-  if (outcome === 'docs') return jobs.length > 0 && jobs.every((j) => jobOf(p, j).status === 'docs-only');
-  if (outcome === 'miss') return missesOf(p, jobs) > 0;
-  return jobs.some((j) => outcomeOf(jobOf(p, j)) === outcome);
-}

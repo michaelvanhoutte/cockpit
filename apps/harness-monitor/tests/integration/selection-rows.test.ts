@@ -1,4 +1,4 @@
-import { SELF } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SelectionAnswer } from '../../src/selection-store';
 import { docsOnly, emptyTheDatabase, ranEverything, selectionBars, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection, storedSelection } from './support';
@@ -33,11 +33,8 @@ describe('Harness Monitor', () => {
       ]);
       const answer = await theAnswer();
       expect(answer.forcedFullRules).toMatchObject([{ job: 'e2e', rule: 'owned by no concept', paths: [{ path: 'apps/api/src/a.ts', count: 1 }] }]);
-      expect(answer.mostSelected.find((row) => row.path === 'apps/api/tests/unit/t0.test.ts')).toMatchObject({
-        job: 'test',
-        selectedPulls: 1,
-        mostCommonChain: 'apps/api/tests/unit/t0.test.ts → apps/api/src/a.ts',
-      });
+      const chain = await env.DB.prepare("SELECT chain_kind, chain_text FROM selection_files WHERE pull_number = 101 AND path = 'apps/api/tests/unit/t0.test.ts'").first();
+      expect(chain).toEqual({ chain_kind: 'chain', chain_text: 'apps/api/tests/unit/t0.test.ts → apps/api/src/a.ts' });
     });
 
     it('the same pull request sent again is stored once, with what the later send holds', async () => {
@@ -66,9 +63,8 @@ describe('Harness Monitor', () => {
     it('a file of a package that ran everything is stored as run whole, with no chain', async () => {
       await sendSelection([selectionPull(8, { jobs: [ranEverything('test', 'a lockfile changed', 'pnpm-lock.yaml', ['apps/api/tests/unit/a.test.ts']), selectionJob('e2e')] })]);
 
-      expect(await theAnswer()).toMatchObject({
-        mostSelected: [{ path: 'apps/api/tests/unit/a.test.ts', selectedPulls: 0, fullRunPulls: 1, mostCommonChain: null }],
-      });
+      const stored = await env.DB.prepare("SELECT chain_kind, chain_text FROM selection_files WHERE pull_number = 8 AND path = 'apps/api/tests/unit/a.test.ts'").first();
+      expect(stored).toEqual({ chain_kind: 'full', chain_text: null });
     });
   });
 

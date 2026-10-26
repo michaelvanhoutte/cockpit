@@ -103,10 +103,8 @@ async function stability(runs = [ran(1, '2026-10-30T08:00:00Z', 'pass'), ran(2, 
 describe('Harness Monitor', () => {
   describe('every tile, chart, panel and table on Test selection carries an (i) explaining it', () => {
     it.each([
-      { tile: 'Test job ran everything', id: 't-test-full' },
-      { tile: 'E2E job ran everything', id: 't-e2e-full' },
-      { tile: 'Misses', id: 't-misses' },
-      { tile: 'Most selected test', id: 't-most' },
+      { tile: 'Ran more than needed', id: 't-more' },
+      { tile: 'Ran less than needed', id: 't-less' },
     ])('on each day, the $tile tile carries its own (i), with the three parts', async ({ tile, id }) => {
       await selection();
 
@@ -118,7 +116,6 @@ describe('Harness Monitor', () => {
 
     it.each([
       { panel: 'What each job did', id: 'what-each-job-did' },
-      { panel: 'A typical pull request', id: 'typical-pull-request' },
       { panel: 'Share that ran everything per day', id: 'ran-everything-per-day' },
     ])('on each day, $panel carries its own (i), with the three parts', async ({ id }) => {
       await selection();
@@ -130,12 +127,8 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
-      { tab: 'By day', query: '', id: 'by-day' },
-      { tab: 'Pull request', query: '?group=pr', id: 'by-pull-request' },
-      { tab: 'What forced a full run', query: '?group=rule', id: 'by-rule' },
-      { tab: 'Package', query: '?group=package', id: 'by-package' },
-      { tab: 'Most selected tests', query: '?group=test', id: 'most-selected-tests' },
-      { tab: 'Misses', query: '?group=miss', id: 'misses' },
+      { tab: 'Ran more than needed: what forced a full run', query: '?group=rule', id: 'by-rule' },
+      { tab: 'Tests that were skipped, then failed on main', query: '?group=miss', id: 'misses' },
     ])('the $tab table carries an (i) saying what its rows are', async ({ query, id }) => {
       await selection();
 
@@ -148,7 +141,6 @@ describe('Harness Monitor', () => {
     it.each([
       { view: 'a pull request opened through the address, what each job ran and why', query: '?group=pr&pr=1', id: 'pull-request', parts: THREE_PARTS },
       { view: 'a rule opened through the address, its paths', query: `?group=rule&rule=${RULE}`, id: 'rule', parts: ['What it shows'] },
-      { view: 'a test opened through the address, the pull requests that selected it', query: `?group=test&test=${encodeURIComponent(SELECTED)}`, id: 'test', parts: ['What it shows'] },
     ])('$view carries its (i)', async ({ query, id, parts }) => {
       await selection();
 
@@ -158,13 +150,13 @@ describe('Harness Monitor', () => {
       expect(partsOf(html, id)).toEqual(parts);
     });
 
-    it('a period too short for a bar to judge reads unread, and its tiles and panels keep their (i)', async () => {
+    it('a period too short for a bar to judge keeps the tiles and panels, each with its (i)', async () => {
       await selection();
 
       const html = await page('/selection');
 
-      expect(text(withoutExplanations(tileOf(html, 'Test job ran everything')))).toContain('unread: 1 pull request, a bar needs 20');
-      expect(tileOf(html, 'Test job ran everything')).toContain('data-pop="x-t-test-full"');
+      expect(tileOf(html, 'Ran more than needed')).toContain('data-pop="x-t-more"');
+      expect(tileOf(html, 'Ran less than needed')).toContain('data-pop="x-t-less"');
       expect(firstInfo(panelOf(html, 'what-each-job-did'))).toBe('what-each-job-did');
     });
 
@@ -173,9 +165,9 @@ describe('Harness Monitor', () => {
 
       const { buttons, panels } = infosOf(await page('/selection'));
 
-      // Four tiles, what each job did, the typical pull request, the chart and the table.
-      expect(buttons).toHaveLength(8);
-      expect(new Set(buttons).size).toBe(8);
+      // Two tiles, what each job did and the chart.
+      expect(buttons).toHaveLength(4);
+      expect(new Set(buttons).size).toBe(4);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
   });
@@ -319,7 +311,7 @@ describe('Harness Monitor', () => {
       const html = await page(path);
 
       expect(leadOf(html)).toContain('Does CI run only the tests a change can affect?');
-      for (const words of ['selected a subset', 'ran everything', 'A miss is', 'A bar is']) expect(leadOf(html)).toContain(words);
+      for (const words of ['selected a subset', 'ran everything', 'A test skipped, then failed on main', 'A bar is']) expect(leadOf(html)).toContain(words);
       expect(leadPlace(html)).toEqual({ afterTheSentence: true, beforeThePanels: true });
     });
 
@@ -389,9 +381,7 @@ describe('Harness Monitor', () => {
 
     it.each([
       { panel: 'What each job did', query: '', id: 'what-each-job-did', note: 'Selecting a subset is selection working' },
-      { panel: 'By package', query: '?group=package', id: 'by-package', note: 'runs only the files the change reaches' },
-      { panel: 'Most selected tests', query: '?group=test', id: 'most-selected-tests', note: 'narrowing it is what would shrink the count' },
-      { panel: 'Misses', query: '?group=miss', id: 'misses', note: 'widen the import chain' },
+      { panel: 'Tests that were skipped, then failed on main', query: '?group=miss', id: 'misses', note: 'whether the change could have broken the test' },
     ])('Test selection: $panel no longer says it under its table, and its explanation does', async ({ query, id, note }) => {
       await selection();
 

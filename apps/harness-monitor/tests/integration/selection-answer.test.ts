@@ -1,4 +1,4 @@
-import { SELF } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SelectionAnswer } from '../../src/selection-store';
 import { emptyTheDatabase, fullPackage, ranEverything, selectionFile, selectionJob, selectionPackage, selectionPull, sendSelection } from './support';
@@ -29,7 +29,7 @@ const thirtyWithNineFull = () =>
   );
 
 describe('Harness Monitor', () => {
-  describe('test selection answers, for a period and job, each bar with its count, threshold and verdict, the rules that forced a full run, the misses and the most selected tests', () => {
+  describe('test selection answers, for a period and job, each bar with its count, threshold and verdict, the rules that forced a full run and the misses', () => {
     it('nine of thirty pull requests running E2E in full is over the 25% bar, led by the rule that forced them', async () => {
       await sendSelection(thirtyWithNineFull());
 
@@ -72,56 +72,21 @@ describe('Harness Monitor', () => {
         ['e2e-forced-full', 'unread', 'window'],
         ['test-forced-full', 'unread', 'window'],
         ['misses', 'unread', 'window'],
-        ['most-selected', 'unread', 'window'],
       ]);
       expect(barOf(answer, 'e2e-forced-full')).toMatchObject({ count: 12, of: 12, value: 1 });
     });
 
-    it('a test selected on eleven of the thirteen pull requests that could skip it is at 85%, over the 80% bar, and listed with the chain that picks it', async () => {
+    it('the answer reads no most-selected list and no most-selected bar, though the Monitor still holds the bar an earlier send stored', async () => {
       const hot = 'apps/api/tests/unit/hot.test.ts';
-      await sendSelection(
-        times(20, (index) =>
-          selectionPull(index + 1, {
-            mergedAt: MERGED,
-            jobs: [
-              // Seven ran their whole package, which says nothing about selecting it; of the thirteen that selected, eleven picked it.
-              index < 7 ? ranEverything('test', 'a lockfile changed', 'pnpm-lock.yaml', [hot]) : selectionJob('test', { packages: [selectionPackage('api', index < 18 ? [selectionFile(hot)] : [])] }),
-              selectionJob('e2e'),
-            ],
-          }),
-        ),
-      );
+      await sendSelection(times(20, (index) => selectionPull(index + 1, { mergedAt: MERGED, jobs: [selectionJob('test', { packages: [selectionPackage('api', [selectionFile(hot)])] }), selectionJob('e2e')] })));
+      expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM selection_bars WHERE id = 'most-selected'").first<{ n: number }>())!.n).toBe(1);
 
       const answer = await theAnswer();
 
-      expect(barOf(answer, 'most-selected')).toMatchObject({ path: hot, count: 11, of: 13, threshold: 0.8, minOver: 10, verdict: 'crossed' });
-      expect(barOf(answer, 'most-selected').value).toBeCloseTo(0.846, 3);
-      expect(answer.mostSelected[0]).toEqual({
-        job: 'test',
-        path: hot,
-        level: 'unit',
-        selectedPulls: 11,
-        selectingPulls: 13,
-        fullRunPulls: 7,
-        mostCommonChain: `${hot} → apps/api/src/a.ts`,
-      });
-    });
-
-    it('a package whose process died before writing its report is not a pull request that could have skipped a test', async () => {
-      const hot = 'apps/api/tests/unit/hot.test.ts';
-      await sendSelection(
-        times(20, (index) =>
-          selectionPull(index + 1, {
-            mergedAt: MERGED,
-            jobs: [selectionJob('test', { packages: [index < 12 ? selectionPackage('api', [selectionFile(hot)]) : selectionPackage('api', [], { report: 'none' })] }), selectionJob('e2e')],
-          }),
-        ),
-      );
-
-      const answer = await theAnswer();
-
-      expect(barOf(answer, 'most-selected')).toMatchObject({ path: hot, count: 12, of: 12, verdict: 'crossed' });
-      expect(answer.mostSelected[0]).toMatchObject({ path: hot, selectedPulls: 12, selectingPulls: 12 });
+      expect(answer).not.toHaveProperty('mostSelected');
+      expect(answer.bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'test-forced-full', 'misses']);
+      expect(JSON.stringify(answer)).not.toContain('most-selected');
+      expect(JSON.stringify(answer)).not.toContain(hot);
     });
 
     it('a rule that forced one package of several is listed, and reads within the bar because it left the job selecting', async () => {
@@ -152,15 +117,15 @@ describe('Harness Monitor', () => {
       expect(barOf(answer, 'misses')).toMatchObject({ count: 1, verdict: 'unread' });
     });
 
-    it('a job asked for alone is read alone: its own bars, rules, misses and files', async () => {
+    it('a job asked for alone is read alone: its own bars, rules and misses', async () => {
       await sendSelection(thirtyWithNineFull());
 
       const e2e = await theAnswer('?job=e2e');
       const test = await theAnswer('?job=test');
 
-      expect(e2e.bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'misses', 'most-selected']);
+      expect(e2e.bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'misses']);
       expect(e2e.forcedFullRules.map((rule) => rule.job)).toEqual(['e2e']);
-      expect(test.bars.items.map((bar) => bar.id)).toEqual(['test-forced-full', 'misses', 'most-selected']);
+      expect(test.bars.items.map((bar) => bar.id)).toEqual(['test-forced-full', 'misses']);
       expect(test.forcedFullRules).toEqual([]);
     });
 
@@ -175,7 +140,7 @@ describe('Harness Monitor', () => {
     it('with nothing stored, the answer is empty and reads nothing', async () => {
       const answer = await theAnswer();
 
-      expect(answer).toMatchObject({ period: '14d', job: 'both', firstDay: '2026-10-02', storedFrom: null, pulls: { total: 0 }, forcedFullRules: [], misses: [], mostSelected: [] });
+      expect(answer).toMatchObject({ period: '14d', job: 'both', firstDay: '2026-10-02', storedFrom: null, pulls: { total: 0 }, forcedFullRules: [], misses: [] });
       expect(answer.bars).toMatchObject({ read: false, items: [] });
     });
   });

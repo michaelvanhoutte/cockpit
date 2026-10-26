@@ -289,7 +289,7 @@ async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Pro
  * asks (`wantsJson`). The JSON is for the period and job the address asks: how
  * many pull requests ran, ran everything or were documentation only, each bar
  * read against the thresholds the last send carried, the rules that forced a
- * full run, the misses and the files selected most often. Cached like the other
+ * full run and the misses. Cached like the other
  * reports under one key per view, so a page and its JSON never share an entry.
  */
 async function selection(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -308,7 +308,7 @@ async function selection(request: Request, env: Env, ctx: ExecutionContext): Pro
   const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
   const response = asJson
     ? Response.json(await selectionAnswer(env.DB, period, job, now), { headers })
-    : new Response(renderSelection(query, await selectionView(env.DB, wantsOf(query), periodStart(query.period, now), query.job), env.GITHUB_REPOSITORY, now), {
+    : new Response(renderSelection(query, await selectionView(env.DB, wantsOf(query), periodStart(query.period, now), query.job), now), {
         headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
       });
   if (cache) ctx.waitUntil(cache.put(key, response.clone()));
@@ -335,7 +335,7 @@ async function selectionCheck(request: Request, env: Env, ctx: ExecutionContext)
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const wants: ViewWants = { pulls: false, reasons: false, misses: false, tally: null, packages: false, checks: false, pull: pr, test: null };
+  const wants: ViewWants = { pulls: false, reasons: false, misses: false, checks: false, pull: pr };
   const view = await selectionView(env.DB, wants, 0, job);
   const response = new Response(renderSelectionCheck(view, job), {
     headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
