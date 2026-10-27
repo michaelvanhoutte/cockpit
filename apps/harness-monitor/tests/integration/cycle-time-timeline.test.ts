@@ -1,7 +1,6 @@
-import { env } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { linked, pullRequest } from './github-support';
-import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, sendPulls, thePullRequest, withPrices } from './support';
+import { cycleCheck, cyclePull, cycleRound, emptyTheDatabase, sendPulls, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -52,9 +51,14 @@ const twoRounds = (number: number, over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-const timelineOf = (html: string) => /<section class="panel tl" aria-labelledby="timeline">.*?<\/section>/s.exec(html)?.[0] ?? '';
+/** What opening a Pull request row asks: the one pull request's timeline. */
+const opened = (number: number | string) => SELF.fetch(`https://monitor.test/cycle-time/timeline?pr=${number}`);
 const textOf = (html: string) => html.replace(/<style>.*?<\/style>/gs, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/&#\d+;/g, ' ').replace(/\s+/g, ' ');
-const pageOf = async (number: number, query = '') => (await thePullRequest(number, query)).text();
+const pieceOf = async (number: number) => {
+  const response = await opened(number);
+  expect(response.status).toBe(200);
+  return response.text();
+};
 const withoutATimeline = (number: number) => {
   const pull: Record<string, unknown> = { ...twoRounds(number) };
   delete pull.timeline;
@@ -62,23 +66,38 @@ const withoutATimeline = (number: number) => {
 };
 
 describe('Harness Monitor', () => {
-  describe("a pull request's page shows its timeline from the stored rows", () => {
-    it('a stored pull request with a timeline and a branch link shows its strip above its sessions', async () => {
+  describe("a pull request's timeline is served as its strip, read from the stored rows", () => {
+    it('a stored pull request with a timeline is its strip and one line of colour key', async () => {
       await sendPulls([twoRounds(31)]);
-      await linked(pullRequest({ number: 31, title: 'Pull request 31', headRefName: 'claude/31-work' }));
 
-      const html = await pageOf(31, '?period=all');
-      const strip = timelineOf(html);
+      const strip = await pieceOf(31);
 
       expect(strip).toContain('class="tl-strip"');
+      // Each round is drawn closed and zoomed.
       expect([...strip.matchAll(/class="tl-seg round/g)]).toHaveLength(4);
-      expect(html.indexOf('id="timeline"')).toBeLessThan(html.indexOf('aria-labelledby="sessions"'));
+      expect([...strip.matchAll(/class="tl-keyline"/g)]).toHaveLength(1);
+      expect(textOf(strip)).toContain('waiting to merge');
+      // The longer explanation is in the table's (i), not under each strip.
+      expect(strip).not.toContain('tl-sectionnote');
+      expect(textOf(strip)).not.toContain('A CI Round is named on the strip');
+      expect(strip).not.toContain('<b>CI Round</b>');
+    });
+
+    it('leaves the rules that show a pick with the strip, naming only its own pull request, so two open at once pick apart', async () => {
+      await sendPulls([twoRounds(31), twoRounds(32)]);
+
+      const [one, other] = [await pieceOf(31), await pieceOf(32)];
+      const ids = (html: string) => [...html.matchAll(/ id="((?:zoom|r|d)[\d-]+)"/g)].map((m) => m[1]);
+
+      expect(one).toMatch(/<style>.*#r31-\d+:checked.*<\/style>/s);
+      expect(one).not.toMatch(/r32-/);
+      expect(ids(one).filter((id) => ids(other).includes(id!))).toEqual([]);
     });
 
     it('draws a failed job ringed, a re-run hatched, a wait for a runner as a lead, and names each round', async () => {
       await sendPulls([twoRounds(31)]);
 
-      const strip = timelineOf(await pageOf(31));
+      const strip = await pieceOf(31);
 
       expect(strip).toContain('class="tl-lane tl-job failed"');
       expect(strip).toContain('class="tl-lane tl-job rerun"');
@@ -91,7 +110,7 @@ describe('Harness Monitor', () => {
     it('reads a job in Belgian time to the second, with the round it ran in under it', async () => {
       await sendPulls([twoRounds(31)]);
 
-      const strip = timelineOf(await pageOf(31));
+      const strip = await pieceOf(31);
 
       expect(strip).toContain('<p class="tl-dhead">Test</p><p class="tl-dline">started 12:00:30, stopped 12:10:00 · ran 9m 30s · waited 20s for a runner · failed</p><p class="tl-dctx">in CI Round 1 · pushed 1 Oct 2026, 12:00</p>');
       expect(strip).toContain('re-run (attempt 2)');
@@ -100,7 +119,7 @@ describe('Harness Monitor', () => {
     it('puts the zoomed strip’s axis on Belgian clock times from the start to the merge', async () => {
       await sendPulls([twoRounds(31)]);
 
-      const axis = /<span class="tl-clockaxis".*?<\/span><\/span>/s.exec(timelineOf(await pageOf(31)))![0];
+      const axis = /<span class="tl-clockaxis".*?<\/span><\/span>/s.exec(await pieceOf(31))![0];
       const labels = [...axis.matchAll(/<span class="tl-clocktick[^"]*"[^>]*>(.*?)<\/span>/g)].map((m) => m[1]);
 
       // 09:30 UTC is 11:30 in Brussels in October, and the merge at 10:35 is 12:35.
@@ -111,7 +130,7 @@ describe('Harness Monitor', () => {
     it('a stored pull request with no timeline reads timeline not recorded, with no strip', async () => {
       await sendPulls([withoutATimeline(32)]);
 
-      const html = await pageOf(32);
+      const html = await pieceOf(32);
 
       expect(textOf(html)).toContain('Timeline not recorded.');
       expect(html).not.toContain('tl-strip');
@@ -124,7 +143,7 @@ describe('Harness Monitor', () => {
       const three = { lanes: [null, null, null], reviewSlices: [], runSlices: [] };
       await env.DB.prepare('UPDATE cycle_time_timelines SET timeline = ?1 WHERE pull_number = 33').bind(JSON.stringify(three)).run();
 
-      const html = await pageOf(33);
+      const html = await pieceOf(33);
 
       expect(textOf(html)).toContain('Timeline not recorded.');
       expect(html).not.toContain('tl-seg');
@@ -133,8 +152,7 @@ describe('Harness Monitor', () => {
     it('a pull request with no session record has its first part hatched and tagged not recorded', async () => {
       await sendPulls([twoRounds(34, { recorded: false, codingMs: null, localMs: null, localReviews: null, start: { at: at('09:55:00'), from: 'first-commit' } })]);
 
-      const html = await pageOf(34);
-      const strip = timelineOf(html);
+      const strip = await pieceOf(34);
 
       expect(strip).toContain('class="tl-seg coding unrecorded"');
       expect(strip).toContain('<span class="tl-tag unrecorded"');
@@ -145,7 +163,7 @@ describe('Harness Monitor', () => {
       const held = [cycleCheck('Test', 4 * MIN), cycleCheck('claude-review', 6 * MIN, { last: true })];
       await sendPulls([twoRounds(35, { rounds: [cycleRound(held, { pushedAt: at('10:00:00'), endedAt: at('10:10:00'), ms: 10 * MIN })], timeline: { lanes: [null], reviewSlices: [], runSlices: [] } })]);
 
-      const strip = timelineOf(await pageOf(35));
+      const strip = await pieceOf(35);
 
       expect([...strip.matchAll(/<span class="tl-piece"/g)]).toHaveLength(4);
       expect(strip).toContain('Tests and checks (Test) · held it 4m 00s');
@@ -157,7 +175,7 @@ describe('Harness Monitor', () => {
       const long = (ms: number) => cycleRound([cycleCheck('Test', ms, { last: true })], { pushedAt: at('10:00:00'), endedAt: at('15:00:00'), ms });
       await sendPulls([twoRounds(36, { mergedAt: at('15:00:00'), start: { at: at('10:00:00'), from: 'session-record' }, rounds: [long(5 * 60 * MIN)], timeline: { lanes: [null], reviewSlices: [], runSlices: [] }, totalMs: 300 * MIN })]);
 
-      const strip = timelineOf(await pageOf(36));
+      const strip = await pieceOf(36);
 
       expect(strip).toContain('Clipped: 5h 00m on the scale in all (time away is not counted), the first 4h 00m shown.');
       expect(strip).toContain('<span class="tl-tag clip">clipped</span>');
@@ -175,7 +193,7 @@ describe('Harness Monitor', () => {
       };
       await sendPulls([twoRounds(37, { timeline: slices })]);
 
-      const strip = timelineOf(await pageOf(37));
+      const strip = await pieceOf(37);
 
       // The review is the busiest row, on the line; the two runs, one after the other, share the row above. The strip is drawn closed and zoomed, so each twice.
       expect([...strip.matchAll(/class="tl-lane code-review" style="left:0.000%;width:100.000%;top:0%"/g)]).toHaveLength(2);
@@ -184,36 +202,21 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('every pull request cycle time holds has a page', () => {
-    it('a stored pull request with no branch link answers with its timeline and says no sessions are linked', async () => {
-      await sendPulls([twoRounds(41)]);
+  describe('a timeline is refused, with no strip, for a number that is not a stored pull request', () => {
+    it.each([
+      { situation: 'a number the Monitor does not hold', pr: '999', status: 404 },
+      { situation: 'text that is not a number', pr: 'abc', status: 400 },
+      { situation: 'zero', pr: '0', status: 400 },
+      { situation: 'a negative number', pr: '-3', status: 400 },
+      { situation: 'a fraction', pr: '3.5', status: 400 },
+      { situation: 'no number at all', pr: '', status: 400 },
+    ])('$situation', async ({ pr, status }) => {
+      await sendPulls([twoRounds(31)]);
 
-      const response = await thePullRequest(41);
-      const html = await response.text();
+      const response = await opened(pr);
 
-      expect(response.status).toBe(200);
-      expect(timelineOf(html)).toContain('class="tl-strip"');
-      expect([...textOf(html).matchAll(/No Claude Code sessions are linked to this pull request\./g)]).toHaveLength(2);
-      expect(html).not.toContain('id="pr-total"');
-      expect(html).toContain('Pull request 41');
-    });
-
-    it('a branch link with no stored pull request answers as before, with no timeline section', async () => {
-      await linked(pullRequest({ number: 42, title: 'Only linked', headRefName: 'claude/42-work' }));
-
-      const response = await thePullRequest(42, '?period=all');
-      const html = await response.text();
-
-      expect(response.status).toBe(200);
-      expect(html).toContain('Only linked');
-      expect(html).not.toContain('id="timeline"');
-    });
-
-    it('a number neither holds is nothing found', async () => {
-      const response = await thePullRequest(43);
-
-      expect(response.status).toBe(404);
-      expect(textOf(await response.text())).toContain('Nothing found.');
+      expect(response.status).toBe(status);
+      expect(await response.text()).not.toContain('tl-');
     });
   });
 });

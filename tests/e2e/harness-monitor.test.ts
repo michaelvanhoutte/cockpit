@@ -675,12 +675,13 @@ test.describe('Harness Monitor', () => {
   /**
    * The costs seed and three merged pull requests: 9001 and 9002 are the ones the seed priced, at $6.00 and $3.00; 9003 has no cost.
    * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. 9001's round also ran E2E as four shards, 40 minutes of running in the 5 the round held.
-   * None carries its local kinds. 9001 also carries the timeline its page draws: its coding starts half an hour before its round's push, with five seconds of test run ten minutes in, and the round's two jobs, the second a re-run.
+   * None carries its local kinds. 9001 and 9002 also carry the timeline an opened row draws under its outline. 9001: its coding starts half an hour before its round's push, with five seconds of test run ten minutes in, and the round's two jobs, the second a re-run. 9002: its two rounds pushed a quarter of an hour apart, a Test job in each; 9003 has none.
+   * Their times are hours before `now`, which is the moment the walk runs unless it is given another.
    * Returns the pull requests it stored, for a walk that reads what it seeded.
    */
-  async function seedCycleTime(api: APIRequestContext) {
+  async function seedCycleTime(api: APIRequestContext, now = Date.now()) { // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
-    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
     const check = (name: string, minutes: number, over: Record<string, unknown> = {}) => ({
       name,
       attempt: 1,
@@ -697,7 +698,7 @@ test.describe('Harness Monitor', () => {
       ...over,
     });
     const pushed = Date.parse(hoursAgo(30));
-    const round = (checks: unknown[], red: boolean) => ({ sha: 'b'.repeat(40), pushedAt: new Date(pushed).toISOString(), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks });
+    const round = (checks: unknown[], red: boolean, over: Record<string, unknown> = {}) => ({ sha: 'b'.repeat(40), pushedAt: new Date(pushed).toISOString(), endedAt: hoursAgo(29), ms: 300_000, red, commits: 1, queueNotRecorded: false, checks, ...over });
     const pull = (number: number, title: string, hours: number, rounds: unknown[], extra: Record<string, unknown> = {}) => ({
       number,
       title,
@@ -743,7 +744,10 @@ test.describe('Harness Monitor', () => {
     };
     const pulls = [
       pull(9001, 'Add a filter panel', 20, [round([check('E2E (F3)', 5, { runningMs: 40 * 60_000 }), check('Test', 5)], false)], { start: { at: new Date(pushed - 30 * 60_000).toISOString(), from: 'session-record' }, timeline }),
-      pull(9002, 'Save a Teams message', 5, [round([check('Test', 5, { failure: 'red', failedSteps: ['Run the tests'] })], true), round([check('Test', 5)], false)]),
+      pull(9002, 'Save a Teams message', 5, [round([check('Test', 5, { failure: 'red', failedSteps: ['Run the tests'] })], true, { endedAt: new Date(pushed + 300_000).toISOString() }), round([check('Test', 5)], false, { pushedAt: new Date(pushed + 900_000).toISOString(), endedAt: new Date(pushed + 1_200_000).toISOString() })], {
+        start: { at: new Date(pushed - 20 * 60_000).toISOString(), from: 'session-record' },
+        timeline: { lanes: [[lane('Lint', 0, 290), lane('Test', 20, 100, { outcome: 'fail' })], [lane('Test', 10, 280)]], reviewSlices: [], runSlices: [] },
+      }),
       pull(9003, 'Tidy the inbox', 70, [round([check('Test', 5)], false)]),
     ];
     expect((await api.post(`${monitor}/__e2e/seed-cycle-time`, { data: { pulls } })).ok()).toBe(true);
@@ -856,7 +860,10 @@ test.describe('Harness Monitor', () => {
     const stripOf = (number: number) => row(number).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
     const opening = (number: number) => row(number).getByRole('button', { name: new RegExp(`^(Open|Close) #${number} `) });
     const requests: string[] = [];
-    page.on('request', (r) => requests.push(r.url()));
+    // The timeline an opened row loads under its outline is the next walk's; the outline itself asks for nothing.
+    page.on('request', (r) => {
+      if (!r.url().includes('/cycle-time/timeline')) requests.push(r.url());
+    });
 
     // The chevron: a closed row's strip is not in the page, then it is that row's own outline, beneath it, with the row tinted.
     await expect(opening(9001)).toHaveAttribute('aria-expanded', 'false');
@@ -1087,50 +1094,157 @@ test.describe('Harness Monitor', () => {
     expect(requests).toEqual(['?pr=9001&job=e2e', '?pr=9001&job=test', '?pr=9003&job=test']);
   });
 
-  test("a pull request's page draws its timeline as a strip that zooms on a click to a Belgian clock-time axis, reads a clicked CI job under it, and closes on a click of the axis, with no request and fitting a phone", async ({ page, request: api }) => {
+  test("an opened Pull request row draws its outline at once and its timeline under it, which zooms on a click to a Belgian clock-time axis, reads a clicked CI job under it, and closes on a click of the axis, two rows at once each on its own, fitting a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
-    const [seeded] = (await seedCycleTime(api)) as { rounds: { pushedAt: string }[] }[];
+    // Pinned to the last 23:30 in Brussels, so 9001 is pushed at 17:30 and merged at 03:30 of the next day whatever time the walk runs: the dated labels on its axis, and a break ending it, are always there.
+    const brussels = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Brussels', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(Date.now()); // clock-ok: the pin is a time before the Worker's own clock, which the seeded pull requests must stay inside
+    const minuteOfDay = Number(brussels.find((p) => p.type === 'hour')!.value) * 60 + Number(brussels.find((p) => p.type === 'minute')!.value);
+    const lateEvening = Math.floor(Date.now() / 60_000) * 60_000 - ((minuteOfDay - (23 * 60 + 30) + 24 * 60) % (24 * 60)) * 60_000; // clock-ok: as above
+    const [seeded] = (await seedCycleTime(api, lateEvening)) as { rounds: { pushedAt: string }[] }[];
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
     const belgianClock = (ms: number) => new Intl.DateTimeFormat('en-BE', { timeZone: 'Europe/Brussels', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
     // Its coding starts 30 minutes before the round was pushed, which is where the axis starts.
     const starts = belgianClock(Date.parse(seeded!.rounds[0]!.pushedAt) - 30 * 60_000);
     const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    // Every label of an axis sits inside it and clear of the others.
+    const labelsHaveRoom = (axis: Locator) =>
+      axis.evaluate((el) => {
+        const edge = el.getBoundingClientRect();
+        const boxes = [...el.querySelectorAll('.tl-clocktick')].map((tick) => tick.getBoundingClientRect()).sort((a, b) => a.left - b.left);
+        return boxes.every((box, at) => box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5 && (at === 0 || boxes[at - 1]!.right <= box.left));
+      });
 
-    await page.goto(`${monitor}/pr/9001`);
+    await page.goto(`${monitor}/cycle-time?group=pr`);
     await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By pull request' });
+    const row = (number: number) => table.locator('tr[data-figures]', { hasText: `#${number}` });
+    const strip = (number: number) => row(number).locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
     const requests: string[] = [];
-    page.on('request', (r) => requests.push(r.url()));
-    const zoomed = page.locator('.tl-zoomed');
-    const box = page.locator('.tl-detailbox');
+    page.on('request', (r) => {
+      if (r.url().includes('/cycle-time/timeline')) requests.push(new URL(r.url()).search);
+    });
+    // The page's own load asked for no timeline.
+    expect(requests).toEqual([]);
+
+    // Opening the row draws its outline from the row's own figures and asks for its timeline: one request, for that one pull request.
+    await row(9001).getByRole('button', { name: /^Open #9001 / }).click();
+    const one = strip(9001);
+    await expect(one.locator('.o-row .nm').first()).toHaveText('Writing');
+    await expect(one.locator('.tl-box .tl-strip')).toBeVisible();
+    expect(requests).toEqual(['?pr=9001']);
+    // The outline is first and the timeline right under it, with one line of colour key beneath the strip.
+    const [outline, timeline] = await Promise.all([one.locator('.outline').boundingBox(), one.locator('.tl-box').boundingBox()]);
+    expect(timeline!.y).toBeGreaterThanOrEqual(outline!.y + outline!.height);
+    await expect(one.locator('.tl-keyline')).toHaveCount(1);
+    await expect(one.locator('.tl-sectionnote')).toHaveCount(0);
 
     // Closed: the strip on its scale, with its summary under it and no axis; the strip fits the width, and the test run too short to see is 3px wide.
-    await expect(page.getByRole('heading', { name: 'Timeline', exact: true })).toBeVisible();
+    const zoomed = one.locator('.tl-zoomed');
+    const detailBox = one.locator('.tl-detailbox');
     await expect(zoomed).toBeHidden();
-    await expect(page.locator('.tl-strip > .tl-clipnote.whenclosed').first()).toHaveText('1 CI Round · 1h 00m to merge');
+    await expect(one.locator('.tl-strip > .tl-clipnote.whenclosed').first()).toHaveText('1 CI Round · 1h 00m to merge');
     expect(await noSideways()).toBe(true);
-    expect((await page.locator('.tl-striphit.whenclosed .tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);
+    expect((await one.locator('.tl-striphit.whenclosed .tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);
 
-    // A click on the strip zooms it, with the axis in Belgian clock time from where the pull request started.
-    await page.locator('.tl-striphit.whenclosed').click();
+    // A click on the strip zooms it, with the axis in Belgian clock time from where the pull request started, and leaves the row open.
+    await one.locator('.tl-striphit.whenclosed').click();
     await expect(zoomed).toBeVisible();
+    await expect(row(9001)).toHaveClass(/\bopen\b/);
     await expect(zoomed.locator('.tl-clocktick').first()).toHaveText(starts);
-    await expect(box).toContainText('1 CI Round · 1h 00m to merge · click a phase, a CI job or a local run on the strip to read it here.');
+    // The merge is on the next day, so its label carries the date, and it has room beside the break's.
+    await expect(zoomed.locator('.tl-clocktick').last()).toHaveText(/^\d+ \w+ \d\d:\d\d$/);
+    expect(await labelsHaveRoom(zoomed.locator('.tl-clockaxis'))).toBe(true);
+    await expect(detailBox).toContainText('1 CI Round · 1h 00m to merge · click a phase, a CI job or a local run on the strip to read it here.');
     expect(await noSideways()).toBe(true);
     expect((await zoomed.locator('.tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);
+    if (onAPhone) {
+      const [inner, panel] = await Promise.all([one.locator('.tl-box').boundingBox(), table.locator('.well.table').boundingBox()]);
+      expect(inner!.x).toBeGreaterThanOrEqual(panel!.x);
+      expect(inner!.x + inner!.width).toBeLessThanOrEqual(panel!.x + panel!.width + 1);
+    }
 
     // A click on a CI job (the re-run, which stands in the row above the line, clear of the round's name) reads its line and its round under the axis, and the strip stays zoomed.
     await zoomed.locator('.tl-lane.tl-job.rerun').click();
-    await expect(box.locator('.tl-detail:visible .tl-dhead')).toHaveText('E2E (F3)');
-    await expect(box).toContainText(/started \d\d:\d\d:\d\d, stopped \d\d:\d\d:\d\d · ran 4m 00s · waited 0s for a runner · passed · re-run \(attempt 2\)/);
-    await expect(box).toContainText('in CI Round 1 · pushed');
+    await expect(detailBox.locator('.tl-detail:visible .tl-dhead')).toHaveText('E2E (F3)');
+    await expect(detailBox).toContainText(/started \d\d:\d\d:\d\d, stopped \d\d:\d\d:\d\d · ran 4m 00s · waited 0s for a runner · passed · re-run \(attempt 2\)/);
+    await expect(detailBox).toContainText('in CI Round 1 · pushed');
     await expect(zoomed).toBeVisible();
 
-    // A click on the axis closes it.
-    await zoomed.locator('.tl-axishit').click();
-    await expect(zoomed).toBeHidden();
+    // A second row open at once draws its own strip: zooming it leaves the first as it was, and a pick on it reads in its own box.
+    await row(9002).getByRole('button', { name: /^Open #9002 / }).click();
+    const other = strip(9002);
+    await expect(other.locator('.tl-box .tl-strip')).toBeVisible();
+    expect(requests).toEqual(['?pr=9001', '?pr=9002']);
+    await expect(other.locator('.tl-zoomed')).toBeHidden();
+    await other.locator('.tl-striphit.whenclosed').click();
+    await expect(other.locator('.tl-zoomed')).toBeVisible();
+    await other.locator('.tl-zoomed .tl-lane.tl-job.failed').click();
+    await expect(other.locator('.tl-detailbox .tl-detail:visible .tl-dhead')).toHaveText('Test');
+    await expect(other.locator('.tl-detailbox')).toContainText('failed');
+    await expect(detailBox.locator('.tl-detail:visible .tl-dhead')).toHaveText('E2E (F3)');
     expect(await noSideways()).toBe(true);
 
-    // Nothing above asked for anything: the strip, its axis and every detail were in the page.
-    expect(requests).toEqual([]);
+    // A click on the first strip's axis closes its zoom, and only its own.
+    await zoomed.locator('.tl-axishit').click();
+    await expect(zoomed).toBeHidden();
+    await expect(other.locator('.tl-zoomed')).toBeVisible();
+    expect(await noSideways()).toBe(true);
+
+    // A pull request with no stored timeline says so under its outline, with no strip.
+    await row(9003).getByRole('button', { name: /^Open #9003 / }).click();
+    await expect(strip(9003).locator('.tl-box')).toHaveText('Timeline not recorded.');
+    await expect(strip(9003).locator('.tl-strip')).toHaveCount(0);
+
+    // Closing a row and opening it again asks for nothing more.
+    await row(9001).getByRole('button', { name: /^Close #9001 / }).click();
+    await row(9001).getByRole('button', { name: /^Open #9001 / }).click();
+    await expect(one.locator('.tl-box .tl-strip')).toBeVisible();
+    expect(requests).toEqual(['?pr=9001', '?pr=9002', '?pr=9003']);
+
+    // A row that is not one pull request opens its outline alone: a day, an issue and a size.
+    for (const [group, region] of [
+      ['day', 'By day merged'],
+      ['issue', 'By issue'],
+      ['size', 'By size'],
+    ] as const) {
+      await page.goto(`${monitor}/cycle-time?group=${group}`);
+      const rows = page.getByRole('region', { name: region });
+      for (const chevron of await rows.locator('.chev').all()) await chevron.click();
+      await expect(rows.locator('tr.detail .o-row').first()).toBeVisible();
+      await expect(rows.locator('.tl-box')).toHaveCount(0);
+    }
+    expect(requests).toEqual(['?pr=9001', '?pr=9002', '?pr=9003']);
+
+    // Its costs page has no timeline: it lists the pull request's cost and sessions alone.
+    await page.goto(`${monitor}/pr/9001`);
+    await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible();
+    await expect(page.locator('.tl-strip')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Timeline', exact: true })).toHaveCount(0);
+  });
+
+  test('an opened Pull request row whose timeline cannot be read says so under its outline and asks again when it is opened again', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    await seedCycleTime(api);
+
+    await page.goto(`${monitor}/cycle-time?group=pr`);
+    await page.waitForLoadState('load');
+    const table = page.getByRole('region', { name: 'By pull request' });
+    const row = table.locator('tr[data-figures]', { hasText: '#9001' });
+    const strip = row.locator('xpath=following-sibling::tr[1][contains(@class, "detail")]');
+
+    // The request fails: the outline, drawn from the row's own figures, is there and the timeline says it could not be read.
+    await page.route('**/cycle-time/timeline*', (route) => route.abort());
+    await row.getByRole('button', { name: /^Open #9001 / }).click();
+    await expect(strip.locator('.o-row .nm').first()).toHaveText('Writing');
+    await expect(strip.locator('.tl-box')).toContainText('Could not read the timeline. Close this row and open it again to try again.');
+    await expect(strip.locator('.tl-strip')).toHaveCount(0);
+
+    // Opened again once the Monitor answers, the same row reads it.
+    await page.unroute('**/cycle-time/timeline*');
+    await row.getByRole('button', { name: /^Close #9001 / }).click();
+    await row.getByRole('button', { name: /^Open #9001 / }).click();
+    await expect(strip.locator('.tl-box .tl-strip')).toBeVisible();
+    await expect(strip.locator('.tl-box')).not.toContainText('Could not read');
   });
 
   test("an (i) on Cycle time opens its explanation on pointing or a tap, keeps it on a click, and closes it on leaving, a second click, a click elsewhere or Escape, one at a time, with no request, inside the screen's width", async ({ page, request: api }) => {

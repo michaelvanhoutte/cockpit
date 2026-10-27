@@ -4,10 +4,12 @@ import {
   accountHoldingsSchema,
   attachmentAddress,
   checkedNowSchema,
+  finishedItemsSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
   type AccountHoldings,
   type CheckedNow,
+  type FinishedItems,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -149,6 +151,19 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
   });
   if (!res.ok) throw refusal('snapshot', res.status);
   return workspaceSnapshotSchema.parse(await res.json());
+}
+
+/**
+ * One Workspace's finished Items, read when *All items* first opens or an
+ * address names an Item the Workspace's read does not hold ("Fetch a
+ * Workspace's finished Items the first time All items opens", issue 1434).
+ */
+export async function fetchFinishedItems(workspaceId: string): Promise<FinishedItems> {
+  const res = await api.v1.workspaces[':workspaceId']['finished-items'].$get({
+    param: { workspaceId },
+  });
+  if (!res.ok) throw refusal('finished items', res.status);
+  return finishedItemsSchema.parse(await res.json());
 }
 
 /**

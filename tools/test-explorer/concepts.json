@@ -220,6 +220,8 @@
         "packages/shared/src/domain/dashboard-filter.ts",
         "packages/shared/src/domain/find-item.ts",
         "apps/web/src/allItemsTab.ts",
+        "apps/web/src/finishedItems.ts",
+        "apps/web/src/api/finishedItems.ts",
         "apps/web/src/components/AllItemsBoard.tsx",
         "apps/web/src/pages/AllItemsPage.tsx",
         "apps/web/src/components/PanelBoard.tsx",
@@ -650,7 +652,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 21,
+      "browserWalks": 22,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -689,6 +691,7 @@
         "apps/harness-monitor/src/cycle-time-report.ts",
         "apps/harness-monitor/src/cycle-time-page.ts",
         "apps/harness-monitor/src/cycle-time-explain.ts",
+        "apps/harness-monitor/src/cycle-time-timeline.ts",
         "apps/harness-monitor/src/explain.ts",
         "apps/harness-monitor/src/selection.ts",
         "apps/harness-monitor/src/selection-store.ts",

@@ -31,6 +31,7 @@ import {
   phoneCodeSentSchema,
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
+  finishedItemsSchema,
   recurringItemListSchema,
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
@@ -693,6 +694,27 @@ const snapshotRoute = createRoute({
 });
 
 /**
+ * One Workspace's finished Items ("Fetch a Workspace's finished Items the first
+ * time All items opens", issue 1434): its own route rather than a slice of the
+ * snapshot, which every navigation reads while only *All items* draws these.
+ */
+const finishedItemsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/finished-items',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: "The Workspace's finished, undismissed Items, with where each is filed and its files",
+      content: { 'application/json': { schema: finishedItemsSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * Every rewrite attempt for one workspace's items, most recent first - the
  * table opened from the Inbox's own menu ("See the history of what Cockpit
  * proposed for the Inbox's items", issue 444).
@@ -1331,6 +1353,11 @@ const routes = app
     // each time one is shown (issue 653).
     await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
     return c.json({ ...snapshot, sourceNames: sourceNames(c.env), generatedAt: new Date().toISOString() }, 200);
+  })
+  .openapi(finishedItemsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json(await account.finishedItems(workspaceId), 200);
   })
   .openapi(sourceAccountsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
