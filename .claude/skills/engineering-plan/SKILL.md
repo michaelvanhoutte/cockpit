@@ -183,7 +183,7 @@ Do not file if any of these holds:
 Through [github-issue](../github-issue/SKILL.md), which holds the template and commands:
 
 - **One unit:** add Blocked by, Model and Test cases to the same ticket and remove `unsliced`.
-- **Several units:** create each child with its own slice of the design, failure modes, Blocked by, Model and Test cases, blockers first; then turn the original into the parent with **Children** and **Coverage**, and remove `unsliced` from it.
+- **Several units:** create each child with its own slice of the design, failure modes, Blocked by, Model and Test cases, blockers first, each titled by github-issue's [Title](../github-issue/SKILL.md#title) rule, which has a child name its parent's feature; then turn the original into the parent with **Children** and **Coverage**, and remove `unsliced` from it.
 
 ## Output
 
