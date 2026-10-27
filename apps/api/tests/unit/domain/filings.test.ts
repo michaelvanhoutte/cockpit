@@ -102,6 +102,24 @@ describe('Panels', () => {
       expect(orderIsNotOfThePanel(held('falcon', ['a', 'b']), moving('b', null, []))).toBeNull();
     });
   });
+
+  describe('a move is checked against the panel’s open and recently finished items only', () => {
+    // `x` was finished more than a day ago, so no up-to-date screen holds it.
+    it.each([
+      { situation: 'an order leaving out an item finished more than a day ago', order: ['a', 'b', 'c'], refused: false },
+      { situation: 'an order still naming it, as an app from before sends', order: ['a', 'x', 'b', 'c'], refused: false },
+      { situation: 'an order leaving out an open item as well', order: ['a', 'b'], refused: true },
+      { situation: 'an order naming an item that is not on the panel beside it', order: ['a', 'b', 'c', 'y'], refused: true },
+    ])('$situation', ({ order, refused }) => {
+      const why = orderIsNotOfThePanel(held('falcon', ['a', 'x', 'c']), moving('b', 'falcon', order), new Set(['x']));
+
+      expect(why === null).toBe(!refused);
+    });
+
+    it('never lets the item arriving be left out, however long ago it was finished', () => {
+      expect(orderIsNotOfThePanel(held('falcon', ['a', 'b']), moving('b', 'falcon', ['a']), new Set(['b']))).not.toBeNull();
+    });
+  });
 });
 
 /**
@@ -286,6 +304,41 @@ describe('Panels', () => {
       );
 
       expect([outcome.takesItOffPanels, outcome.fromPanelIds, outcome.rows]).toEqual([true, undefined, []]);
+    });
+  });
+
+  describe('an item finished more than a day ago keeps its place on a panel an order leaves it out of', () => {
+    const LONG_AGO = '2026-06-01T10:00:00.000Z';
+    const finishedLongAgo = { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'x', position: 1, createdAt: LONG_AGO };
+
+    it.each([
+      {
+        situation: 'an order leaving it out writes it back where it was',
+        order: ['b', 'a'],
+        written: [['b', 0, AT], ['a', 1, AT], ['x', 1, LONG_AGO]],
+      },
+      {
+        situation: 'an order naming it puts it where the order says',
+        order: ['x', 'b', 'a'],
+        written: [['x', 0, AT], ['b', 1, AT], ['a', 2, AT]],
+      },
+    ])('$situation', ({ order, written }) => {
+      const outcome = decided(
+        decideMoveToPanel(
+          moving('b', 'falcon', order),
+          facts({ held: held('falcon', ['a', 'x']), heldOutOfTheRead: [finishedLongAgo] }),
+        ),
+      );
+
+      expect(outcome.rows.map((row) => [row.itemId, row.position, row.createdAt])).toEqual(written);
+    });
+
+    it('keeps nothing back for a move to the Inbox, which writes no panel’s order', () => {
+      const outcome = decided(
+        decideMoveToPanel(moving('b', null, []), facts({ panel: null, heldOutOfTheRead: [finishedLongAgo] })),
+      );
+
+      expect(outcome.rows).toEqual([]);
     });
   });
 });

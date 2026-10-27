@@ -131,10 +131,16 @@ export function renderDiagramPages(model) {
 
 /**
  * @param {ReturnType<import('../model.js').buildModel>} model
- * @param {{ explorerHref?: string, stabilityHref?: string, cycleTimeHref?: string, selectionHref?: string, comparison?: object }} [options] `comparison` is what compare.js answered; without one the section says there is nothing to compare
+ * @param {{ monitor?: string, comparison?: object }} [options] `monitor` is the Harness Monitor's address, which the harness reports' links point at, and without which the page links to none; `comparison` is what compare.js answered, and without one the section says there is nothing to compare
  * @returns {string} a complete HTML document
  */
-export function renderHtml(model, { explorerHref = '../', stabilityHref = '../stability/', cycleTimeHref = '../cycle-time/', selectionHref = '../selection/', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
+export function renderHtml(model, { monitor = '', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
+  const base = /^https:\/\//.test(monitor) ? monitor.replace(/\/+$/, '') : '';
+  const reportLinks = base
+    ? [['tests', 'Test coverage'], ['stability', 'CI stability'], ['cycle-time', 'Cycle time'], ['selection', 'Test selection']]
+        .map(([page, name]) => `<span><a href="${esc(`${base}/${page}`)}"><b>${name} &rarr;</b></a></span>`)
+        .join('\n      ')
+    : '';
   const styles = readFileSync(path.join(here, 'styles.css'), 'utf8');
   const { date } = model.drawnFrom;
   const commitCell = commitLine(model.drawnFrom);
@@ -167,10 +173,7 @@ export function renderHtml(model, { explorerHref = '../', stabilityHref = '../st
       <span>${plural(counts.areas, 'area')}</span>
       <span>${plural(environments.length, 'environment')}</span>
       <span>${plural(workflows.length, 'workflow')}</span>
-      <span><a href="${esc(explorerHref)}"><b>Test explorer &rarr;</b></a></span>
-      <span><a href="${esc(stabilityHref)}"><b>CI stability &rarr;</b></a></span>
-      <span><a href="${esc(cycleTimeHref)}"><b>Cycle time &rarr;</b></a></span>
-      <span><a href="${esc(selectionHref)}"><b>Selection &rarr;</b></a></span>
+      ${reportLinks}
     </div>
     <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>
   </header>

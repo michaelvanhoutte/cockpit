@@ -3,28 +3,24 @@
 Answers, without querying the API by hand: **how long does a change spend being written
 against waiting on the harness, how many rounds does it take, and which check holds each
 round up.** Reads the pull request and Actions APIs and each pull request's session record
-("Record what a session did, on the pull request it opens", issue 514), and draws them as one
-HTML page that opens from disk, or with `--json` writes the model. Keeps no state of its own —
-GitHub already stores this history, so every run re-derives it — and with `--send` hands each merged
-pull request to the Harness Monitor, which keeps them past what GitHub holds.
+("Record what a session did, on the pull request it opens", issue 514), and writes the model.
+Keeps no state of its own — GitHub already stores this history, so every run re-derives it — and
+with `--send` hands each merged pull request to the Harness Monitor, which keeps them past what
+GitHub holds and draws the pages. This tool draws none.
 
 ## Reading it without running it
 
-Built once a night by the `Cycle time` job of
-[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), which says why it is not
-per merge, and by hand from the Actions tab when a night was missed. It is uploaded as the
-`cycle-time-report` artifact, and that same run's own `Publish` job takes it live into
-**<https://michaelvanhoutte.github.io/cockpit/cycle-time/>**, beside the test explorer, the
-[CI stability page](../ci-stability/README.md), the [test-selection page](../selection/README.md) and the
-[architecture page](../architecture/README.md) —
-the same night, not waiting on the next merge. A missing artifact costs this page and never the site.
-The published site carries `model.json` beside the page.
+On the Harness Monitor, at `/cycle-time` and, for one pull request's timeline, `/pr/<number>`
+(`?format=json` answers the same view as JSON). The `Cycle time` job of
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) works the model out and sends it
+once a night, which says why it is not per merge, and by hand from the Actions tab when a night was missed.
+[deployment.md](../../docs/deployment.md), "The environments", says where the Monitor is and what became of
+the old addresses on GitHub Pages, `/cycle-time/` and `/lead-time/` and their `model.json`.
 
 ## Running it
 
 ```bash
-pnpm cycle-time            # from the repo root — writes tools/cycle-time/out/index.html
-pnpm --filter @cockpit/cycle-time model   # the model instead, at out/model.json
+pnpm cycle-time            # from the repo root — writes tools/cycle-time/out/model.json
 ```
 
 ```bash
@@ -33,7 +29,7 @@ node src/cli.js                       # over 7 and 14 days
 node src/cli.js --windows 1,7         # different windows
 node src/cli.js --max-pulls 40        # stop at 40 pull requests, and report the period it reached
 node src/cli.js --repo owner/name     # a different repository
-node src/cli.js --model out/model.json   # writes the page and, beside it, the model
+node src/cli.js --model somewhere/model.json   # writes the model there instead of out/model.json
 node src/cli.js --help
 ```
 
@@ -196,73 +192,21 @@ fixing between rounds, less local review; the harness is every round plus local 
 merge and time away are in neither. It is `null` for a pull request with no record (the local
 reviews would be missing from it) or with no round, and `noChecks` counts the second kind.
 
-## The page
+## The pages
 
-Every measurement on it is the model's; the renderer lays them out and sums the columns it shows. It opens with a box saying what
-the totals leave out, always and not only when something is unusual: the period actually covered
-(not the one asked for, where the fetch was capped), that time before the session's start is not
-measured, that only merged pull requests count, and how many carry a session record. Then the
-evolution panels, coding against the harness, and a strip per pull request.
+The Harness Monitor draws them from the rows `--send` stores, never from the model file: the windows, the
+evolution panels, coding against the harness, a strip per pull request, and each pull request's own
+timeline. See `apps/harness-monitor`, and "The Harness Monitor" in [the architecture](../../docs/architecture.md).
 
-- **Evolution is four panels, one point per pull request read** (not one per window), positioned
-  by when it actually merged: where the harness minutes go (tests and checks, then local code and
-  security review, test run, browser pass, stacked), start to merge,
-  rounds to merge, and the share of a pull request's rounds that were red. A dot's size is the
-  pull request's own lines changed, the same on every panel, so a trend is something to see
-  rather than two window snapshots to compare by eye.
-
-- **Coding against the harness is a scatter** (`src/render/scatter.js`): a dot per pull request
-  that carries a record, minutes coding and fixing across and minutes in the harness up, on one
-  scale for both axes up to two hours. A dot's size is its lines changed, 4 to 14px by the square root
-  over the window's largest, and its shade is its CI rounds in five steps, blue for one round to red for
-  five or more. A dashed line marks the harness taking as
-  long as the coding, a solid one the median ratio. It is drawn over the widest window only. A dot
-  past the scale is hollow on the edge and marked off the chart, the three furthest above the
-  dashed line are named where their labels fit (a label takes the first free place right, left or below
-  its dot, and is left off when none is), and a hover or focus names the pull request and its figures. Pull requests
-  without a record are counted beneath it, not drawn. No line means healthy: there is no accepted
-  benchmark, so the reference is the window's own median.
-
-- **A strip is drawn on one scale for every pull request** (`src/render/strips.js`), up to four
-  hours; a longer one is cut at the edge and says how much it cut. Time away is off the scale.
-  Every part sits at its own time and length on it, with no gap added: a slice too short to see is
-  drawn 3px wide over what follows it, which still starts at its own time.
-- **A round's jobs are lanes** at their own start and stop, shards beside Checks and Test, each job's lead dotted before it. Jobs that overlapped sit in rows (the busiest on the strip's line, then above, then below); one that began where another ended is in its row after it. Stacked rows are parted by a hairline in the page's background. A failed job is ringed and a re-run hatched; hover a lane, or pick it on the zoomed strip, for its start and stop to the second (Belgian time). A round with `lanes: null` is the block split by what held it, and its hover says its lanes are not recorded.
-- **A round is a CI Round**, named on the strip by the width it has on screen: "CI Round 1", then
-  "CI 1", then only its red or fluke mark (a round with neither shows no name). Its detail reads
-  "CI Round 1 · …", and the legend defines the term.
-- **Click a strip to zoom it**: the same pull request, uncut, on its own scale with a clock-time
-  axis (Belgian time). Click the axis, or an empty row above or below the line, to close it. A closed
-  strip has no axis, and under it only its summary line and the notes.
-- **On a zoomed strip, click an element to read it in the box under the axis**: a coding, fixing,
-  waiting or away stretch, a local review, test run or browser pass, a CI job or its lead, or a
-  round's name. Hover outlines the element under the pointer and nothing around it, and the
-  browser's tooltip stays. A pull request holds one pick, kept while its zoom is closed; until
-  something is picked the box holds the summary line. A round's detail is its line, including what
-  held it in order, with every job's line beneath it; a job's is its own line and the round it ran
-  in, without what held the round, which under one job would read as that job's story.
-- **All of it is CSS only**: the strip is the label of a checkbox, each element a radio laid over it
-  (so Tab and the arrow keys reach it), the names container queries. A detail several controls
-  pick, a round's background and both its names, is written once and shown by each of them.
-- **Overlapping local work keeps the longest piece on the strip's line**; the rest stack above it,
-  then below, then further out. Where none of them runs on the line, it shows the coding or fixing.
-- **Local and CI read apart.** Local kinds (coding, fixing, each local review, test runs, the browser pass) are in greens and
-  teals, CI kinds in blue, and the legend is grouped under *Local* and *CI*. Waiting to merge and
-  time away are in neither. A later local kind joins the first group.
-- **A pull request with no session record reads "not recorded"**, as a tag and a hatched first
-  part, so it never looks like coding that took no time.
-- **No script and nothing fetched**: styles are inline, and the only addresses are links a reader
-  follows, to pull requests and the commit. Light and dark follow the reader's setting.
-
-## How a page gets built
+## How a run goes
 
 ```
-collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
-  (src/github.js)   (src/model.js)      (src/render/)         (out/model.json with --json)
+collect(repo)  →  buildModel(...)  →  out/model.json
+  (src/github.js)   (src/model.js)     monitorRows(...)  →  the Harness Monitor, with --send
 ```
 
 `github.js` is the only file that does I/O and `model.js` the only one that computes;
-`render/` draws what it is handed and `cli.js` wires them. Sessions' record format is
+`cli.js` wires them. Sessions' record format is
 `scripts/lib/session-record.mjs`'s, imported rather than copied, so the two cannot drift.
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked out:
@@ -274,5 +218,5 @@ limit fails the run, since what comes after it would be missing for the same rea
 
 ## Tests
 
-The model, the page it renders and the argument parser are `tests/unit/`; the fetcher, driven through a stubbed
+The model, the rows it cuts for the Monitor and the argument parser are `tests/unit/`; the fetcher, driven through a stubbed
 `fetch`, is `tests/integration/`. Nothing reaches the network, so neither needs a token.

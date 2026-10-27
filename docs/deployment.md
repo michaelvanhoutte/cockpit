@@ -95,15 +95,35 @@ Workers AI binding — which has no local simulator, so a local run that declare
 one would need a Cloudflare account to start at all ("Flag a captured note that
 says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the five reports from `main` — the test
-explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
-`/stability/` (`tools/ci-stability/README.md`), the cycle-time page at
-`/cycle-time/` (`tools/cycle-time/README.md`), the test-selection page at
-`/selection/` (`tools/selection/README.md`) and the architecture page at
-`/architecture/` (`tools/architecture/README.md`). Every date and time on them is
-Belgian time in Belgian format, *22 Oct 2026, 15:05*, whoever reads them, written
-by one module (`scripts/lib/belgian-time.mjs`), except the architecture page's cron schedules, which
-stay UTC as Cloudflare runs them; the model files beside them stay ISO UTC.
+part of the app: it is where CI publishes the architecture page at `/architecture/`
+(`tools/architecture/README.md`), and a redirect at each address the harness reports
+had there. Those reports (cycle time, test selection, tests and CI stability) are
+pages of the Harness Monitor, drawn from the rows CI sends it ("The Harness Monitor"
+below). Every date on the architecture page is the Belgian day in Belgian
+format, *22 Oct 2026*, whoever reads it, written by one module
+(`scripts/lib/belgian-time.mjs`), except its cron schedules, which stay UTC as
+Cloudflare runs them; the model file beside it stays ISO UTC.
+
+**Publishing.** `publish.yml`, called from `ci.yml`'s `Publish` job on every merge and from
+`nightly.yml`'s own after the architecture page is drawn, deploys the newest
+architecture page and writes each redirect, built from the repository variable
+`HARNESS_MONITOR_URL` with the query and hash kept:
+
+| Old address | Redirects to |
+|---|---|
+| `/` | the Monitor's `/tests` |
+| `/cycle-time/` and `/lead-time/` | `/cycle-time` |
+| `/selection/` | `/selection` |
+| `/stability/` | `/stability` |
+
+A JSON file cannot redirect, so the old `model.json` addresses (`/cycle-time/`,
+`/lead-time/`, `/selection/` and `/stability/` each with `model.json`) answer 404.
+Whatever read one reads the Monitor's page at the same address with `?format=json`
+instead (`/cycle-time`, `/selection`, `/stability`). The shapes
+differ from the old models': `harness-cost-review` names the fields it reads. Only
+`/architecture/model.json` stays on Pages, where the next architecture run reads it
+for its *What changed* section. Without the variable no redirect is written and
+the run says so.
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The
@@ -559,7 +579,7 @@ wrangler secret put <NAME> --env staging
 | `ANTHROPIC_API_KEY` | what Cockpit reads a captured note with ("Clean up a captured note into a clear title and a fuller message", issue 296). Issued in the Anthropic Console; the application's own credential rather than anybody's, so it has no settings screen. **An environment without one works** — every capture succeeds and the Item keeps the title capture wrote — which is exactly why `/health` reports whether it is set: without that, a deployment nobody put a key in enriches nothing for months with every check green, the failure `CLAUDE_CODE_OAUTH_TOKEN` below already records. |
 | `USAGE_TOKEN_STAGING`, `USAGE_TOKEN_CI`, `USAGE_TOKEN_LOCAL` | **Production alone.** What each other environment sends the record of its Claude calls to production under ("Record staging's and local Claude calls in production, under a token per environment", issue 1458): staging's Worker, a contract run in CI and a laptop's `pnpm dev`. **Which token arrived is what says which environment the record is**, and each opens `/v1/usage-records` and nothing else, so a leaked one can only add records of its own environment until it is rotated, and rotating one revokes that environment alone. **Invent three, distinct from each other and from `BACKUP_TOKEN`** (`openssl rand -base64 32`); one left unset refuses that environment's records. Staging's and the local one are what those environments hold as `USAGE_RECORDING_TOKEN` below; CI's is the `USAGE_TOKEN_CI` secret in GitHub (CI's secrets, below). **A contract run by hand sends under the local token**, as a laptop's `pnpm dev` does, so its rows read as local with the branch. |
 | `USAGE_READ_TOKEN` | What the Harness Monitor reads Cockpit's Claude calls under ("Let the Harness Monitor read Cockpit's Claude calls, without users, under a token of its own", issue 1481): `GET /v1/usage-records?after=<row number>` answers a page of calls paid by Cockpit's Anthropic key, oldest first, with only the columns the Monitor's page shows. **It opens that route and nothing else**: `BACKUP_TOKEN` and the recording tokens are refused there, and unset, the route answers `503` to everyone. **Set it as a Worker secret on Cockpit's production and staging** (`wrangler secret put USAGE_READ_TOKEN`, and again with `--env staging`) **and on the Harness Monitor** under the same name, whose 12-hourly import reads the route with it ("Copy Cockpit's Claude calls into the Harness Monitor every 12 hours, and drop them after 12 months", issue 1482). The Monitor reads production's, so staging's value can differ. **Invent it, distinct from every token above** (`openssl rand -base64 32`). **Rotating it means updating both sides**: until the Monitor holds the new value its imports are refused, and the next run after catches up. A leaked one shows only what the public page shows. |
-| `USAGE_RECORDING_TOKEN` | **Staging, and a local `.dev.vars`; never production**, which writes its own records. The same string as production's `USAGE_TOKEN_STAGING` (staging, `wrangler secret put USAGE_RECORDING_TOKEN --env staging`) or `USAGE_TOKEN_LOCAL` (a laptop, in `apps/api/.dev.vars`; the owner hands it over). **Without it a Claude key counts as no key** outside production: a captured note stays as typed and `/health` reports `ai: false`, so nothing is spent that leaves no record, and a contract run is red before its first call. The contract run reads it from the environment or `apps/api/.dev.vars`, and sends to production's address unless `USAGE_RECORDING_URL` is set in the environment. |
+| `USAGE_RECORDING_TOKEN` | **Staging, and a local `.dev.vars`; never production**, which writes its own records. The same string as production's `USAGE_TOKEN_STAGING` (staging, `wrangler secret put USAGE_RECORDING_TOKEN --env staging`) or `USAGE_TOKEN_LOCAL` (a laptop, in `apps/api/.dev.vars`; the owner hands it over). **Without it a Claude key counts as no key** outside production: a captured note stays as typed and `/health` reports `ai: false`, so nothing is spent that leaves no record, and a contract run is red before its first call. The contract run reads it from the environment or `apps/api/.dev.vars`, and sends over HTTPS to production's address unless `USAGE_RECORDING_URL` is set in the environment. **Staging sends through its `PRODUCTION` binding**, not over that address. |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | the Entra application a Workspace connects its Teams account and its Outlook mailbox through ("Connect a Microsoft Teams source account", issue 485; "Connect Outlook from Settings, wherever the Microsoft client is set", issue 1048) — see "An Entra application" below for what to register. **The client id is a secret here only for want of a registration**: nothing has been registered yet, so a placeholder in `wrangler.jsonc` would be configuration nobody chose; it moves beside `GOOGLE_CLIENT_ID` the day one exists. An environment with neither refuses Connect and works in every other way. **Connecting Teams also needs `MS_BOT_APP_ID`**: the connector is only registered where it is set, and an unregistered source is not found by the connect route. |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` | the Google OAuth client a Workspace connects a Gmail account through ("Connect a Gmail account to a workspace, and disconnect it", issue 724) — see "A Google Cloud project for Gmail" below. **Its own client, never the sign-in one**, because it asks to change mail and is published unverified. An environment with neither does not offer Gmail at all and works in every other way. |
 | `MS_BOT_APP_ID` | the Azure Bot resource whose calls this Cockpit believes — the audience of every Bot Framework token a saved Teams message arrives with ("Save a Teams message to Cockpit", issue 486), and see "An Azure Bot" below. An environment without it has no `/ingress/teams/` address at all, which is a 404 rather than a route that refuses everything. |
@@ -604,7 +624,8 @@ secret that leaks from one cannot sign anybody in to the other.
 | Variable | `APP_ORIGIN` | same; must match a registered redirect URI exactly |
 | Variable | `GUEST_SIGN_IN` | same, production's block only — see below |
 | Variable | `ENVIRONMENT` | same: `production` in production's block and `staging` in staging's. **A Worker with none is local**, which is `pnpm dev`'s; it decides whether a Claude call is recorded in this database or sent to production |
-| Variable | `USAGE_RECORDING_URL` | same, staging's block only: production's address, where its records are sent. `pnpm dev` reads production's from `APP_ORIGIN` and hands it over, and `USAGE_RECORDING_URL` in the shell that starts it points a local Worker at another one |
+| Binding | `PRODUCTION` | same, staging's block only: a service binding to production's Worker (`cockpit`), which staging's records go through, since Cloudflare refuses a same-account fetch of production's `workers.dev` address ("Send staging's usage records to production through a service binding, since its workers.dev address refuses them", issue 1618). Renaming production's Worker renames it here |
+| Variable | `USAGE_RECORDING_URL` | same, staging's block only: production's address, which names the route of each record (staging sends it through `PRODUCTION`). `pnpm dev` reads production's from `APP_ORIGIN` and hands it over, and `USAGE_RECORDING_URL` in the shell that starts it points a local Worker at another one |
 | Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in Usage |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
 
@@ -1128,9 +1149,10 @@ Then, by hand (no API, or deliberately not automated):
      surfaces within a week of merging rather than before a pull request can
      merge.
 
-     The four CI jobs left out of the five are the reports and a sender: Test
-     Explorer and Stability deliberately do not gate; Tests snapshot, which sends
-     `main`'s tests to the Harness Monitor, and Publish *could not*
+     The four CI jobs left out of the five work out what the Harness Monitor draws,
+     send it, or publish the architecture page: Test Explorer and Stability
+     deliberately do not gate; Tests snapshot, which sends `main`'s tests to the
+     Monitor, and Publish *could not*
      gate anything if they were listed — their `if:` skips them on every pull
      request, and a skipped job reports as passing.
 
@@ -1253,17 +1275,13 @@ Then, by hand (no API, or deliberately not automated):
    It is a dashboard setting with no API to read it back from.
 
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. `publish.yml`
-   deploys the five reports there from `main` — the test explorer
-   (`tools/test-explorer/README.md`), the CI stability page
-   (`tools/ci-stability/README.md`), the cycle-time page
-   (`tools/cycle-time/README.md`), the test-selection page
-   (`tools/selection/README.md`) and the architecture page
-   (`tools/architecture/README.md`) — called from both `ci.yml`'s `Publish` job on
-   every merge and `nightly.yml`'s own `Publish` job, so a nightly run goes
-   live the same night rather than waiting on the next merge ("Publish
-   nightly's reports the same night, and make a manual run go live too", issue
-   563). Until this is set, both callers fail, which puts `main` red on every
-   commit. Not automated: `configure-pages`'s `enablement` input refuses
+   deploys the architecture page (`tools/architecture/README.md`) and the redirects
+   from the old report addresses there from `main` — called from both `ci.yml`'s
+   `Publish` job on every merge and `nightly.yml`'s own `Publish` job, so a nightly
+   run goes live the same night rather than waiting on the next merge
+   ("Publish nightly's reports the same night, and make a manual run go live
+   too", issue 563). Until this is set, both callers fail, which puts `main` red
+   on every commit. Not automated: `configure-pages`'s `enablement` input refuses
    `GITHUB_TOKEN` and wants a stored personal access token, which buys one
    settings click at the price of a long-lived credential.
 

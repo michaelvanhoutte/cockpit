@@ -18,7 +18,7 @@
  * edit, nothing filed.
  */
 
-import { adviceFor } from './render/advice.js';
+import { adviceFor } from './advice.js';
 
 export const ALARM_LABEL = 'selection-alarm';
 
@@ -102,13 +102,11 @@ function causeLines(model, bar) {
   ];
 }
 
-/** Where the page lives, from the repository's own name. */
-const pageUrl = (repo) => {
-  const [owner, name] = String(repo).split('/');
-  return `https://${owner}.github.io/${name}/selection/`;
-};
+/** Where the Harness Monitor draws the page, from its address; none where the repository has not set one. */
+const pageUrl = (monitor) => (monitor ? `${String(monitor).replace(/\/+$/, '')}/selection` : null);
 
-function bodyOf({ model, bar, first, closed }) {
+function bodyOf({ model, bar, first, closed, monitor }) {
+  const page = pageUrl(monitor);
   const night = day(Date.parse(model.generatedAt));
   const since = day(Date.parse(model.generatedAt) - bar.windowDays * DAY_MS);
   const covered = model.bars.partial ? ` (only ${Math.round(model.bars.actualDays * 10) / 10} of ${bar.windowDays} days covered)` : '';
@@ -119,7 +117,7 @@ function bodyOf({ model, bar, first, closed }) {
     ...causeLines(model, bar),
     `- **First crossed** ${first}.`,
     `- **Last updated** ${night} by the nightly Selection job; the figures above are that night's.`,
-    `- **Read it at** ${pageUrl(model.repo)}`,
+    ...(page ? [`- **Read it at** ${page}`] : []),
     ...(closed ? [`- **Follows** #${closed.number}, closed: this bar crossed again after it.`] : []),
     '',
     'Filed by the nightly Selection job. It is a pointer, not a brief: scope it before building.',
@@ -147,10 +145,13 @@ const namedAsDuplicate = (alarm, of) => alarm.comments.some((comment) => Number(
  * the comments of the open ones; `model` is the night's. What to do is
  * returned in the order it should be done.
  *
- * @param {{ model: object, alarms: Alarm[] }} input
+ * `monitor` is the Harness Monitor's address, which each issue links its Test
+ * selection page from; without one an issue links none.
+ *
+ * @param {{ model: object, alarms: Alarm[], monitor?: string }} input
  * @returns {Action[]}
  */
-export function decideAlarms({ model, alarms }) {
+export function decideAlarms({ model, alarms, monitor }) {
   const night = day(Date.parse(model.generatedAt));
   const actions = [];
 
@@ -163,11 +164,11 @@ export function decideAlarms({ model, alarms }) {
 
     if (bar.verdict === 'crossed') {
       if (open.length === 0) {
-        actions.push({ kind: 'create', bar: bar.id, title: titleOf(bar), body: bodyOf({ model, bar, first: night, closed: closed[0]?.alarm ?? null }) });
+        actions.push({ kind: 'create', bar: bar.id, title: titleOf(bar), body: bodyOf({ model, bar, first: night, closed: closed[0]?.alarm ?? null, monitor }) });
         continue;
       }
       const [current, ...older] = open;
-      actions.push({ kind: 'edit', bar: bar.id, number: current.alarm.number, title: titleOf(bar), body: bodyOf({ model, bar, first: current.marker.first }) });
+      actions.push({ kind: 'edit', bar: bar.id, number: current.alarm.number, title: titleOf(bar), body: bodyOf({ model, bar, first: current.marker.first, monitor }) });
       for (const { alarm } of older) {
         if (namedAsDuplicate(alarm, current.alarm.number)) continue;
         actions.push({

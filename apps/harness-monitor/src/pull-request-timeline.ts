@@ -1,6 +1,6 @@
 /**
- * A pull request's timeline, opened under its row on Cycle time: the strip the static page draws for each pull request
- * (tools/cycle-time/src/render/html.js), ported with the same markup, controls and wording, in the
+ * A pull request's timeline, opened under its row on Cycle time: the strip the static cycle-time page drew for each pull request,
+ * ported with the same markup, controls and wording, in the
  * Monitor's own palette and date module. The layout it draws is src/pull-request-strip.ts.
  *
  * Zooming the strip and reading an element are CSS only, so they make no request: the strip is the
@@ -9,7 +9,7 @@
  * the Monitor's other pages already use `track`, `key`, `legend` and `swatch` for other things.
  */
 
-import { belgianDay, formatClock, formatClockMinutes, formatDateTime, formatDayMonth } from './belgium';
+import { formatClock, formatDateTime } from './belgium';
 import { esc } from './look';
 import {
   AWAY_MS,
@@ -282,17 +282,12 @@ function track(pull: StripPull, fitted: Fitted, scaleMs: number, pick: Picker | 
   return `<span class="tl-track${above + below > 0 ? ' stacked' : ''}" style="${vars}">${fitted.parts.map((part) => segment(part, pull, scale, pick)).join('')}${cap}</span>`;
 }
 
-/** A clock time on the axis in Belgian time: the hour and minute, with the day too where it is not the strip's first. */
-function clockLabel(atMs: number, startedAt: number): string {
-  return belgianDay(atMs) === belgianDay(startedAt) ? formatClockMinutes(atMs) : `${formatDayMonth(atMs)} ${formatClockMinutes(atMs)}`;
-}
-
 /** The zoomed strip's axis, in the clock time of the pull request, from its start to its merge. Time away has none of its own. */
 function axis(pull: StripPull, zoomed: Fitted): string {
   const startedAt = Date.parse(pull.rounds[0]!.pushedAt) - pull.beforeFirstPushMs;
   const scale = Math.max(1, zoomed.shownMs);
   const ticks = axisFor(startedAt, zoomed)
-    .map((tick) => `<span class="tl-clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--tl-break) * ${tick.breaksBefore})">${clockLabel(tick.atMs, startedAt)}</span>`)
+    .map((tick) => `<span class="tl-clocktick ${tick.align}" style="left:calc(var(--span) * ${(tick.startMs / scale).toFixed(5)} + var(--tl-break) * ${tick.breaksBefore})">${tick.label}</span>`)
     .join('');
   // A span, as the label it sits in holds phrasing content only; the styles make it a block.
   return `<span class="tl-clockaxis" style="--span:${spanOf(zoomed)}" title="Clock time in Belgian time. Click to close">${ticks}</span>`;

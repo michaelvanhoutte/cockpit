@@ -4,29 +4,25 @@ Answers, without reading the artifacts of one hundred runs by hand: **is test
 selection working.** Reads what every Test job selected and why — the record
 ["Record what CI's Test job selected, and why, on every run"](../../scripts/lib/test-record.mjs)
 writes and uploads on each run — across merged pull requests, and draws one
-HTML page: whether a skipped test later failed on `main`, which paths keep
-forcing a full run, which tests are selected on nearly every pull request, and
-each pull request's own selection in full — for the E2E job's specs beside the Test job's test
+model, and sends it to the Harness Monitor, which draws the page: whether a skipped test later
+failed on `main`, which paths keep forcing a full run, which tests are selected on nearly every pull
+request, and each pull request's own selection in full — for the E2E job's specs beside the Test job's test
 files. Keeps no state — the record already
 lives in every run's own artifact; this only reads it across many.
 
 ## Reading it without running it
 
-The `Selection` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml)
-builds this page once a night, for the request-cost reason the
-[cycle-time page](../cycle-time/README.md) gives for its own nightly job; a dispatch of that
-workflow by hand covers a missed night. That same run's own `Publish` job takes the artifact
-live at **<https://michaelvanhoutte.github.io/cockpit/selection/>**, alongside the test explorer,
-the [CI stability page](../ci-stability/README.md), the cycle-time page and the
-[architecture page](../architecture/README.md) — the same night, not
-waiting on the next merge, and absent only from this one corner of the site when the job itself
-fails. The published site carries `model.json` beside the page.
+On the Harness Monitor, at `/selection` (`?format=json` answers the same view as JSON). The `Selection`
+job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) works the model out and sends
+it once a night, for the request-cost reason the [cycle-time tool](../cycle-time/README.md) gives for its own
+nightly job; a dispatch of that workflow by hand covers a missed night. Each alarm issue it files links the
+Monitor's `/selection` page. [deployment.md](../../docs/deployment.md), "The environments", says where the
+Monitor is and what became of the old `/selection/` address on GitHub Pages and its `model.json`.
 
 ## Running it
 
 ```bash
-pnpm selection            # from the repo root — writes tools/selection/out/index.html
-pnpm --filter @cockpit/selection model   # the model instead, at out/model.json
+pnpm selection            # from the repo root — writes tools/selection/out/model.json
 ```
 
 ```bash
@@ -35,7 +31,7 @@ node src/cli.js                       # over the last 14 days
 node src/cli.js --windows 1,7         # different windows for "Is selection working?"
 node src/cli.js --max-pulls 40        # stop at 40 merged pull requests
 node src/cli.js --repo owner/name     # a different repository
-node src/cli.js --model out/model.json   # writes the page and, beside it, the model
+node src/cli.js --model somewhere/model.json   # writes the model there instead of out/model.json
 node src/cli.js --help
 ```
 
@@ -47,7 +43,7 @@ requests will exhaust before it finishes.
 ## Where the rows go
 
 The same nightly `Selection` job also **sends each merged pull request to the Harness Monitor**
-(`--send`), which keeps them so a period can reach past the 14 days the page shows. What is sent, how
+(`--send`), which keeps them so a period can reach past the 14 days the model shows. What is sent, how
 it is stored and what the page at `<monitor>/selection` and its JSON (`?format=json&period=14d&job=both`) answer are in
 [the architecture](../../docs/architecture.md), "The Harness Monitor". The bars' thresholds (`BAR_DEFS`
 in `src/model.js`) travel with the rows, so the Monitor's verdicts are judged against the numbers this
@@ -60,9 +56,9 @@ are set, and off `main`, the job records a notice and sends nothing
 (["The Harness Monitor"](../../docs/deployment.md)).
 
 ```bash
-HARNESS_MONITOR_URL=… HARNESS_WRITE_KEY=… node src/cli.js --send                       # the night's send, and the page
+HARNESS_MONITOR_URL=… HARNESS_WRITE_KEY=… node src/cli.js --send                       # the night's send, and the model
 HARNESS_MONITOR_URL=… HARNESS_WRITE_KEY=… node src/cli.js --send --from 2026-07-25 --to 2026-07-28
-                                                                                         # the backfill: that window only, no page
+                                                                                         # the backfill: that window only, no model
 ```
 
 **Backfill** the 90 days GitHub still holds with the *Selection backfill* workflow
@@ -112,10 +108,11 @@ what it would have done.
   on the 14-day window: `crossed`, `within`, or `unread` where the window holds fewer than 20 merged pull
   requests or cannot give the figure. The bars: a job forced to run everything on 25% or more of the pull
   requests that ran it (Test and E2E apart), and any miss. The 7-day column shows its figures uncoloured. Each bar has
-  an `alarmIssue`: the number of its open alarm issue, read before the page is built, so an alarm filed
-  tonight is linked from tomorrow's page.
-- **The alarm** is the nightly job's last step (`src/alarm-cli.js`, after the upload, so a refused write
-  makes the job red and costs the page nothing). `src/alarm.js` decides, over the model and the repository's
+  an `alarmIssue`: the number of its open alarm issue, read before the model is built, so an alarm filed
+  tonight is linked from tomorrow's page on the Monitor.
+- **The alarm** is the nightly job's last step (`src/alarm-cli.js`, after the send, so a refused write
+  makes the job red and costs the send nothing). It decides from the night's own model, never from the
+  Monitor, and each issue links the Monitor's `/selection` page, from `HARNESS_MONITOR_URL`. `src/alarm.js` decides, over the model and the repository's
   `selection-alarm` issues, and `src/issues.js` makes the calls. Each alarm carries its bar's marker in its
   body.
 
@@ -132,29 +129,29 @@ what it would have done.
   --dry-run` prints what a night would do and changes nothing.
 - **`forcedFullRules`** is a row per rule above its paths, over the same window, counting a pull request once
   per rule and reading each rule's total against the forced-full bar, counting only the pull requests it left
-  running everything (a rule that forced one package of several shows its count but reads `within`). The page's
-  advice for each rule lives in `src/render/advice.js`; a rule it lacks gets a neutral line.
+  running everything (a rule that forced one package of several shows its count but reads `within`). The
+  advice each alarm gives for a rule lives in `src/advice.js`; a rule it lacks gets a neutral line.
 - **"Is selection working?" is per window (7 and 14 days by default) and says
   "none" rather than inventing a number**: a window with no pull requests, or
   where selection never ran at all, reads "none" for the figures that would
   otherwise be a zero nobody earned.
 
-## How a page gets built
+## How a run goes
 
 ```
-collect(repo)  →  buildModel(...)  →  renderHtml(model)  →  out/index.html
-  (src/github.js)   (src/model.js)      (src/render/)         (out/model.json with --json)
+collect(repo)  →  buildModel(...)  →  out/model.json
+  (src/github.js)   (src/model.js)     monitorRows(...)  →  the Harness Monitor, with --send
 ```
 
 `github.js` is the only file that does I/O against GitHub and `model.js` the only one that
 computes (`monitorRows` and `monitorBars` cut the rows the Monitor stores, `src/monitor.js` only
-asks and posts); `render/` draws what it is handed. `src/zip.js` is just enough of
+asks and posts). `src/zip.js` is just enough of
 the zip format to read the one file (`record.json`) out of the archive
 GitHub's artifact download endpoint hands back — nothing else in this
 repository reads a zip, so nothing bigger earns its dependency for it.
 
 **Any failure to read one pull request's data fails the whole run**, unlike
-the other three reports here: this one exists to find gaps in selection, so a
+the other tools here: this one exists to find gaps in selection, so a
 pull request quietly dropped from it would be a gap the report itself
 introduced. Only a genuinely absent record — expired, or a documentation-only
 pull request whose Test job never started — is not a failure.

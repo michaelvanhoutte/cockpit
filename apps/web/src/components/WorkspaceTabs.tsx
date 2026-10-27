@@ -191,12 +191,13 @@ export function WorkspaceTabs({
   /**
    * What is in the workspace being deleted, so the question can say what goes
    * with it. The snapshot is the app's own answer to "what is in this
-   * workspace" - the open items, which are exactly the ones that stop being
-   * visible - so this asks that rather than adding a count to the workspace
-   * list every page load would then pay for.
+   * workspace" - the Items it carries, and how many finished ones it leaves out
+   * ("Open a Workspace without its finished Items", issue 1435), every one of
+   * which stops being visible - so this asks that rather than adding a count to
+   * the workspace list every page load would then pay for.
    */
   const contents = useQuery({ ...snapshotQuery(deleting ?? ''), enabled: deleting !== null });
-  const counted = contents.data?.items.length;
+  const counted = contents.data && contents.data.items.length + (contents.data.finishedItemsLeftOut ?? 0);
   /**
    * The workspace each thing is about, read from the list rather than kept
    * beside the id: one deleted in another tab is gone from the next list, and a

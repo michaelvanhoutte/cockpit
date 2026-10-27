@@ -26,8 +26,20 @@ import { seriesSchema } from '../domain/series.js';
  */
 export const workspaceSnapshotSchema = z.object({
   workspace: workspaceSchema,
-  /** Open items only: tombstoned and dismissed items are excluded server-side. */
+  /**
+   * Open Items and Items finished in the last 24 hours ("Open a Workspace
+   * without its finished Items", issue 1435): the day keeps Undo of Done and an
+   * open form working. Dismissed Items and every other finished one are left out
+   * server-side, a finished one with its filings, files and associations; those
+   * come from `finishedItemsSchema`'s own read.
+   */
   items: z.array(itemSchema),
+  /**
+   * How many finished Items `items` leaves out, so deleting the Workspace still
+   * names every Item it hides. Optional: a copy saved by a release that did not
+   * send it carried every finished Item, and leaves none out.
+   */
+  finishedItemsLeftOut: z.number().int().nonnegative().optional(),
   /** The workspace's dashboards, oldest first ("Add and switch dashboards", issue 32; architecture.md §4.4). */
   dashboards: z.array(dashboardSchema),
   /** Every panel of every dashboard of this workspace ("Panels on a dashboard, with per-screen-size layouts", issue 33; architecture.md §4.4). */
@@ -117,7 +129,7 @@ export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
  * A Workspace's finished Items ("Fetch a Workspace's finished Items the first
  * time All items opens", issue 1434): a read of its own, made when *All items*
  * is first opened in a tab or an address names an Item the Workspace's read does
- * not hold, never part of the snapshot every navigation reads. The Items are the
+ * not hold, and the only one carrying an Item finished more than a day ago. The Items are the
  * Workspace's finished and not dismissed ones, with what *All items* draws a row
  * from: where each is filed (`filings`) and whether it holds a file
  * (`attachments`). Panels and Dashboards come with the snapshot.

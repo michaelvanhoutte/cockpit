@@ -20,6 +20,8 @@ import { askForRecurringItem, takeRecurringRequest } from '../../../src/recurrin
 const held = vi.hoisted(() => ({
   workspaces: [] as Workspace[],
   items: 0,
+  /** How many finished Items the Workspace's read says it left out; absent, as a copy saved before it was sent. */
+  leftOut: undefined as number | undefined,
   here: 'ws-work',
   /** The workspace whose All items page is on screen, or null. */
   onAllItemsOf: null as string | null,
@@ -74,6 +76,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => {
       queryFn: (): Promise<WorkspaceSnapshot> =>
         Promise.resolve({
           items: Array.from({ length: held.items }, (_, i) => ({ id: `item-${i}` })),
+          finishedItemsLeftOut: held.leftOut,
           dashboards: [{ id: `${workspaceId}-first` }, { id: `${workspaceId}-second` }],
         } as WorkspaceSnapshot),
     }),
@@ -108,12 +111,14 @@ function showTabs(
   answer: {
     here?: string;
     items?: number;
+    leftOut?: number;
     onAllItemsOf?: string;
     sendFails?: Error;
   } = {},
 ) {
   held.workspaces = names.map((name) => aWorkspace(name));
   held.items = answer.items ?? 0;
+  held.leftOut = answer.leftOut;
   held.here = answer.here ?? held.workspaces[0]!.id;
   held.onAllItemsOf = answer.onAllItemsOf ?? null;
   wentTo.calls = [];
@@ -482,8 +487,20 @@ describe('Workspace management', () => {
       { situation: 'a workspace holding nothing', items: 0, asks: 'Delete Personal? There is nothing in it.' },
       { situation: 'a workspace holding one item', items: 1, asks: 'Delete Personal and hide its 1 item?' },
       { situation: 'a workspace holding several', items: 4, asks: 'Delete Personal and hide its 4 items?' },
+      {
+        situation: 'a workspace holding 3 open items and 2 finished ones it opens without',
+        items: 3,
+        leftOut: 2,
+        asks: 'Delete Personal and hide its 5 items?',
+      },
+      {
+        situation: 'a workspace holding only finished items it opens without',
+        items: 0,
+        leftOut: 2,
+        asks: 'Delete Personal and hide its 2 items?',
+      },
     ])('says what goes with it, for $situation', async (row) => {
-      const { user } = showTabs(['Work', 'Personal'], { items: row.items });
+      const { user } = showTabs(['Work', 'Personal'], { items: row.items, ...('leftOut' in row && { leftOut: row.leftOut }) });
       await menuOf('Personal');
 
       await user.click(screen.getByRole('menuitem', { name: 'Delete' }));

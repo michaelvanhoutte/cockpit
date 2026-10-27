@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/analyze/index.js';
 import { conceptsCheck } from '../../src/cli.js';
 import { walkTree } from '../../src/model.js';
-import { renderHtml } from '../../src/render/html.js';
 
 /**
  * Builds a minimal synthetic repo under a temp directory and runs the real
@@ -244,15 +243,6 @@ describe('Harness Monitor', () => {
       expect(model.warnings.some((w) => w.includes('only sees direct imports'))).toBe(false);
       // Neither fixture source file matches a real concept's sourcePatterns, so both fall into Infrastructure.
       expect(findNode(model.tree, 'infrastructure').statements).toEqual([{ file: 'packages/demo/src/thing.ts', total: 2, covered: 1, uncovered: ['2'] }]);
-    });
-
-    it('the static report has no files column or tab', () => {
-      repo = writeFixtureRepo();
-      withCoverage();
-      const html = renderHtml(analyze(repo), { repoRelPrefix: '..' });
-
-      expect(html).not.toMatch(/files nothing runs/i);
-      expect(html).not.toContain("'Files ('");
     });
   });
 

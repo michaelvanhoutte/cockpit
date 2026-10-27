@@ -1,4 +1,4 @@
-import { stillOpen, type Filing, type Item, type Panel } from '@cockpit/shared';
+import { byPlaceOnPanel, stillOpen, type Filing, type Item, type Panel } from '@cockpit/shared';
 
 /**
  * What a panel holds and what the Inbox holds, derived from the one snapshot
@@ -21,10 +21,12 @@ import { stillOpen, type Filing, type Item, type Panel } from '@cockpit/shared';
  *
  * That is the whole reason it is separate from `itemsOnPanel`. A move carries
  * the panel's whole order and the server checks it against every filing the
- * panel has, and a filing outlives the item being finished or dismissed - so an
- * order built from what is *drawn* would leave those out and be refused. Filing
- * anything onto a panel that had ever held a completed item would fail, for
- * good, with nothing on screen to explain it.
+ * Workspace's read carries, and a filing outlives the item being finished or
+ * dismissed - so an order built from what is *drawn* would leave those out and
+ * be refused. Filing anything onto a panel holding an item finished today would
+ * fail, for good, with nothing on screen to explain it. One finished more than
+ * a day ago is in neither the read nor the check ("Open a Workspace without its
+ * finished Items", issue 1435).
  *
  * Ids rather than items, because a filing whose item has left the snapshot
  * entirely - dismissed in another tab - still has to be named.
@@ -33,7 +35,7 @@ export function filedOrderOnPanel(filings: readonly Filing[], panelId: string): 
   return filings
     .filter((filing) => filing.panelId === panelId)
     .slice()
-    .sort((a, b) => a.position - b.position)
+    .sort(byPlaceOnPanel)
     .map((filing) => filing.itemId);
 }
 

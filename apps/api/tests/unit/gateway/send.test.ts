@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttemptRecord } from '../../../src/gateway/attempts.js';
-import { SEND_TIMEOUT_MS, sendingTo, type Around } from '../../../src/gateway/send.js';
+import type { Env } from '../../../src/env.js';
+import { SEND_TIMEOUT_MS, recorderFor, sendingTo, type Around } from '../../../src/gateway/send.js';
 
 /**
  * Unit level: how long a record's send is awaited and that it is made once are
@@ -142,6 +143,65 @@ describe('AI usage', () => {
       await sendingTo(DESTINATION, doing)(RECORD);
 
       expect(JSON.parse(String(sent[0]!.init.body))).toMatchObject({ pullRequest: 1459, runId: 18273645501 });
+    });
+  });
+
+  describe('staging sends its records to production through its binding, and everywhere else over HTTPS', () => {
+    const ADDRESS = 'https://production.test';
+
+    /** Spies for the two ways out: the platform's global `fetch`, and a binding to production's Worker. */
+    function ways() {
+      const globalFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 201 }));
+      const binding = { fetch: vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 201 })) };
+      return { globalFetch, binding };
+    }
+
+    it('posts through the binding to the records route under staging’s token, and never calls global fetch', async () => {
+      const { globalFetch, binding } = ways();
+      const env = {
+        ENVIRONMENT: 'staging',
+        USAGE_RECORDING_TOKEN: TOKEN,
+        USAGE_RECORDING_URL: ADDRESS,
+        PRODUCTION: binding,
+      } as unknown as Env;
+
+      await recorderFor(env)(RECORD);
+
+      expect(globalFetch).not.toHaveBeenCalled();
+      expect(binding.fetch).toHaveBeenCalledTimes(1);
+      const [url, init] = binding.fetch.mock.calls[0]!;
+      expect(new URL(url).pathname).toBe('/v1/usage-records');
+      expect(init.method).toBe('POST');
+      expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${TOKEN}`);
+      expect(JSON.parse(String(init.body))).toMatchObject({ operation: 'clean-up-a-note', accountName: 'tenant-michael' });
+    });
+
+    it('posts with global fetch to the configured address where there is no binding', async () => {
+      const { globalFetch } = ways();
+      const env = { USAGE_RECORDING_TOKEN: TOKEN, USAGE_RECORDING_URL: ADDRESS } as unknown as Env;
+
+      await recorderFor(env)(RECORD);
+
+      expect(globalFetch).toHaveBeenCalledTimes(1);
+      expect(globalFetch.mock.calls[0]![0]).toBe(`${ADDRESS}/v1/usage-records`);
+    });
+
+    it('writes its own records in production, and calls neither way out', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { globalFetch, binding } = ways();
+      // Holding a token, an address and a binding, so only being production keeps it from sending; it has
+      // no database, so reaching its own writer is what rejects.
+      const env = {
+        ENVIRONMENT: 'production',
+        USAGE_RECORDING_TOKEN: TOKEN,
+        USAGE_RECORDING_URL: ADDRESS,
+        PRODUCTION: binding,
+      } as unknown as Env;
+
+      await expect(recorderFor(env)(RECORD)).rejects.toThrow();
+
+      expect(globalFetch).not.toHaveBeenCalled();
+      expect(binding.fetch).not.toHaveBeenCalled();
     });
   });
 });

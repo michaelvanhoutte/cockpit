@@ -13,22 +13,24 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const nightly = readFileSync(path.join(repo, '.github/workflows/nightly.yml'), 'utf8');
 
 describe('the nightly selection job, as nightly.yml assembles it', () => {
-  it('writes the report with both --out and --model', () => {
-    expect(nightly).toContain('--out tools/selection/out/index.html --model tools/selection/out/model.json');
-    expect(nightly).toContain('path: tools/selection/out/');
+  it('writes the model for the alarm and draws and uploads no page', () => {
+    expect(nightly).toContain('node tools/selection/src/cli.js --model tools/selection/out/model.json');
+    expect(nightly).not.toContain('tools/selection/out/index.html');
+    expect(nightly).not.toContain('test-selection-report');
   });
 
   describe('the alarm step', () => {
     /** One job's block of the workflow: from its key to the next job's. */
     const job = (key) => nightly.split(/\n  (?=[a-z-]+:\n    name: )/).find((block) => block.startsWith(`${key}:`)) ?? '';
 
-    it('runs after the report is uploaded, with the workflow’s own token', () => {
+    it('runs after the model is written and sent, with the workflow’s own token, and links the Monitor', () => {
       const selection = job('selection');
-      const upload = selection.indexOf('actions/upload-artifact@v4');
+      const report = selection.indexOf('node tools/selection/src/cli.js');
       const alarm = selection.indexOf('node tools/selection/src/alarm-cli.js --model tools/selection/out/model.json');
-      expect(upload).toBeGreaterThan(-1);
-      expect(alarm).toBeGreaterThan(upload);
+      expect(report).toBeGreaterThan(-1);
+      expect(alarm).toBeGreaterThan(report);
       expect(selection.slice(alarm)).toContain('GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
+      expect(selection.slice(alarm)).toContain('HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}');
     });
 
     it('is granted write on issues on the Selection job alone', () => {

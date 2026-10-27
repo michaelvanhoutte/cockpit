@@ -139,6 +139,7 @@ import {
   itemsToRead,
   judgeableItemsForAccount,
   givenDueDateOf,
+  countFinishedLeftOut,
   listAssociationsForWorkspace,
   listAttachmentsInWorkspace,
   listSeriesInWorkspace,
@@ -180,6 +181,7 @@ import {
   type TextCorrectionEntry,
   type WhatStood,
 } from '../domain/text-corrections.js';
+import { finishedKeptAfter } from '../domain/workspace-read.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 import { retireAgents, whyItFailed } from './retire-agents.js';
 
@@ -250,7 +252,14 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => listWorkspaces(db, accountName));
   }
 
-  /** The full read model for one workspace, or `missing` when there is no such workspace. */
+  /**
+   * The read model for one workspace, or `missing` when there is no such
+   * workspace: its open Items and those finished in the last day, with their
+   * rows, and how many finished ones it leaves out ("Open a Workspace without
+   * its finished Items", issue 1435). The series stay whole: a copy finished
+   * long ago still names its series when its form is opened from *All items*,
+   * and they number one per series, not one per finished Item.
+   */
   snapshot(accountName: string, workspaceId: string): Answer<AccountSnapshot> {
     return this.#answer(accountName, (db) => {
       // POC (own-event refetch): before every row this answer carries, the
@@ -260,16 +269,19 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       const upTo = watermark(db, accountName);
       const workspace = getWorkspace(db, accountName, workspaceId);
       if (!workspace) throw new WorkspaceNotFoundError(workspaceId);
+      const finishedAfter = finishedKeptAfter(new Date());
+      const ofTheRead = { finishedAfter };
       return {
         upTo,
         workspace,
-        items: listOpenItems(db, accountName, workspaceId),
+        items: listOpenItems(db, accountName, workspaceId, ofTheRead),
+        finishedItemsLeftOut: countFinishedLeftOut(db, accountName, workspaceId, finishedAfter),
         dashboards: listDashboards(db, accountName, workspaceId),
         panels: listPanelsInWorkspace(db, accountName, workspaceId),
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
-        filings: listFilingsInWorkspace(db, accountName, workspaceId),
-        associations: listAssociationsForWorkspace(db, accountName, workspaceId),
-        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        associations: listAssociationsForWorkspace(db, accountName, workspaceId, ofTheRead),
+        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, ofTheRead),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         followUpDays: getFollowUpDays(db, accountName),
@@ -293,8 +305,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       return {
         upTo,
         items: listFinishedItems(db, accountName, workspaceId),
-        filings: listFilingsInWorkspace(db, accountName, workspaceId, true),
-        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, true),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId, 'finished'),
+        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
   }

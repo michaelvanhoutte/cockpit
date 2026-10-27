@@ -1,22 +1,23 @@
 name: Nightly
 
-# The reports that are too dear to build on every merge, built once a night
-# ("Run the lead-time report nightly, and publish it beside the other two",
-# issue 515). The cycle-time report re-reads 14 days of history, which
+# The harness measurements that are too dear to take on every merge, taken once
+# a night ("Run the lead-time report nightly, and publish it beside the other
+# two", issue 515). The cycle-time job re-reads 14 days of history, which
 # takes most of the 1,000 requests an hour every workflow in this repository
 # shares (tools/cycle-time/src/github.js works it out):
-# run on each merge it would fail in a burst, and take the stability report
+# run on each merge it would fail in a burst, and take the stability job
 # down with it.
 #
-# **Each report is its own job**, so adding one is adding a job and one failing
-# costs no other. `publish.yml`, shared with `ci.yml`'s own call to it, takes
-# each report's newest artifact from a run on `main`, not the newest successful
-# run, for the same reason: a run where another job failed still has this
-# one's page. Calling it here too, rather than only from `ci.yml`, means a
-# scheduled run goes live the same night instead of waiting on the next
-# unrelated merge, and a manual run is "publish this now" while working on a
-# report ("Publish nightly's reports the same night, and make a manual run go
-# live too", issue 563).
+# **Each measurement is its own job**, so adding one is adding a job and one
+# failing costs no other. The cycle-time, selection and branch-attempt jobs
+# send their rows to the Harness Monitor, which draws their pages. The
+# architecture job draws the one page that stays on GitHub Pages;
+# `publish.yml`, shared with `ci.yml`'s own call to it, takes its newest
+# artifact from a run on `main`, not the newest successful run, so a run where
+# another job failed still has it. Calling it here too, rather than only from
+# `ci.yml`, means a scheduled run goes live the same night, and a manual run is
+# "publish this now" while working on the page ("Publish nightly's reports the
+# same night, and make a manual run go live too", issue 563).
 #
 # Not `contract.yml`, which spends money and holds its own secrets, and not
 # `ci.yml`, which would run the whole suite.
@@ -55,11 +56,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
-      # Also sends the merged pull requests to the Harness Monitor, from the
-      # newest merge it holds less two days, after the page is written. The
-      # write key is handed over on `main` only, never to a branch a manual run
-      # could pick. Until both the secret and the variable are set it says so
-      # and only writes the page (docs/deployment.md, "The Harness Monitor").
+      # Sends the merged pull requests to the Harness Monitor, from the newest
+      # merge it holds less two days, after the model is worked out. The write
+      # key is handed over on `main` only, never to a branch a manual run could
+      # pick. Until both the secret and the variable are set it says so and only
+      # works the model out (docs/deployment.md, "The Harness Monitor").
       - name: Work out where a change spends its time
         run: |
           send=--send
@@ -67,22 +68,16 @@ jobs:
             echo "::notice title=Cycle time not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the pull requests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
             send=
           fi
-          node tools/cycle-time/src/cli.js --out tools/cycle-time/out/index.html --model tools/cycle-time/out/model.json $send
+          node tools/cycle-time/src/cli.js $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
           HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
-      # A send the Monitor refused, or the pull budget cut short, fails the step
-      # above with the page already written, so the page is still uploaded.
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: cycle-time-report
-          path: tools/cycle-time/out/
 
   # Whether test selection is working: misses, what forces a full run, and
   # which tests are selected most often, read across pull requests ("Publish a
-  # test selection report", issue 540). Nightly for the same reason as
+  # test selection report", issue 540), and sent to the Harness Monitor, which
+  # draws the Test selection page. Nightly for the same reason as
   # cycle-time above: up to ten requests per pull request read, which a run on
   # every merge would burn through this workflow's shared hourly allowance.
   selection:
@@ -103,11 +98,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
-      # Also sends each pull request's selection to the Harness Monitor, from the
-      # newest merge it holds less two days, after the page is written. The write
-      # key is handed over on `main` only, never to a branch a manual run could
-      # pick. Until both the secret and the variable are set it says so and only
-      # writes the page (docs/deployment.md, "The Harness Monitor").
+      # Sends each pull request's selection to the Harness Monitor, from the
+      # newest merge it holds less two days, after the model is worked out. The
+      # write key is handed over on `main` only, never to a branch a manual run
+      # could pick. Until both the secret and the variable are set it says so and
+      # only works the model out (docs/deployment.md, "The Harness Monitor").
       - name: Work out whether test selection is working
         run: |
           send=--send
@@ -115,27 +110,20 @@ jobs:
             echo "::notice title=Selection not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the pull requests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
             send=
           fi
-          node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json $send
+          node tools/selection/src/cli.js --model tools/selection/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
           HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
-      # A send the Monitor refused, or the pull budget cut short, fails the step
-      # above with the page already written, so the page is still uploaded.
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: test-selection-report
-          path: tools/selection/out/
-      # After the upload, so a refused write turns this job red and costs the
-      # page nothing: Publish already tolerates a failed report job. Runs after a
-      # failed send too, whenever the model was written, since the alarms read
-      # that and not the Monitor.
+      # Runs after a failed send too, whenever the model was written, since the
+      # alarms decide from that fresh model and not from the Monitor, and link
+      # the Monitor's Test selection page.
       - name: File, update or comment on the alarm for each bar
         if: ${{ !cancelled() && hashFiles('tools/selection/out/model.json') != '' }}
         run: node tools/selection/src/alarm-cli.js --model tools/selection/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
 
   # Every attempt of every run on a branch other than `main`'s - a pull request's
   # run, or a push to another branch - sent to the Harness Monitor with its
@@ -147,7 +135,7 @@ jobs:
   # job's record: run on every merge it would spend the allowance every
   # workflow here shares.
   #
-  # Sends and writes no page, so there is no artifact to upload and `Publish`
+  # Sends only, so there is no artifact to upload and `Publish`
   # does not wait on it. The write key is handed over on `main` only, never to a
   # branch a manual run could pick; until both it and the variable are set the
   # job says so and sends nothing (docs/deployment.md, "The Harness Monitor").
@@ -207,20 +195,21 @@ jobs:
           node tools/architecture/src/cli.js
           --out tools/architecture/out/index.html
           --model tools/architecture/out/model.json
+          --monitor "${{ vars.HARNESS_MONITOR_URL }}"
           --previous "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/architecture/model.json"
       - uses: actions/upload-artifact@v4
         with:
           name: architecture-report
           path: tools/architecture/out/
 
-  # Puts tonight's reports live, alongside whatever the last merge to `main`
-  # published — `!cancelled()` so one report's failed build still lets the
-  # other's page out, the same tolerance `needs` already gives the jobs above.
-  # A manual dispatch reaches this job too, since it is not gated on the
-  # schedule that started the run, only on being on `main`.
+  # Puts tonight's architecture page live, with the redirects from the old
+  # report addresses — `!cancelled()` so a failed drawing still lets the
+  # redirects and the last page out. A manual dispatch reaches this job too,
+  # since it is not gated on the schedule that started the run, only on being
+  # on `main`.
   publish:
     name: Publish
-    needs: [cycle-time, selection, architecture]
+    needs: [architecture]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read
