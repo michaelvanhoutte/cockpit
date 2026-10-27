@@ -164,10 +164,17 @@ function keep(name: string, payload: Record<string, unknown>) {
   }
 }
 
+/**
+ * The start of the last day as the server reads it: the Workspace's read leaves
+ * out an Item finished before it, as the real one does ("Open a Workspace
+ * without its finished Items", issue 1435). Every change here is stamped later.
+ */
+const THE_LAST_DAY_FROM = '2026-10-19T10:00:00.000Z';
+
 function theWorkspace(presentation: 'centered' | 'docked' = 'centered'): WorkspaceSnapshot {
   return {
     workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
-    items: stored,
+    items: stored.filter((item) => item.completedAt === null || item.completedAt > THE_LAST_DAY_FROM),
     dashboards: [],
     panels: [],
     layouts: [],
@@ -420,6 +427,35 @@ describe('Item editing', () => {
       render(aScreen());
 
       await waitFor(() => expect(descriptionBox()).toHaveValue('Ask about the tolerances'));
+    });
+  });
+
+  describe('Undo and an open form outlast the read that follows Done', () => {
+    it('puts a row back at once when its Done is undone after the read behind the answer has landed', async () => {
+      const user = await show([anItem(BART, 'Reply to Bart')]);
+      await chooseStatus(user, 'Reply to Bart', 'Done');
+      await answerNext();
+      expect(vi.mocked(fetchSnapshot).mock.calls.length).toBeGreaterThan(1);
+      expect(screen.queryByText('Reply to Bart')).toBeNull();
+
+      await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+      expect(screen.getByText('Reply to Bart')).toBeVisible();
+      expect(waiting.map((request) => [request.name, request.payload.done])).toEqual([['set_done', false]]);
+    });
+
+    it('keeps a docked form on its Item when another device marks it Done', async () => {
+      await show([anItem(BART, 'Reply to Bart')], { form: 'docked', openItem: BART });
+      await waitFor(() => expect(titleBox()).toBeVisible());
+
+      // Another device finishes it, and the read its announcement asks for lands.
+      stored = stored.map((item) => ({ ...item, completedAt: '2026-10-20T10:20:00.000Z' }));
+      await act(async () => void (await client.invalidateQueries({ queryKey: ['snapshot', 'ws-work'] })));
+      await settle();
+
+      expect(vi.mocked(fetchSnapshot).mock.calls.length).toBeGreaterThan(1);
+      expect(titleBox()).toHaveValue('Reply to Bart');
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
     });
   });
 

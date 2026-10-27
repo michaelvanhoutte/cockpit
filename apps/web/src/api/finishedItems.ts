@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { withFinishedItems } from '../finishedItems';
+import { useIsOffline } from '../offline';
 import { fetchFinishedItems } from './client';
 import { changes } from './changes';
 import { snapshotQuery } from './queries';
@@ -44,6 +45,7 @@ export const finishedItemsQuery = (workspaceId: string) =>
 export function useSnapshotWithFinishedItems(workspaceId: string, { itemId }: { itemId?: string } = {}) {
   const workspace = useQuery(snapshotQuery(workspaceId));
   const drawn = useDrawnSelect();
+  const offline = useIsOffline();
   // An Item is lacking when neither the Workspace's read nor the Workspace as drawn holds it: one this tab has just
   // made is drawn but not read yet, and one it has just dismissed is read but no longer drawn, and neither asks.
   // A Workspace this tab has just added is not on the server yet, as `snapshotQuery` knows.
@@ -62,7 +64,11 @@ export function useSnapshotWithFinishedItems(workspaceId: string, { itemId }: { 
   const reading = wanted && finished.data === undefined && !finished.isError && finished.fetchStatus !== 'paused';
   // Asked for and not answered because it could not be: refused, or waiting on a connection that is not there.
   const unread = wanted && finished.data === undefined && !reading;
+  // Waiting on a connection: offline, with the finished Items never fetched in this tab, since they are not saved for
+  // offline use, or with an Item named that the copy held lacks, since it may have been finished since that was read.
+  const needsAConnection =
+    wanted && (finished.data === undefined || itemId !== undefined) && (offline || finished.fetchStatus === 'paused');
   // A copy held and out of date, being read again: an Item it lacks may be in what is coming.
   const refreshing = wanted && finished.data !== undefined && finished.isFetching;
-  return { data, workspace, finished, reading, unread, refreshing };
+  return { data, workspace, finished, reading, unread, needsAConnection, refreshing };
 }

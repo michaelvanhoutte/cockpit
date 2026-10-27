@@ -445,7 +445,11 @@ export const moveItemToPanelSchema = commandEnvelopeSchema
     itemId: z.uuid(),
     /** The Panel it lands on, or null for the Inbox. */
     panelId: z.uuid().nullable(),
-    /** Every Item on that Panel afterwards, in order. Empty for the Inbox. */
+    /**
+     * Every Item on that Panel afterwards, in order, except that one finished
+     * more than a day ago may be left out and keeps its place ("Open a Workspace
+     * without its finished Items", issue 1435). Empty for the Inbox.
+     */
     order: z.array(z.uuid()),
     /**
      * The Panels the move takes the Item off ("Move an Item from one Panel's row

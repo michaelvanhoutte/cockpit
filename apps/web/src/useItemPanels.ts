@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { itemLabel, uuidv7, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import { itemLabel, uuidv7, type Filing, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import { useLatestSnapshot, useSendCommand } from './api/queries';
 import { PanelNotMade } from './changeQueue';
 import { filedOrderOnPanel, ordersForFilingSeveral } from './filing';
@@ -99,10 +99,17 @@ export function useItemPanels({
   /**
    * Hands the queue the Item's removal from one Panel, answering its answer and
    * the order the Panel was in - or null where the Item was not on it.
+   *
+   * **One the Workspace's read leaves out, finished more than a day ago, is
+   * filed in `data` alone**, which holds the finished Items beside that read
+   * ("Open a Workspace without its finished Items", issue 1435): its own filing
+   * is taken from there, so it is taken off and Undo names it again.
    */
   const startTakeOff = async (panelId: string): Promise<{ answer: Promise<unknown>; before: string[] } | null> => {
-    const filings = (await latestSnapshot(workspaceId)).filings;
-    if (!filings.some((filing) => filing.itemId === itemId && filing.panelId === panelId)) return null;
+    const latest = await latestSnapshot(workspaceId);
+    const isThisOne = (filing: Filing) => filing.itemId === itemId && filing.panelId === panelId;
+    const filings = latest.items.some((one) => one.id === itemId) ? latest.filings : [...latest.filings, ...(data?.filings ?? []).filter(isThisOne)];
+    if (!filings.some(isThisOne)) return null;
     return {
       answer: send({ name: 'remove_item_from_panel', payload: { ...envelope(), panelId } }),
       before: filedOrderOnPanel(filings, panelId),

@@ -201,10 +201,12 @@
     {
       "key": "Dashboards",
       "label": "Dashboards",
-      "browserWalks": 6,
+      "browserWalks": 7,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/api/src/domain/dashboards.ts",
+        "apps/api/src/domain/workspace-read.ts",
+        "apps/api/src/accounts/store.ts",
         "apps/api/src/domain/names.ts",
         "apps/api/src/accounts/command-service.ts",
         "apps/api/src/accounts/repo.ts",

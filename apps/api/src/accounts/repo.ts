@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/sqlite-core';
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, max, ne, notExists, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column } from 'drizzle-orm';
 import { z } from 'zod';
 import {
@@ -38,6 +38,7 @@ import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { MasterRow, SeriesRow } from '../domain/series.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
+import type { FilingRow } from '../domain/filings.js';
 import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
@@ -738,13 +739,36 @@ const itemColumns = {
 };
 
 /**
+ * Which of a Workspace's Items a read carries, with their rows ("Open a
+ * Workspace without its finished Items", issue 1435):
+ *
+ * - `every`: every one, finished ones included, as a Panel's read for an app is
+ *   made;
+ * - `finished`: the finished ones not dismissed, *All items*' own read;
+ * - `{ finishedAfter }`: the Workspace's read, its open Items and those finished
+ *   after that moment (`finishedKeptAfter`, domain/workspace-read.ts).
+ *
+ * Asked of the Item a row belongs to, so a left-out Item's filings, files and
+ * associations leave with it.
+ */
+export type ItemsOfTheRead = 'every' | 'finished' | { finishedAfter: string };
+
+function itemsOfTheRead(of: ItemsOfTheRead) {
+  if (of === 'every') return undefined;
+  if (of === 'finished') return and(isNotNull(items.completedAt), isNull(items.deletedAt));
+  return or(isNull(items.completedAt), gt(items.completedAt, of.finishedAfter));
+}
+
+/**
  * Open items: tombstoned rows stay in the store but never in the snapshot.
  *
  * **Dismissed items are left out here and finished ones are not**, which is
  * deliberate: a dismissed item is gone until something brings it back, while an
  * item marked done has to reach the browser for the bar offering to undo it to
  * have anything to put back ("Undo what just happened", issue 144). What keeps
- * a finished item off the lists is the client's own derivation.
+ * a finished item off the lists is the client's own derivation. **The
+ * Workspace's read keeps the last day's finished ones only** (`of`), which is
+ * as long as the bar or an open form needs one.
  *
  * **Plus every item belonging to no workspace yet** ("Capture something before
  * you know which workspace it belongs to", issue 165): it is not clear where
@@ -753,7 +777,12 @@ const itemColumns = {
  * the care this needs - hoisted out, it would return every tenant's dismissed
  * undecided items along with this workspace's own.
  */
-export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
+export function listOpenItems(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  of: ItemsOfTheRead = 'every',
+): Item[] {
   return db
     .select(itemColumns)
     .from(items)
@@ -762,10 +791,35 @@ export function listOpenItems(db: AccountDb, tenantId: string, workspaceId: stri
         eq(items.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
+        itemsOfTheRead(of),
       ),
     )
     .orderBy(items.createdAt)
     .all();
+}
+
+/**
+ * How many finished Items the Workspace's read leaves out (`listOpenItems`
+ * with `finishedAfter`): those finished at or before that moment and not
+ * dismissed, counted with the same `or`, so deleting the Workspace still names
+ * every Item it hides ("Open a Workspace without its finished Items", issue
+ * 1435).
+ */
+export function countFinishedLeftOut(db: AccountDb, tenantId: string, workspaceId: string, finishedAfter: string): number {
+  return (
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(items)
+      .where(
+        and(
+          eq(items.tenantId, tenantId),
+          or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+          isNull(items.deletedAt),
+          lte(items.completedAt, finishedAfter),
+        ),
+      )
+      .get()?.count ?? 0
+  );
 }
 
 /**
@@ -964,6 +1018,7 @@ export function listAssociationsForWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
+  of: ItemsOfTheRead = 'every',
 ): Association[] {
   return db
     .select({
@@ -984,6 +1039,7 @@ export function listAssociationsForWorkspace(
       and(
         eq(associations.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        itemsOfTheRead(of),
       ),
     )
     .all();
@@ -1008,8 +1064,8 @@ export function listAttachmentsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-  /** Only the files of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
-  finishedOnly = false,
+  /** Whose files: `finished` is what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434), `finishedAfter` the Workspace's own read ("Open a Workspace without its finished Items", issue 1435). */
+  of: ItemsOfTheRead = 'every',
 ): Attachment[] {
   return db
     .select({
@@ -1028,7 +1084,7 @@ export function listAttachmentsInWorkspace(
         eq(attachments.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
-        finishedOnly ? isNotNull(items.completedAt) : undefined,
+        itemsOfTheRead(of),
       ),
     )
     .all();
@@ -1135,8 +1191,15 @@ export function listFilingsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-  /** Only the filings of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
-  finishedOnly = false,
+  /**
+   * Whose filings: `finished` is what a Workspace's finished Items are read
+   * with, dismissed ones' left out ("Fetch a Workspace's finished Items the
+   * first time All items opens", issue 1434); `finishedAfter` is the
+   * Workspace's own read, which keeps a dismissed open Item's, since a Panel's
+   * order is checked against it (`listFilingsOnPanelOutOfTheRead`; "Open a
+   * Workspace without its finished Items", issue 1435).
+   */
+  of: ItemsOfTheRead = 'every',
 ): Filing[] {
   return db
     .select({
@@ -1155,10 +1218,13 @@ export function listFilingsInWorkspace(
         eq(items.workspaceId, workspaceId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
-        finishedOnly ? and(isNotNull(items.completedAt), isNull(items.deletedAt)) : undefined,
+        itemsOfTheRead(of),
       ),
     )
-    .orderBy(asc(panelItems.position))
+    // The id breaks a tie as `byPlaceOnPanel` (@cockpit/shared) does: an Item
+    // reopened after its day can share a position ("Open a Workspace without
+    // its finished Items", issue 1435).
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
 }
 
@@ -1180,7 +1246,42 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
     })
     .from(panelItems)
     .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
-    .orderBy(asc(panelItems.position))
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId))
+    .all();
+}
+
+/**
+ * The filings on one Panel whose Item the Workspace's read leaves out, finished
+ * at or before `finishedAfter`, whole rows ("Open a Workspace without its
+ * finished Items", issue 1435): what an order may leave out, and what is then
+ * written back as it was, at its own position, so the Item is still where it
+ * was filed should it be reopened.
+ */
+export function listFilingsOnPanelOutOfTheRead(
+  db: AccountDb,
+  tenantId: string,
+  panelId: string,
+  finishedAfter: string,
+): FilingRow[] {
+  return db
+    .select({
+      tenantId: panelItems.tenantId,
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+      createdAt: panelItems.createdAt,
+    })
+    .from(panelItems)
+    .innerJoin(items, eq(panelItems.itemId, items.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        eq(panelItems.panelId, panelId),
+        eq(items.tenantId, tenantId),
+        lte(items.completedAt, finishedAfter),
+      ),
+    )
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
 }
 

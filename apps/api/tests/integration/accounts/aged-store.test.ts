@@ -3095,13 +3095,22 @@ const CONNECTOR_ITEMS = '0068-connector-items-stored-internal';
 /** What it logs when it leaves `mail` rows naming another connector, or none, alone. */
 const LEFT_ALONE_AS_MAIL = 'Items stored as mail naming a connector other than gmail, or none, were left as they are';
 
-/** What a person is served of each Item in the fixture's first Workspace, by id. */
+/**
+ * What a person is served of each Item in the fixture's first Workspace, by id:
+ * the Workspace's read and its finished Items' read together, since one finished
+ * long ago is in the second alone ("Open a Workspace without its finished
+ * Items", issue 1435).
+ */
 async function servedIn(name: string): Promise<Record<string, string>> {
   const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+  const finished = await storeNamed(name).finishedItems(name, 'ws-before');
   expect(snapshot).toMatchObject({ status: 'ok' });
-  return snapshot.status === 'ok'
-    ? Object.fromEntries(snapshot.value.items.map((item) => [item.id, item.source]))
-    : {};
+  expect(finished).toMatchObject({ status: 'ok' });
+  const items = [
+    ...(finished.status === 'ok' ? finished.value.items : []),
+    ...(snapshot.status === 'ok' ? snapshot.value.items : []),
+  ];
+  return Object.fromEntries(items.map((item) => [item.id, item.source]));
 }
 
 /** What the store's read would serve of every Item, by id, read before anything is brought up to date. */

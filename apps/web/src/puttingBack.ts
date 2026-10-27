@@ -63,7 +63,8 @@ export function putItBackOn(d: Putting, item: Item, panels: readonly WasOn[]): P
  *
  * **Built from what the panel holds now, not from what it held before.** An
  * order has to name exactly the panel's items plus the one arriving or it is
- * refused, and half-way through putting several back a panel holds neither what
+ * refused (bar those finished more than a day ago, which no read here holds),
+ * and half-way through putting several back a panel holds neither what
  * it held before nor what it will hold after: the ones already returned are
  * there, the ones still to come are not, and the panel that was *filed onto* is
  * still holding every item waiting its turn. Only the live list knows which.
