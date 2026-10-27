@@ -99,8 +99,8 @@ part of the app: it is where CI publishes the architecture page at `/architectur
 (`tools/architecture/README.md`), and a redirect at each address the harness reports
 had there. Those reports (cycle time, test selection, tests and CI stability) are
 pages of the Harness Monitor, drawn from the rows CI sends it ("The Harness Monitor"
-below). Every date and time on the architecture page is Belgian time in Belgian
-format, *22 Oct 2026, 15:05*, whoever reads it, written by one module
+below). Every date on the architecture page is the Belgian day in Belgian
+format, *22 Oct 2026*, whoever reads it, written by one module
 (`scripts/lib/belgian-time.mjs`), except its cron schedules, which stay UTC as
 Cloudflare runs them; the model file beside it stays ISO UTC.
 

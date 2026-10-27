@@ -1,6 +1,6 @@
 //
-// Every date and time the published architecture page (tools/architecture)
-// shows is Belgian: the zone and region are fixed, since the people who read
+// Every date the published architecture page (tools/architecture) shows is
+// Belgian: the zone and region are fixed, since the people who read
 // the page are in Belgium and it is a static file that cannot ask who is
 // looking. The model file beside the page keeps its ISO UTC times; only what a
 // reader sees goes through here. One module, so a new page cannot pick a zone of its

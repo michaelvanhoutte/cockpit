@@ -81,6 +81,7 @@ describe('The architecture page', () => {
       { situation: 'no address', monitor: undefined },
       { situation: 'the repository variable unset', monitor: '' },
       { situation: 'something that is not a web address', monitor: 'javascript:alert(1)' },
+      { situation: 'an http address, which publish.yml writes no redirects for either', monitor: 'http://monitor.test' },
     ])('links none of them with $situation', ({ monitor }) => {
       const html = withMonitor(monitor);
       expect(html).not.toContain('Cycle time');
