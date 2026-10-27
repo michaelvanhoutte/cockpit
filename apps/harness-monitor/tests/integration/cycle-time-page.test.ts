@@ -793,7 +793,7 @@ describe('Harness Monitor', () => {
 
       expect(infoOfPanel(html, 'cycle-table')).toBe('t-pr');
       expect(partsOf(html, 't-pr')).toEqual(THREE_PARTS);
-      for (const said of ['its timeline', 'scale of up to four hours', 'CI Round is a push', 'a dotted lead', 'clock-time axis in Belgian time']) expect(panel.replace(/<[^>]+>/g, '')).toContain(said);
+      for (const said of ['its timeline', 'scale of up to four hours', 'CI Round is a push', 'a dotted lead', 'hatched first part is time not recorded', 'clock-time axis in Belgian time']) expect(panel.replace(/<[^>]+>/g, '')).toContain(said);
     });
 
     it('only the Pull request tab carries the timeline’s styles, since only its rows open one', async () => {
