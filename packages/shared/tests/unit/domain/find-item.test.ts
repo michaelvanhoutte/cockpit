@@ -103,7 +103,7 @@ describe('Dashboards', () => {
     });
   });
 
-  describe('Include done adds the finished Items, in Workspace only, after the open ones', () => {
+  describe('Find searches open Items only, so a finished match is never listed', () => {
     const snapshot = () =>
       aSnapshot(
         [
@@ -116,21 +116,15 @@ describe('Dashboards', () => {
         ],
         [['open-old', 'plan'], ['done-new', 'plan']],
       );
-    const listed = (scope: 1 | 2, withDone: boolean) =>
-      findItems(indexForFind(snapshot(), '2026-09-01'), 'rent', scope, 'today', FIND_LIMIT, withDone).rows;
 
-    it('lists no finished Item unless asked', () => {
-      expect(listed(2, false).map((row) => row.itemId)).toEqual(['open-old']);
-    });
+    it.each([
+      { situation: 'Dashboard', scope: 1 as const },
+      { situation: 'Workspace', scope: 2 as const },
+    ])('lists the open Item and not the finished one it matches with, in $situation', ({ scope }) => {
+      const { rows, more } = findItems(indexForFind(snapshot(), '2026-09-01'), 'rent', scope, 'today');
 
-    it('lists the finished Item after the open one, saying done and going to no Panel', () => {
-      const rows = listed(2, true);
-      expect(rows.map((row) => row.itemId)).toEqual(['open-old', 'done-new']);
-      expect(rows[1]).toMatchObject({ where: 'done', panel: null, done: true });
-    });
-
-    it('lists no finished Item in Dashboard, ticked or not', () => {
-      expect(listed(1, true).map((row) => row.itemId)).toEqual(['open-old']);
+      expect(rows.map((row) => row.itemId)).toEqual(['open-old']);
+      expect(more).toBe(0);
     });
   });
 

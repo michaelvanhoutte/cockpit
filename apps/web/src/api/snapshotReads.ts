@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { ACCOUNT_WIDE } from '@cockpit/shared';
-import type { ServerEvent, WorkspaceSnapshot } from '@cockpit/shared';
+import type { ServerEvent } from '@cockpit/shared';
 import { changes } from './changes';
 
 /**
@@ -24,6 +24,12 @@ import { changes } from './changes';
  * 4. **A Workspace this tab has deleted is not read** ("Show a Workspace
  *    rename, colour, delete or reorder the moment you make it", issue 1365),
  *    answered or not.
+ *
+ * 5. **A Workspace's finished Items are read beside it** ("Fetch a Workspace's
+ *    finished Items the first time All items opens", issue 1434), on the same
+ *    terms: at once where *All items* is on screen, and otherwise only marked out
+ *    of date, to be read on its next opening. A Workspace whose finished Items
+ *    were never fetched has nothing to read.
  *
  * Every uncertainty reads, as the app did before: an announcement or answer
  * without a stamp (an older Worker) is never skipped.
@@ -61,10 +67,13 @@ function readWhatIsOwed(): void {
   owed.clear();
 }
 
+/** The reads a Workspace has, each kept under its Workspace's id: its snapshot and, once fetched, its finished Items. */
+const READS_OF_A_WORKSPACE = ['snapshot', 'finishedItems'] as const;
+
 /**
- * Reads the snapshots under `key`, never in place of a read in flight: that is
- * left to land, and followed by one more unless what it holds is at least
- * `upTo`. However many wait on one read, they find the one more already started
+ * Reads the snapshots under `key`, and the finished Items beside them, never in
+ * place of a read in flight: that is left to land, and followed by one more
+ * unless what it holds is at least `upTo`. However many wait on one read, they find the one more already started
  * and join it.
  *
  * **`marked`** says the copy is out of date - another device changed something.
@@ -74,26 +83,28 @@ function readWhatIsOwed(): void {
  * to ask reads it.
  */
 function read(client: QueryClient, workspaceId: string, upTo: string, marked: boolean): void {
-  const queryKey = workspaceId === '' ? ['snapshot'] : ['snapshot', workspaceId];
-  for (const query of client.getQueryCache().findAll({ queryKey })) {
-    // A Workspace deleted here is gone whether or not the server has said so yet: a read would find nothing.
-    if (changes.deleting(String(query.queryKey[1]))) continue;
-    const filters = { queryKey: query.queryKey, exact: true };
-    const alongside = { cancelRefetch: false };
-    const flying = query.state.fetchStatus === 'fetching';
-    // Marked only when the copy is out of date or nothing shows it; a read for
-    // this tab's own changes leaves a showing copy usable meanwhile, the one
-    // more read included.
-    const start = () => {
-      if (marked || !query.isActive()) void client.invalidateQueries(filters, alongside);
-      else void client.refetchQueries(filters, alongside);
-    };
-    start();
-    if (flying) {
-      const andOneMore = () => {
-        if (upTo > ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '')) start();
+  for (const kind of READS_OF_A_WORKSPACE) {
+    const queryKey = workspaceId === '' ? [kind] : [kind, workspaceId];
+    for (const query of client.getQueryCache().findAll({ queryKey })) {
+      // A Workspace deleted here is gone whether or not the server has said so yet: a read would find nothing.
+      if (changes.deleting(String(query.queryKey[1]))) continue;
+      const filters = { queryKey: query.queryKey, exact: true };
+      const alongside = { cancelRefetch: false };
+      const flying = query.state.fetchStatus === 'fetching';
+      // Marked only when the copy is out of date or nothing shows it; a read for
+      // this tab's own changes leaves a showing copy usable meanwhile, the one
+      // more read included.
+      const start = () => {
+        if (marked || !query.isActive()) void client.invalidateQueries(filters, alongside);
+        else void client.refetchQueries(filters, alongside);
       };
-      void query.promise?.then(andOneMore, andOneMore);
+      start();
+      if (flying) {
+        const andOneMore = () => {
+          if (upTo > ((query.state.data as { upTo?: string } | undefined)?.upTo ?? '')) start();
+        };
+        void query.promise?.then(andOneMore, andOneMore);
+      }
     }
   }
 }
@@ -114,9 +125,16 @@ export function readForAnnouncement(client: QueryClient, event: Exclude<ServerEv
   const at = event.type === 'snapshot_invalidated' ? event.at : undefined;
   const workspaceId = event.workspaceId === ACCOUNT_WIDE ? '' : event.workspaceId;
   if (at) {
-    // For every Workspace, held only where every copy holds it.
-    const held = client.getQueryCache().findAll({ queryKey: workspaceId ? ['snapshot', workspaceId] : ['snapshot'] });
-    const holds = held.length > 0 && held.every((query) => ((query.state.data as WorkspaceSnapshot | undefined)?.upTo ?? '') >= at);
+    // For every Workspace, held only where every copy holds it: the snapshots, and the finished Items of the Workspaces whose were fetched.
+    const copies = (kind: (typeof READS_OF_A_WORKSPACE)[number]) =>
+      client.getQueryCache().findAll({ queryKey: workspaceId ? [kind, workspaceId] : [kind] });
+    const held = copies('snapshot');
+    const upToAt = (query: { state: { data: unknown } }) => ((query.state.data as { upTo?: string } | undefined)?.upTo ?? '') >= at;
+    // A finished copy nothing shows, marked out of date and not being read, is read on its next opening whatever this says, so it holds nothing back.
+    const holds =
+      held.length > 0 &&
+      held.every(upToAt) &&
+      copies('finishedItems').every((query) => upToAt(query) || (!query.isActive() && query.state.isInvalidated && query.state.fetchStatus !== 'fetching'));
     // Owed for this Workspace, or for every one; nothing owed, or an answer without a stamp, is '' and covers nothing.
     if (holds || (owed.get(event.workspaceId) ?? '') >= at || (owed.get('') ?? '') >= at) return;
   }

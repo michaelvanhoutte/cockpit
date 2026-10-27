@@ -20,6 +20,25 @@ One ticket carries a piece of work from `scoping` through the two phases of `eng
 
 A 400-word issue is normal, and past 800 words something is being explained twice. That budget counts the prose; the **Test cases** section is a statement list whose length is governed by the pruning criterion in `statement-lists.md`, not by a word count, and it is never trimmed to meet this rule.
 
+## Title
+
+**A title carries three things**, because a reader scanning the list has only the title to tell what a ticket is about and why it exists:
+
+- **Where it belongs:** the feature, page or skill, in the product's own words. A child names its parent's feature, since its number says nothing.
+- **What is wrong, slow or missing:** the reason, not only the fix. A bug's title gives the symptom and where it shows.
+- **What changes:** one change, in plain words. No shorthand only the body defines.
+
+**Name a skill or file only when it is the thing changed**, and then say what it does.
+
+| Before | After |
+|---|---|
+| Size the per-run budgets and the spent-allowance path for Workers Paid | Code is still sized to Workers Free limits though the account is on Workers Paid: raise or keep the per-run budgets and the spent-allowance path |
+| Open a Workspace without its finished Items | Opening a Workspace slows as finished Items pile up: open it without them |
+| Cc or Bcc your Cockpit address to wait for a reply, and chase to restart | Email capture: make a Cc or Bcc'd mail an Item waiting for a reply, and restart the wait when a chasing mail arrives |
+| Ask which session-review rules to write before drafting any, and explain each in plain words | Make session-review ask which process rules to write before drafting any, and explain each in plain words |
+
+**Before filing, read the title alone** and check that someone who has not seen the ticket could say what it is about and why. Length is not the test.
+
 ## Process
 
 ### 1. The body, by who writes what
@@ -83,7 +102,7 @@ One row per rule from What to build and per line of Failure modes, naming the on
 
 ### 2. Create, update, split
 
-- **File** (scoping): `gh issue create` with Problem, What to build and Out of scope, and the `unsliced` label, creating the label first if the repository has none. Show the draft and file on confirmation.
+- **File** (scoping): `gh issue create` with Problem, What to build and Out of scope, and the `unsliced` label, creating the label first if the repository has none. Check the title against the Title section first. Show the draft and file on confirmation.
 - **Add** (engineering-plan, design): `gh issue edit <number> --body-file` with the design sections added and everything else as it was.
 - **Finish** (engineering-plan, slicing, one unit): edit the same ticket to add Blocked by, Model and Test cases, and remove `unsliced`.
-- **Split** (engineering-plan, slicing, several units): `gh issue create` the children in dependency order, blockers first, so each "Blocked by" names a real number; then edit the original into the parent and remove `unsliced` from it. Children never carry `unsliced`. Never close or edit any other parent or tracking ticket as a side effect.
+- **Split** (engineering-plan, slicing, several units): `gh issue create` the children in dependency order, blockers first, so each "Blocked by" names a real number, each title checked against the Title section; then edit the original into the parent and remove `unsliced` from it. Children never carry `unsliced`. Never close or edit any other parent or tracking ticket as a side effect.

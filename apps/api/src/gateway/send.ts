@@ -7,8 +7,11 @@ import { USAGE_RECORDS_PATH } from './receive.js';
 /**
  * How a record leaves an environment that is not production ("Record staging's
  * and local Claude calls in production, under a token per environment", issue
- * 1458): sent to production over HTTPS, which writes it beside its own, and
- * never kept here.
+ * 1458): sent to production, which writes it beside its own, and never kept
+ * here. Staging sends through its service binding to production's Worker and
+ * every other environment over HTTPS ("Send staging's usage records to
+ * production through a service binding, since its workers.dev address
+ * refuses them", issue 1618).
  */
 
 /** How long a send is awaited, in milliseconds. */
@@ -103,7 +106,11 @@ export function recorderFor(env: Env): Recorder {
   return sendingTo(
     { url: new URL(USAGE_RECORDS_PATH, address).href, token },
     {
-      send: (url, init) => fetch(url, init),
+      // Through the binding where there is one (staging): a fetch of production's
+      // `workers.dev` address from staging is refused by the platform (issue
+      // 1618). The address still builds the URL, which the binding only reads
+      // the path of.
+      send: (url, init) => (env.PRODUCTION ? env.PRODUCTION.fetch(url, init) : fetch(url, init)),
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       userOf: async (accountName) =>
         (

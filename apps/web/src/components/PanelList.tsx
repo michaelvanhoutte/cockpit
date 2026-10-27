@@ -78,7 +78,7 @@ const SCOPES: readonly { scope: Scope; label: string }[] = [
  * Dashboard, Shift+F on its Workspace (there is no *All*), nothing listed until
  * something is typed, then the open Items matching (`find-item.ts` in `@cockpit/shared`). The screen
  * follows the highlight onto the Item's row, and Enter lands focus on it, by a
- * request that outlives the column (`landOnItem.ts`). **Include done** (Workspace only, unticked at every opening) adds the finished Items; highlighting one leaves the screen put, and Enter goes to its row in *All items* (issue 829).
+ * request that outlives the column (`landOnItem.ts`).
  */
 export function PanelList({
   listing,
@@ -98,8 +98,6 @@ export function PanelList({
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>(1);
   const [mode, setMode] = useState<PanelListMode>('panel');
-  /** Find's *Include done* box, unticked at every opening. */
-  const [includeDone, setIncludeDone] = useState(false);
   const finding = mode === 'item';
   /** The highlighted entry; -1 is the cursor in the box with nothing highlighted yet. */
   const [at, setAt] = useState(-1);
@@ -173,9 +171,9 @@ export function PanelList({
   const found = useMemo(
     () =>
       finding
-        ? findItems(findIndex, query, findScope, reach.dashboardId, undefined, includeDone)
+        ? findItems(findIndex, query, findScope, reach.dashboardId)
         : { rows: [] as FoundItem[], more: 0 },
-    [finding, findIndex, query, findScope, reach.dashboardId, includeDone],
+    [finding, findIndex, query, findScope, reach.dashboardId],
   );
   const size = finding ? found.rows.length : flat.length;
   const current = at < 0 ? -1 : Math.min(at, Math.max(size - 1, 0));
@@ -241,7 +239,6 @@ export function PanelList({
     pending.current = null;
     restore.current = null;
     setActive(true);
-    setIncludeDone(false);
     if (!keepText) setQuery('');
     setMode(chosenMode);
     setScope(chosen);
@@ -261,7 +258,6 @@ export function PanelList({
     setQuery('');
     setScope(1);
     setMode('panel');
-    setIncludeDone(false);
     if (back) {
       // Nothing left to land on: the screen is going back.
       forgetLanding();
@@ -318,14 +314,6 @@ export function PanelList({
   const showFound = (item: FoundItem, commit: boolean) => {
     const from = start.current;
     const target = item.panel;
-    if (item.done) {
-      // On no Dashboard: a highlight leaves the screen where it is, and going is to *All items*.
-      forgetLanding();
-      if (!commit) return;
-      askToLand({ itemId: item.itemId, place: { kind: 'allItems', workspaceId: reach.workspaceId }, focus: true });
-      reach.goToAllItems(reach.workspaceId, from?.left ? 'replace' : 'push');
-      return;
-    }
     askToLand({
       itemId: item.itemId,
       place: target ? { kind: 'panel', dashboardId: target.dashboardId, panelId: target.panelId } : { kind: 'inbox' },
@@ -542,7 +530,7 @@ export function PanelList({
             highlighted ? 'bg-accent-tint' : 'hover:bg-accent-tint/40'
           }`}
         >
-          <span className={`truncate ${item.done ? 'line-through' : ''}`.trim()}>{item.title}</span>
+          <span className="truncate">{item.title}</span>
           <span className="truncate text-[11px] text-ink-faint">{item.where}</span>
         </button>
       </li>
@@ -654,20 +642,6 @@ export function PanelList({
               </button>
             ))}
           </div>
-          {finding && scope === 2 && (
-            <label className="mt-2 flex items-center gap-1.5 text-xs text-ink-soft">
-              <input
-                type="checkbox"
-                checked={includeDone}
-                onChange={(event) => {
-                  setIncludeDone(event.target.checked);
-                  searchRef.current?.focus();
-                }}
-                className="size-3.5"
-              />
-              Include done
-            </label>
-          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {finding && needle === '' && <p className="px-4 py-1.5 text-sm text-ink-faint">Type to find an Item.</p>}

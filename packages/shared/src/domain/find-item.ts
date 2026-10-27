@@ -38,8 +38,6 @@ export type FindEntry = {
    * *Workspace* names where an Item is filed.
    */
   gatheredOn: readonly FoundPlace[];
-  /** Whether the Item is finished, which only *Include done* lists. */
-  done: boolean;
 };
 
 export type FindIndex = readonly FindEntry[];
@@ -54,10 +52,8 @@ export type FoundItem = {
   title: string;
   /** Where the Item is, as the row says it: its Panel, "Dashboard ▸ Panel" (+n for more), or *Inbox*. */
   where: string;
-  /** The Panel the screen goes to, or null for the Inbox and for a finished Item. */
+  /** The Panel the screen goes to, or null for the Inbox. */
   panel: FoundPlace | null;
-  /** Whether the Item is finished: on no Dashboard, so it is gone to in *All items*. */
-  done: boolean;
 };
 
 /** The text a search runs over: what a person would type to find the Item. */
@@ -66,8 +62,10 @@ export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAct
 }
 
 /**
- * Every Item of the Workspace with its search text and places, the open ones
- * first and then the finished, each most recently changed first. **An Item filed on a Filter panel only is in the
+ * Every open Item of the Workspace with its search text and places, most
+ * recently changed first. **Find never lists a finished Item**: it is on no
+ * Dashboard, and *All items* is where one is found ("Fetch a Workspace's
+ * finished Items the first time All items opens", issue 1434). **An Item filed on a Filter panel only is in the
  * Inbox**, as the Inbox itself and *All items* read it (`filingsThatFile`).
  * **What a Filter panel gathers is read the way the board draws it**
  * (`panelAndFilterIdsByItem`, ignoring the Dashboard's own filter, which landing
@@ -104,20 +102,16 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex
   const inbox = new Set(itemsInTheInbox(snapshot.items, filings).map((item) => item.id));
   const entries: FindEntry[] = [];
   for (const item of snapshot.items) {
-    // A finished Item is on no Dashboard: it has no place, and is listed only by Include done.
-    if (!stillOpen(item)) {
-      entries.push({ item, text: searchTextOf(item), places: [], gatheredOn: [], done: true });
-      continue;
-    }
+    if (!stillOpen(item)) continue;
     const byDashboard = (a: FoundPlace, b: FoundPlace) =>
       (dashboardOrder.get(a.dashboardId) ?? 0) - (dashboardOrder.get(b.dashboardId) ?? 0);
     const places = (placesOf.get(item.id) ?? []).toSorted(byDashboard);
     const gatheredOn = (gatheredOf.get(item.id) ?? []).toSorted(byDashboard);
     // Filed, but on nothing the snapshot names: on no screen at all, so not offered.
     if (places.length === 0 && gatheredOn.length === 0 && !inbox.has(item.id)) continue;
-    entries.push({ item, text: searchTextOf(item), places, gatheredOn, done: false });
+    entries.push({ item, text: searchTextOf(item), places, gatheredOn });
   }
-  return entries.toSorted((a, b) => Number(a.done) - Number(b.done) || b.item.updatedAt.localeCompare(a.item.updatedAt));
+  return entries.toSorted((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt));
 }
 
 /**
@@ -128,7 +122,6 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex
  * places is one row, going to the first - in *Dashboard* the Panels it is filed
  * on here, then the Filter panels here; in *Workspace* only where it is filed,
  * the Dashboard on screen's own first, then the others in tab order.
- * `withDone` (*Workspace* only) adds the finished Items matching, after the open ones.
  */
 export function findItems(
   index: FindIndex,
@@ -136,7 +129,6 @@ export function findItems(
   scope: FindScope,
   dashboardId: string,
   limit = FIND_LIMIT,
-  withDone = false,
 ): { rows: FoundItem[]; more: number } {
   const needle = query.trim().toLowerCase();
   if (needle === '') return { rows: [], more: 0 };
@@ -144,7 +136,6 @@ export function findItems(
   let matched = 0;
   for (const entry of index) {
     if (!entry.text.includes(needle)) continue;
-    if (entry.done && !(withDone && scope === 2)) continue;
     const here = entry.places.filter((place) => place.dashboardId === dashboardId);
     const gatheredHere = entry.gatheredOn.filter((place) => place.dashboardId === dashboardId);
     if (scope === 1 && here.length + gatheredHere.length === 0) continue;
@@ -152,14 +143,10 @@ export function findItems(
     if (rows.length >= limit) continue;
     const places = scope === 1 ? [...here, ...gatheredHere] : [...here, ...entry.places.filter((place) => place.dashboardId !== dashboardId)];
     const first = places[0] ?? null;
-    if (entry.done) {
-      rows.push({ itemId: entry.item.id, title: itemLabel(entry.item), where: 'done', panel: null, done: true });
-      continue;
-    }
     const more = places.length > 1 ? ` +${places.length - 1}` : '';
     const where =
       first === null ? 'Inbox' : scope === 1 ? `${first.panelName}${more}` : `${first.dashboardName} ▸ ${first.panelName}${more}`;
-    rows.push({ itemId: entry.item.id, title: itemLabel(entry.item), where, panel: first, done: false });
+    rows.push({ itemId: entry.item.id, title: itemLabel(entry.item), where, panel: first });
   }
   return { rows, more: matched - rows.length };
 }

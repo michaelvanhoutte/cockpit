@@ -676,11 +676,12 @@ test.describe('Harness Monitor', () => {
    * The costs seed and three merged pull requests: 9001 and 9002 are the ones the seed priced, at $6.00 and $3.00; 9003 has no cost.
    * 9001 and 9003 had one round of Test, 9002 a red one then a green one, so its CI rounds are twice as long. 9001's round also ran E2E as four shards, 40 minutes of running in the 5 the round held.
    * None carries its local kinds. 9001 and 9002 also carry the timeline an opened row draws under its outline. 9001: its coding starts half an hour before its round's push, with five seconds of test run ten minutes in, and the round's two jobs, the second a re-run. 9002: its two rounds pushed a quarter of an hour apart, a Test job in each; 9003 has none.
+   * Their times are hours before `now`, which is the moment the walk runs unless it is given another.
    * Returns the pull requests it stored, for a walk that reads what it seeded.
    */
-  async function seedCycleTime(api: APIRequestContext) {
+  async function seedCycleTime(api: APIRequestContext, now = Date.now()) { // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
-    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+    const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
     const check = (name: string, minutes: number, over: Record<string, unknown> = {}) => ({
       name,
       attempt: 1,
@@ -1095,12 +1096,23 @@ test.describe('Harness Monitor', () => {
 
   test("an opened Pull request row draws its outline at once and its timeline under it, which zooms on a click to a Belgian clock-time axis, reads a clicked CI job under it, and closes on a click of the axis, two rows at once each on its own, fitting a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
-    const [seeded] = (await seedCycleTime(api)) as { rounds: { pushedAt: string }[] }[];
+    // Pinned to the last 23:30 in Brussels, so 9001 is pushed at 17:30 and merged at 03:30 of the next day whatever time the walk runs: the dated labels on its axis, and a break ending it, are always there.
+    const brussels = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Brussels', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(Date.now()); // clock-ok: the pin is a time before the Worker's own clock, which the seeded pull requests must stay inside
+    const minuteOfDay = Number(brussels.find((p) => p.type === 'hour')!.value) * 60 + Number(brussels.find((p) => p.type === 'minute')!.value);
+    const lateEvening = Math.floor(Date.now() / 60_000) * 60_000 - ((minuteOfDay - (23 * 60 + 30) + 24 * 60) % (24 * 60)) * 60_000; // clock-ok: as above
+    const [seeded] = (await seedCycleTime(api, lateEvening)) as { rounds: { pushedAt: string }[] }[];
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
     const belgianClock = (ms: number) => new Intl.DateTimeFormat('en-BE', { timeZone: 'Europe/Brussels', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(ms);
     // Its coding starts 30 minutes before the round was pushed, which is where the axis starts.
     const starts = belgianClock(Date.parse(seeded!.rounds[0]!.pushedAt) - 30 * 60_000);
     const noSideways = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+    // Every label of an axis sits inside it and clear of the others.
+    const labelsHaveRoom = (axis: Locator) =>
+      axis.evaluate((el) => {
+        const edge = el.getBoundingClientRect();
+        const boxes = [...el.querySelectorAll('.tl-clocktick')].map((tick) => tick.getBoundingClientRect()).sort((a, b) => a.left - b.left);
+        return boxes.every((box, at) => box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5 && (at === 0 || boxes[at - 1]!.right <= box.left));
+      });
 
     await page.goto(`${monitor}/cycle-time?group=pr`);
     await page.waitForLoadState('load');
@@ -1139,6 +1151,9 @@ test.describe('Harness Monitor', () => {
     await expect(zoomed).toBeVisible();
     await expect(row(9001)).toHaveClass(/\bopen\b/);
     await expect(zoomed.locator('.tl-clocktick').first()).toHaveText(starts);
+    // The merge is on the next day, so its label carries the date, and it has room beside the break's.
+    await expect(zoomed.locator('.tl-clocktick').last()).toHaveText(/^\d+ \w+ \d\d:\d\d$/);
+    expect(await labelsHaveRoom(zoomed.locator('.tl-clockaxis'))).toBe(true);
     await expect(detailBox).toContainText('1 CI Round · 1h 00m to merge · click a phase, a CI job or a local run on the strip to read it here.');
     expect(await noSideways()).toBe(true);
     expect((await zoomed.locator('.tl-seg.local.test').boundingBox())!.width).toBeCloseTo(3, 0);

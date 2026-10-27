@@ -9,7 +9,7 @@ import { useRef, useState, useSyncExternalStore } from 'react';
  *
  * **A request outside the column** that makes it, because going to an Item
  * closes the column and may switch Dashboards, unmounting it. The first board
- * that draws the row - a Dashboard's, the Inbox's or *All items* (issue 829) - takes it, does the
+ * that draws the row - a Dashboard's or the Inbox's - takes it, does the
  * landing and settles it. **Held in memory only, never in the address**: a
  * reload or a shared link must not re-focus a row, nor add history.
  *
@@ -20,9 +20,7 @@ import { useRef, useState, useSyncExternalStore } from 'react';
  */
 export type LandingPlace =
   | { kind: 'panel'; dashboardId: string; panelId: string }
-  | { kind: 'inbox' }
-  /** A finished Item, on no Dashboard: its row in the Workspace's *All items* table. */
-  | { kind: 'allItems'; workspaceId: string };
+  | { kind: 'inbox' };
 
 export type LandingRequest = { itemId: string; place: LandingPlace; focus: boolean; at: number };
 

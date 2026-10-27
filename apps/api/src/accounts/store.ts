@@ -4,6 +4,7 @@ import type {
   CommandPayload,
   CommandResult,
   ConnectionHistory,
+  FinishedItems,
   Item,
   Panel,
   ReadableSnapshot,
@@ -148,6 +149,7 @@ import {
   listOpenItems,
   listPanelsInWorkspace,
   listRecurringItems,
+  listFinishedItems,
   listWorkspaces,
   meaningsToCompareWith,
   queueRewriteAttempt,
@@ -269,6 +271,26 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         followUpDays: getFollowUpDays(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+      };
+    });
+  }
+
+  /**
+   * One Workspace's finished Items with their filings and files ("Fetch a
+   * Workspace's finished Items the first time All items opens", issue 1434): its
+   * own read rather than a slice of the snapshot, since only *All items* draws
+   * them. `missing` where there is no such Workspace, as `snapshot` answers.
+   * Stamped before any row it carries, for the reason `snapshot`'s is.
+   */
+  finishedItems(accountName: string, workspaceId: string): Answer<FinishedItems> {
+    return this.#answer(accountName, (db) => {
+      const upTo = watermark(db, accountName);
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return {
+        upTo,
+        items: listFinishedItems(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId, true),
+        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, true),
       };
     });
   }
