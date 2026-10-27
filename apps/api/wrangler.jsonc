@@ -331,6 +331,15 @@
         "ENVIRONMENT": "staging",
         "USAGE_RECORDING_URL": "https://cockpit.vanhoutte-michael.workers.dev"
       },
+      // How staging's records reach production ("Send staging's usage records
+      // to production through a service binding, since its workers.dev address
+      // refuses them", issue 1618): Cloudflare refuses one Worker's fetch of
+      // another's `workers.dev` address on the same account (error 1042,
+      // answered as a 404), so `gateway/send.ts` sends through this binding
+      // where it finds one. `services` is not inheritable, and production's
+      // block has none: it writes its own records. `service` is production's
+      // Worker name, the top-level `name`, so renaming that renames this.
+      "services": [{ "binding": "PRODUCTION", "service": "cockpit" }],
       // Its own queue, for the reason it has its own database: `queues` is not
       // inheritable, and a shared name would let staging consume production's
       // messages and write to production's accounts.
