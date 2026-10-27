@@ -174,7 +174,8 @@ export interface FilingFacts {
   /**
    * Of those, the rows whose Item the Workspace's read leaves out, finished more
    * than a day ago: an order may leave them out, and they are then written back
-   * as they were (issue 1435). None where not given.
+   * as they were ("Open a Workspace without its finished Items", issue 1435).
+   * None where not given.
    */
   heldOutOfTheRead?: readonly FilingRow[];
   /** Whether the Item is on a Panel already, read before anything moves it. */

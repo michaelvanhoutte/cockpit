@@ -64,8 +64,10 @@ export function useSnapshotWithFinishedItems(workspaceId: string, { itemId }: { 
   const reading = wanted && finished.data === undefined && !finished.isError && finished.fetchStatus !== 'paused';
   // Asked for and not answered because it could not be: refused, or waiting on a connection that is not there.
   const unread = wanted && finished.data === undefined && !reading;
-  // Of those, the ones waiting on a connection: offline, never fetched in this tab, and not saved for offline use.
-  const needsAConnection = wanted && finished.data === undefined && (offline || finished.fetchStatus === 'paused');
+  // Waiting on a connection: offline, with the finished Items never fetched in this tab, since they are not saved for
+  // offline use, or with an Item named that the copy held lacks, since it may have been finished since that was read.
+  const needsAConnection =
+    wanted && (finished.data === undefined || itemId !== undefined) && (offline || finished.fetchStatus === 'paused');
   // A copy held and out of date, being read again: an Item it lacks may be in what is coming.
   const refreshing = wanted && finished.data !== undefined && finished.isFetching;
   return { data, workspace, finished, reading, unread, needsAConnection, refreshing };

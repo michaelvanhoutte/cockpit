@@ -1064,7 +1064,7 @@ export function listAttachmentsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
-  /** Whose files: `finished` is what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434), `finishedAfter` the Workspace's own read (issue 1435). */
+  /** Whose files: `finished` is what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434), `finishedAfter` the Workspace's own read ("Open a Workspace without its finished Items", issue 1435). */
   of: ItemsOfTheRead = 'every',
 ): Attachment[] {
   return db
@@ -1196,7 +1196,8 @@ export function listFilingsInWorkspace(
    * with, dismissed ones' left out ("Fetch a Workspace's finished Items the
    * first time All items opens", issue 1434); `finishedAfter` is the
    * Workspace's own read, which keeps a dismissed open Item's, since a Panel's
-   * order is checked against it (`listFilingsOnPanelOutOfTheRead`, issue 1435).
+   * order is checked against it (`listFilingsOnPanelOutOfTheRead`; "Open a
+   * Workspace without its finished Items", issue 1435).
    */
   of: ItemsOfTheRead = 'every',
 ): Filing[] {
@@ -1221,7 +1222,8 @@ export function listFilingsInWorkspace(
       ),
     )
     // The id breaks a tie as `byPlaceOnPanel` (@cockpit/shared) does: an Item
-    // reopened after its day can share a position (issue 1435).
+    // reopened after its day can share a position ("Open a Workspace without
+    // its finished Items", issue 1435).
     .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
 }

@@ -792,7 +792,8 @@ function writeFiling(
   }
   if (!decided.panelId) return;
   // Replaced whole rather than merged: an order is the answer to "where do
-  // these items go now", so a row not in it must not survive.
+  // these items go now", so a row not in it must not survive - except the rows
+  // of Items finished more than a day ago, which `rows` carries as they were.
   tx.delete(panelItems)
     .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, decided.panelId)))
     .run();

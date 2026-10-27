@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { CommandResult, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { fetchFinishedItems, fetchSnapshot, fetchWorkspaces, sendCommand } from '../../../src/api/client';
 import { readForAnnouncement } from '../../../src/api/snapshotReads';
@@ -109,7 +109,7 @@ function anItem(id: string, title: string, over: Partial<Item> = {}): Item {
 const finishedOn = (day: string, id: string, title: string) =>
   anItem(id, title, { completedAt: `${day}T09:00:00.000Z`, updatedAt: `${day}T09:00:00.000Z` });
 
-/** Everything the server holds: its Workspace read is the open ones, its finished read the done ones. */
+/** Everything the server holds: its Workspace read is the open ones and the last day's finished ones, its finished read the done ones. */
 let stored: Item[];
 /** How many times each read has been made. */
 let reads: { workspace: number; finished: number };
@@ -123,16 +123,36 @@ const stamp = () => `2026-10-20T10:00:${String(clock).padStart(2, '0')}.000Z`;
 /** A day before the server's clock: an Item finished before it is the finished read's alone. */
 const A_DAY_AGO = Date.parse('2026-10-19T10:00:00.000Z');
 
+/** The Workspace's Panels, and where its finished Items are filed, which only the finished read says: none unless a test files one. */
+let panels: Panel[];
+let finishedFilings: Filing[];
+/** How the Item form opens. */
+let presentation: 'centered' | 'docked';
+
+const ERRANDS = {
+  id: 'p-errands',
+  tenantId: 'tenant',
+  dashboardId: 'd1',
+  name: 'Errands',
+  kind: 'items',
+  format: 'plain',
+  body: '',
+  readOnly: false,
+  neverPropose: false,
+  filter: null,
+  sort: null,
+} as unknown as Panel;
+
 function theWorkspace(): WorkspaceSnapshot {
   return {
     workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
     items: stored.filter((item) => item.completedAt === null || Date.parse(item.completedAt) > A_DAY_AGO),
-    dashboards: [],
-    panels: [],
+    dashboards: panels.length > 0 ? [{ id: 'd1', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Work', position: 0 }] : [],
+    panels,
     layouts: [],
     associations: [],
     attachments: [],
-    itemFormPresentation: 'centered',
+    itemFormPresentation: presentation,
     followUpDays: 3,
     duplicates: [],
     filings: [],
@@ -199,6 +219,9 @@ beforeEach(() => {
   finishedGate = null;
   clock = 1;
   waiting = [];
+  panels = [];
+  finishedFilings = [];
+  presentation = 'centered';
   opened.item = undefined;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.mocked(fetchWorkspaces).mockResolvedValue({ workspaces: [] } as never);
@@ -208,18 +231,21 @@ beforeEach(() => {
   });
   vi.mocked(fetchFinishedItems).mockImplementation(async () => {
     reads.finished += 1;
-    const answer = { items: stored.filter((item) => item.completedAt !== null), filings: [], attachments: [], upTo: stamp() };
+    const answer = { items: stored.filter((item) => item.completedAt !== null), filings: finishedFilings, attachments: [], upTo: stamp() };
     await finishedGate;
     return answer;
   });
   vi.mocked(sendCommand).mockImplementation(
-    (_name, payload) =>
+    (name, payload) =>
       new Promise<CommandResult>((resolve) => {
         waiting.push({
           answer: () => {
             const { itemId, done, issuedAt } = payload as { itemId: string; done: boolean; issuedAt: string };
             clock += 1;
-            stored = stored.map((item) => (item.id === itemId ? { ...item, completedAt: done ? issuedAt : null, updatedAt: issuedAt } : item));
+            // Only Done changes an Item here; any other change is answered and stores nothing the reads carry.
+            if (name === 'set_done') {
+              stored = stored.map((item) => (item.id === itemId ? { ...item, completedAt: done ? issuedAt : null, updatedAt: issuedAt } : item));
+            }
             resolve({ ok: true, applied: true, at: stamp() });
           },
         });
@@ -404,6 +430,39 @@ describe('Dashboards', () => {
       expect(await screen.findByDisplayValue('Pay the September invoice')).toBeInTheDocument();
     });
 
+    it('takes the Item off a Panel from its form where only the finished read files it there', async () => {
+      panels = [ERRANDS];
+      finishedFilings = [{ panelId: 'p-errands', itemId: 'old-1', position: 0 }];
+      opened.item = 'old-1';
+      vi.mocked(sendCommand).mockClear();
+      render(theForm());
+      const onPanels = within(await screen.findByRole('group', { name: 'On panels' }));
+
+      act(() => onPanels.getByRole('button', { name: 'Remove from Errands' }).click());
+      act(() => screen.getByRole('button', { name: 'Save' }).click());
+
+      await waitFor(() => expect(vi.mocked(sendCommand).mock.calls.map(([name]) => name)).toEqual(['remove_item_from_panel']));
+      expect(vi.mocked(sendCommand).mock.calls[0]![1]).toMatchObject({ itemId: 'old-1', panelId: 'p-errands' });
+    });
+
+    it('puts the Item back on that Panel with Undo, docked, naming it in the order it sends', async () => {
+      presentation = 'docked';
+      panels = [ERRANDS];
+      finishedFilings = [{ panelId: 'p-errands', itemId: 'old-1', position: 0 }];
+      opened.item = 'old-1';
+      vi.mocked(sendCommand).mockClear();
+      render(theForm());
+      const onPanels = within(await screen.findByRole('group', { name: 'On panels' }));
+      act(() => onPanels.getByRole('button', { name: 'Remove from Errands' }).click());
+      await waitFor(() => expect(waiting).toHaveLength(1));
+
+      act(() => screen.getByRole('button', { name: 'Undo' }).click());
+      await act(async () => waiting.shift()!.answer());
+
+      await waitFor(() => expect(vi.mocked(sendCommand).mock.calls.map(([name]) => name)).toEqual(['remove_item_from_panel', 'add_item_to_panel']));
+      expect(vi.mocked(sendCommand).mock.calls[1]![1]).toMatchObject({ itemId: 'old-1', panelId: 'p-errands', order: ['old-1'] });
+    });
+
     it('says the Item is not here any more only after the finished read, for an Item in neither read', async () => {
       opened.item = 'nowhere';
       render(theForm());
@@ -433,6 +492,22 @@ describe('Dashboards', () => {
       expect(screen.queryByText('That item is not here any more.')).toBeNull();
       expect(screen.queryByText(/could not be looked up/)).toBeNull();
       expect(reads.finished).toBe(0);
+    });
+
+    it('says it needs a connection, not that the Item is gone, for an Item a finished copy out of date lacks, opened offline', async () => {
+      const first = render(theBoard());
+      await waitFor(() => expect(titles()).toHaveLength(2));
+      first.unmount();
+      stored = [...stored, finishedOn('2026-10-19', 'new-1', 'Sent the report')];
+      await doneElsewhere('open-1');
+      stand({ connecting: false, found: true });
+      opened.item = 'new-1';
+
+      render(theForm());
+
+      expect(await screen.findByText(/needs a connection/)).toBeInTheDocument();
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
+      expect(reads.finished).toBe(1);
     });
 
     it('says it is opening, not that the Item is gone, while a copy that is out of date is read again for an Item it lacks', async () => {
