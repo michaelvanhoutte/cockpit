@@ -1,6 +1,6 @@
 /**
- * A pull request's timeline, opened under its row on Cycle time: the strip the static page draws for each pull request
- * (tools/cycle-time/src/render/html.js), ported with the same markup, controls and wording, in the
+ * A pull request's timeline, opened under its row on Cycle time: the strip the static cycle-time page drew for each pull request,
+ * ported with the same markup, controls and wording, in the
  * Monitor's own palette and date module. The layout it draws is src/pull-request-strip.ts.
  *
  * Zooming the strip and reading an element are CSS only, so they make no request: the strip is the

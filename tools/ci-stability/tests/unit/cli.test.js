@@ -50,9 +50,14 @@ describe('parseArgs', () => {
     expect(parseArgs(['--days', 'x', '--max-runs', 'y']).invalid).toContain('--days');
   });
 
-  it('takes a repository, a branch and an output path as given', () => {
-    const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--out', 'a/b.html', '--json']);
-    expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', out: 'a/b.html', json: true });
+  it('takes a repository, a branch and a model path as given', () => {
+    const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--model', 'a/b.json']);
+    expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', model: 'a/b.json' });
+  });
+
+  it('no longer knows the flags that chose a page', () => {
+    expect(parseArgs(['--json']).unknown).toBe('--json');
+    expect(parseArgs(['--out', 'a/b.html']).unknown).toBe('--out');
   });
 
   it('takes a model path as given', () => {
@@ -100,9 +105,7 @@ describe('CI stability', () => {
 
     it.each([
       { situation: 'sending nothing', argv: ['--branches'], complaint: '--branches needs --send' },
-      { situation: 'a page to write', argv: ['--send', '--branches', '--out', 'a.html'], complaint: '--branches writes no page' },
-      { situation: 'a model to write', argv: ['--send', '--branches', '--model', 'm.json'], complaint: '--branches writes no page' },
-      { situation: 'the model written instead of the page', argv: ['--send', '--branches', '--json'], complaint: '--branches writes no page' },
+      { situation: 'a model to write', argv: ['--send', '--branches', '--model', 'm.json'], complaint: '--branches writes no model' },
     ])('refuses --branches with $situation', ({ argv, complaint }) => {
       expect(parseArgs(argv).invalid).toContain(complaint);
     });

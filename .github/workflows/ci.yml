@@ -500,27 +500,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Publishes which product concepts own which tests: as a downloadable
-  # artifact on every run, and — from `main` only — as the page the `pages` job
-  # below deploys. Does not gate: docs/test-explorer-spec.md's "CLI, scripts,
-  # CI" (§8) deliberately stops short of failing the build on the report's
-  # content, only on concepts.json drift, which the Concepts step of `checks`
-  # guards.
+  # Works out which product concepts own which tests and writes the model, for
+  # `Tests snapshot` below to send on `main` and for pr-tests.yml to send a pull
+  # request's own; the Harness Monitor draws the Tests page from it. Does not
+  # gate: docs/test-explorer-spec.md's "CLI, scripts, CI" (§8) deliberately
+  # stops short of failing the build on the model's content, only on
+  # concepts.json drift, which the Concepts step of `checks` guards.
   #
   # `needs: [test, checks]` rather than running either itself: the coverage
-  # this job renders as "branches nothing takes" is `test`'s own instrumented
-  # run on `main`, downloaded as an artifact instead of collected again (a pull
-  # request has none and renders "unknown"), and a red
-  # suite or a registry drift already kills the report the way it always has
+  # this job puts in the model as "branches nothing takes" is `test`'s own
+  # instrumented run on `main`, downloaded as an artifact instead of collected
+  # again (a pull request has none and the model reads "unknown"), and a red
+  # suite or a registry drift already kills the model the way it always has
   # — this job simply never starts. On a documentation-only diff `test`
   # skips its steps and is green, and its `product_changed` output is what
-  # skips this job (and `pages` behind it) too — the second thing this
+  # skips this job too — the second thing this
   # regains, along with the artifact hop, that a stale rewrite of this file
   # once dropped ("Skip the mechanical checks on a pull request that touches
   # nothing they cover", issue 345). One consequence of `checks` now also
   # carrying Typecheck, Lint and Build: a red one of those fails `checks`
-  # outright, which now takes the report down with it too, rather than
-  # leaving it to publish over an unrelated failure the way it used to when
+  # outright, which now takes the model down with it too, rather than
+  # leaving it to send over an unrelated failure the way it used to when
   # Concepts was its own job.
   test-explorer:
     name: Test Explorer
@@ -528,8 +528,7 @@ jobs:
     if: ${{ success() && needs.test.outputs.product_changed != 'false' }}
     runs-on: ubuntu-latest
     # download-artifact reads this run's own artifacts through the Actions API,
-    # which the workflow-level block withholds by default — the same reason
-    # `pages` below declares it.
+    # which the workflow-level block withholds by default.
     permissions:
       contents: read
       actions: read
@@ -540,30 +539,22 @@ jobs:
         uses: actions/download-artifact@v4
         # `main` only, matching the upload in `test`: a pull request's `test` is
         # uninstrumented and uploads nothing, so a download there would show a
-        # red step on every run. Its report reads "unknown" coverage columns
+        # red step on every run. Its model reads "unknown" coverage columns
         # without it.
         if: ${{ success() && github.event_name == 'push' }}
         # Missing rather than failed: on `main`, a `test:coverage` that somehow
         # wrote no `coverage-final.json` leaves no artifact either. Continuing
-        # without it degrades the report to "unknown" coverage columns —
+        # without it degrades the model to "unknown" coverage columns —
         # tools/test-explorer's own designed fallback — rather than failing this
         # advisory job outright.
         continue-on-error: true
         with:
           name: coverage-reports
           path: .
-      # Writes the model beside the page, outside out/ so the site never
-      # publishes it, for `tests-snapshot` below to send on `main`, and on a
+      # Writes the model for `tests-snapshot` below to send on `main`, and on a
       # pull request for pr-tests.yml, which holds the write key this job never
       # does and reads the artifact as data.
       - run: node tools/test-explorer/src/cli.js --model tools/test-explorer/model/model.json
-      # Kept on every branch, and not replaced by the published page: it is how
-      # a pull request's own report gets read, and the fallback when a deploy
-      # fails.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-explorer-report
-          path: tools/test-explorer/out/
       - uses: actions/upload-artifact@v4
         with:
           name: test-explorer-model
@@ -622,19 +613,19 @@ jobs:
   # cancellations counted apart from failures, durations, how long `main` stayed
   # red, and the recent failures linked to the step they died on ("See how
   # reliable each CI job on main is, without counting runs by hand", issue 244).
+  # It sends the runs to the Harness Monitor, which draws the CI stability page
+  # from them.
   #
   # Its own job rather than a step of `test-explorer`, which now needs `test`'s
   # instrumented run and is skipped whenever it fails: folding this in would take
-  # down the page whose purpose is reporting suite failures, at the one moment it
-  # is worth reading.
+  # down the tests at the one moment they are worth reading.
   #
   # No install step, for the reason the Scripts step of `checks` gives — it
   # reads the API with the standard library and has no dependencies to fetch.
   #
-  # `main` only, and not because a branch's report would be published (the
-  # `pages` job below is what decides that): a report costs hundreds of API
-  # requests against an hourly allowance every workflow here shares, worked out
-  # in `tools/ci-stability/src/github.js`. What proves the generator on a branch
+  # `main` only: a run costs hundreds of API requests against an hourly
+  # allowance every workflow here shares, worked out in
+  # `tools/ci-stability/src/github.js`. What proves the generator on a branch
   # is its own suite, which stubs the API.
   stability:
     name: Stability
@@ -645,18 +636,16 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Advisory, exactly as the test explorer is: a report that cannot be built
-    # is a missing page, not a broken `main`. This is also what stops a spent
-    # rate limit taking the explorer's publish down with it — `pages` below
-    # gates on `test-explorer` alone.
+    # Advisory, exactly as the test explorer is: a send that cannot be made is
+    # a stale page, not a broken `main`.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      # Also sends the runs to the Harness Monitor, from the newest it holds less
-      # two days, after the page is written. The write key reaches this job
-      # because it runs on `main` only, never a pull request's code. Until both
-      # the secret and the variable are set it says so and only writes the page
-      # (docs/deployment.md, "The Harness Monitor").
+      # Sends the runs to the Harness Monitor, from the newest it holds less two
+      # days. The write key reaches this job because it runs on `main` only,
+      # never a pull request's code. Until both the secret and the variable are
+      # set it says so and only works the model out (docs/deployment.md, "The
+      # Harness Monitor").
       - name: Measure how reliable each job on main has been
         run: |
           send=--send
@@ -664,28 +653,20 @@ jobs:
             echo "::notice title=CI stability not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so the runs did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
             send=
           fi
-          node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json $send
+          node tools/ci-stability/src/cli.js $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
           HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
-      # A send the Monitor refused, or the run budget cut short, fails the step
-      # above with the page already written, so the page is still uploaded.
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: ci-stability-report
-          path: tools/ci-stability/out/
 
-  # The reports from the tip of `main`, at a fixed URL, readable without signing
-  # in — which is what a zipped artifact is not, least of all on a phone, where
-  # the GitHub app has never downloaded one in-app ("Publish the test explorer
-  # at a URL, instead of a zip you have to download", issue 224).
+  # GitHub Pages: the architecture page and a redirect at each address a harness
+  # report used to have, sent to that report's Harness Monitor page. Pages holds
+  # nothing a merge changes, so this publishes the newest architecture page and the
+  # redirects, which is what puts a change to publish.yml live at once instead of
+  # at the next nightly run.
   #
   # publish.yml does the actual fetch-and-deploy, shared with nightly.yml's own
-  # call to it, so either a merge or a nightly run can put a report live
-  # ("Publish nightly's reports the same night, and make a manual run go live
-  # too", issue 563).
+  # call to it, which is what puts a freshly drawn architecture page live.
   #
   # **Pages must be switched on for the repository** (Settings → Pages →
   # Source: GitHub Actions), as docs/deployment.md records under "Then, by hand".
@@ -694,12 +675,8 @@ jobs:
   # wants a stored PAT, which is a worse trade than one settings click.
   pages:
     name: Publish
-    needs: [test-explorer, stability]
-    # `!cancelled()` rather than the bare ref test, because `needs` on a failed
-    # job would otherwise skip this one: the stability report is allowed to fail
-    # and the site still publishes without it. The explorer is not — it is the
-    # page, so its result is named explicitly.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.test-explorer.result == 'success' }}
+    # `!cancelled()`, because it needs nothing another job here builds.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read
       pages: write

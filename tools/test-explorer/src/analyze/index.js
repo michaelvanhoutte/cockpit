@@ -1,6 +1,6 @@
 /**
  * The analyzer's only public entry point: a repo path in, a Model out.
- * Imports nothing from ../render/ (docs/test-explorer-spec.md §6.1).
+ * Knows nothing about how its model is drawn (docs/test-explorer-spec.md §6.1).
  */
 
 import { execFileSync } from 'node:child_process';

@@ -1,10 +1,9 @@
 //
-// Every date and time the published harness reports (tools/cycle-time,
-// ci-stability, selection, test-explorer, architecture) show is Belgian: the
-// zone and region are fixed, since the people who read the pages are in
-// Belgium and each page is a static file that cannot ask who is looking. The
-// model files beside the pages keep their ISO UTC times; only what a reader
-// sees goes through here. One module, so a new page cannot pick a zone of its
+// Every date and time the published architecture page (tools/architecture)
+// shows is Belgian: the zone and region are fixed, since the people who read
+// the page are in Belgium and it is a static file that cannot ask who is
+// looking. The model file beside the page keeps its ISO UTC times; only what a
+// reader sees goes through here. One module, so a new page cannot pick a zone of its
 // own (the Harness Monitor's twin is apps/harness-monitor/src/belgium.ts).
 //
 // Pure: instants in, text and instants out. No clock is read.

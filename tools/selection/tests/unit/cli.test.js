@@ -44,9 +44,14 @@ describe('parseArgs', () => {
     expect(parseArgs(['--days', 'x', '--max-pulls', 'y']).invalid).toContain('--days');
   });
 
-  it('takes a repository, a branch and an output path as given', () => {
-    const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--out', 'a/b.html', '--json']);
-    expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', out: 'a/b.html', json: true });
+  it('takes a repository, a branch and a model path as given', () => {
+    const args = parseArgs(['--repo', 'o/r', '--branch', 'trunk', '--model', 'a/b.json']);
+    expect(args).toMatchObject({ repo: 'o/r', branch: 'trunk', model: 'a/b.json' });
+  });
+
+  it('no longer knows the flags that chose a page', () => {
+    expect(parseArgs(['--json']).unknown).toBe('--json');
+    expect(parseArgs(['--out', 'a/b.html']).unknown).toBe('--out');
   });
 
   describe('a window given by hand is read as whole days, and only ever sent', () => {
@@ -77,7 +82,7 @@ describe('parseArgs', () => {
 });
 
 describe('Selection', () => {
-  describe('the command writes the page, or with --json the model', () => {
+  describe('a run writes its model and draws no page', () => {
     const model = buildModel({
       pulls: [],
       now: new Date('2026-09-21T12:00:00Z'),
@@ -86,17 +91,14 @@ describe('Selection', () => {
       repo: 'o/r',
     });
 
-    it('writes the page when told nothing', () => {
-      const { file, content } = output(parseArgs([]), model);
-      expect(file).toBe('index.html');
-      expect(content).toMatch(/^<!doctype html>/);
-    });
-
-    it('writes the model rather than the page with --json', () => {
-      const { file, content } = output(parseArgs(['--json']), model);
-      expect(file).toBe('model.json');
-      expect(JSON.parse(content)).toMatchObject({ repo: 'o/r' });
-      expect(content).not.toContain('<html');
+    it.each([
+      { situation: 'told nothing', argv: [], file: /out[\\/]model\.json$/ },
+      { situation: 'given a path', argv: ['--model', 'somewhere/else.json'], file: /somewhere[\\/]else\.json$/ },
+    ])('writes the model as JSON to its file when $situation', ({ argv, file }) => {
+      const written = output(parseArgs(argv), model);
+      expect(written.file).toMatch(file);
+      expect(JSON.parse(written.content)).toMatchObject({ repo: 'o/r' });
+      expect(written.content).not.toContain('<html');
     });
   });
 });

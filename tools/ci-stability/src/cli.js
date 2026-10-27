@@ -1,19 +1,19 @@
 /**
- * The wiring, and the only place github.js and render/ meet.
+ * The wiring, and the only place github.js and model.js meet.
  *
- *   collect(repo) -> buildModel(...) -> renderHtml(Model) -> a file
+ *   collect(repo) -> buildModel(...) -> a model file
  *                 -> monitorRows(...) -> sendRuns(...)  -> the Harness Monitor, with --send
  *                 -> collectAttempts(...) -> attemptRows(...) -> sendAttempts(...)  -> likewise
  *
- * `--branches --send` is the nightly send of every other branch's attempts: no page, no run, and
+ * `--branches --send` is the nightly send of every other branch's attempts: no model, no run, and
  * a day at a time (sendBranches). `backfill.js` runs both over a window with `--old-failures`.
  *
- * `--json` stops after the second arrow, so anything else can consume the
- * model. `--send` reads once for both, back to whichever window starts earlier,
- * and sends after the page is written, so a Monitor that refuses costs the send
- * and never the page. Nothing is written until every request has come back: a page of
- * partial numbers looks exactly like a page of real ones, so a failed fetch
- * leaves the previous report in place rather than replacing it with a
+ * The Harness Monitor draws the page; the model file is for a person's own run.
+ * `--send` reads once for both, back to whichever window starts earlier, and
+ * sends after the model is written, so a Monitor that refuses costs the send
+ * and never the model. Nothing is written until every request has come back: a
+ * model of partial numbers looks exactly like a model of real ones, so a failed
+ * fetch leaves the previous file in place rather than replacing it with a
  * plausible lie.
  */
 
@@ -25,7 +25,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collect, collectAttempts, dayChunks, GitHubError, listBranchRuns } from './github.js';
 import { attemptRows, buildModel, monitorRows } from './model.js';
 import { MonitorError, newestStored, newestStoredAttempt, sendAttempts, sendRuns, sendWindow } from './monitor.js';
-import { renderHtml } from './render/html.js';
 import { workspacePackages } from './workspace.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -33,9 +32,7 @@ const DAY_MS = 86_400_000;
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>        where to write (default ../out/index.html, or model.json with --json)
-  --json              write the model instead of the page
-  --model <path>      also write the model, as --json would, to this path
+  --model <path>      where to write the model (default ../out/model.json)
   --days <n>          how far back to read (default 30)
   --windows <a,b>     the windows to report, in days (default 7,30)
   --max-runs <n>      stop after this many runs, and report the shorter window (default 800)
@@ -50,7 +47,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --branches          with --send, send every attempt of every run on a branch other than main's (a
                       pull request's run, or a push to another branch) instead, from the newest such
                       attempt the Monitor holds less two days, a day at a time, oldest first; writes
-                      no page and sends no run. --max-runs stops it after the day that reaches it
+                      no model and sends no run. --max-runs stops it after the day that reaches it
   --old-failures      with --send, read a failed job's tests from its annotations or its log where it
                       kept no record of them (the backfill's; \`pnpm stability:backfill\` sends with it)
   --help
@@ -125,7 +122,6 @@ export function parseArgs(argv) {
     const arg = argv[i];
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
-    else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
     else if (arg === '--branches') args.branches = true;
     else if (arg === '--old-failures') args.oldFailures = true;
@@ -135,7 +131,6 @@ export function parseArgs(argv) {
       const last = day(value(), '--to', args);
       if (last) args.to = new Date(last.getTime() + DAY_MS);
     }
-    else if (arg === '--out') args.out = value();
     else if (arg === '--model') {
       const modelValue = value();
       if (!modelValue) {
@@ -165,29 +160,14 @@ export function parseArgs(argv) {
   if (args.from && !args.send) args.invalid ??= '--from needs --send: a window given by hand is only ever sent';
   if (args.from && args.to && args.to <= args.from) args.invalid ??= '--to cannot be before --from';
   if (args.oldFailures && !args.send) args.invalid ??= '--old-failures needs --send: it only changes what is sent';
-  if (args.branches && !args.send) args.invalid ??= '--branches needs --send: it writes no page, only sends';
-  if (args.branches && (args.json || args.out || args.model)) args.invalid ??= '--branches writes no page or model, so --json, --out and --model do not apply';
+  if (args.branches && !args.send) args.invalid ??= '--branches needs --send: it writes no model, only sends';
+  if (args.branches && args.model) args.invalid ??= '--branches writes no model, so --model does not apply';
   return args;
 }
 
-/**
- * What is written and its default name: the page, or with `--json` the model.
- */
+/** What a run writes: the model, and nothing else. */
 export function output(args, model) {
-  return args.json
-    ? { file: 'model.json', content: modelJson(model) }
-    : { file: 'index.html', content: renderHtml(model) };
-}
-
-/** The model as JSON, the same as output() returns for --json. */
-function modelJson(model) {
-  return JSON.stringify(model, null, 2);
-}
-
-/** The default output path for the page or --json model. */
-function defaultOut(args) {
-  const file = args.json ? 'model.json' : 'index.html';
-  return path.join(here, '../out', file);
+  return { file: path.resolve(args.model ?? path.join(here, '../out/model.json')), content: JSON.stringify(model, null, 2) };
 }
 
 export async function main(argv) {
@@ -203,14 +183,6 @@ export async function main(argv) {
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
-  }
-
-  if (args.model) {
-    const effectiveOut = args.out ?? defaultOut(args);
-    if (path.resolve(args.model) === path.resolve(effectiveOut)) {
-      process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
-      return 2;
-    }
   }
 
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? repoFromGitRemote();
@@ -232,7 +204,7 @@ export async function main(argv) {
   const backfill = Boolean(args.from);
   if (args.branches) return sendBranches({ args, monitor, repo, trunk: branch, days, now, backfill });
 
-  // A Monitor that cannot say where to start costs the send, never the page. The attempts start
+  // A Monitor that cannot say where to start costs the send, never the model. The attempts start
   // from their own newest, and a Monitor that cannot say costs only them: the runs still go.
   let window = null;
   let unsent = null;
@@ -260,7 +232,7 @@ export async function main(argv) {
 
   let collected;
   try {
-    // One read serves the page and the send: back to whichever starts earlier.
+    // One read serves the model and the send: back to whichever starts earlier.
     collected = await collect({
       repo,
       branch,
@@ -456,9 +428,9 @@ async function sendBranches({ args, monitor, repo, trunk, days, now, backfill })
   return stoppedAt || capped ? 1 : 0;
 }
 
-/** The page, or the model, over its own window, and the model beside it with --model. Returns the paths written. */
+/** The model, over its own window. Returns the paths written. */
 function writeReport(args, collected, { now, days, pageSince, repo, branch }) {
-  // A send can read further back than the page shows; the page keeps to its window,
+  // A send can read further back than the model shows; the model keeps to its window,
   // and a read that went on past it read all of it, whatever stopped it after.
   const runs = collected.runs.filter((run) => new Date(run.createdAt) >= pageSince);
   const pastPage = runs.length < collected.runs.length;
@@ -477,19 +449,10 @@ function writeReport(args, collected, { now, days, pageSince, repo, branch }) {
     windows: args.windows,
   });
 
-  const { content } = output(args, model);
-  const out = path.resolve(args.out ?? defaultOut(args));
-  mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, content, 'utf8');
-  const writtenFiles = [out];
-
-  if (args.model) {
-    const modelOut = path.resolve(args.model);
-    mkdirSync(path.dirname(modelOut), { recursive: true });
-    writeFileSync(modelOut, modelJson(model), 'utf8');
-    writtenFiles.push(modelOut);
-  }
-  return writtenFiles;
+  const { file, content } = output(args, model);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, content, 'utf8');
+  return [file];
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

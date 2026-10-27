@@ -6,7 +6,6 @@
   "description": "Derives which product concepts own which tests, and renders it as a table. See docs/test-explorer-spec.md.",
   "scripts": {
     "generate": "node src/cli.js",
-    "model": "node src/cli.js --json",
     "check-concepts": "node src/cli.js --check-concepts",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",

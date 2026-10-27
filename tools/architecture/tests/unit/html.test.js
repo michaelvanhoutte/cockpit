@@ -66,10 +66,26 @@ describe('The architecture page', () => {
     });
   });
 
-  it('links to the cycle-time page', () => {
-    const html = page();
-    expect(html).toContain('href="../cycle-time/"');
-    expect(html).toContain('Cycle time');
+  describe('the harness reports are linked at the Harness Monitor, given its address', () => {
+    const withMonitor = (monitor) => renderHtml(buildModel({ wrangler: { file: 'w.jsonc', text: wrangler }, workflows: [{ file: 'deploy-staging.yml', text: deploy }], description: descriptionFile(), commit: null, date: null }), { monitor });
+
+    it.each([
+      { situation: 'an address', monitor: 'https://monitor.test', links: ['https://monitor.test/tests', 'https://monitor.test/stability', 'https://monitor.test/cycle-time', 'https://monitor.test/selection'] },
+      { situation: 'an address with a trailing slash', monitor: 'https://monitor.test/', links: ['https://monitor.test/tests', 'https://monitor.test/cycle-time'] },
+    ])('links the four pages from $situation', ({ monitor, links }) => {
+      const html = withMonitor(monitor);
+      for (const link of links) expect(html).toContain(`href="${link}"`);
+    });
+
+    it.each([
+      { situation: 'no address', monitor: undefined },
+      { situation: 'the repository variable unset', monitor: '' },
+      { situation: 'something that is not a web address', monitor: 'javascript:alert(1)' },
+    ])('links none of them with $situation', ({ monitor }) => {
+      const html = withMonitor(monitor);
+      expect(html).not.toContain('Cycle time');
+      expect(html).not.toContain('CI stability');
+    });
   });
 
   it('opens from disk: styles inline, no script, no remote address but links a reader follows', () => {
