@@ -111,8 +111,12 @@ jobs:
           redirect stability/index.html stability
           redirect lead-time/index.html cycle-time
 
+      # With neither the page nor the redirects there is nothing to deploy, and
+      # an upload of a missing site/ would fail the run: the live site stays as it is.
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ hashFiles('site/**') != '' }}
         with:
           path: site/
       - id: deploy
+        if: ${{ hashFiles('site/**') != '' }}
         uses: actions/deploy-pages@v4

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Derives which product concepts own which tests, and renders it as a table. See docs/test-explorer-spec.md.",
+  "description": "Derives which product concepts own which tests, as the model the Harness Monitor's Tests page draws. See docs/test-explorer-spec.md.",
   "scripts": {
     "generate": "node src/cli.js",
     "check-concepts": "node src/cli.js --check-concepts",

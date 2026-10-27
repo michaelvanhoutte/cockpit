@@ -116,10 +116,10 @@ architecture page and writes each redirect, built from the repository variable
 | `/selection/` | `/selection` |
 | `/stability/` | `/stability` |
 
-A JSON file cannot redirect, so the old `model.json` addresses (`/model.json`,
-`/cycle-time/`, `/lead-time/`, `/selection/` and `/stability/` each with `model.json`)
-answer 404. Whatever read one reads the Monitor's page at the same address with
-`?format=json` instead (`/tests`, `/cycle-time`, `/selection`, `/stability`). The shapes
+A JSON file cannot redirect, so the old `model.json` addresses (`/cycle-time/`,
+`/lead-time/`, `/selection/` and `/stability/` each with `model.json`) answer 404.
+Whatever read one reads the Monitor's page at the same address with `?format=json`
+instead (`/cycle-time`, `/selection`, `/stability`). The shapes
 differ from the old models': `harness-cost-review` names the fields it reads. Only
 `/architecture/model.json` stays on Pages, where the next architecture run reads it
 for its *What changed* section. Without the variable no redirect is written and

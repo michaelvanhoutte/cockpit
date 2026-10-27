@@ -492,8 +492,8 @@ pull request's own, sent from CI ([tools/test-explorer/README.md](../tools/test-
 The tool draws no page of its own, and the Monitor keeps no history of `main`'s tests. The
 old address on GitHub Pages redirects there (deployment.md, "The environments").
 
-The explorer can only run in CI, since the coverage it shows is the `Test` job's own
-instrumented run, so the model is sent from there. Only `main`'s run sends `main`'s tests,
+The model is sent from CI, since the coverage it shows is the `Test` job's own
+instrumented run. Only `main`'s run sends `main`'s tests,
 because CI also runs on every pull request and a branch's model must not replace the shown
 one; a pull request's model is sent by `pr-tests.yml`, which holds the write key this job
 never does.

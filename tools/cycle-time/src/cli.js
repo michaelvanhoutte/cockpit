@@ -5,8 +5,8 @@
  *                 -> monitorRows(...) -> sendPulls(...)   -> the Harness Monitor, with --send
  *                 -> monitorTimelines(...) -> sendTimelines(...), with --timelines-only instead
  *
- * The model file is what the nightly job's alarms and a person's own run read;
- * the Harness Monitor draws the pages. `--send` reads once for both, back to
+ * The Harness Monitor draws the page; the model file is for a person's own
+ * run. `--send` reads once for both, back to
  * whichever window starts earlier, and sends after the model is written, so a
  * Monitor that refuses costs the send and never the model. Nothing is written
  * until every request has come back: a model of partial numbers looks exactly
@@ -175,7 +175,7 @@ export async function main(argv) {
   const since = new Date(now.getTime() - days * DAY_MS);
   const backfill = Boolean(args.from);
 
-  // A Monitor that cannot say where to start costs the send, never the page.
+  // A Monitor that cannot say where to start costs the send, never the model.
   let window = null;
   let unsent = null;
   if (monitor) {
@@ -190,7 +190,7 @@ export async function main(argv) {
 
   let collected;
   try {
-    // One read serves the page and the send: back to whichever starts earlier.
+    // One read serves the model and the send: back to whichever starts earlier.
     collected = await collect({
       repo,
       branch,
@@ -269,7 +269,7 @@ async function send(monitor, collected, window, { backfill, branch, timelinesOnl
 
 /** The model, over its own window. */
 function writeReport(args, collected, { now, days, since, repo, branch }) {
-  // A send can read further back than the page shows; the page keeps to its window,
+  // A send can read further back than the model shows; the model keeps to its window,
   // and a read that went back past it read all of it, whatever stopped it after.
   const pulls = collected.pulls.filter((pull) => new Date(pull.mergedAt) >= since);
   const truncated = collected.truncated && collected.coveredSince > since;

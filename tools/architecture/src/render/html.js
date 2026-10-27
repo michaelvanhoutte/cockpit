@@ -135,9 +135,9 @@ export function renderDiagramPages(model) {
  * @returns {string} a complete HTML document
  */
 export function renderHtml(model, { monitor = '', comparison = { state: 'unavailable', reason: 'no earlier report was given to compare against' } } = {}) {
-  const base = /^https?:\/\//.test(monitor) ? monitor.replace(/\/+$/, '') : '';
+  const base = /^https:\/\//.test(monitor) ? monitor.replace(/\/+$/, '') : '';
   const reportLinks = base
-    ? [['tests', 'Tests'], ['stability', 'CI stability'], ['cycle-time', 'Cycle time'], ['selection', 'Test selection']]
+    ? [['tests', 'Test coverage'], ['stability', 'CI stability'], ['cycle-time', 'Cycle time'], ['selection', 'Test selection']]
         .map(([page, name]) => `<span><a href="${esc(`${base}/${page}`)}"><b>${name} &rarr;</b></a></span>`)
         .join('\n      ')
     : '';
