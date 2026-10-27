@@ -92,6 +92,15 @@ const SHARD_NAME = /^(.+) \((\d+)\)$/;
  * @param {import('./github.js').Job[]} jobs the jobs of one run
  */
 function foldFamilies(jobs) {
+  /** The fan-in's record where it names the tests; else the failed shards' together, which an annotation or a log named in each. */
+  const familyRecord = (own, shardRecords) => {
+    const named = shardRecords.filter(namesTests);
+    if (namesTests(own) || named.length === 0) return own;
+    // Two shards that fail the same test (a shared setup) name it once.
+    const once = new Map(named.flatMap((record) => record.value.failedTests).map((test) => [`${test?.file}|${test?.project ?? ''}|${test?.name}`, test]));
+    return { state: 'read', value: { failedTests: [...once.values()], failedTestsMore: named.reduce((sum, record) => sum + (record.value.failedTestsMore ?? 0), 0) } };
+  };
+
   const shards = jobs.filter((job) => SHARD_NAME.test(job.name));
   if (shards.length === 0) return jobs;
 
@@ -113,8 +122,10 @@ function foldFamilies(jobs) {
     const failing = members.find(({ shard }) => classify(shard) === 'fail')?.shard ?? null;
     // A fan-in skipped behind a failed shard says nothing, so the shard's failure stands in for it.
     const base = (fanIn && !(failing && classify(fanIn) === 'skipped') ? fanIn : null) ?? { runId: members[0].shard.runId, name: family, conclusion: failing ? 'failure' : 'neutral', status: 'completed', url: members[0].shard.url, steps: [] };
+    const record = familyRecord(base.record, members.filter(({ shard }) => classify(shard) === 'fail').map(({ shard }) => shard.record));
     folded.push({
       ...base,
+      ...(record === undefined ? {} : { record }),
       name: family,
       // The span of the whole family, or nothing: a figure over the shards that were read would be a shorter family.
       familyMs: whole && finished ? Math.max(...members.map(({ shard }) => Date.parse(shard.completedAt))) - Math.min(...members.map(({ shard }) => Date.parse(shard.startedAt))) : null,
@@ -353,6 +364,197 @@ function windowModel(runs, jobsByRun, { days, now, oldestRun, reachedWindowEdge,
     runs: inWindow.length,
     workflows,
   };
+}
+
+/**
+ * The runs as the Harness Monitor stores them: each with its jobs, a shard family
+ * folded into one job exactly as the model counts it, and each run's and job's
+ * outcome decided here, so the Monitor derives nothing. A duration is the span
+ * the model would count, or null where it has none; whether it counts is the
+ * outcome's to say (only `pass` and `fail` do), and a skipped or cancelled step
+ * has none. A step carries its occurrence of its name in the job, its key.
+ *
+ * @param {{ runs: import('./github.js').Run[], jobs: import('./github.js').Job[] }} input
+ */
+export function monitorRows({ runs, jobs }) {
+  const jobsByRun = group(jobs, (job) => job.runId);
+  return runs.map((run) => ({
+    id: run.id,
+    workflow: run.workflow,
+    path: run.path,
+    status: run.status,
+    conclusion: run.conclusion ?? null,
+    outcome: classify(run),
+    headSha: run.headSha,
+    createdAt: run.createdAt,
+    url: run.url,
+    jobs: foldFamilies(jobsByRun.get(run.id) ?? []).map(monitorJob),
+  }));
+}
+
+/** A job, already folded, as the Monitor stores it (`monitorRows`). */
+function monitorJob(job) {
+  const seen = new Map();
+  return {
+    name: job.name,
+    status: job.status,
+    conclusion: job.conclusion ?? null,
+    outcome: classify(job),
+    startedAt: job.startedAt ?? null,
+    completedAt: job.completedAt ?? null,
+    durationMs: durationMs(job),
+    failedStep: job.failedStep ?? null,
+    url: job.url ?? null,
+    steps: (job.steps ?? []).map((step) => {
+      const name = step.name ?? '';
+      const occurrence = (seen.get(name) ?? 0) + 1;
+      seen.set(name, occurrence);
+      return {
+        number: step.number ?? null,
+        name,
+        occurrence,
+        conclusion: step.conclusion ?? null,
+        startedAt: step.startedAt ?? null,
+        completedAt: step.completedAt ?? null,
+        durationMs: stepDurationMs(step),
+      };
+    }),
+  };
+}
+
+/**
+ * Dependabot's update runs belong to no workflow file and are named for their update
+ * (`npm_and_yarn in /. for esbuild - Update #1547810405`), each a workflow of one run.
+ *
+ * @param {{ path?: string|null, event?: string|null, workflow?: string|null }} run
+ */
+export function isDependabot(run) {
+  return String(run.path ?? '').startsWith('dynamic/dependabot/') || (run.event === 'dynamic' && / - Update #\d+$/.test(run.workflow ?? ''));
+}
+
+/** The workflow a run is filed under: its own name, and for all of Dependabot's the one name "Dependabot". */
+export const workflowOf = (run) => (isDependabot(run) ? 'Dependabot' : run.workflow);
+
+/**
+ * Whether a run is `main`'s own: whatever started it, a run on the trunk. A pull request's
+ * run, or any run on another branch, is a feature branch's.
+ *
+ * @param {{ event?: string|null, branch?: string|null }} run
+ */
+export function onMainOf(run, trunk = 'main') {
+  if (run.event === 'pull_request' || run.event === 'pull_request_target') return false;
+  return run.branch === trunk;
+}
+
+/**
+ * The jobs whose failure leaves a record naming the tests that failed in it, and the
+ * artifact each uploads: the CI workflow's `Test` and (the fan-in) `E2E (F3)`, and every job of
+ * the workflows that gather the failed tests of a Vitest run into `failed-tests-record`
+ * (`scripts/ci-failed-tests.mjs`). Any other job names the step it died on and no test.
+ */
+const RECORD_ARTIFACTS = {
+  '.github/workflows/ci.yml': { Test: 'test-selection-record', 'E2E (F3)': 'e2e-selection-record' },
+  '.github/workflows/deploy-staging.yml': '*',
+  '.github/workflows/deploy-production.yml': '*',
+  '.github/workflows/contract.yml': '*',
+};
+
+/** The artifact a failed job of the workflow at `path` uploaded its record as, or `null` for a job that keeps none. */
+export function recordArtifactFor(path, jobName) {
+  const own = Object.hasOwn(RECORD_ARTIFACTS, path) ? RECORD_ARTIFACTS[path] : null;
+  if (own === '*') return 'failed-tests-record';
+  return own && Object.hasOwn(own, jobName) ? own[jobName] : null;
+}
+
+/** Whether a record names the tests that failed in its job: one from before records did has the field missing. */
+export function namesTests(record) {
+  return record?.state === 'read' && Array.isArray(record.value?.failedTests);
+}
+
+const text = (value, max) => (typeof value === 'string' && value.trim() !== '' ? value.slice(0, max) : null);
+
+/** The most failed tests one failed job names; the rest are counted. The Monitor refuses a job over it. */
+const MOST_TESTS = 100;
+
+/**
+ * The tests a failed job's record names, in the shape the Monitor stores them, and how many more
+ * it counted without naming. A record not read, from before records named tests, or with a test
+ * of no file or name, names none, never a guess.
+ *
+ * @param {null|undefined|{ state: string, value?: object }} record
+ */
+export function failedTestsOf(record) {
+  const value = record?.state === 'read' ? record.value : null;
+  const named = (Array.isArray(value?.failedTests) ? value.failedTests : [])
+    .map((test) => ({ file: text(test?.file, 500), name: text(test?.name, 1000), project: text(test?.project, 100), error: text(test?.error, 500) }))
+    .filter((test) => test.file !== null && test.name !== null);
+  const more = Number.isSafeInteger(value?.failedTestsMore) && value.failedTestsMore > 0 ? value.failedTestsMore : 0;
+  return { tests: named.slice(0, MOST_TESTS), testsMore: more + Math.max(0, named.length - MOST_TESTS) };
+}
+
+/**
+ * An earlier attempt's verdict, read from its own jobs: a run only carries its latest attempt's.
+ * Any failed job fails it, else any cancelled one; one nothing can be read for is `unknown`,
+ * never a pass.
+ *
+ * @param {import('./github.js').Job[]} jobs
+ */
+function verdictOfJobs(jobs) {
+  if (jobs.length === 0) return { status: 'unknown', conclusion: null, outcome: 'unknown' };
+  const find = (outcome) => jobs.find((job) => classify(job) === outcome);
+  const failed = find('fail');
+  if (failed) return { status: 'completed', conclusion: failed.conclusion, outcome: 'fail' };
+  const cancelled = find('cancelled');
+  if (cancelled) return { status: 'completed', conclusion: cancelled.conclusion, outcome: 'cancelled' };
+  if (find('running')) return { status: 'in_progress', conclusion: null, outcome: 'running' };
+  const unknown = find('unknown');
+  if (unknown) return { status: 'completed', conclusion: unknown.conclusion, outcome: 'unknown' };
+  if (find('pass') || find('other')) return { status: 'completed', conclusion: find('pass') ? 'success' : find('other').conclusion, outcome: find('pass') ? 'pass' : 'other' };
+  return { status: 'completed', conclusion: 'skipped', outcome: 'skipped' };
+}
+
+/**
+ * Every attempt of every run as the Harness Monitor stores it: the verdict of the latest from the
+ * run, of an earlier one from its own jobs; the branch and pull request it ran for; on `main` the
+ * jobs and steps as `monitorRows` counts them, a shard family one job; and for any attempt its
+ * failed jobs with the tests that failed in each, from the record the job uploaded. A fan-in that
+ * failed only because a shard did is no failed job of its own: the family is one, under the
+ * fan-in's name, with the failing shard's step.
+ *
+ * @param {{ run: import('./github.js').Run, attempt: number, jobs: (import('./github.js').Job & { record?: object })[] }[]} entries
+ *   one per attempt, the jobs of that attempt, a failed one carrying the `record` read for it
+ * @param {{ trunk?: string }} [options]
+ */
+export function attemptRows(entries, { trunk = 'main' } = {}) {
+  return entries.map(({ run, attempt, jobs }) => {
+    const latest = attempt === (run.attempt ?? 1);
+    const verdict = latest ? { status: run.status, conclusion: run.conclusion ?? null, outcome: classify(run) } : verdictOfJobs(jobs);
+    const folded = foldFamilies(jobs);
+    const onMain = onMainOf(run, trunk);
+    const started = jobs.map((job) => job.startedAt).filter(Boolean).sort()[0];
+    return {
+      runId: run.id,
+      attempt,
+      workflow: workflowOf(run),
+      // Dependabot's update runs can come with no workflow file, and the Monitor refuses an attempt with no path.
+      path: run.path ?? (isDependabot(run) ? 'dynamic/dependabot/dependabot-updates' : null),
+      event: run.event ?? 'unknown',
+      branch: run.branch ?? null,
+      pullRequest: run.pullRequest ?? null,
+      onMain,
+      headSha: run.headSha,
+      ...verdict,
+      createdAt: latest ? (run.startedAt ?? run.createdAt) : (started ?? run.createdAt),
+      url: latest ? run.url : `${run.url}/attempts/${attempt}`,
+      jobs: onMain ? folded.map(monitorJob) : [],
+      failedJobs: folded
+        .filter((job) => classify(job) === 'fail')
+        .map((job) => {
+          const { tests, testsMore } = failedTestsOf(job.record);
+          return { name: job.name, step: job.failedStep ?? null, url: job.url ?? null, tests, testsMore };
+        }),
+    };
+  });
 }
 
 /**

@@ -61,6 +61,14 @@ describe('Test selection report', () => {
       expect(decide(quiet())).toEqual([]);
     });
 
+    it('an open alarm of the retired most-selected bar is left alone: no comment, no edit, nothing filed, and a crossed bar beside it is handled as ever', () => {
+      const retired = [{ ...anAlarm({ number: 11, bar: 'most-selected' }), comments: ['an older comment'] }];
+      expect(decide(quiet(), retired)).toEqual([]);
+
+      const actions = decide(e2eForcedFull(), retired);
+      expect(actions.map((action) => [action.kind, action.bar])).toEqual([['create', 'e2e-forced-full']]);
+    });
+
     it('a bar that could not be read files nothing and says nothing, even beside an alarm that is open', () => {
       expect(decide(tooFew())).toEqual([]);
       expect(decide(tooFew(), [anAlarm({ number: 7, bar: 'e2e-forced-full' })])).toEqual([]);
@@ -168,7 +176,7 @@ describe('Test selection report', () => {
         ],
       });
       const numbers = Object.fromEntries(model.bars.items.map((bar) => [bar.id, bar.alarmIssue]));
-      expect(numbers).toEqual({ 'e2e-forced-full': 8, 'test-forced-full': null, misses: null, 'most-selected': null });
+      expect(numbers).toEqual({ 'e2e-forced-full': 8, 'test-forced-full': null, misses: null });
     });
 
     it('the strip’s foot links the issue, and says nothing of one where none is open', () => {

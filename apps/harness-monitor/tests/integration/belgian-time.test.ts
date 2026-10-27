@@ -120,16 +120,7 @@ describe('Harness Monitor', () => {
         const html = await theBarePage('?period=7d');
 
         expect(costRows(html).map((r) => [r.label, r.total])).toEqual([['16 Oct 2026', '$1.00']]);
-        expect(whereItWent(html).heading).toBe("Where the period's $1.00 went");
-      });
-
-      it('the comparison names Belgian days for both of its windows', async () => {
-        const card = /<section class="panel change".*?<\/p>/s.exec(await theBarePage('?period=7d'))![0];
-
-        expect(card).toContain('(16 Oct 2026 to 22 Oct 2026)');
-        expect(card).toContain('(9 Oct 2026 to 15 Oct 2026)');
-        // The request just outside the period falls in the window before it.
-        expect(card).toMatch(/cost <strong>\$1\.00<\/strong> against <strong>\$4\.00<\/strong>/);
+        expect(whereItWent(html).heading).toBe("Where the period's $1.00 went, by phase");
       });
 
       it('the pull request page counts the same request', async () => {
@@ -194,7 +185,7 @@ describe('Harness Monitor', () => {
     /** The Monitor as it stood before the change: every total and every stored day under the UTC day. */
     async function asBeforeTheChange() {
       await send(REQUESTS);
-      for (const table of ['daily_totals', 'daily_split_totals', 'session_starts', 'usage_requests']) {
+      for (const table of ['daily_totals', 'daily_credited_totals', 'session_starts', 'usage_requests']) {
         for (const [belgian, utc] of OLD_DAYS) await env.DB.prepare(`UPDATE ${table} SET day = ? WHERE day = ?`).bind(utc, belgian).run();
       }
     }
@@ -245,7 +236,7 @@ describe('Harness Monitor', () => {
       const whole = await filed();
       // A run that stopped part-way: one table re-filed, the others emptied or still under UTC days.
       await env.DB.batch([
-        env.DB.prepare('DELETE FROM daily_split_totals'),
+        env.DB.prepare('DELETE FROM daily_credited_totals'),
         env.DB.prepare("UPDATE daily_totals SET day = '2026-10-21' WHERE day = '2026-10-22'"),
         env.DB.prepare("UPDATE session_starts SET day = '2026-01-10' WHERE day = '2026-01-11'"),
       ]);

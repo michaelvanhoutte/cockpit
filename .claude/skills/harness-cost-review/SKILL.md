@@ -18,7 +18,7 @@ Each report's model is read from the published site with `curl -fsSL <url> -o <s
 | Model | Read from | Gives |
 |---|---|---|
 | Cycle time | `https://michaelvanhoutte.github.io/cockpit/cycle-time/model.json` | per merged pull request: coding against harness (`balance`), rounds, red rounds, flukes, which check held each round, local reviews, size; per window: failing tests and steps (`failures`), queue time per check (`queue`), cancelled runner minutes (`cancelled`) |
-| Selection | `https://michaelvanhoutte.github.io/cockpit/selection/model.json` | `bars.items`: each headline figure with its `verdict`; `forcedFullRules`: a row per rule above its paths; misses; tests selected on nearly every pull request |
+| Selection | `https://michaelvanhoutte.github.io/cockpit/selection/model.json` | `bars.items`: each headline figure with its `verdict`; `forcedFullRules`: a row per rule above its paths; misses |
 | CI stability | `https://michaelvanhoutte.github.io/cockpit/stability/model.json` | job and step durations on `main` per window |
 
 These tools run on this machine, since they read Claude Code's own logs:
@@ -39,7 +39,7 @@ Read the 14-day window unless a bar says otherwise. A bar needs at least 20 merg
 | Cause | Bar | Read from |
 |---|---|---|
 | **Harness outweighs coding** | `balance.ratio.median` > 1, or more than half the `balance.dots` above 1, over ≥ 20 recorded pull requests | cycle time |
-| **Not selective enough** | a `bars.items` entry with `id` `e2e-forced-full`, `test-forced-full` or `most-selected` and `verdict` `crossed`: a job forced to run everything on ≥ 25% of the pull requests that ran it, or a test file or spec selected on ≥ 80% of those that could have skipped it, over ≥ 10. Read the verdict, never recount: `cause` names the rule behind a forced-full bar and its row in `forcedFullRules` the paths; `unread` (`unread` says whether the window or the figure) is no finding | selection |
+| **Not selective enough** | a `bars.items` entry with `id` `e2e-forced-full` or `test-forced-full` and `verdict` `crossed`: a job forced to run everything on ≥ 25% of the pull requests that ran it. Read the verdict, never recount: `cause` names the rule behind a forced-full bar and its row in `forcedFullRules` the paths; `unread` (`unread` says whether the window or the figure) is no finding | selection |
 | **Tests skip too much** | the `bars.items` entry `misses` with `verdict` `crossed`: any test that failed on `main` where the pull request that merged did not run it | selection |
 | **Slices too small** | pull requests under 100 lines changed (`size.additions + size.deletions`) with a median `balance.ratio` ≥ 2, over ≥ 8 of them: the fixed cost of a round outweighs the change | cycle time |
 | **Avoidable rounds** | `rounds.perPull.median` ≥ 2; or red rounds whose `failed` includes `Checks` (lint, typecheck, build — all runnable before a push) on ≥ 10% of rounds | cycle time |

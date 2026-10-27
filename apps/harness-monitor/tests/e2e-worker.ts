@@ -1,5 +1,14 @@
+import { checkAttempts } from '../src/ci-attempts';
+import { storeAttempts } from '../src/ci-attempts-store';
+import { importClaudeCalls, FEED_PATH } from '../src/claude-calls';
 import worker, { type Env } from '../src/worker';
+import { checkPulls } from '../src/cycle-time';
+import { storePulls } from '../src/cycle-time-store';
+import { checkSelection } from '../src/selection';
+import { storeSelection } from '../src/selection-store';
 import { storeBatch } from '../src/store';
+import { readTree, snapshotOf } from '../src/tests';
+import { makeCurrent, storeArea, storeTree } from '../src/tests-store';
 import { validateBatch } from '../src/validate';
 
 /**
@@ -8,12 +17,45 @@ import { validateBatch } from '../src/validate';
  * a walk can put a page's worth of data in without GitHub or a write key. It is
  * in no deployment, and `pnpm dev:harness` does not use it.
  *
- * The route prices the walk's requests from one rate it stores itself, stores
- * them through the Worker's own write path, and records the pull requests the
- * hourly job would have read from GitHub. A request already stored is ignored,
+ * The route prices the walk's requests from the rates it stores itself, stores
+ * them through the Worker's own write path, copies the Claude calls it carries
+ * through the import itself (read from a stand-in for Cockpit's production, so
+ * the totals the page reads are the import's own), and records the pull requests
+ * the hourly job would have read from GitHub. A request already stored is ignored,
  * so seeding twice (the suite runs each walk on two devices) changes nothing.
+ *
+ * A second route, `/__e2e/seed-ci-attempts`, stores CI stability's attempts of
+ * every branch through the same checks and writes a send goes through; an
+ * attempt is stored under its run and number, so it too can be sent twice. A
+ * third, `/__e2e/seed-cycle-time`, does the same for cycle time's pull requests, stored under their numbers, and a fourth,
+ * `/__e2e/seed-selection`, for test selection's pull requests and bars, and a
+ * fifth, `/__e2e/seed-tests`, for `main`'s tests or, given `snapshot`, a pull
+ * request's: the tree and each area's source lines, stored and shown under their
+ * commit, so a second seed replaces the first.
  */
-const RATES = { 'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 } };
+const RATES = {
+  'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5 },
+  'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25 },
+};
+
+/** Production's address in the suite, and the calls the stand-in serves: every call seeded so far, in row order. */
+const COCKPIT = 'https://cockpit.e2e.test';
+const served: { id: number }[] = [];
+let standingIn = false;
+
+/** Answers Cockpit's route from `served`, as production pages through its record; any other address reaches the network as before. */
+function standInForCockpit() {
+  if (standingIn) return;
+  standingIn = true;
+  const network = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin !== COCKPIT || url.pathname !== FEED_PATH) return network(input, init);
+    const after = Number(url.searchParams.get('after') ?? 0);
+    const rest = served.filter((c) => c.id > after);
+    return Response.json({ calls: rest.slice(0, 1000), more: rest.length > 1000 });
+  }) as typeof fetch;
+}
 
 interface SeededPullRequest {
   branch: string;
@@ -30,9 +72,42 @@ interface SeededPullRequest {
 export default {
   ...worker,
   async fetch(request, env, ctx) {
-    if (new URL(request.url).pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);
+    const { pathname } = new URL(request.url);
+    if (pathname === '/__e2e/seed-ci-attempts' && request.method === 'POST') {
+      const checked = checkAttempts(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storeAttempts(env.DB, checked.attempts));
+    }
+    if (pathname === '/__e2e/seed-cycle-time' && request.method === 'POST') {
+      const checked = checkPulls(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storePulls(env.DB, checked.pulls));
+    }
+    if (pathname === '/__e2e/seed-selection' && request.method === 'POST') {
+      const checked = checkSelection(await request.json());
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      return Response.json(await storeSelection(env.DB, checked.pulls, checked.bars));
+    }
+    if (pathname === '/__e2e/seed-tests' && request.method === 'POST') {
+      const body = (await request.json()) as { tree: { commit: string; tree: { key: string; children: unknown[] }[] }; areas?: Record<string, unknown>; snapshot?: string };
+      const { tree, areas = {} } = body;
+      const snapshot = snapshotOf(body.snapshot ?? 'main');
+      if (!snapshot) return Response.json({ error: 'Not a snapshot.' }, { status: 400 });
+      const gzip = async (value: unknown) => new Uint8Array(await new Response(new Blob([JSON.stringify(value)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+      const treeBytes = await gzip(tree);
+      const checked = await readTree(tree.commit, treeBytes);
+      if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
+      await storeTree(env.DB, snapshot, checked.value, treeBytes);
+      for (const key of checked.value.areas) {
+        const stored = await storeArea(env.DB, snapshot, tree.commit, key, await gzip(areas[key] ?? {}));
+        if (!stored.ok) return Response.json({ error: stored.error }, { status: stored.status });
+      }
+      const shown = await makeCurrent(env.DB, snapshot, tree.commit);
+      return shown.ok ? Response.json({ current: tree.commit }) : Response.json({ error: shown.error }, { status: shown.status });
+    }
+    if (pathname !== '/__e2e/seed' || request.method !== 'POST') return worker.fetch(request, env, ctx);
 
-    const { rows, pullRequests } = (await request.json()) as { rows: unknown[]; pullRequests: SeededPullRequest[] };
+    const { rows, pullRequests, calls = [] } = (await request.json()) as { rows: unknown[]; pullRequests: SeededPullRequest[]; calls?: { id: number }[] };
     const checked = validateBatch({ rows });
     if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
 
@@ -70,6 +145,14 @@ export default {
          ON CONFLICT (id) DO UPDATE SET last_success_at = excluded.last_success_at`,
       ).bind(now),
     ]);
+    // A call already served is served once: seeding twice (a walk runs on two devices) changes nothing.
+    for (const call of calls) if (!served.some((s) => s.id === call.id)) served.push(call);
+    served.sort((a, b) => a.id - b.id);
+    if (calls.length > 0) {
+      standInForCockpit();
+      const copied = await importClaudeCalls({ DB: env.DB, USAGE_READ_TOKEN: 'e2e', COCKPIT_URL: COCKPIT }, { now });
+      if (copied.status === 'failed') return Response.json({ error: copied.error }, { status: 500 });
+    }
     return Response.json(stored);
   },
 } satisfies ExportedHandler<Env>;

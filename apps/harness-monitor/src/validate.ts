@@ -15,6 +15,12 @@ export const CATEGORIES = [
 export type Category = (typeof CATEGORIES)[number];
 
 /**
+ * The phases of work done inside the process. A request in one of them from a branch no pull request names is
+ * credited to the pull request its session went on to build; Outside the process, Unphased and CI reviews are not.
+ */
+export const CREDITED_PHASES = ['scoping-planning', 'building', 'local-code-review', 'local-security-review', 'after-push', 'process-review'] as const satisfies readonly Category[];
+
+/**
  * No phase marks existed before this UTC day, so a Building request dated earlier
  * was never really Building. Stored rows are not rewritten: every read and every
  * rebuild of the totals applies this rule. The cut-off is the instant it always
@@ -75,7 +81,7 @@ export interface UsageRow {
 export type Validated = { ok: true; rows: UsageRow[] } | { ok: false; error: string };
 
 /** A four-digit year and an explicit zone, so the UTC day is never guessed or malformed. */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+export const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 const TOKEN_FIELDS =['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
 
@@ -109,6 +115,49 @@ export function validateBatch(body: unknown): Validated {
     rows.push(result);
   }
   return { ok: true, rows };
+}
+
+/**
+ * The phases a stored Unphased request may be placed into again: where the
+ * process step a session was in puts it when no mark decides. Every other phase
+ * comes from marks, Actions or the security review, which the hook already sent.
+ */
+export const CORRECTABLE = ['scoping-planning', 'after-push', 'process-review', 'outside-process'] as const satisfies readonly Category[];
+export type Correctable = (typeof CORRECTABLE)[number];
+
+export interface Correction {
+  requestId: string;
+  category: Correctable;
+}
+
+export type ValidatedCorrections = { ok: true; corrections: Correction[] } | { ok: false; error: string };
+
+/**
+ * Checks a whole batch of corrections, `{"corrections": [{requestId, category}]}`.
+ * One bad correction refuses the batch, naming its position and the value.
+ */
+export function validateCorrections(body: unknown): ValidatedCorrections {
+  const list = (body as { corrections?: unknown } | null)?.corrections;
+  if (!Array.isArray(list)) return { ok: false, error: 'The body must be {"corrections": [...]}.' };
+  if (list.length === 0) return { ok: false, error: 'The batch has no corrections.' };
+  if (list.length > MAX_BATCH) {
+    return { ok: false, error: `The batch has ${list.length} corrections; the most one write takes is ${MAX_BATCH}.` };
+  }
+  const corrections: Correction[] = [];
+  for (const [index, raw] of list.entries()) {
+    const r = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+    const requestId = text(r.requestId, 200);
+    if (!requestId) return { ok: false, error: `Correction ${index}: has no requestId.` };
+    const category = oneOf(r.category, CORRECTABLE);
+    if (!category) {
+      return {
+        ok: false,
+        error: `Correction ${index} (${requestId}): has category "${String(r.category)}", which is not one of ${CORRECTABLE.join(', ')}.`,
+      };
+    }
+    corrections.push({ requestId, category });
+  }
+  return { ok: true, corrections };
 }
 
 /** The row, or what is wrong with it. */

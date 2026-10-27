@@ -241,30 +241,34 @@ export const dashboardConditionSchema = z.object({
 export type DashboardCondition = z.infer<typeof dashboardConditionSchema>;
 
 /**
- * One condition on a Filter, on whether an Item is To do or In progress ("Mark
- * an item In progress, and see since when", issue 568).
+ * One condition on a Filter, on whether an Item is To do, In progress or
+ * Waiting for reply ("Mark an item In progress, and see since when", issue 568;
+ * "Filter by Waiting for reply as a status of its own", issue 1464).
  *
- * **Only the two open statuses are on offer**: a Filter only ever sees an Item
+ * **Only the three open statuses are on offer**: a Filter only ever sees an Item
  * still open (`itemsThatAreFiled`, `packages/shared/src/domain/filing.ts`), which is already
- * either To do or In progress.
+ * To do, In progress or Waiting for reply.
  */
 export const statusConditionSchema = z.object({
   field: z.literal('status'),
   /**
-   * Which of the two open statuses it asks for ("Include or exclude a Filter
+   * Which of the three open statuses it asks for ("Include or exclude a Filter
    * panel condition's values, and filter on To do as well as In progress",
    * issue 908). Done is not a value: a Filter never draws a Done Item, so
-   * asking for it could only ever empty the panel. Absent reads as In progress
-   * alone (`statusValuesOf`), which is all a Status condition ever meant before.
+   * asking for it could only ever empty the panel. **A waiting Item matches
+   * only a condition naming `waiting`**, never one set to To do or In
+   * progress. Absent reads as In progress alone (`statusValuesOf`), which is
+   * all a Status condition ever meant before; a Filter saved before `waiting`
+   * existed holds only the other two and parses as it was.
    */
-  values: z.array(z.enum(['to_do', 'in_progress'])).max(2).optional(),
+  values: z.array(z.enum(['to_do', 'in_progress', 'waiting'])).max(3).optional(),
   /** As on the other conditions: leave the values out rather than ask for them. */
   exclude: z.boolean().optional(),
 });
 export type StatusCondition = z.infer<typeof statusConditionSchema>;
 
 /** The statuses a Status condition holds - In progress alone where it was stored without any, as every one saved before it took values was. */
-export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 'in_progress')[] {
+export function statusValuesOf(condition: StatusCondition): readonly ('to_do' | 'in_progress' | 'waiting')[] {
   return condition.values ?? ['in_progress'];
 }
 

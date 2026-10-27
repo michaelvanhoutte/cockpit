@@ -76,8 +76,50 @@ async function fileOn(itemId: string, panelId: string): Promise<void> {
   await change('add_item_to_panel', { itemId, panelId, order: [itemId, ...held] }, '2090-01-01T09:00:00.000Z');
 }
 
-const repeat = (itemId: string, rule: Record<string, unknown> | null = WEEKLY, issuedAt = SET) =>
-  change('set_repeat', { itemId, seriesId: nextId(), repeat: rule }, issuedAt);
+/**
+ * Makes an Item recur, as the retired Repeats chip once did: a recurring item made from the
+ * Item's content and Panels, the Item being its first copy. Again with a rule, it writes that
+ * rule over the recurring item; with `null`, it deletes it. Arranged through the real
+ * commands, then the Item is linked to it, since nothing but the occurrence job links one.
+ */
+async function repeat(itemId: string, rule: Record<string, unknown> | null = WEEKLY, issuedAt = SET): Promise<void> {
+  const [item, own] = await inTheStore((sql) => [
+    sql.exec<{ workspace_id: string; title: string; description: string | null; priority: string | null; series_id: string | null }>(
+      'SELECT workspace_id, title, description, priority, series_id FROM items WHERE id = ?',
+      itemId,
+    ).one(),
+    sql.exec<{ id: string; title: string; description: string | null; priority: string | null }>(
+      'SELECT s.id, s.title, s.description, s.priority FROM items AS i JOIN series AS s ON s.id = i.series_id WHERE i.id = ?',
+      itemId,
+    ).toArray()[0],
+  ]);
+  const panelIds = await inTheStore((sql) =>
+    sql.exec<{ panel_id: string }>('SELECT panel_id FROM panel_items WHERE item_id = ? ORDER BY created_at, panel_id', itemId)
+      .toArray()
+      .map((one) => one.panel_id),
+  );
+  const workspaceId = item.workspace_id;
+  if (rule === null) return change('delete_recurring_item', { seriesId: own!.id, workspaceId }, issuedAt);
+  if (own) {
+    const files = await inTheStore((sql) =>
+      sql.exec<{ panel_id: string }>('SELECT panel_id FROM series_panels WHERE series_id = ? ORDER BY position', own.id)
+        .toArray()
+        .map((one) => one.panel_id),
+    );
+    return change(
+      'write_recurring_item',
+      { seriesId: own.id, workspaceId, title: own.title, description: own.description ?? '', priority: own.priority, panelIds: files, repeat: rule },
+      issuedAt,
+    );
+  }
+  const seriesId = nextId();
+  await change(
+    'create_recurring_item',
+    { seriesId, workspaceId, title: item.title, description: item.description ?? '', priority: item.priority, panelIds, repeat: rule },
+    issuedAt,
+  );
+  await inTheStore((sql) => sql.exec('UPDATE items SET series_id = ? WHERE id = ?', seriesId, itemId));
+}
 const done = (itemId: string, issuedAt = '2090-01-03T09:00:00.000Z') => change('set_done', { itemId, done: true }, issuedAt);
 
 interface Read {
@@ -187,16 +229,18 @@ describe('Item editing', () => {
     });
   });
 
-  describe('a repeating Item is never open twice, and never comes back on a day already passed', () => {
+  describe('a recurring item is never open twice, and never comes back on a day already passed', () => {
     it.each([
       { situation: 'still To do on the day, nothing is added and Next on moves on', finish: null, added: false },
       { situation: 'In progress on the day, nothing is added and Next on moves on', finish: 'set_started', added: false },
+      { situation: 'still Waiting for reply on the day, nothing is added and Next on moves on', finish: 'wait_for_reply', added: false },
       { situation: 'Done on the day, the next one is added', finish: 'set_done', added: true },
       { situation: 'dismissed on the day, the next one is added', finish: 'set_dismissed', added: true },
     ] as const)('$situation', async ({ finish, added }) => {
       const itemId = await anItem('Weekly review');
       await repeat(itemId);
       if (finish === 'set_started') await change('set_started', { itemId, started: true }, '2090-01-03T09:00:00.000Z');
+      if (finish === 'wait_for_reply') await change('wait_for_reply', { itemId, days: 14, timeZone: ZONE }, '2090-01-03T09:00:00.000Z');
       if (finish === 'set_done') await done(itemId);
       if (finish === 'set_dismissed') await change('set_dismissed', { itemId, dismissed: true }, '2090-01-03T09:00:00.000Z');
 
@@ -232,26 +276,6 @@ describe('Item editing', () => {
 
       expect(await occurrences()).toHaveLength(2);
     });
-
-    it('takes back a Never after the day came round, sent from a tab that read before it did, at the day the series moved to', async () => {
-      const itemId = await aFinishedWeeklyItem();
-      await alarmRunsAt(morningOf(FIRST));
-      await repeat(itemId, null, morningOf('2090-01-11'));
-
-      // The Undo carries the Next on the tab held before the day came round.
-      await repeat(itemId, WEEKLY, '2090-01-11T08:01:00.000Z');
-
-      expect(await seriesRow()).toMatchObject({ next_on: SECOND, stopped_at: null });
-    });
-
-    it('starts a rule again after Never from the first day it comes round from today, when its Next on has passed', async () => {
-      const itemId = await aFinishedWeeklyItem();
-      await repeat(itemId, null, '2090-01-03T10:00:00.000Z');
-
-      await repeat(itemId, WEEKLY, morningOf('2090-01-17'));
-
-      expect(await seriesRow()).toMatchObject({ next_on: THIRD, stopped_at: null });
-    });
   });
 
   describe('moving one Item’s due date moves only it, and moving Next on moves the series', () => {
@@ -275,16 +299,13 @@ describe('Item editing', () => {
     });
   });
 
-  describe('Never on any of a series’ Items stops it', () => {
-    it.each([
-      { situation: 'on the open one', onTheOpenOne: true },
-      { situation: 'on a Done one', onTheOpenOne: false },
-    ])('nothing more comes back after Never $situation', async ({ onTheOpenOne }) => {
+  describe('deleting a recurring item stops it, whichever of its copies is open', () => {
+    it('brings nothing more back, and arms the alarm for nothing', async () => {
       const first = await aFinishedWeeklyItem();
       await alarmRunsAt(morningOf(FIRST));
       const [, open] = await occurrences();
       await done(open!.id, morningOf('2090-01-10'));
-      await repeat(onTheOpenOne ? open!.id : first, null, morningOf('2090-01-10'));
+      await repeat(first, null, morningOf('2090-01-10'));
 
       await alarmRunsAt(morningOf(SECOND));
 
@@ -359,46 +380,6 @@ describe('Item editing', () => {
     });
   });
 
-  describe('the Repeats chip makes a recurring item from the Item it is set on, until the Recurring items menu replaces it', () => {
-    const master = () =>
-      inTheStore((sql) => ({
-        row: sql.exec<{ workspace_id: string; title: string; description: string; priority: string }>(
-          'SELECT workspace_id, title, description, priority FROM series',
-        ).one(),
-        panels: sql.exec<{ panel_id: string }>('SELECT panel_id FROM series_panels ORDER BY position').toArray().map((one) => one.panel_id),
-      }));
-
-    it('takes that Item’s title, description, priority, Workspace and live Panels', async () => {
-      const itemId = await anItem('Weekly review');
-      const first = await aPanel('Reviews');
-      const second = await aPanel('Fridays');
-      await fileOn(itemId, first);
-      await fileOn(itemId, second);
-      await change('set_description', { itemId, description: 'Go through the open items' }, '2090-01-01T10:00:00.000Z');
-      await change('set_priority', { itemId, priority: 'high' }, '2090-01-01T10:00:00.000Z');
-
-      await repeat(itemId);
-
-      expect(await master()).toEqual({
-        row: { workspace_id: WORKSPACE_ID, title: 'Weekly review', description: 'Go through the open items', priority: 'high' },
-        panels: [first, second],
-      });
-    });
-
-    it('keeps what it first took when the rule is changed again, or set again after Never', async () => {
-      const itemId = await anItem('Weekly review');
-      await repeat(itemId);
-      await change('set_title', { itemId, title: 'Weekly review, this week only' }, '2090-01-03T09:00:00.000Z');
-      await fileOn(itemId, await aPanel('Reviews'));
-
-      await repeat(itemId, { ...WEEKLY, frequency: 'monthly' }, '2090-01-03T10:00:00.000Z');
-      await repeat(itemId, null, '2090-01-03T11:00:00.000Z');
-      await repeat(itemId, WEEKLY, '2090-01-03T12:00:00.000Z');
-
-      expect(await master()).toMatchObject({ row: { title: 'Weekly review' }, panels: [] });
-    });
-  });
-
   async function anImage(itemId: string): Promise<string> {
     const attachmentId = nextId();
     const res = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments`, {
@@ -417,7 +398,7 @@ describe('Item editing', () => {
     return attachmentId;
   }
 
-  describe('a repeating Item comes back however the account’s alarm is kept', () => {
+  describe('a recurring item comes back however the account’s alarm is kept', () => {
     const FAKE = 'fake-pull';
     const fakePulled: Connector = {
       manifest: {
@@ -549,7 +530,7 @@ describe('Item editing', () => {
     });
   });
 
-  describe('a repeating Item comes back once, whatever goes wrong on the way', () => {
+  describe('a recurring item comes back once, whatever goes wrong on the way', () => {
     it('brings back one Item when the alarm runs twice on its day', async () => {
       await aFinishedWeeklyItem();
 
@@ -665,7 +646,7 @@ describe('Item editing', () => {
     it('stops the series and says so, rather than bring one back, once its Workspace is deleted', async () => {
       await alsoWorkspaces();
       const itemId = await anItem('Weekly review', 'ws-atlas');
-      await change('set_repeat', { itemId, seriesId: nextId(), repeat: WEEKLY, workspaceId: 'ws-atlas' });
+      await repeat(itemId);
       await change('set_done', { itemId, done: true, workspaceId: 'ws-atlas' }, '2090-01-03T09:00:00.000Z');
       await change('delete_workspace', { workspaceId: 'ws-atlas' }, '2090-01-04T09:00:00.000Z');
       const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -686,7 +667,7 @@ describe('Item editing', () => {
         { itemId, message: 'Weekly review', workspaceDecided: false, workspaceId: 'ws-atlas' },
         '2090-01-01T09:00:00.000Z',
       );
-      await change('set_repeat', { itemId, seriesId: nextId(), repeat: WEEKLY, workspaceId: 'ws-atlas' });
+      await repeat(itemId);
       const panelId = await aPanel('Reviews');
       await fileOn(itemId, panelId);
       await change('delete_workspace', { workspaceId: 'ws-atlas' }, '2090-01-04T09:00:00.000Z');

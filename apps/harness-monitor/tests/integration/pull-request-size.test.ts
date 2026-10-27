@@ -239,7 +239,7 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('the costs page shows each pull request’s lines, how long it was open and its CI rounds, and names issues by title', () => {
+  describe('the costs page shows each pull request’s lines, and names issues by title', () => {
     beforeEach(withPrices);
 
     const seeded = async (...nodes: Node[]) => {
@@ -247,25 +247,25 @@ describe('Harness Monitor', () => {
       await send(nodes.map((n, i) => spend(`r${i}`, 1, { branch: n.headRefName })));
     };
 
-    it('a merged, sized pull request shows lines added and removed, its open → merged time and its CI rounds', async () => {
+    it('a merged, sized pull request shows lines added and removed', async () => {
       await seeded(withCommits({ number: 10, title: 'Merged one', headRefName: 'b/10', state: 'MERGED', mergedAt: '2026-10-02T14:30:00Z', files: filesOf([file('src/a.ts', 120, 30), file('pnpm-lock.yaml', 900, 900)]) }, '2026-10-01T11:00:00Z', '2026-10-01T12:00:00Z'));
 
       const row = (await pullRequestRows())['#10 Merged one']!;
 
-      // engineer, merged, lines, open → merged, CI rounds (then Rounds and Findings, which a body with no record leaves blank)
-      expect(row.details.slice(2, 5)).toEqual(['+120 −30', '1d 4h', '2']);
+      // engineer, merged, lines
+      expect(row.details.slice(2)).toEqual(['+120 −30']);
     });
 
-    it('an open pull request has lines and rounds but no open → merged time', async () => {
+    it('an open pull request has its lines', async () => {
       await seeded(numbered(11, { title: 'Open one', state: 'OPEN', mergedAt: null, files: filesOf([file('src/a.ts', 3, 1)]) }));
 
-      expect((await pullRequestRows())['#11 Open one']!.details.slice(2)).toEqual(['+3 −1', '', '0', '', '']);
+      expect((await pullRequestRows())['#11 Open one']!.details.slice(2)).toEqual(['+3 −1']);
     });
 
     it('a pull request not yet sized shows blanks, not zeros', async () => {
       await seeded(unread(numbered(12, { title: 'Unsized one' })));
 
-      expect((await pullRequestRows())['#12 Unsized one']!.details.slice(2)).toEqual(['', '', '', '', '']);
+      expect((await pullRequestRows())['#12 Unsized one']!.details.slice(2)).toEqual(['']);
     });
 
     it('an issue with a stored title reads "#N title", and one whose title has not been read yet reads "#N"', async () => {
@@ -317,35 +317,6 @@ describe('Harness Monitor', () => {
       await runHourly();
 
       expect((await theStats())[0]).toMatchObject({ local_rounds: 2, findings: 3 });
-    });
-  });
-
-  describe('the costs page shows each pull request’s Rounds, local plus CI, and its Findings', () => {
-    beforeEach(withPrices);
-
-    const seeded = async (...nodes: Node[]) => {
-      await linked(...nodes);
-      await send(nodes.map((n, i) => spend(`r${i}`, 1, { branch: n.headRefName })));
-    };
-    const body = (...lines: string[]) => ['<!-- session-record:start -->', ...lines.map((l) => `- 2026-10-01T10:00:00.000Z ${l}`), '<!-- session-record:end -->'].join('\n');
-
-    it('known local rounds and CI rounds show their sum, and the findings', async () => {
-      await seeded(withCommits({ number: 20, title: 'Counted', headRefName: 'b/20', body: body('review-start code-review high', 'review-end code-review high:2', 'review-start code-review high', 'review-end code-review high:1') }, '2026-10-01T11:00:00Z'));
-
-      // CI rounds, Rounds, Findings
-      expect((await pullRequestRows())['#20 Counted']!.details.slice(4)).toEqual(['1', '3', '3']);
-    });
-
-    it('findings unknown show blank, while the rounds still show', async () => {
-      await seeded(numbered(21, { title: 'Uncounted', body: body('review-start code-review high', 'review-end code-review high') }));
-
-      expect((await pullRequestRows())['#21 Uncounted']!.details.slice(4)).toEqual(['0', '1', '']);
-    });
-
-    it('a pull request with no record is blank, not zero', async () => {
-      await seeded(numbered(22, { title: 'Unrecorded', body: 'No record here.' }));
-
-      expect((await pullRequestRows())['#22 Unrecorded']!.details.slice(4)).toEqual(['0', '', '']);
     });
   });
 });

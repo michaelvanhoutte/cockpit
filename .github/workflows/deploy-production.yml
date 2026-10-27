@@ -25,6 +25,11 @@ jobs:
     environment:
       name: production
       url: https://cockpit.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
+    env:
+      # Where each Vitest run leaves the tests that failed in it
+      # (scripts/lib/vitest-session-reporter.mjs), absolute because pnpm runs
+      # each package from its own folder.
+      COCKPIT_FAILED_TESTS_DIR: ${{ github.workspace }}/failed-tests
     steps:
       # Always check out `main` with full history, then move to the requested
       # commit ourselves in the next step.
@@ -76,6 +81,21 @@ jobs:
       # resolve fresh here, and a promotion may be days later.
       - run: pnpm typecheck
       - run: pnpm test
+      # The failed tests by name, for CI stability: a record only where some
+      # failed, and it can only add - the job stays what the tests made it.
+      - name: Gather the failed tests
+        if: ${{ failure() }}
+        run: node scripts/ci-failed-tests.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        continue-on-error: true
+        with:
+          name: failed-tests-record
+          path: failed-tests-record/record.json
+          if-no-files-found: ignore
+          # A re-run of a failed job uploads under the first attempt's name, which v4 otherwise refuses.
+          overwrite: true
+          retention-days: 30
       - run: pnpm build
 
       - name: Migrate production database

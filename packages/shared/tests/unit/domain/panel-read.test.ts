@@ -72,6 +72,7 @@ function anItem(id: string, holding: { priority?: Priority | null; dueDate?: str
     nextAction: null,
     completedAt: null,
     startedAt: null,
+    waitingSince: null,
     priority: holding.priority ?? null,
     prioritySetAt: null,
     dueDateChosenAt: null,

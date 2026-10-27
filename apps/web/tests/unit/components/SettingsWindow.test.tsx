@@ -18,6 +18,8 @@ const held = vi.hoisted(() => ({
   accounts: {} as Record<string, unknown[]>,
   /** Whether a change is in flight, which keeps a window open until its answer is in. */
   pending: false,
+  /** The Follow-ups number each Workspace's snapshot carries, where one does. */
+  followUpDays: {} as Record<string, number>,
 }));
 held.arrived = new Promise<void>((resolve) => {
   held.releaseMcpCode = resolve;
@@ -45,7 +47,7 @@ vi.mock('../../../src/api/queries', () => ({
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ items: [] }),
+    queryFn: () => Promise.resolve({ items: [], followUpDays: held.followUpDays[workspaceId] }),
   }),
 }));
 
@@ -141,7 +143,7 @@ describe('Across the app', () => {
   });
 
   describe('each section of Settings is headed by the name of its entry', () => {
-    it.each(['Connections', 'Connected apps', 'Appearance'])('heads %s with its own name', async (name) => {
+    it.each(['Connections', 'Connected apps', 'Follow-ups', 'Appearance'])('heads %s with its own name', async (name) => {
       const user = userEvent.setup();
       open('connections');
       await user.click(entry(name));
@@ -170,6 +172,7 @@ describe('Across the app', () => {
         'Appearance',
         'Connections',
         'Connected apps',
+        'Follow-ups',
         'What Cockpit remembers',
       ]);
     });
@@ -198,6 +201,14 @@ describe('Across the app', () => {
       expect(await within(apps).findByText('No connected apps')).toBeVisible();
     });
 
+    it('draws Follow-ups’ number and its example in the How long to wait panel', async () => {
+      open('followups');
+
+      const panel = await screen.findByRole('group', { name: 'How long to wait' });
+      expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(3);
+      expect(within(panel).getByText('Reply from Jan about the audit trail')).toBeVisible();
+    });
+
     it('draws Connections’ picker in the Workspace panel’s header, and the connections of the workspace picked inside it', async () => {
       held.accounts = { 'ws-alpha': [account('a1', 'teams', 'Ada Teams')], 'ws-beta': [account('b1', 'teams', 'Bea Teams')] };
       const user = userEvent.setup();
@@ -208,6 +219,22 @@ describe('Across the app', () => {
       await user.selectOptions(within(panel).getByRole('combobox', { name: 'Workspace' }), 'ws-beta');
 
       expect(await within(screen.getByRole('group', { name: 'Workspace' })).findByText('Bea Teams')).toBeVisible();
+    });
+  });
+
+  describe('Follow-ups shows the account’s number with no Workspace open', () => {
+    it('reads it off the first Workspace’s copy, as on the capture page', async () => {
+      held.followUpDays = { 'ws-alpha': 7 };
+      try {
+        open('followups', { startsIn: undefined });
+
+        const panel = await screen.findByRole('group', { name: 'How long to wait' });
+        await waitFor(() =>
+          expect(within(panel).getByRole('spinbutton', { name: 'Days after you set it' })).toHaveValue(7),
+        );
+      } finally {
+        held.followUpDays = {};
+      }
     });
   });
 

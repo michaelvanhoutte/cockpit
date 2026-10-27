@@ -281,6 +281,21 @@ describe('Agents', () => {
         expect.objectContaining({ id: run!.id, destination: 'cowork', stage: 'sent' }),
       ]);
     });
+
+    it.each([
+      { situation: 'To do chosen on a waiting Item ends it', keepsRun: undefined, endedAt: later(2) },
+      { situation: 'an undo of the wait, which says it keeps the run, leaves it open', keepsRun: true, endedAt: null },
+    ])('$situation', async ({ keepsRun, endedAt }) => {
+      const itemId = await anItem('Chase the invoice');
+      await send(itemId);
+      const waited = { workspaceId: WORKSPACE_ID, itemId, days: 3, timeZone: 'Europe/Brussels' };
+      await postChange('wait_for_reply', waited, USER_ID, later(1));
+
+      const toDo = { workspaceId: WORKSPACE_ID, itemId, started: false, ...(keepsRun && { keepsRun }) };
+      await postChange('set_started', toDo, USER_ID, later(2));
+
+      expect((await allRuns(itemId)).map((run) => run.ended_at)).toEqual([endedAt]);
+    });
   });
 
   describe('the files of an item are linked for a Claude session that cannot sign in', () => {

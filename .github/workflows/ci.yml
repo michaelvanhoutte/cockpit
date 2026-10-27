@@ -70,8 +70,8 @@ jobs:
   # classifier action themselves rather than waiting on this job's, so all of
   # them start with the run ("Run the E2E (F3) job as four shards under one
   # required check, starting alongside Checks", issue 1279).
-  # `Concepts`, `Test Explorer`, `Stability` and `Publish` still gate nothing
-  # of their own; `docs/architecture.md` §9.1 says why.
+  # `Concepts`, `Test Explorer`, `Tests snapshot`, `Stability` and `Publish` still gate nothing
+  # of their own; `docs/architecture.md`, "CI/CD", says why.
   #
   # This closes one gap in what a pull request's own head can influence — the
   # classifier's decision — and not the wider one: `pull_request` still builds
@@ -255,6 +255,8 @@ jobs:
           name: test-selection-record
           path: test-record/record.json
           if-no-files-found: warn
+          # Long enough that a nightly job failing for a week loses no failed test's name.
+          retention-days: 30
       # `main` only: a pull request's uninstrumented run writes no coverage, and
       # an upload of nothing would put a warning on every green run.
       - uses: actions/upload-artifact@v4
@@ -374,6 +376,7 @@ jobs:
           # A re-run of this shard alone uploads under the first attempt's name,
           # which v4 otherwise refuses, leaving the fan-in the failed record.
           overwrite: true
+          retention-days: 30
       # Traces and screenshots are kept on failure only (playwright.config.ts),
       # so this uploads nothing of Playwright's on a green run.
       #
@@ -447,6 +450,55 @@ jobs:
           if-no-files-found: ignore
           # The fan-in re-runs with a re-run shard and replaces the merged record.
           overwrite: true
+          retention-days: 30
+
+  # The Android widget (apps/android-widget): built and tested only when a file
+  # it reads changed (scripts/lib/what-changed.mjs, `widgetChanged`), so the
+  # many pull requests that never touch it pay for no Gradle run. Its own job
+  # because it needs Java and the Android SDK where the rest need Node, and
+  # because it is the one place a Kotlin test can run (docs/testing-strategy.md,
+  # "The Android widget").
+  #
+  # Runs on anything the classifier could not answer: `widget_changed` is unset
+  # then, and also while the base commit's classifier predates the output, which
+  # `!= 'false'` reads as "yes". The release is a different workflow, on a tag
+  # (widget-release.yml). Not a required check until the owner adds it to
+  # `.github/branch-protection.json`.
+  widget:
+    name: Widget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+      - name: Work out whether this diff touches the widget
+        id: classify
+        uses: ./.github/actions/classify
+        continue-on-error: true
+      - uses: actions/setup-java@v4
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Caches Gradle's downloads, and refuses a wrapper jar that is not Gradle's own.
+      - uses: gradle/actions/setup-gradle@v4
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+      # Both builds, so a flavour that stops compiling is seen, but the tests once: the
+      # flavours differ only in constants, and a bare `test` would run every Robolectric
+      # suite four times. The JVM unit tests and Robolectric against a fake Cockpit.
+      - name: Test and build the widget
+        if: ${{ steps.classify.outputs.widget_changed != 'false' }}
+        working-directory: apps/android-widget
+        run: bash ./gradlew --no-daemon testStagingDebugUnitTest lintStagingDebug assembleStagingDebug assembleProductionDebug
+      - name: Upload the test and lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: widget-reports
+          path: apps/android-widget/app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Publishes which product concepts own which tests: as a downloadable
   # artifact on every run, and — from `main` only — as the page the `pages` job
@@ -500,7 +552,11 @@ jobs:
         with:
           name: coverage-reports
           path: .
-      - run: pnpm test:explorer
+      # Writes the model beside the page, outside out/ so the site never
+      # publishes it, for `tests-snapshot` below to send on `main`, and on a
+      # pull request for pr-tests.yml, which holds the write key this job never
+      # does and reads the artifact as data.
+      - run: node tools/test-explorer/src/cli.js --model tools/test-explorer/model/model.json
       # Kept on every branch, and not replaced by the published page: it is how
       # a pull request's own report gets read, and the fallback when a deploy
       # fails.
@@ -508,6 +564,59 @@ jobs:
         with:
           name: test-explorer-report
           path: tools/test-explorer/out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-explorer-model
+          path: tools/test-explorer/model/model.json
+          # Long enough to re-run `Tests snapshot`, or Pull request tests, after the Monitor was down a weekend.
+          retention-days: 7
+
+  # Sends `main`'s model to the Harness Monitor as its tests: the tree, each
+  # area's source lines, then the switch that shows them, which deletes the
+  # ones before. Its own job, on `main` pushes only, because the write key must
+  # never reach `test-explorer`, which runs a pull request's code. It runs no
+  # package code: it reads the model `test-explorer` built and sends it. Until
+  # both the secret and the variable are set it says so and sends nothing
+  # (docs/deployment.md, "The Harness Monitor"). Advisory, as the explorer is.
+  tests-snapshot:
+    name: Tests snapshot
+    needs: test-explorer
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    continue-on-error: true
+    # A Monitor that accepts and never answers would otherwise hold the job for six hours.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-explorer-model
+          path: tools/test-explorer/model/
+      - name: Send main's tests to the Harness Monitor
+        run: |
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Tests not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so main's tests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            exit 0
+          fi
+          # A re-run of an older commit would otherwise show its tests over newer
+          # ones, and a re-run of the shown one would rewrite them part by part
+          # while shown. Either read failing sends anyway, as a send before this did.
+          shown=$(curl -fsS --max-time 30 "${HARNESS_MONITOR_URL%/}/v1/tests/main" | jq -r '.current // empty') || shown=
+          if [ -n "$shown" ]; then
+            order=$(gh api "repos/$GITHUB_REPOSITORY/compare/$shown...$GITHUB_SHA" --jq .status) || order=
+            if [ "$order" = behind ] || [ "$order" = identical ]; then
+              echo "::notice title=Tests not sent::The Harness Monitor already shows main's tests at $shown, this commit or a newer one, so this run sent nothing."
+              exit 0
+            fi
+          fi
+          node tools/test-explorer/src/cli.js --send tools/test-explorer/model/model.json
+        env:
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+          GH_TOKEN: ${{ github.token }}
 
   # How reliable each job on `main` has been: pass rates over 7 and 30 days with
   # cancellations counted apart from failures, durations, how long `main` stayed
@@ -543,11 +652,27 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      # Also sends the runs to the Harness Monitor, from the newest it holds less
+      # two days, after the page is written. The write key reaches this job
+      # because it runs on `main` only, never a pull request's code. Until both
+      # the secret and the variable are set it says so and only writes the page
+      # (docs/deployment.md, "The Harness Monitor").
       - name: Measure how reliable each job on main has been
-        run: node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json
+        run: |
+          send=--send
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=CI stability not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, so the runs did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            send=
+          fi
+          node tools/ci-stability/src/cli.js --out tools/ci-stability/out/index.html --model tools/ci-stability/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ secrets.HARNESS_WRITE_KEY }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # A send the Monitor refused, or the run budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: ci-stability-report
           path: tools/ci-stability/out/

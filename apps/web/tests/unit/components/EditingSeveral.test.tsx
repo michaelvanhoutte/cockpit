@@ -100,6 +100,7 @@ function snapshotOf(now: World): WorkspaceSnapshot {
     associations: [],
     attachments: [],
     itemFormPresentation: 'centered',
+    followUpDays: 3,
     duplicates: [],
     filings: now.filings,
     agentRuns: [],
@@ -226,6 +227,17 @@ describe('Selection', () => {
       for (const option of await screen.findAllByRole('menuitemradio')) {
         expect(option).toHaveAttribute('aria-checked', 'false');
       }
+    });
+
+    it('reads Waiting for reply when the picked Items all wait, though it offers no such choice', async () => {
+      const waiting = { waitingSince: '2026-08-31T08:00:00.000Z' };
+      const user = show({ ...TWO_PANELS, items: [{ ...BART, ...waiting }, { ...RENEW, ...waiting }, CHASE] });
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+
+      await openField(user, 'Status');
+
+      expect(screen.getByRole('menuitem', { name: /^Status/ })).toHaveTextContent('Waiting for reply');
     });
   });
 

@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { RepeatsMark } from './RepeatsMark';
+import { RecurringMark } from './RecurringMark';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import {
   itemHasOpenReadings,
   itemLabel,
@@ -13,11 +14,14 @@ import {
   workspaceIsDecided,
   type AgentRun,
   type Item,
+  type ItemStatus,
   type PanelFit,
   type Priority,
   type RepeatRule,
 } from '@cockpit/shared';
-import { useCommand, useSendCommand } from '../api/queries';
+import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { deviceTimeZone } from '../deviceTimeZone';
+import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
@@ -44,6 +48,9 @@ import {
   menuItemSplitClass,
 } from './Menu';
 
+/** The *Wait for reply…* question, fetched the first time a row asks it (WaitForReply.tsx; "Set an Item Waiting for reply", issue 1463). */
+const WaitPopover = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitPopover })));
+
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
 type MenuPrimitive = Pick<
   typeof DropdownMenu,
@@ -51,7 +58,15 @@ type MenuPrimitive = Pick<
 >;
 
 /** The Status submenu's width, which on a phone it also steps back from the menu's edge by. */
-const SUBMENU_WIDTH_PX = 144;
+const SUBMENU_WIDTH_PX = 192;
+
+/** What the Status entry says the row stands at. */
+const STATUS_ON_THE_MENU: Record<ItemStatus, string> = {
+  to_do: 'To do',
+  in_progress: 'In progress',
+  waiting: 'Waiting for reply',
+  done: 'Done',
+};
 
 /**
  * The flag's label at each level ("Show and edit an item's priority", issue
@@ -95,7 +110,7 @@ export function ItemRow({
   alsoIn = EMPTY_ALSO_IN,
   openRun,
   onSendToClaude,
-  repeat,
+  recurring,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
@@ -269,8 +284,8 @@ export function ItemRow({
    * phone, where `claude://` has no app to open.
    */
   onSendToClaude?: (from: HTMLElement | null) => void;
-  /** The rule this Item repeats by, which the row marks with ↻; none for an Item that does not repeat or whose series is stopped ("Set an Item to repeat from its form", issue 1406). */
-  repeat?: RepeatRule | null;
+  /** The rule of the recurring item this Item is a copy of, which the row marks with ↻; none for an Item that is no copy ("Point a copy at its master, and retire the Repeats chip", issue 1450). */
+  recurring?: RepeatRule | null;
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -311,7 +326,7 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  /** To do, In progress or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`. */
+  /** To do, In progress, Waiting for reply or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`. */
   const status = itemStatus(item);
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
@@ -324,6 +339,26 @@ export function ItemRow({
    */
   const setStarted = (started: boolean) => {
     command.mutate({ name: 'set_started', payload: { ...envelope(), started } });
+  };
+
+  /** Whether the *Wait for reply…* question is open, beside the row's ⋯ ("Set an Item Waiting for reply", issue 1463). */
+  const [waitAsked, setWaitAsked] = useState(false);
+  /**
+   * Waiting for a reply, or waiting again: drawn at once, with no undo bar, as
+   * starting work is. A refusal takes the pill and the due date back, and the
+   * bar says why.
+   */
+  const waitForReply = (days: number) => {
+    // Refused, *Wait again…* leaves it waiting on its old due date.
+    const notDone = status === 'waiting' ? 'still waits on its old due date' : 'is not waiting for a reply';
+    send({ name: 'wait_for_reply', payload: { ...envelope(), days, timeZone: deviceTimeZone() ?? 'UTC' } }).catch(
+      (failure: unknown) => offerToUndo({ what: `“${itemLabel(item)}” ${notDone}. ${whyNotDone(failure)}` }),
+    );
+  };
+  const askToWait = () => {
+    // The question takes the focus itself, as the pickers do.
+    opening.current = true;
+    setWaitAsked(true);
   };
 
   /** What a key pressed on this row could not do, said beside it until the next key (issue 1111). */
@@ -486,6 +521,16 @@ export function ItemRow({
       className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${DEADLINE_PILLS[deadline.level]}`}
     >
       {deadline.label}
+    </span>
+  );
+  /**
+   * Since when this has waited for a reply, beside the deadline pill that does
+   * the reminding ("Set an Item Waiting for reply", issue 1463) - on the title
+   * line at a desk, under the title on a phone, as that pill is.
+   */
+  const waitingPill = status === 'waiting' && item.waitingSince && (
+    <span className="shrink-0 rounded-full bg-shade/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-ink-soft">
+      Waiting since {momentWeekdayDayLabel(item.waitingSince)}
     </span>
   );
 
@@ -778,19 +823,24 @@ export function ItemRow({
         ),
       ],
       // Status: one row showing where the item stands, a submenu offering all
-      // three. Choosing the state it is already in changes nothing.
+      // four, and the wait for a reply asked for or asked again ("Set an Item
+      // Waiting for reply", issue 1463). Choosing the state it is already in
+      // changes nothing; Waiting for reply asks how long, as the entry does.
       [
+        <M.Item key="wait" className={menuItemClass} onSelect={askToWait}>
+          {status === 'waiting' ? 'Wait again…' : 'Wait for reply…'}
+        </M.Item>,
         <M.Sub key="status">
           <M.SubTrigger className={subTriggerClass}>
             <span>Status</span>{' '}
             <span className="text-xs text-ink-faint">
-              {status === 'in_progress' ? 'In progress' : 'To do'}
+              {STATUS_ON_THE_MENU[status]}
               <span aria-hidden="true"> ▸</span>
             </span>
           </M.SubTrigger>
           <M.Portal>
             {/* On a phone the menu fills the width, leaving no room beside it for
-                the three states: they are laid over its right-hand end instead,
+                the four states: they are laid over its right-hand end instead,
                 a submenu's own width back from the edge. */}
             <M.SubContent
               sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
@@ -799,8 +849,9 @@ export function ItemRow({
             >
               {(
                 [
-                  ['To do', status !== 'in_progress', () => setStarted(false)],
+                  ['To do', status === 'to_do', () => setStarted(false)],
                   ['In progress', status === 'in_progress', () => setStarted(true)],
+                  ['Waiting for reply', status === 'waiting', askToWait],
                   ['Done', false, markDone],
                 ] as const
               ).map(([name, ticked, choose]) => (
@@ -1187,6 +1238,7 @@ export function ItemRow({
             </span>
             {/* The pill sits here on a desk, and under the title on a phone, where
                 the title needs the width (`deadlinePill` above). */}
+            {!onAPhone && waitingPill}
             {!onAPhone && deadlinePill}
             {/* Every other live Panel or Filter this Item shows on, straight
                 after its title ("Say which other panels an item is also in,
@@ -1228,8 +1280,8 @@ export function ItemRow({
                 ¶
               </span>
             )}
-            {/* That this Item repeats, its hover saying how ("Set an Item to repeat from its form, and see the rule on its row", issue 1406). */}
-            <RepeatsMark repeat={repeat} />
+            {/* That this Item is a copy of a recurring item, its hover saying how often ("Point a copy at its master, and retire the Repeats chip", issue 1450). */}
+            <RecurringMark rule={recurring} />
             {/* That this note reads more than one way, and nothing about which
                 - the readings themselves wait until the form is opened on
                 purpose ("Offer the other readings when a captured note says
@@ -1337,6 +1389,7 @@ export function ItemRow({
                 text itself stays plain; how near it is is the pill. On a phone
                 the pill takes the date's place, and the date only shows where
                 there is no pill - more than a week off. */}
+            {onAPhone && waitingPill}
             {onAPhone && deadlinePill
               ? deadlinePill
               : dueDateText && <span className="shrink-0">Due {dueDateText}</span>}
@@ -1444,6 +1497,26 @@ export function ItemRow({
             {menuEntries(DropdownMenu)}
           </MenuContent>
         </DropdownMenu.Root>
+        {waitAsked && (
+          // A chunk that never arrives closes the question and says so on the row, rather than taking the board down.
+          <WhateverTheQuestionDoes
+            onFailure={() => {
+              setWaitAsked(false);
+              setRowNotice('Wait for reply could not load. Reload Cockpit to try again.');
+              trigger.current?.focus();
+            }}
+          >
+            <Suspense fallback={null}>
+              <WaitPopover
+                anchor={trigger}
+                workspaceId={workspaceId}
+                waitingSince={status === 'waiting' ? item.waitingSince : null}
+                onClose={() => setWaitAsked(false)}
+                onWait={waitForReply}
+              />
+            </Suspense>
+          </WhateverTheQuestionDoes>
+        )}
       </div>
     </li>
       </ContextMenu.Trigger>

@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
+import { FAILED_TESTS_CAP } from './failed-tests.mjs';
 import { E2E_SHARDS, buildE2eRecord, e2eVerdict, failedSpecFiles, mergeE2eRecords, ownersText, parseShard, readsText, renderE2eSummary, shardReads, shardResults, unsettledShards } from './e2e-record.mjs';
 
 const WALKS = [
@@ -165,6 +166,75 @@ describe('the E2E summary', () => {
 
   it('joins several owners', () => {
     assert.equal(ownersText({ owners: [{ concept: 'A', path: 'a' }, { concept: 'B', path: null }] }), 'owned by A, which `a` changed; owned by B');
+  });
+});
+
+describe('the failed walks in the E2E record', () => {
+  /** A Playwright JSON report holding one walk of `file`'s `Capture` area on each of `projects`, `[name, status]`, every failure's line in a helper. */
+  const reportOf = (file, projects) => ({
+    suites: [
+      {
+        title: file,
+        file,
+        suites: [
+          {
+            title: 'Capture',
+            file,
+            specs: [
+              {
+                title: 'a thought is kept',
+                ok: projects.every(([, status]) => status === 'expected'),
+                tests: projects.map(([projectName, status]) => ({
+                  projectName,
+                  status,
+                  results: [{ status: 'failed', error: { message: 'Error: expect(locator).toBeVisible() failed\nLocator: getByText("hi")', location: { file: '/repo/tests/e2e/support/arrange.ts' } } }],
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const recordFor = (report, shard) => buildE2eRecord({ event: 'pull_request', baseCommit: 'a1b2c3d', changedFiles: [], plan: full('push to main'), walks: WALKS, report, shard });
+
+  it('files a walk that failed on the phone under its spec, never the helper its failing line is in', () => {
+    const built = recordFor(reportOf('capture.test.ts', [['phone', 'unexpected'], ['desktop', 'expected']]));
+    assert.deepEqual(built.failedTests, [{ file: 'tests/e2e/capture.test.ts', name: 'Capture > a thought is kept', project: 'phone', error: 'Error: expect(locator).toBeVisible() failed' }]);
+    assert.equal(built.failedTestsMore, 0);
+  });
+
+  it('records the same walk once for each project it failed on', () => {
+    const built = recordFor(reportOf('capture.test.ts', [['phone', 'unexpected'], ['desktop', 'unexpected']]));
+    assert.deepEqual(built.failedTests.map((test) => [test.file, test.project]), [['tests/e2e/capture.test.ts', 'phone'], ['tests/e2e/capture.test.ts', 'desktop']]);
+  });
+
+  it('names no failed walk where every walk passed, or the run left no report', () => {
+    for (const report of [reportOf('capture.test.ts', [['phone', 'expected']]), null]) {
+      const built = recordFor(report);
+      assert.deepEqual([built.failedTests, built.failedTestsMore], [[], 0]);
+    }
+  });
+
+  it('gathers every shard’s failed walks into the merged record, in shard order, whatever order the records come in', () => {
+    const shards = [
+      recordFor(reportOf('triage.test.ts', [['desktop', 'unexpected']]), { index: 2, total: 4 }),
+      recordFor(reportOf('capture.test.ts', [['phone', 'unexpected']]), { index: 1, total: 4 }),
+      recordFor(reportOf('sign-in.test.ts', [['phone', 'expected']]), { index: 3, total: 4 }),
+      recordFor(null, { index: 4, total: 4 }),
+    ];
+    const merged = mergeE2eRecords(shards);
+    assert.deepEqual(merged.failedTests.map((test) => test.file), ['tests/e2e/capture.test.ts', 'tests/e2e/triage.test.ts']);
+    assert.deepEqual(mergeE2eRecords([...shards].reverse()).failedTests, merged.failedTests);
+    assert.equal(tier(merged).report, 'none', 'the failed walks are named though one shard left no report');
+  });
+
+  it('caps the merged record and counts the walks past the cap', () => {
+    const projects = Array.from({ length: FAILED_TESTS_CAP }, () => ['phone', 'unexpected']);
+    const merged = mergeE2eRecords([1, 2, 3, 4].map((index) => recordFor(reportOf(`s${index}.test.ts`, projects), { index, total: 4 })));
+    assert.equal(merged.failedTests.length, FAILED_TESTS_CAP);
+    assert.equal(merged.failedTestsMore, FAILED_TESTS_CAP * 3);
   });
 });
 

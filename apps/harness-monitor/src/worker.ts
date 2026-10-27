@@ -1,12 +1,36 @@
 import { checkWriteKey } from './auth';
+import { exportClaudeCalls } from './claude-calls-export';
+import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
+import { renderClaudeCalls } from './claude-calls-view';
 import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
+import { checkAttempts } from './ci-attempts';
+import { newestAttempt, parseScope, storeAttempts } from './ci-attempts-store';
+import { checkPulls, checkTimelines } from './cycle-time';
+import { renderCycleTime } from './cycle-time-page';
+import { cycleTimeAddress, loadCycleTime, parseCycleTimeQuery } from './cycle-time-report';
+import { cycleTimeAnswer, newestMerge, storePulls, storeTimelines } from './cycle-time-store';
+import { loadTimeline, renderTimelinePiece } from './cycle-time-timeline';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
-import { storeBatch, unpricedLines } from './store';
-import { validateBatch } from './validate';
+import { checkSelection } from './selection';
+import { renderSelection, renderSelectionCheck } from './selection-page';
+import { parseSelectionQuery, periodStart, selectionAddress, wantsOf } from './selection-report';
+import { newestSelectionMerge, parseJobFilter, parseSelectionPeriod, selectionAnswer, storeSelection } from './selection-store';
+import { selectionView, type ViewWants } from './selection-view';
+import { loadFragileData, loadWorkflowData } from './ci-flakiness-report';
+import { checkRuns } from './stability';
+import { renderFragileStability, renderStability, renderWorkflowStability } from './stability-page';
+import { loadStability, parseStabilityQuery, stabilityAddress } from './stability-report';
+import { newestRun, parsePeriod, stabilityAnswer, storeRuns } from './stability-store';
+import { correctBatch, stillUnphased, storeBatch, unpricedLines } from './store';
+import { COMMIT, MAX_PART_BYTES, pullRequestNumber, pullRequestSnapshot, readArea, readTree, snapshotOf, tooLarge } from './tests';
+import { renderSource, renderTests } from './tests-page';
+import { loadSource, loadTests, parseSourceAsk, parseTestsQuery, testsAddress } from './tests-report';
+import { currentCommit, currentTree, makeCurrent, shownTests, storeArea, storeTree } from './tests-store';
+import { validateBatch, validateCorrections } from './validate';
 
 export interface Env {
   DB: D1Database;
@@ -18,12 +42,21 @@ export interface Env {
   GITHUB_TOKEN?: string;
   /** `owner/name`, set in wrangler.jsonc. */
   GITHUB_REPOSITORY?: string;
-  /** How long the edge keeps the costs page, in seconds; 0 turns the cache off (local runs and tests). */
+  /** A secret, the value Cockpit's production holds under the same name. Unset, the import of Cockpit's Claude calls skips. */
+  USAGE_READ_TOKEN?: string;
+  /** Cockpit's production address, set in wrangler.jsonc; `pnpm dev:harness` points it at the local API. */
+  COCKPIT_URL?: string;
+  /** How long the edge keeps the costs page and the Claude calls page, in seconds; 0 turns the cache off (local runs and tests). */
   PAGE_CACHE_SECONDS?: string;
 }
 
 /** Which job each cron in wrangler.jsonc starts. */
-const SCHEDULES: Record<string, JobName> = { '0 * * * *': 'linking', '10 3 * * *': 'prices', '20 3 * * *': 'rebuild' };
+const SCHEDULES: Record<string, JobName> = {
+  '0 * * * *': 'linking',
+  '10 3 * * *': 'prices',
+  '20 3 * * *': 'rebuild',
+  '30 */12 * * *': 'claude-calls',
+};
 
 /** Far above MAX_BATCH full rows, so only a malformed write reaches it. */
 const MAX_BODY = 1_000_000;
@@ -38,21 +71,403 @@ async function refusal(request: Request, env: Env): Promise<Response | null> {
   return null;
 }
 
-async function write(request: Request, env: Env): Promise<Response> {
-  const refused = await refusal(request, env);
-  if (refused) return refused;
-
+/** The request's JSON body, or the refusal for one too large or not JSON. */
+async function readBody(request: Request): Promise<{ body: unknown } | Response> {
   const text = await request.text();
   if (text.length > MAX_BODY) return json({ error: `The body is over ${MAX_BODY} characters.` }, 413);
-  let body: unknown;
   try {
-    body = JSON.parse(text);
+    return { body: JSON.parse(text) };
   } catch {
     return json({ error: 'The body is not JSON.' }, 400);
   }
-  const checked = validateBatch(body);
+}
+
+async function write(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = validateBatch(read.body);
   if (!checked.ok) return json({ error: checked.error }, 400);
   return json(await storeBatch(env.DB, checked.rows));
+}
+
+/** A send of CI stability's runs, stored whole or refused whole. */
+async function writeStability(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkRuns(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeRuns(env.DB, checked.runs));
+}
+
+/** A send of CI stability's attempts, stored whole or refused whole. */
+async function writeAttempts(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkAttempts(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeAttempts(env.DB, checked.attempts));
+}
+
+/** A send of cycle time's merged pull requests, stored whole or refused whole. */
+async function writeCycleTime(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkPulls(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storePulls(env.DB, checked.pulls));
+}
+
+/** A send of timelines alone, for pull requests already stored: stored whole or refused whole, never touching a pull request. */
+async function writeTimelines(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkTimelines(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  const stored = await storeTimelines(env.DB, checked.timelines);
+  return stored.ok ? json({ stored: stored.stored }) : json({ error: stored.error }, 400);
+}
+
+/** A send of test selection's pull requests, with the bars' thresholds, stored whole or refused whole. */
+async function writeSelection(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = checkSelection(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await storeSelection(env.DB, checked.pulls, checked.bars));
+}
+
+/**
+ * A snapshot part's body, or the refusal for one over MAX_PART_BYTES: a declared
+ * length is refused before reading, and an undeclared one is read only until it
+ * passes the limit, so a part far over it is never held in memory.
+ */
+async function readPart(request: Request, name: string): Promise<Uint8Array | Response> {
+  const declared = Number(request.headers.get('content-length'));
+  if (declared > MAX_PART_BYTES) return json({ error: tooLarge(name, declared) }, 413);
+  if (!request.body) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_PART_BYTES) {
+      await reader.cancel();
+      return json({ error: tooLarge(name, size, 'at least') }, 413);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/** The refusal for an address naming a snapshot the Monitor does not keep. */
+const noSuchSnapshot = (raw: string) => json({ error: `${JSON.stringify(raw)} is not a snapshot: use main, or pr- and a pull request's number.` }, 404);
+
+/**
+ * One part of a test explorer snapshot, or the switch that makes it current
+ * (src/tests.ts, src/tests-store.ts): `PUT .../tree` and `PUT .../areas/<key>`
+ * take the part's gzip as the body, `POST .../current` makes the commit's
+ * snapshot the one shown once every part has arrived. The snapshot is the
+ * address's, `main` or `pr-<number>`, never anything the parts say.
+ */
+async function writeTests(request: Request, env: Env, snapshot: string, commit: string, part: string): Promise<Response> {
+  const isSwitch = part === 'current';
+  if (request.method !== (isSwitch ? 'POST' : 'PUT')) return json({ error: `Use ${isSwitch ? 'POST' : 'PUT'}.` }, 405);
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  const which = snapshotOf(snapshot);
+  if (!which) return noSuchSnapshot(snapshot);
+  if (!COMMIT.test(commit)) return json({ error: `${JSON.stringify(commit)} is not a commit.` }, 400);
+  if (isSwitch) {
+    const switched = await makeCurrent(env.DB, which, commit);
+    return switched.ok ? json({ snapshot: which, current: commit }) : json({ error: switched.error }, switched.status);
+  }
+
+  let area: string | null = null;
+  if (part !== 'tree') {
+    try {
+      area = decodeURIComponent(part.slice('areas/'.length));
+    } catch {
+      return json({ error: 'The area is not a key.' }, 400);
+    }
+  }
+  const name = area === null ? 'The tree' : `Area ${JSON.stringify(area)}`;
+  const bytes = await readPart(request, name);
+  if (bytes instanceof Response) return bytes;
+  if (area === null) {
+    const checked = await readTree(commit, bytes);
+    if (!checked.ok) return json({ error: checked.error }, 400);
+    await storeTree(env.DB, which, checked.value, bytes);
+    return json({ snapshot: which, commit, part: 'tree', areas: checked.value.areas.length });
+  }
+  const checked = await readArea(area, bytes);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  const stored = await storeArea(env.DB, which, commit, area, bytes);
+  return stored.ok ? json({ snapshot: which, commit, part: 'area', area }) : json({ error: stored.error }, stored.status);
+}
+
+/** Which commit's snapshot is shown, uncached, for a send to check it is not older: public, as every read here is. */
+async function currentTests(request: Request, env: Env, snapshot: string): Promise<Response> {
+  if (request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+  const which = snapshotOf(snapshot);
+  if (!which) return noSuchSnapshot(snapshot);
+  return json({ snapshot, current: await currentCommit(env.DB, which) });
+}
+
+/** Whether the request asks for the JSON answer rather than the page: `?format=json`, or an `Accept` header naming `application/json`. */
+const wantsJson = (request: Request, url: URL) => url.searchParams.get('format') === 'json' || (request.headers.get('accept') ?? '').includes('application/json');
+
+/**
+ * `main`'s shown tests, or with `?pr=<number>` an open pull request's: the
+ * Test coverage page, or, when the request asks (`wantsJson`), the shown tree as JSON
+ * as it was sent (its commit, whether coverage was available, the areas, rules
+ * and cases without source lines), unpacked; before any has been made current,
+ * an empty answer saying so. The page reads the same tree alone, whatever panel
+ * it opens beside the table. Cached like the other reports under one key per
+ * view, so a page and its JSON never share an entry.
+ */
+async function tests(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseTestsQuery(url.searchParams);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(asJson ? `${url.origin}/tests?format=json${query.pr === null ? '' : `&pr=${query.pr}`}` : `${url.origin}${testsAddress(query, { list: query.list, pane: query.pane })}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  let response: Response;
+  if (asJson) {
+    const current = query.pr === null ? await currentTree(env.DB, 'main') : (await shownTests(env.DB, pullRequestSnapshot(query.pr))).tree;
+    const none = query.pr === null ? "No snapshot of main's tests has arrived yet." : `No snapshot of pull request ${query.pr}'s tests is held.`;
+    response = current
+      ? new Response(new Blob([current.document]).stream().pipeThrough(new DecompressionStream('gzip')), { headers: { ...headers, 'content-type': 'application/json' } })
+      : Response.json({ commit: null, coverageAvailable: null, tree: [], note: none }, { headers });
+  } else {
+    response = new Response(renderTests(await loadTests(env.DB, query), Date.now()), { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
+  }
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * The source around one case of the shown tests, as a fragment the panel puts
+ * under the case when it is opened: `?area=<key>&at=<file:line>`, with
+ * `&pr=<number>` for an open pull request's. It reads the one stored document
+ * of that area and nothing else, so a panel listing many areas reads none until
+ * a case is opened. Cached like the page, one key per case.
+ */
+async function testsSource(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const ask = parseSourceAsk(url.searchParams);
+  if (!ask) return json({ error: 'Name the area and the case: ?area=<area>&at=<file:line>.' }, 400);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/tests/source?${new URLSearchParams({ area: ask.area, at: ask.at, ...(ask.pr === null ? {} : { pr: String(ask.pr) }) })}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = new Response(renderSource(ask.at, await loadSource(env.DB, ask)), {
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * Cycle time: the page, or its stored pull requests as JSON when the request
+ * asks (`wantsJson`): for the period the address asks, each window's figures and
+ * every pull request merged in it, with its rounds and checks. Cached like the
+ * costs page under one key per view, so a page and its JSON never share an entry.
+ */
+async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseCycleTimeQuery(url.searchParams);
+  const period = parsePeriod(url.searchParams.get('period'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(asJson ? `${url.origin}/cycle-time?format=json${period === '30d' ? '' : `&period=${period}`}` : `${url.origin}${cycleTimeAddress(query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const now = Date.now();
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const response = asJson
+    ? Response.json(await cycleTimeAnswer(env.DB, period, now), { headers })
+    : new Response(renderCycleTime(query, await loadCycleTime(env.DB, query, now), env.GITHUB_REPOSITORY, now), {
+        headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
+      });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * One stored pull request's timeline as the fragment its opened Pull request row on Cycle time shows under its
+ * outline: `pr` a positive whole number the Monitor holds, anything else refused with no strip. One request, made
+ * when the row is opened rather than carried in the page (a timeline runs to tens of KB), and cached at the edge
+ * like the pages.
+ */
+async function cycleTimeTimeline(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const raw = url.searchParams.get('pr') ?? '';
+  const pr = /^[1-9][0-9]{0,15}$/.test(raw) ? Number(raw) : null;
+  if (pr === null || !Number.isSafeInteger(pr)) return new Response('pr must be a pull request number', { status: 400 });
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/cycle-time/timeline?pr=${pr}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const found = await loadTimeline(env.DB, pr);
+  if (found === null) return new Response('no such pull request', { status: 404, headers: { 'cache-control': 'no-store' } });
+  const response = new Response(renderTimelinePiece(found), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * Test selection: the page, or its stored pull requests as JSON when the request
+ * asks (`wantsJson`). The JSON is for the period and job the address asks: how
+ * many pull requests ran, ran everything or were documentation only, each bar
+ * read against the thresholds the last send carried, the rules that forced a
+ * full run and the misses. Cached like the other
+ * reports under one key per view, so a page and its JSON never share an entry.
+ */
+async function selection(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseSelectionQuery(url.searchParams);
+  const period = parseSelectionPeriod(url.searchParams.get('period'));
+  const job = parseJobFilter(url.searchParams.get('job'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(asJson ? `${url.origin}/selection?format=json&period=${period}&job=${job}` : `${url.origin}${selectionAddress(query, query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const now = Date.now();
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const response = asJson
+    ? Response.json(await selectionAnswer(env.DB, period, job, now), { headers })
+    : new Response(renderSelection(query, await selectionView(env.DB, wantsOf(query), periodStart(query.period, now), query.job), now), {
+        headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
+      });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * What one job selected on one pull request's last CI run, as the fragment a
+ * cycle time row's E2E (F3) or Test line opens beneath it: `pr` a positive whole
+ * number and `job` `test` or `e2e`, anything else refused. One request, read when
+ * the line is opened rather than carried in the row (a pull request's chains run
+ * to tens of KB), and cached at the edge like the pages.
+ */
+async function selectionCheck(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const raw = url.searchParams.get('pr') ?? '';
+  const job = url.searchParams.get('job');
+  const pr = /^[1-9][0-9]{0,15}$/.test(raw) ? Number(raw) : null;
+  if (pr === null || !Number.isSafeInteger(pr)) return new Response('pr must be a pull request number', { status: 400 });
+  if (job !== 'test' && job !== 'e2e') return new Response('job must be test or e2e', { status: 400 });
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/selection/check?pr=${pr}&job=${job}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const wants: ViewWants = { pulls: false, reasons: false, misses: false, checks: false, pull: pr };
+  const view = await selectionView(env.DB, wants, 0, job);
+  const response = new Response(renderSelectionCheck(view, job), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * CI stability: the page, or its stored runs as JSON when the request asks
+ * (`wantsJson`), for the period the address asks. Cached like the costs page
+ * under one key per view, so a page and its JSON never share an entry.
+ */
+async function stability(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const asJson = wantsJson(request, url);
+  const query = parseStabilityQuery(url.searchParams);
+  const period = parsePeriod(url.searchParams.get('period'));
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(asJson ? `${url.origin}/stability?format=json${period === '30d' ? '' : `&period=${period}`}` : `${url.origin}${stabilityAddress(query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const now = Date.now();
+  const headers = { vary: 'accept', 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store' };
+  const response = asJson
+    ? Response.json(await stabilityAnswer(env.DB, period, now), { headers })
+    : new Response(
+        query.group === 'workflow'
+          ? renderWorkflowStability(query, await loadWorkflowData(env.DB, query.period, now), env.GITHUB_REPOSITORY, now)
+          : query.group === 'tests'
+            ? renderFragileStability(query, await loadFragileData(env.DB, query.period, now), env.GITHUB_REPOSITORY, now)
+            : renderStability(query, await loadStability(env.DB, query.period, now), env.GITHUB_REPOSITORY, now),
+        { headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } },
+      );
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
+ * Places stored Unphased requests again (Re-place stored Unphased requests
+ * since 21 Sep from the local session logs, issue 1487), behind the write key.
+ * POST takes `{"corrections": [{requestId, category}]}`, at most 200, and
+ * answers `{changed, left}`; GET answers `{unphased}`, how many local requests
+ * from 21 Sep on are still Unphased, for the run's report.
+ *
+ * Built to these failure modes:
+ * - **Halfway**: a batch is one statement, so one D1 transaction; a stop leaves
+ *   whole batches placed and the rest Unphased, and the daily totals stale
+ *   until `rebuild` runs, which only the rows feed.
+ * - **Twice**: only a row still Unphased changes, so a re-run changes only what
+ *   earlier runs did not reach, and is safe.
+ * - **Rows that break the rule**: a category outside the four refuses the whole
+ *   batch, naming it; a row already phased, dated before 21 Sep, from a cloud
+ *   session or not stored is left and counted in `left`, never dropped silently.
+ * - **Interruption**: inside a batch D1 rolls it back whole; a hook inserting
+ *   rows meanwhile only inserts, which this never touches.
+ */
+async function correct(request: Request, env: Env): Promise<Response> {
+  const refused = await refusal(request, env);
+  if (refused) return refused;
+  if (request.method === 'GET') return json({ unphased: await stillUnphased(env.DB) });
+  const read = await readBody(request);
+  if (read instanceof Response) return read;
+  const checked = validateCorrections(read.body);
+  if (!checked.ok) return json({ error: checked.error }, 400);
+  return json(await correctBatch(env.DB, checked.corrections));
 }
 
 /**
@@ -98,14 +513,31 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
-/** A pull request number as written in an address: no sign, no leading zero, ten digits at most. */
-const prNumber = (raw: string): number | null => (/^[1-9]\d{0,9}$/.test(raw) ? Number(raw) : null);
+/** Cockpit's Claude calls page, cached at the edge like the costs page; the totals it reads are the import's own. */
+async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const query = parseCallsQuery(url.searchParams);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/claude-calls${callsQueryString(query)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = new Response(renderClaudeCalls(await callsPage(env.DB, query), { repository: env.GITHUB_REPOSITORY }), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
+    },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
 
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
   const query = parseQuery(url.searchParams);
-  const number = prNumber(raw);
+  const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
   const key = new Request(`${url.origin}/pr/${raw}${queryString(query, { engineer: null, group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}`);
@@ -128,7 +560,7 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
 function exportRows(request: Request, env: Env): Response {
   const params = new URL(request.url).searchParams;
   const pr = params.get('pr');
-  const number = pr === null ? null : prNumber(pr);
+  const number = pr === null ? null : pullRequestNumber(pr);
   if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');
   return exportCsv(env.DB, parseQuery(params), number, number === null ? 'claude-code-requests.csv' : `claude-code-pull-request-${number}.csv`);
 }
@@ -139,8 +571,55 @@ export default {
     const prPath = /^\/pr\/([^/]*)\/?$/.exec(pathname);
     if (prPath && request.method === 'GET') return pullRequest(request, env, ctx, prPath[1]!);
     if (pathname === '/export.csv' && request.method === 'GET') return exportRows(request, env);
+    if (pathname === '/claude-calls' && request.method === 'GET') return claudeCalls(request, env, ctx);
+    // Never cached: it can be a year of calls.
+    if (pathname === '/claude-calls/export.csv' && request.method === 'GET') return exportClaudeCalls(env.DB, parseCallsQuery(new URL(request.url).searchParams));
     if (pathname === '/v1/usage') {
       return request.method === 'POST' ? write(request, env) : json({ error: 'Use POST.' }, 405);
+    }
+    if (pathname === '/v1/stability') {
+      if (request.method === 'POST') return writeStability(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestRun: await newestRun(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/v1/ci-attempts') {
+      if (request.method === 'POST') return writeAttempts(request, env);
+      // Where the next send of main's attempts, or of every other branch's, starts reading: public, as every read here is.
+      if (request.method === 'GET') {
+        const scope = parseScope(new URL(request.url).searchParams.get('on'));
+        return scope === null ? json({ error: 'on must be main or branches.' }, 400) : json({ newestAttempt: await newestAttempt(env.DB, scope) });
+      }
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/stability' && request.method === 'GET') return stability(request, env, ctx);
+    if (pathname === '/v1/cycle-time') {
+      if (request.method === 'POST') return writeCycleTime(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestMerge: await newestMerge(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/v1/cycle-time/timelines') {
+      return request.method === 'POST' ? writeTimelines(request, env) : json({ error: 'Use POST.' }, 405);
+    }
+    if (pathname === '/cycle-time' && request.method === 'GET') return cycleTime(request, env, ctx);
+    if (pathname === '/cycle-time/timeline' && request.method === 'GET') return cycleTimeTimeline(request, env, ctx);
+    if (pathname === '/v1/selection') {
+      if (request.method === 'POST') return writeSelection(request, env);
+      // Where the next send starts reading: public, as every read here is.
+      if (request.method === 'GET') return json({ newestMerge: await newestSelectionMerge(env.DB) });
+      return json({ error: 'Use GET or POST.' }, 405);
+    }
+    if (pathname === '/selection' && request.method === 'GET') return selection(request, env, ctx);
+    if (pathname === '/selection/check' && request.method === 'GET') return selectionCheck(request, env, ctx);
+    const testsCurrent = /^\/v1\/tests\/([^/]+)$/.exec(pathname);
+    if (testsCurrent) return currentTests(request, env, testsCurrent[1]!);
+    const testsPath = /^\/v1\/tests\/([^/]+)\/([^/]+)\/(tree|current|areas\/[^/]+)$/.exec(pathname);
+    if (testsPath) return writeTests(request, env, testsPath[1]!, testsPath[2]!, testsPath[3]!);
+    if (pathname === '/tests' && request.method === 'GET') return tests(request, env, ctx);
+    if (pathname === '/tests/source' && request.method === 'GET') return testsSource(request, env, ctx);
+    if (pathname === '/v1/usage/corrections') {
+      return request.method === 'POST' || request.method === 'GET' ? correct(request, env) : json({ error: 'Use POST or GET.' }, 405);
     }
     const jobPath = /^\/v1\/jobs\/([^/]*)$/.exec(pathname);
     if (jobPath) return request.method === 'POST' ? startJob(request, env, jobPath[1]!) : json({ error: 'Use POST.' }, 405);

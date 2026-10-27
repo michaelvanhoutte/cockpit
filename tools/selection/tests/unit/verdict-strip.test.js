@@ -77,10 +77,10 @@ describe('Test selection report', () => {
     });
 
     it('a bar that could not be read is named as unread in the strip’s foot and grey in its row, never green', () => {
-      // No test file or spec is recorded at all, so none has ten pull requests that could have skipped it.
-      const html = render(times(20, () => aPull({ test: [pkg({ mode: 'changed' })], e2e: [e2eTier({ mode: 'changed' })] })));
-      expect(strip(html)).toContain('Unread: A test selected on nearly every pull request (no test file or spec had 10 pull requests that could have skipped it).');
-      const row = rowOf(html, 'A test selected on nearly every pull request');
+      // Twenty documentation-only pull requests: neither job ran, so neither forced-full figure exists.
+      const html = render(times(20, () => aPull()));
+      expect(strip(html)).toContain('Unread: E2E forced to run every spec (the window cannot give the figure); Test forced to run everything (the window cannot give the figure).');
+      const row = rowOf(html, 'Test forced to run everything');
       expect(row).toMatch(/^<tr class="unread">/);
       expect(row).not.toContain('within');
       expect(row).not.toContain('crossed');
@@ -112,8 +112,13 @@ describe('Test selection report', () => {
       const html = render(quietWindow());
       expect(rowOf(html, 'Misses')).toContain('<td class="bar">any miss</td>');
       expect(rowOf(html, 'Test forced to run everything')).toContain('25% of pull requests that ran');
-      expect(rowOf(html, 'A test selected on nearly every pull request')).toContain('80%, over at least 10');
-      expect(rowOf(html, 'A test selected on nearly every pull request')).toContain('<span class="fig within">40%</span><span class="of">8 of 20</span>');
+    });
+
+    it('a test selected on every pull request that could have skipped it draws no tile and crosses no bar', () => {
+      const html = render(times(20, () => aPull({ test: [pkg({ mode: 'changed', files: [file({ path: 'apps/pkg/tests/unit/hot.test.ts' })] })], e2e: [e2eTier({ mode: 'changed' })] })));
+      expect(strip(html)).toContain('No bar crossed in the 14-day window');
+      expect(html).not.toContain('A test selected on nearly every pull request');
+      expect(html).not.toContain('most-selected');
     });
   });
 

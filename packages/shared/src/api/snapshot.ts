@@ -3,8 +3,10 @@ import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import {
+  FOLLOW_UP_DAYS,
   associationSchema,
   dashboardSchema,
+  followUpDaysSchema,
   itemSchema,
   workspaceSchema,
 } from '../domain/item.js';
@@ -45,7 +47,7 @@ export const workspaceSnapshotSchema = z.object({
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,
-   * since an Item still names the series *Never* stopped. Defaulted for the
+   * since an Item still names the series deleting its recurring item stopped. Defaulted for the
    * reason `attachments` above is: a stored copy taken before this field
    * existed is an app with nothing repeating.
    */
@@ -59,6 +61,14 @@ export const workspaceSnapshotSchema = z.object({
    * was.
    */
   itemFormPresentation: itemFormPresentationSchema.default(DEFAULT_ITEM_FORM_PRESENTATION),
+  /**
+   * How many days *Wait for reply…* starts on, from Settings › Follow-ups
+   * ("Choose in Settings how many days to wait for a reply", issue 1465).
+   * Account-wide, carried here as `itemFormPresentation` is so the question has
+   * it offline and on a cold open; defaulted for the reason `attachments` above
+   * is: a stored copy taken before this field existed starts on 3.
+   */
+  followUpDays: followUpDaysSchema.default(FOLLOW_UP_DAYS),
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - the pairs
@@ -102,6 +112,24 @@ export const workspaceSnapshotSchema = z.object({
   upTo: z.iso.datetime().optional(),
 });
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
+
+/**
+ * A Workspace's finished Items ("Fetch a Workspace's finished Items the first
+ * time All items opens", issue 1434): a read of its own, made when *All items*
+ * is first opened in a tab or an address names an Item the Workspace's read does
+ * not hold, never part of the snapshot every navigation reads. The Items are the
+ * Workspace's finished and not dismissed ones, with what *All items* draws a row
+ * from: where each is filed (`filings`) and whether it holds a file
+ * (`attachments`). Panels and Dashboards come with the snapshot.
+ */
+export const finishedItemsSchema = z.object({
+  items: z.array(itemSchema),
+  filings: z.array(filingSchema),
+  attachments: z.array(attachmentSchema),
+  /** The newest change this read is built on, as the snapshot's `upTo` says it. */
+  upTo: z.iso.datetime().optional(),
+});
+export type FinishedItems = z.infer<typeof finishedItemsSchema>;
 
 export const workspaceListSchema = z.object({
   workspaces: z.array(workspaceSchema),

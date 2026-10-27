@@ -4,7 +4,7 @@
 // scripts/harness-run.mjs.
 //
 
-export const JOBS = ['linking', 'prices', 'rebuild'];
+export const JOBS = ['linking', 'prices', 'rebuild', 'claude-calls'];
 
 /**
  * The job, the address and the key to start it with, or the one thing that is missing.

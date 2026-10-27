@@ -44,7 +44,12 @@ const ARGUMENTS = [
 ] as const;
 
 /** What each status, priority and due window is called to the model, as the Dashboard filter bar calls it. */
-const STATUS_NAMES: Record<ItemStatus, string> = { to_do: 'To do', in_progress: 'In progress', done: 'Done' };
+const STATUS_NAMES: Record<ItemStatus, string> = {
+  to_do: 'To do',
+  in_progress: 'In progress',
+  waiting: 'Waiting for reply',
+  done: 'Done',
+};
 const PRIORITY_NAMES: Record<Priority, string> = { high: 'High', normal: 'Normal', low: 'Low' };
 const DUE_NAMES: Record<DueWindow, string> = {
   overdue: 'Overdue',

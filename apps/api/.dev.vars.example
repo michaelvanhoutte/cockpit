@@ -41,3 +41,10 @@ ANTHROPIC_WORKSPACE_ID=
 # A contract run by hand (`pnpm --filter @cockpit/api test:contract`) reads the
 # same token from here, and is red before any call without it.
 USAGE_RECORDING_TOKEN=
+
+# What the Harness Monitor reads Cockpit's Claude calls under ("Let the Harness
+# Monitor read Cockpit's Claude calls, without users, under a token of its own",
+# issue 1481). Opens GET /v1/usage-records and nothing else; unset, that route
+# answers 503. Any string will do locally, and only a local Harness Monitor needs
+# the same one (docs/deployment.md, "Secrets and access").
+USAGE_READ_TOKEN=

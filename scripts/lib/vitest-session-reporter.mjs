@@ -6,17 +6,23 @@
 // rerun.
 //
 // A run's scope is its package, or the file where one file ran out of several.
+// Where COCKPIT_FAILED_TESTS_DIR is set (CI's workflows that run `pnpm test`
+// rather than scripts/ci-test.mjs) it also leaves the run's failed tests there.
 // It never fails the run.
 //
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { vitestFailedTests } from './failed-tests.mjs';
 import { locateSessionRecord, recordTestRun, vitestScope } from './test-run-record.mjs';
 
 /** This module's own path, which is how a config names the reporter. */
 export const sessionRunReporter = fileURLToPath(import.meta.url);
+
+/** The repository root: where a failed test's file is relative to. */
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 export default class SessionRunReporter {
   onInit(vitest) {
@@ -30,6 +36,7 @@ export default class SessionRunReporter {
 
   async onTestRunEnd(testModules) {
     const end = Date.now();
+    this.recordFailedTests(testModules);
     try {
       const root = this.vitest.config.root;
       const where = locateSessionRecord(root);
@@ -49,6 +56,30 @@ export default class SessionRunReporter {
         known: [...new Set(specs.map((spec) => rel(spec.moduleId)))],
       });
       recordTestRun({ scopes: [scope], start: this.start, end }, root);
+    } catch {
+      // The run passes or fails on its tests alone.
+    }
+  }
+
+  /**
+   * Where COCKPIT_FAILED_TESTS_DIR names a folder, a run with failed tests
+   * leaves its own file there (failed-tests.mjs), for the workflows that run
+   * `pnpm test` and not scripts/ci-test.mjs (deploy staging, promote to
+   * production, contract) to gather into the record they upload when it is
+   * not empty (scripts/ci-failed-tests.mjs). A passing run leaves nothing.
+   */
+  recordFailedTests(testModules) {
+    const dir = process.env.COCKPIT_FAILED_TESTS_DIR;
+    if (!dir) return;
+    try {
+      const rel = (path) => relative(repoRoot, path).split(sep).join('/');
+      const failed = vitestFailedTests(testModules, rel);
+      if (failed.failedTests.length === 0) return;
+      mkdirSync(dir, { recursive: true });
+      // Named by the package's path, so two folders of one name do not share a file.
+      const root = this.vitest.config.root;
+      const where = rel(root).replace(/[^A-Za-z0-9._-]+/g, '_') || basename(root);
+      writeFileSync(join(dir, `${where}-${process.pid}.json`), JSON.stringify(failed));
     } catch {
       // The run passes or fails on its tests alone.
     }

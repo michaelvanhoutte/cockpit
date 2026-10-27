@@ -4,6 +4,7 @@ import type {
   CommandPayload,
   CommandResult,
   ConnectionHistory,
+  FinishedItems,
   Item,
   Panel,
   ReadableSnapshot,
@@ -98,6 +99,7 @@ import {
   ItemNotFoundError,
   LastDashboardError,
   RepeatRefusedError,
+  WaitRefusedError,
   SentenceRefusedError,
   SentenceNotFoundError,
   LayoutNotFoundError,
@@ -125,6 +127,7 @@ import {
   getAttachmentForDownload,
   getItem,
   getItemFormPresentation,
+  getFollowUpDays,
   getWorkspace,
   isItemFiled,
   claudeProposalContext,
@@ -148,6 +151,7 @@ import {
   listOpenItems,
   listPanelsInWorkspace,
   listRecurringItems,
+  listFinishedItems,
   listWorkspaces,
   meaningsToCompareWith,
   queueRewriteAttempt,
@@ -268,8 +272,29 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
+        followUpDays: getFollowUpDays(db, accountName),
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+      };
+    });
+  }
+
+  /**
+   * One Workspace's finished Items with their filings and files ("Fetch a
+   * Workspace's finished Items the first time All items opens", issue 1434): its
+   * own read rather than a slice of the snapshot, since only *All items* draws
+   * them. `missing` where there is no such Workspace, as `snapshot` answers.
+   * Stamped before any row it carries, for the reason `snapshot`'s is.
+   */
+  finishedItems(accountName: string, workspaceId: string): Answer<FinishedItems> {
+    return this.#answer(accountName, (db) => {
+      const upTo = watermark(db, accountName);
+      if (!getWorkspace(db, accountName, workspaceId)) throw new WorkspaceNotFoundError(workspaceId);
+      return {
+        upTo,
+        items: listFinishedItems(db, accountName, workspaceId),
+        filings: listFilingsInWorkspace(db, accountName, workspaceId, true),
+        attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, true),
       };
     });
   }
@@ -1700,6 +1725,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof UnknownThemeError ||
         // A 400 as well: the Item is there, and the rule asked for is one it cannot take.
         error instanceof RepeatRefusedError ||
+        error instanceof WaitRefusedError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.
         error instanceof PanelHoldsSomethingElseError ||
@@ -1803,14 +1829,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
 /**
  * The changes after which the alarm is armed, moved or cleared: connecting,
  * disconnecting and a Workspace going with its connections ("Check a pulled
- * connector on its cadence through the generic host", issue 891), and a repeat
- * set, changed or stopped ("Bring a repeating Item back on its day", issue 1407).
+ * connector on its cadence through the generic host", issue 891), and a
+ * recurring item made, changed or deleted.
  */
 const CHANGES_THE_ALARM: ReadonlySet<CommandName> = new Set<CommandName>([
   'connect_source_account',
   'disconnect_source_account',
   'delete_workspace',
-  'set_repeat',
   // A recurring item made, changed or deleted moves the day the alarm is set for ("Make, change and delete recurring items from the Recurring items modal", issue 1449).
   'create_recurring_item',
   'write_recurring_item',

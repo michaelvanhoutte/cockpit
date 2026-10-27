@@ -70,7 +70,7 @@ describe('Harness Monitor', () => {
       const written = await totals();
       // A totals row from a deployment that predates the rule: Building, on a day before it.
       await env.DB.prepare("UPDATE daily_totals SET category = 'building' WHERE day < '2026-09-21'").run();
-      await env.DB.prepare("UPDATE daily_split_totals SET category = 'building' WHERE day < '2026-09-21'").run();
+      await env.DB.prepare("UPDATE daily_credited_totals SET category = 'building' WHERE day < '2026-09-21'").run();
 
       expect(await spent('?period=all')).toEqual(['Unphased $5.00', 'Building $2.00']);
 

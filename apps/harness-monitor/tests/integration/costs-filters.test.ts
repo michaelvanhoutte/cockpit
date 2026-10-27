@@ -29,9 +29,9 @@ describe('Harness Monitor', () => {
         return { heading: whereItWent(html).heading, table: costRows(html).map((r) => r.label) };
       };
 
-      expect(await figures('7d')).toEqual({ heading: "Where the period's $3.00 went", table: ['b/week', 'b/today'] });
-      expect(await figures('30d')).toEqual({ heading: "Where the period's $7.00 went", table: ['b/month', 'b/week', 'b/today'] });
-      expect(await figures('all')).toEqual({ heading: "Where the period's $15.00 went", table: ['b/old', 'b/month', 'b/week', 'b/today'] });
+      expect(await figures('7d')).toEqual({ heading: "Where the period's $3.00 went, by phase", table: ['b/week', 'b/today'] });
+      expect(await figures('30d')).toEqual({ heading: "Where the period's $7.00 went, by phase", table: ['b/month', 'b/week', 'b/today'] });
+      expect(await figures('all')).toEqual({ heading: "Where the period's $15.00 went, by phase", table: ['b/old', 'b/month', 'b/week', 'b/today'] });
     });
 
     it('with no period chosen it is the last 30 days', async () => {
@@ -55,11 +55,12 @@ describe('Harness Monitor', () => {
       const html = await thePage('?period=all&engineer=bob');
 
       expect(costRows(html).map((r) => [r.label, r.total])).toEqual([['#2 Bob’s', '$2.00']]);
-      expect(whereItWent(html).heading).toBe("Where the period's $2.00 went");
+      expect(whereItWent(html).heading).toBe("Where the period's $2.00 went, by phase");
       expect(whereItWent(html).bar).toContain('After push $2.00');
       expect(whereItWent(html).bar).toContain('Building $0.00');
       expect(await rows('?period=all&engineer=~unattributed')).toEqual([['b/nobody', '$1.00']]);
-      expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00']]);
+      // Each engineer lists every engineer: a filter to one would repeat the rows, so the address drops it.
+      expect(await rows('?period=all&engineer=alice&group=engineer')).toEqual([['alice', '$5.00'], ['bob', '$2.00'], ['Unattributed', '$1.00']]);
       expect(await rows('?period=all&engineer=bob&group=day')).toEqual([['1 Oct 2026', '$2.00']]);
     });
 
@@ -72,11 +73,11 @@ describe('Harness Monitor', () => {
 
       const html = await thePage('?period=all&category=after-push&sort=total');
 
-      expect(costRows(html).map((r) => [r.label, r.total, ...r.categories])).toEqual([
-        ['b/2', '$3.00', '—', '—', '—', '—', '—', '$3.00', '—', '—'],
-        ['b/1', '$2.00', '—', '—', '—', '—', '—', '$2.00', '—', '—'],
+      expect(costRows(html).map((r) => [r.label, r.total, r.colours])).toEqual([
+        ['b/2', '$3.00', 'After push $3.00'],
+        ['b/1', '$2.00', 'After push $2.00'],
       ]);
-      expect(whereItWent(html)).toEqual({ heading: "Where the period's $5.00 went", bar: 'After push $5.00' });
+      expect(whereItWent(html)).toEqual({ heading: "Where the period's $5.00 went, by phase", bar: 'After push $5.00' });
     });
 
     it('the filters combine, and an address with nonsense in it falls back to the defaults', async () => {

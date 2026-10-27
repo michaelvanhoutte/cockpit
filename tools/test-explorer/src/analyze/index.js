@@ -6,20 +6,20 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import ts from 'typescript';
 
 import { LEVEL_IDS } from '../model.js';
-import { annotateTree, buildTree, loadConcepts, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
+import { annotateTree, buildTree, loadConcepts, loadNotWorthATest, NOT_WORTH_A_TEST, resolveFiles, unregisteredAreas, withInfrastructure } from './concepts.js';
 import { extractRules, levelForTestFile } from './rules.js';
-import { parseFile, resolveImport } from './ast.js';
-import { workspacePackages, packageName, packageEntry, sourceFiles, testFiles } from './workspace.js';
-import { loadMergedCoverage, branchesNotTaken } from './coverage.js';
+import { parseFile } from './ast.js';
+import { workspacePackages, sourceFiles, testFiles } from './workspace.js';
+import { loadMergedCoverage, branchesNotTaken, statementsCovered } from './coverage.js';
 
 /**
  * @param {string} repo absolute path to the repository root
+ * @param {{ notWorthATest?: string }} [options] where the list of files judged not worth a test is read from: this tool's own, beside concepts.json, unless given
  * @returns {import('../model.js').Model}
  */
-export function analyze(repo) {
+export function analyze(repo, { notWorthATest = NOT_WORTH_A_TEST } = {}) {
   const warnings = [];
   const packages = workspacePackages(repo);
   const registry = loadConcepts();
@@ -33,29 +33,16 @@ export function analyze(repo) {
   const availableLevels = Object.fromEntries(LEVEL_IDS.map((id) => [id, id !== 'L3' || backendServiceCount > 1]));
 
   // ---- source files, for the two coverage columns -----------------------
-  /** @type {Set<string>} absolute paths */
-  const sourceFileSet = new Set();
   /** @type {string[]} repo-relative */
   const relSourceFiles = [];
-  /** @type {Map<string, string>} package name -> absolute entry file */
-  const packageEntries = new Map();
-
-  for (const rel of packages) {
-    const name = packageName(repo, rel);
-    const entry = packageEntry(repo, rel);
-    if (name && entry) packageEntries.set(name, entry);
-    for (const relFile of sourceFiles(repo, rel)) {
-      sourceFileSet.add(path.join(repo, relFile));
-      relSourceFiles.push(relFile);
-    }
-  }
+  for (const rel of packages) relSourceFiles.push(...sourceFiles(repo, rel));
 
   // A file can legitimately belong to more than one feature area now (see
   // concepts.js's module doc) — resolveFiles returns every matching area key
   // per file, not a single one, and that is not an error to warn about.
   const fileConcepts = resolveFiles(registry, relSourceFiles);
 
-  // ---- test files: rules + import reach ----------------------------------
+  // ---- test files: rules -------------------------------------------------
   /** @type {{ absFile: string, relFile: string, level: string }[]} */
   const allTestFiles = [];
   for (const rel of packages) {
@@ -81,19 +68,12 @@ export function analyze(repo) {
 
   /** @type {Map<string, import('../model.js').Rule[]>} concept key -> rules */
   const rulesByConcept = new Map();
-  /** @type {Set<string>} absolute source file paths reached by some test file's imports */
-  const reached = new Set();
   /** @type {string[]} every top-level describe text seen across all test files, used or not */
   const allAreasSeen = [];
-  /** @type {string[]} repo-relative test files that drive the real Worker over HTTP */
-  const httpDrivenTestFiles = [];
 
   const contextCache = new Map();
 
   for (const t of allTestFiles) {
-    // Parsed once per test file and shared across the three passes below —
-    // each used to call parseFile independently, tripling the read+parse
-    // cost of the tool's dominant expense for no benefit.
     const { source } = parseFile(t.absFile);
 
     const { rules, areasSeen, warnings: fileWarnings } = extractRules(source, t.relFile, t.level);
@@ -107,9 +87,6 @@ export function analyze(repo) {
       if (!rulesByConcept.has(r.concept)) rulesByConcept.set(r.concept, []);
       rulesByConcept.get(r.concept).push(withRuleContext(r, repo, contextCache));
     }
-
-    if (importsSelfFetch(source)) httpDrivenTestFiles.push(t.relFile);
-    markReached(source, t.absFile, sourceFileSet, packageEntries, reached);
   }
 
   // §7/§2a: every feature area a describe actually names must be registered,
@@ -123,31 +100,17 @@ export function analyze(repo) {
     warnings.push(`feature area "${name}" is used in a describe but is not in concepts.json; add it or fix the typo.`);
   }
 
-  // "Files nothing runs" is import-reach only (§6.3 of the spec): a test that
-  // drives the real Worker over HTTP (`SELF.fetch` from `cloudflare:test`,
-  // per testing-strategy's "enter through the real interface, not around it")
-  // genuinely exercises the whole request pipeline — routing, the command
-  // service, the repo — without ever importing those files directly. This
-  // column cannot see that, so it will misreport exactly those files as
-  // untested. Named by file rather than a generic example, so the warning
-  // stays accurate as more HTTP-driven tests are added.
-  if (httpDrivenTestFiles.length) {
-    warnings.push(
-      '"Files nothing runs" only sees direct imports. The following test(s) drive the real Worker over ' +
-        'HTTP (SELF.fetch) rather than importing their targets directly, so files they genuinely exercise ' +
-        'through routing can still show up in that column as a false positive — verify against the test ' +
-        `file before treating a hit there as a real gap: ${httpDrivenTestFiles.join(', ')}.`,
-    );
-  }
+  // ---- the files judged not worth a test, each held to a file walked here ----
+  const decisions = loadNotWorthATest(notWorthATest, new Set(relSourceFiles));
 
-  // ---- merged branch coverage --------------------------------------------
+  // ---- merged coverage: statements run and branches taken ----------------
   const coverage = loadMergedCoverage(repo, packages);
   warnings.push(...coverage.warnings);
   // Files whose own package emitted no coverage-final.json at all (no test:coverage script, e.g.
   // packages/connector-sdk today) or that every package's coverage config excludes (`**/index.ts`)
-  // — branchesNotTaken(...) returns null for these, not [], so they must not silently count as
-  // "0 branches nothing takes" (a real fact) when what's actually true is "never measured".
-  // Collected while building the tree below, reported once here.
+  // — branchesNotTaken(...) and statementsCovered(...) return null for these, not an empty figure,
+  // so they must not silently count as "0 branches nothing takes" or "0 statements run" when what's
+  // actually true is "never measured". Collected while building the tree below, reported once here.
   const uninstrumentedFiles = new Set();
 
   // ---- assemble the tree ---------------------------------------------------
@@ -175,10 +138,6 @@ export function analyze(repo) {
     }
 
     const files = filesByConcept.get(concept.key) ?? [];
-    const filesNothingRuns = files
-      .filter((relFile) => !reached.has(path.join(repo, relFile)))
-      .sort()
-      .map((relFile) => withContext({ file: relFile, line: 1 }, repo, contextCache));
 
     const branchesNothingTakes = coverage.available
       ? files.flatMap((relFile) => {
@@ -191,7 +150,17 @@ export function analyze(repo) {
         })
       : null;
 
-    return { key: concept.key, label: concept.label, counts, rules, filesNothingRuns, branchesNothingTakes };
+    // Each own file's statements, how many ran and the lines none ran; a file coverage never
+    // measured has no figure (it is named in the warning below), and the area has none at all
+    // when the run had no coverage.
+    const statements = coverage.available
+      ? [...files].sort().flatMap((relFile) => {
+          const s = statementsCovered(coverage.map, path.join(repo, relFile));
+          return s === null ? [] : [{ file: relFile, ...s }];
+        })
+      : null;
+
+    return { key: concept.key, label: concept.label, counts, rules, branchesNothingTakes, statements };
   }
 
   const { tree, warnings: treeWarnings } = buildTree(withInfra, makeNode);
@@ -200,9 +169,9 @@ export function analyze(repo) {
 
   if (uninstrumentedFiles.size) {
     warnings.push(
-      '"Branches nothing takes" has no coverage data for the following file(s) — excluded by a package\'s ' +
-        'coverage config, or owned by a package with no test:coverage script — so they read as a clean 0 ' +
-        `rather than unknown; treat a 0 on a concept that owns one of these as unverified: ${[...uninstrumentedFiles].sort().join(', ')}.`,
+      '"Branches nothing takes" and the share covered have no coverage data for the following file(s) — excluded by a package\'s ' +
+        'coverage config, or owned by a package with no test:coverage script — so their branches read as a clean 0 ' +
+        `rather than unknown and their statements are left out of the share; treat a figure on a concept that owns one of these as unverified: ${[...uninstrumentedFiles].sort().join(', ')}.`,
     );
   }
 
@@ -214,6 +183,8 @@ export function analyze(repo) {
     coverageAvailable: coverage.available,
     availableLevels,
     unregisteredAreas: unregistered,
+    notWorthATest: decisions.decided,
+    notWorthATestProblems: decisions.problems,
     warnings,
   };
 }
@@ -221,49 +192,6 @@ export function analyze(repo) {
 /** A wrangler config marks a package as a deployable Worker/service, the discriminator used for L3 availability. */
 function isBackendService(repo, rel) {
   return ['wrangler.jsonc', 'wrangler.toml', 'wrangler.json'].some((f) => existsSync(path.join(repo, rel, f)));
-}
-
-/** True when a test file imports `cloudflare:test`'s `SELF` — the marker for an HTTP-driven integration test. */
-function importsSelfFetch(source) {
-  let found = false;
-  const visit = (node) => {
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text === 'cloudflare:test' &&
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const el of node.importClause.namedBindings.elements) {
-        if (el.name.text === 'SELF') found = true;
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(source, visit);
-  return found;
-}
-
-/**
- * Marks every module a test file's real (non-type-only) imports resolve to as reached. Checks both the
- * whole-declaration flag (`import type {...}`) and each specifier's own flag (`import { type X }`) —
- * a declaration can carry only inline-type specifiers and still have `importClause.isTypeOnly === false`,
- * so checking only the declaration flag would wrongly mark a type-only-in-practice import as reached.
- */
-function markReached(source, testFileAbs, sourceFileSet, packageEntries, reached) {
-  const visit = (node) => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !node.importClause?.isTypeOnly) {
-      const bindings = node.importClause?.namedBindings;
-      const hasRealSpecifier =
-        !bindings || !ts.isNamedImports(bindings) || bindings.elements.some((el) => !el.isTypeOnly);
-      if (hasRealSpecifier) {
-        const target = resolveImport(node.moduleSpecifier.text, testFileAbs, sourceFileSet, packageEntries);
-        if (target) reached.add(target);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(source, visit);
 }
 
 /** Lines of context shown around a referenced line — enough to read a rule/case/gap without opening the file. */

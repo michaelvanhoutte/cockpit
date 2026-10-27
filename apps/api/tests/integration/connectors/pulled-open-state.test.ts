@@ -372,6 +372,36 @@ describe('Connector management', () => {
     });
   });
 
+  describe('an Item waiting for a reply is still open at its source', () => {
+    it('setting it Waiting for reply asks nothing of the source, and brings no check forward', async () => {
+      runsIn(bringsIn('page-1'));
+      await connectedAndChecked();
+
+      const res = await asUser('http://cockpit.test/v1/commands/wait_for_reply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: crypto.randomUUID(),
+          issuedAt: new Date().toISOString(), // clock-ok: the Item was brought in on the store's real clock, which a change must not be older than
+          workspaceId: WORKSPACE_ID,
+          itemId: known.get('page-1'),
+          days: 3,
+          timeZone: 'Europe/Brussels',
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      expect(
+        await inTheStore((sql) =>
+          [...sql.exec<{ open_wanted: number | null }>('SELECT open_wanted FROM pulled_links')].map((row) => row.open_wanted),
+        ),
+      ).toEqual([null]);
+      expect((await nextAlarm())! - Date.now()).toBeGreaterThan(4 * 60_000); // clock-ok: the alarm is armed on the store's real clock
+      await nextChecksRun();
+      expect(fake.handed).toEqual([]);
+    });
+  });
+
   describe('a source that declares it mirrors but cannot is not asked to', () => {
     it('records nothing for its Items, so a change the source reports still applies', async () => {
       runsIn(bringsIn('page-1'));

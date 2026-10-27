@@ -18,8 +18,16 @@
  * the one it was asked for (model.js's coverage).
  */
 
+import { matchArtifact } from '../../cycle-time/src/model.js';
+import { readZipJson } from '../../selection/src/zip.js';
+import { classify, isDependabot, namesTests, onMainOf, recordArtifactFor } from './model.js';
+import { asRecord, testsFromAnnotations, testsFromLog } from './old-failures.js';
+
 const API = 'https://api.github.com';
+const RECORD_FILE = 'record.json';
 const PER_PAGE = 100;
+/** The most runs a filtered list returns, however many pages are asked for. */
+const LISTED_AT_MOST = 1_000;
 
 /** Thrown for anything that means the picture would be incomplete. */
 export class GitHubError extends Error {
@@ -43,10 +51,16 @@ export class GitHubError extends Error {
  * @property {string} headSha
  * @property {string} createdAt
  * @property {string} url
+ * @property {string|null} event what started it: push, pull_request, schedule, workflow_dispatch ...
+ * @property {string|null} branch the branch it ran for
+ * @property {number} attempt its latest attempt, 1 for a run never re-run
+ * @property {number|null} pullRequest the pull request it ran for, if any
+ * @property {string} startedAt when its latest attempt started
  */
 
 /**
  * @typedef {object} Job
+ * @property {number|null} id the job's own id, which is its check run's: where its annotations and log are
  * @property {number} runId
  * @property {string} name
  * @property {string|null} conclusion
@@ -83,12 +97,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * 404 or a spent allowance will say the same thing however many times it is
  * asked.
  */
-async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250 }) {
+async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250, counter = null }, parse = (res) => res.json()) {
   let lastError;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     if (attempt > 0) await sleep(retryDelayMs * attempt);
 
+    // Every request counts against the hour's allowance, a retry as much as the first.
+    if (counter) counter.requests += 1;
     let res;
     try {
       res = await fetchImpl(`${API}${path}`, {
@@ -106,7 +122,15 @@ async function request(path, { token, fetchImpl, retries = 2, retryDelayMs = 250
       continue;
     }
 
-    if (res.ok) return res.json();
+    if (res.ok) {
+      // A body that breaks off mid-read is a failed request like a thrown fetch, not a bug here.
+      try {
+        return await parse(res);
+      } catch (error) {
+        lastError = new GitHubError(`Could not read GitHub's answer for ${path}: ${error.message}`, { reason: 'network' });
+        continue;
+      }
+    }
 
     // A spent allowance is worth its own message: it is the one failure that is
     // about *us* rather than about GitHub, and the fix (fetch fewer runs, or
@@ -143,6 +167,12 @@ function normalizeRun(raw) {
     headSha: raw.head_sha,
     createdAt: raw.created_at,
     url: raw.html_url,
+    event: raw.event ?? null,
+    branch: raw.head_branch ?? null,
+    attempt: raw.run_attempt ?? 1,
+    pullRequest: raw.pull_requests?.[0]?.number ?? null,
+    // A re-run keeps the run's created_at, so this is when its latest attempt started.
+    startedAt: raw.run_started_at ?? raw.created_at,
   };
 }
 
@@ -157,6 +187,7 @@ function normalizeJob(raw) {
   }));
   const failedStep = steps.find((s) => s.conclusion === 'failure');
   return {
+    id: raw.id ?? null,
     runId: raw.run_id,
     name: raw.name,
     conclusion: raw.conclusion ?? null,
@@ -173,9 +204,11 @@ function normalizeJob(raw) {
  * Runs on one branch, newest first, back to `since` or until `maxRuns` is
  * reached — whichever comes first.
  *
- * Paginates and stops on the first run older than `since` rather than passing
- * the API's `created` filter, because the stop condition is then the same one
- * the budget uses and both are visible here.
+ * Paginates and stops on the first run older than `since`, because the stop
+ * condition is then the same one the budget uses and both are visible here. Only
+ * a window with an `until` (the backfill) passes the API's `created` filter too.
+ * A list filtered by branch or `created` ends at 1,000 runs, as an empty page;
+ * reaching that is counted as `truncated`, since the runs past it went unread.
  *
  * Runs that belong to no workflow file are dropped here, counted rather than
  * silently: Dependabot's update jobs appear in this list as one pseudo-workflow
@@ -184,25 +217,33 @@ function normalizeJob(raw) {
  * failed one therefore reads as a workflow with a 0% pass rate, which put three
  * of them above CI in the worst-first list on the first real run of this tool.
  * They are also not this repository's automation, which is the honest reason to
- * leave them out.
+ * leave them out. A `workflow_run` run is left out too, uncounted and without
+ * spending the budget: GitHub files it under `main` whatever it reports on, and
+ * pr-tests.yml's reports on a pull request.
  *
  * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number,
- *   reachedWindowEdge: boolean }>} `truncated` when the budget stopped it before the
+ *   reachedWindowEdge: boolean, dependabot: Run[] }>} `dependabot` is the ignored runs that are
+ *   Dependabot's, for the attempts alone: today's figures leave them out. `truncated` when the budget stopped it before the
  *   window did. `reachedWindowEdge` when a run older than `since` was actually seen —
  *   which is the only honest evidence that history reaches back past the window, since
  *   every run that *is* returned satisfies `createdAt >= since` by construction and so
  *   can never show it.
  */
-export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }) {
+export async function listRuns({ repo, branch = 'main', since, until = null, maxRuns, ...ctx }) {
   const runs = [];
   let page = 1;
   let truncated = false;
   let ignored = 0;
+  const dependabot = [];
   let reachedWindowEdge = false;
+  // An older window (the Harness Monitor's backfill) is asked of the API as a
+  // range: a list filtered by branch stops at 1,000 runs, which paging back
+  // from today would spend before a window 60 days old was reached.
+  const created = until ? `&created=${encodeURIComponent(`${apiTime(since)}..${apiTime(until)}`)}` : '';
 
   for (;;) {
     const body = await request(
-      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=${PER_PAGE}&page=${page}`,
+      `/repos/${repo}/actions/runs?branch=${encodeURIComponent(branch)}${created}&per_page=${PER_PAGE}&page=${page}`,
       ctx,
     );
     const batch = body.workflow_runs ?? [];
@@ -210,12 +251,16 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
 
     for (const raw of batch) {
       const run = normalizeRun(raw);
+      // The range is inclusive at both ends, and the window is not at its end.
+      if (until && new Date(run.createdAt) >= until) continue;
       if (new Date(run.createdAt) < since) {
         reachedWindowEdge = true;
         break;
       }
+      if (raw.event === 'workflow_run') continue;
       if (!run.path?.startsWith('.github/workflows/')) {
         ignored += 1;
+        if (isDependabot(run)) dependabot.push(run);
         continue;
       }
       if (runs.length >= maxRuns) {
@@ -226,15 +271,93 @@ export async function listRuns({ repo, branch = 'main', since, maxRuns, ...ctx }
     }
 
     if (reachedWindowEdge || truncated || batch.length < PER_PAGE) break;
+    if (page * PER_PAGE >= LISTED_AT_MOST) {
+      truncated = true;
+      break;
+    }
     page += 1;
   }
 
-  return { runs, truncated, ignored, reachedWindowEdge };
+  return { runs, truncated, ignored, reachedWindowEdge, dependabot };
 }
 
-/** Every job of one run. @returns {Promise<Job[]>} */
-export async function listJobs({ repo, runId, ...ctx }) {
-  const body = await request(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=${PER_PAGE}`, ctx);
+/** A time as the API's search syntax takes it: to the second, in UTC. */
+const apiTime = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+const DAY_MS = 86_400_000;
+
+/** The window from `since` to `until` cut into spans of a day, oldest first, the last one shorter. @returns {{ from: Date, to: Date }[]} */
+export function dayChunks(since, until) {
+  const chunks = [];
+  // The API's range is to the second, so a boundary with milliseconds would drop the runs of its second.
+  for (let from = new Date(Math.floor(since.getTime() / 1000) * 1000); from < until; ) {
+    const to = new Date(Math.min(from.getTime() + DAY_MS, until.getTime()));
+    chunks.push({ from, to });
+    from = to;
+  }
+  return chunks;
+}
+
+/**
+ * Every run created in `[from, to)` on any branch but the trunk's own: a pull request's run, or a
+ * push or manual run on another branch. `listRuns` cannot do this, since GitHub's `branch=` filter
+ * is exact, so this lists by `created` alone and drops the trunk's runs here.
+ *
+ * A list filtered by `created` ends at 1,000 runs as an empty page, so a span that fills all ten
+ * pages is read again as two halves, until each half fits; a span of one second that still fills
+ * them is counted as `truncated`. Workflow runs and runs of no workflow file other than Dependabot's
+ * are left out as `listRuns` leaves them out. Dependabot's are kept: they belong to no branch of the
+ * trunk's, and the attempts' reader takes their jobs where they failed.
+ *
+ * @returns {Promise<{ runs: Run[], truncated: boolean, ignored: number }>}
+ */
+export async function listBranchRuns({ repo, trunk = 'main', from, to, token, fetchImpl = globalThis.fetch, retries, retryDelayMs, counter }) {
+  if (typeof fetchImpl !== 'function') {
+    throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
+  }
+  const ctx = { token, fetchImpl, retries, retryDelayMs, counter };
+
+  /** The raw runs created in [start, end] (the API's range is inclusive), or what the first ten pages held. */
+  async function span(start, end) {
+    const created = encodeURIComponent(`${apiTime(start)}..${apiTime(end)}`);
+    const raw = [];
+    for (let page = 1; ; page += 1) {
+      const body = await request(`/repos/${repo}/actions/runs?created=${created}&per_page=${PER_PAGE}&page=${page}`, ctx);
+      const batch = body.workflow_runs ?? [];
+      raw.push(...batch);
+      if (batch.length < PER_PAGE) return { raw, truncated: false };
+      if (page * PER_PAGE >= LISTED_AT_MOST) break;
+    }
+    const half = Math.floor((end.getTime() - start.getTime()) / 2000) * 1000;
+    if (half < 1000) return { raw, truncated: true };
+    const middle = new Date(start.getTime() + half);
+    const first = await span(start, middle);
+    const second = await span(new Date(middle.getTime() + 1000), end);
+    return { raw: [...first.raw, ...second.raw], truncated: first.truncated || second.truncated };
+  }
+
+  // The range is inclusive at both ends, and the window is not at its end.
+  const { raw, truncated } = await span(from, new Date(to.getTime() - 1000));
+  const runs = new Map();
+  let ignored = 0;
+  for (const each of raw) {
+    const run = normalizeRun(each);
+    const created = new Date(run.createdAt);
+    if (created < from || created >= to || runs.has(run.id)) continue;
+    if (each.event === 'workflow_run' || onMainOf(run, trunk)) continue;
+    if (!run.path?.startsWith('.github/workflows/') && !isDependabot(run)) {
+      ignored += 1;
+      continue;
+    }
+    runs.set(run.id, run);
+  }
+  return { runs: [...runs.values()], truncated, ignored };
+}
+
+/** Every job of one run's latest attempt, or of the earlier `attempt` named. @returns {Promise<Job[]>} */
+export async function listJobs({ repo, runId, attempt = null, ...ctx }) {
+  const attemptPath = attempt === null ? '' : `/attempts/${attempt}`;
+  const body = await request(`/repos/${repo}/actions/runs/${runId}${attemptPath}/jobs?per_page=${PER_PAGE}`, ctx);
   return (body.jobs ?? []).map(normalizeJob);
 }
 
@@ -265,6 +388,7 @@ export async function collect({
   repo,
   branch = 'main',
   since,
+  until = null,
   maxRuns = 800,
   concurrency = 8,
   token,
@@ -277,10 +401,11 @@ export async function collect({
   }
 
   const ctx = { token, fetchImpl, retries, retryDelayMs };
-  const { runs, truncated, ignored, reachedWindowEdge } = await listRuns({
+  const { runs, truncated, ignored, reachedWindowEdge, dependabot } = await listRuns({
     repo,
     branch,
     since,
+    until,
     maxRuns,
     ...ctx,
   });
@@ -296,6 +421,142 @@ export async function collect({
     truncated,
     ignored,
     reachedWindowEdge,
+    dependabot,
     requests: withJobs.length,
   };
+}
+
+/**
+ * The record a failed job uploaded, the artifact created during that job's own run of it
+ * (`matchArtifact`: a re-run puts several under one name), trimmed to the tests it names.
+ * A job with no record, an expired or ambiguous one, or one that cannot be read is
+ * `not-recorded` and names no test. Only a spent allowance, or a bug in this code, throws.
+ */
+async function readRecord({ repo, run, job, artifacts, ...ctx }) {
+  const name = recordArtifactFor(run.path, job.name);
+  try {
+    const key = `${run.id}|${name}`;
+    if (!artifacts.has(key)) {
+      artifacts.set(
+        key,
+        request(`/repos/${repo}/actions/runs/${run.id}/artifacts?name=${encodeURIComponent(name)}&per_page=${PER_PAGE}`, ctx).then((body) =>
+          (body.artifacts ?? []).map((raw) => ({ id: raw.id, createdAt: raw.created_at, expired: Boolean(raw.expired) })),
+        ),
+      );
+    }
+    const match = matchArtifact(await artifacts.get(key), { startedAt: job.startedAt, completedAt: job.completedAt });
+    if (!match.artifact) return { state: 'not-recorded', why: match.why };
+
+    const zip = Buffer.from(await request(`/repos/${repo}/actions/artifacts/${match.artifact.id}/zip`, ctx, (res) => res.arrayBuffer()));
+    const value = readZipJson(zip, RECORD_FILE);
+    return value ? { state: 'read', value: { failedTests: value.failedTests, failedTestsMore: value.failedTestsMore } } : { state: 'not-recorded', why: 'absent' };
+  } catch (error) {
+    if (error instanceof GitHubError && error.reason === 'rate-limit') throw error;
+    // A GitHub failure, or an archive that is not one; anything else is a bug in this code.
+    if (error instanceof GitHubError || error instanceof SyntaxError || /zip/i.test(error?.message ?? '')) return { state: 'not-recorded', why: 'unreadable' };
+    throw error;
+  }
+}
+
+/** A failing step that ran tests, whose failed tests an annotation or the log may name. */
+const RAN_TESTS = /test|walks|e2e/i;
+
+/**
+ * The tests a failed job's annotations or, failing those, its log name, as the record they stand in
+ * for, or `null` when the job ran no tests, names none, or GitHub no longer holds them (its logs
+ * go after 90 days: a 404 or 410). An annotation costs a request and a log one more; a job that
+ * names no test costs both. Any other failure throws, so an attempt is never sent without its tests.
+ */
+async function readOldFailure({ repo, job, packages, ...ctx }) {
+  if (job.id === null || job.id === undefined || !RAN_TESTS.test(job.failedStep ?? '')) return null;
+  // Only what GitHub no longer holds names no tests, and each source is tried on its own, since the
+  // log can outlive the annotations. Any other failure would store the attempt without its tests, and
+  // the Monitor keeps the first row sent, so it stops the run instead.
+  const gone = async (path, parse) => {
+    try {
+      return await request(path, ctx, parse);
+    } catch (error) {
+      if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return null;
+      throw error;
+    }
+  };
+  const annotations = await gone(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=${PER_PAGE}`);
+  const named = asRecord(testsFromAnnotations(annotations));
+  if (named) return named;
+  const log = await gone(`/repos/${repo}/actions/jobs/${job.id}/logs`, (res) => res.text());
+  return asRecord(testsFromLog(log, packages));
+}
+
+/**
+ * Every attempt of the runs created since `since`, with the jobs of each: the latest attempt's
+ * from the list `collect` read, an earlier attempt's from its own (`/runs/{id}/attempts/{n}/jobs`,
+ * one request each, so only a re-run costs more than today), and a failed job that keeps a record
+ * carrying the `record` it uploaded. The runs are `collect`'s plus Dependabot's, whose jobs are
+ * read only where the run failed, since the page needs no job of a run that passed. Skipped runs
+ * ran no job and cost nothing. `failedJobs` reads the jobs of any run whose latest attempt failed,
+ * and no other's, for a caller that holds no job list: a feature branch's attempt keeps its failed
+ * jobs alone, so a run that passed needs none. `oldFailures` reads the tests of a failed job whose
+ * record names none (`readOldFailure`), for the backfill alone; `packages` (`workspacePackages()`)
+ * puts a test read from a log under its package's folder, as a record has it.
+ *
+ * @param {{ repo: string, runs: Run[], jobs?: Job[], since: Date, failedJobs?: boolean, counter?: { requests: number } }} input
+ * @returns {Promise<{ run: Run, attempt: number, jobs: Job[] }[]>} one per attempt, in no order
+ */
+export async function collectAttempts({
+  repo,
+  runs,
+  jobs = [],
+  since,
+  failedJobs = false,
+  oldFailures = false,
+  packages = [],
+  concurrency = 8,
+  token,
+  fetchImpl = globalThis.fetch,
+  retries,
+  retryDelayMs,
+  counter,
+}) {
+  if (typeof fetchImpl !== 'function') {
+    throw new GitHubError('No fetch available; pass fetchImpl.', { reason: 'no-fetch' });
+  }
+  const ctx = { token, fetchImpl, retries, retryDelayMs, counter };
+  const latestJobs = new Map();
+  for (const job of jobs) latestJobs.set(job.runId, [...(latestJobs.get(job.runId) ?? []), job]);
+  const artifacts = new Map();
+
+  const perRun = await pool(
+    runs.filter((run) => new Date(run.createdAt) >= since),
+    concurrency,
+    async (run) => {
+      const entries = [];
+      for (let attempt = 1; attempt <= (run.attempt ?? 1); attempt += 1) {
+        let own;
+        if (attempt < run.attempt) {
+          // An attempt GitHub no longer holds is one whose verdict cannot be read, not a failure of this one.
+          own = await listJobs({ repo, runId: run.id, attempt, ...ctx }).catch((error) => {
+            if (error instanceof GitHubError && (error.status === 404 || error.status === 410)) return [];
+            throw error;
+          });
+        } else if (latestJobs.has(run.id)) {
+          own = latestJobs.get(run.id);
+        } else {
+          own = (isDependabot(run) || failedJobs) && classify(run) === 'fail' ? await listJobs({ repo, runId: run.id, ...ctx }) : [];
+        }
+        const withRecords = [];
+        for (const job of own) {
+          let withRecord = job;
+          if (classify(job) === 'fail' && recordArtifactFor(run.path, job.name)) withRecord = { ...job, record: await readRecord({ repo, run, job, artifacts, ...ctx }) };
+          if (oldFailures && classify(job) === 'fail' && !namesTests(withRecord.record)) {
+            const found = await readOldFailure({ repo, job, packages, ...ctx });
+            if (found) withRecord = { ...withRecord, record: found };
+          }
+          withRecords.push(withRecord);
+        }
+        entries.push({ run, attempt, jobs: withRecords });
+      }
+      return entries;
+    },
+  );
+  return perRun.flat();
 }

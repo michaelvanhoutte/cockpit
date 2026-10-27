@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { GMAIL_RECONNECT_REASON, accountChanges, filterRowsStatements } from '../../../src/accounts/changes.js';
-import { themeOf } from '@cockpit/shared';
+import { itemStatus, themeOf } from '@cockpit/shared';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -77,6 +77,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     proposed_panel_fit: _proposedPanelFit,
     claude_proposals: _claudeProposals,
     series_id: _seriesId,
+    waiting_since: _waitingSince,
     ...rest
   } = row;
   return rest;
@@ -575,6 +576,12 @@ const rowsFor: {
     sql: `INSERT INTO pulled_links (tenant_id, workspace_id, connector_id, external_account_key, source_id, item_id, linked_at)
           VALUES (?, 'ws-before', 'teams', 'a-tenant:somebody', 'source-before', 'it-done-before', ?)`,
     params: (name) => [name, AT],
+  },
+  {
+    // The table `0097-account-follow-ups` creates ("Choose in Settings how many days to wait for a reply", issue 1465): an account's chosen wait, for the next update to meet.
+    table: 'account_follow_ups',
+    sql: 'INSERT INTO account_follow_ups (tenant_id, days) VALUES (?, 5)',
+    params: (name) => [name],
   },
 ];
 
@@ -3664,6 +3671,90 @@ describe('Item editing', () => {
       await applyChange(name, SERIES_DAYS);
 
       expect(await seriesIn(name)).toEqual(before.map((row) => ({ ...row, anchor_on: null, last_on: null })));
+    });
+  });
+});
+
+/**
+ * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463): an
+ * account from before it gains a column on its Items, and every Item it already
+ * had reads as not waiting, its status what it was.
+ */
+describe('Triage', () => {
+  describe('every Item an account already had is not waiting for a reply once an Item can wait', () => {
+    const WAITING_SINCE = '0096-item-waiting-since';
+    const itemsIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+
+    it('adds the column, leaves every Item as it was, and reads each with the status it had', async () => {
+      const name = 'aged-store-before-waiting-since';
+      await agedTo(name, justBefore(WAITING_SINCE));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await itemsIn(name);
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await itemsIn(name);
+      expect(after.map((row) => row.waiting_since)).toEqual(before.map(() => null));
+      expect(after.map(withoutLaterColumns)).toEqual(before.map(withoutLaterColumns));
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      const read = snapshot.status === 'ok' ? snapshot.value.items : [];
+      expect(read.length).toBeGreaterThan(0);
+      expect(read.map((item) => item.waitingSince)).toEqual(read.map(() => null));
+      expect(read.map(itemStatus)).not.toContain('waiting');
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await itemsIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "Choose in Settings how many days to wait for a reply" (issue 1465): an
+ * account from before it gains an empty table, every row it already held stays
+ * as it was, and it waits 3 days until it chooses.
+ */
+describe('Triage', () => {
+  describe('an account already in use waits 3 days for a reply until it chooses, and keeps everything it held', () => {
+    const FOLLOW_UPS = '0097-account-follow-ups';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', FOLLOW_UPS).one().n);
+
+    it('adds the table empty, reads 3 in its Workspace, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-follow-ups';
+      await agedTo(name, justBefore(FOLLOW_UPS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await everyRowIn(name);
+      expect(before).not.toHaveProperty('account_follow_ups');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      expect(after.account_follow_ups).toEqual([]);
+      // Left out: the change ledger, and the Agent that every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`).
+      const { account_follow_ups: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual(keptBefore);
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
     });
   });
 });

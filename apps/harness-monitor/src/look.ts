@@ -1,10 +1,12 @@
+import { APPEARANCE_BOOT } from './appearance';
 import { belgianDay, formatDateTime } from './belgium';
 
 /**
  * Cockpit's look on the Monitor's pages: the stylesheet, the top bar, the band,
  * the section heading and the page around them. The Monitor imports nothing
  * from Cockpit, so the values below are copied by value from
- * docs/design-system.md and apps/web/src/styles.css, not shared.
+ * docs/design-system.md and apps/web/src/styles.css, not shared, except the
+ * series colours (`--series-*`), the Monitor's own chart palette (src/palette.ts).
  */
 
 /** Names, titles and logins come from outside, so they are escaped. */
@@ -20,12 +22,32 @@ export const FONT_URL = '/fonts/inter-5.3.0-latin-wght.woff2';
 /** The mark: four rounded squares, the fourth in the default theme's violet lifted for the chrome. */
 const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="3" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="3" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="3" y="17" width="12" height="12" rx="2.5" fill="var(--chrome-ink)"/><rect x="17" y="17" width="12" height="12" rx="2.5" fill="var(--logo-dot)"/></svg>`;
 
-/** The pages the top bar lists, in order. */
-export type PageName = 'costs';
+/**
+ * Every page the top bar lists, in tab order, with the question it answers: the
+ * tab names it on pointing, and the page may open with it. A new page is a line
+ * here and its own route.
+ */
+export const PAGES = [
+  { name: 'costs', href: '/', label: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+  { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls', question: 'What do the app&rsquo;s own AI features cost to run?' },
+  { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
+  { name: 'selection', href: '/selection', label: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
+  { name: 'tests', href: '/tests', label: 'Test coverage', question: 'What do the tests cover, and at which level?' },
+  { name: 'stability', href: '/stability', label: 'CI stability', question: 'How often do the automated checks fail, and which ones?' },
+] as const;
+export type PageName = (typeof PAGES)[number]['name'];
+/** The question a page answers. */
+export const questionOf = (name: PageName) => PAGES.find((p) => p.name === name)!.question;
 
-/** A section heading: the strip Cockpit draws over a panel, with an optional note at its right. */
-export const band = (title: string, aside = '', id = '') =>
-  `<div class="section-band"><h2${id === '' ? '' : ` id="${id}"`}>${title}</h2>${aside === '' ? '' : `<span class="aside">${aside}</span>`}</div>`;
+/**
+ * A section heading: the strip Cockpit draws over a panel, with an optional note
+ * at its right. An (i) (`info`, src/explain.ts) sits beside the heading, not in
+ * it, so the section stays named by its title alone.
+ */
+export const band = (title: string, aside = '', id = '', info = '') => {
+  const heading = `<h2${id === '' ? '' : ` id="${id}"`}>${title}</h2>`;
+  return `<div class="section-band">${info === '' ? heading : `<div class="heading">${heading}${info}</div>`}${aside === '' ? '' : `<span class="aside">${aside}</span>`}</div>`;
+};
 
 /** A control that holds a value wears `data-set`, as Cockpit's filters do. */
 export function selectField(id: string, label: string, options: [value: string, text: string][], current: string, resting = ''): string {
@@ -35,24 +57,63 @@ export function selectField(id: string, label: string, options: [value: string, 
   return `<div class="field"><label for="${id}">${label}</label><select id="${id}" name="${id}" onchange="this.form.submit()"${current === resting ? '' : ' data-set'}>${opts}</select></div>`;
 }
 
-/** The top bar: the mark, the name, one tab per page and when the figures were read. */
+/** A select inside the sentence: its name read by assistive technology, its value shown as a word of the sentence. A filter that holds a value wears `data-set`. An option marked `off` cannot be picked and stays in the list; one marked `hidden` is left out of the list and names only the value held. */
+export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean | 'hidden'][], current: string, resting: string | null = null): string {
+  const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off === 'hidden' ? ' hidden' : off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
+  // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
+  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
+}
+
+/**
+ * A page's controls as one sentence: the words and selects, then the filters
+ * after "Only" and any buttons. A filter passed as '' is not offered; `hidden`
+ * carries what the form keeps without showing it.
+ */
+export function sentenceForm(action: string, sentence: string, only: string[], extra: string[] = [], hidden = ''): string {
+  const filters = only.filter((f) => f !== '');
+  const row = filters.length || extra.length ? `<div class="only">${filters.length ? `<span>Only</span>\n${filters.join('\n')}` : ''}\n${extra.join('\n')}</div>` : '';
+  return `<form class="sentence-form" method="get" action="${action}">
+<p class="sentence">${sentence}</p>
+${row}
+${hidden}
+<noscript><button type="submit">Apply</button></noscript>
+</form>`;
+}
+
+/**
+ * The appearance select, at the right of the top bar. No option is selected
+ * here: every viewer is sent the same page, so the script in the head sets the
+ * select from the choice this browser remembers (src/appearance.ts), and
+ * `autocomplete="off"` keeps the browser from restoring an older value over it.
+ */
+const APPEARANCE_SELECT = `<span class="appearance"><select id="appearance" aria-label="Appearance" autocomplete="off" onchange="monitorAppearance.choose(this.value)"><option value="">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select></span>
+<script>monitorAppearance.show()</script>`;
+
+/** The top bar: the mark, the name, one tab per page, when the figures were read and the appearance. */
 function chrome(current: PageName, now: number): string {
   return `<header class="topbar">
 <a class="brand" href="/">${LOGO}<span>Harness Monitor</span></a>
-<nav class="pages" aria-label="Pages"><a href="/"${current === 'costs' ? ' aria-current="page"' : ''}>Claude Code costs</a></nav>
+<nav class="pages" aria-label="Pages">${PAGES.map((p) => `<a href="${p.href}" title="${p.question}"${p.name === current ? ' aria-current="page"' : ''}>${p.label}</a>`).join('')}</nav>
 <span class="status">Updated ${formatDateTime(now)} · public, read-only</span>
+${APPEARANCE_SELECT}
 </header>`;
 }
 
-/** What a page is drawn with: which tab is current, the groupings on the band (none for a page without), and the page itself. */
-export function shell(page: { current: PageName; tabs?: string; body: string }, now: number): string {
-  // A page with no groupings keeps the band as a bare strip, so its tab still runs into it.
-  const strip = page.tabs === undefined ? '<div class="band"></div>' : `<nav class="band" aria-label="Group by"><div class="band-tabs">${page.tabs}</div></nav>`;
+/**
+ * What a page is drawn with: which tab is current, what its band carries, the
+ * page itself, and any stylesheet it adds to the shared one. The band carries
+ * `controls`, pinned to the top as the page scrolls, or nothing: a bare strip,
+ * so the page's tab still runs into it.
+ */
+export function shell(page: { current: PageName; controls?: string; body: string; style?: string }, now: number): string {
+  const strip = page.controls !== undefined ? `<div class="band band-controls">${page.controls}</div>` : '<div class="band"></div>';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Monitor</title>
+<script>${APPEARANCE_BOOT}</script>
 <link rel="preload" href="${FONT_URL}" as="font" type="font/woff2" crossorigin>
-<style>${STYLE}</style>
+<style>${STYLE}${page.style ?? ''}</style>
 </head><body>
 ${chrome(page.current, now)}
 ${strip}
@@ -63,6 +124,44 @@ ${page.body}
 </body></html>`;
 }
 
+/**
+ * A line chart's key: a swatch and a name, or the total's dashed one when
+ * `colour` is null. A series' key can be focused, so pointing at it or tabbing
+ * to it picks its line out (HIGHLIGHT); the total's cannot, since the total
+ * never fades.
+ */
+export const lineKey = (label: string, colour: string | null) =>
+  colour === null
+    ? `<span class="key"><i class="dash" aria-hidden="true"></i>${label}</span>`
+    : `<span class="key" tabindex="0"><i style="background:${colour}" aria-hidden="true"></i>${label}</span>`;
+
+/**
+ * Picking a line out of a line chart, with no script: a chart is the innermost
+ * `.panel` or `.trend` holding a `.legend` of keys and a `.lines` of groups, one
+ * per key in the same order. Pointing at or focusing a series' key, or pointing
+ * at its line, fades every other line but the total (`data-line=total`).
+ */
+const LINE_CHART = ':is(.panel,.trend):not(:has(.panel,.trend))';
+const HIGHLIGHT = Array.from({ length: 16 }, (_, i) => i + 1)
+  .map(
+    (n) =>
+      `${LINE_CHART}:has(.legend .key[tabindex]:nth-child(${n}):is(:hover,:focus),.lines>g:nth-child(${n}):not([data-line=total]):hover) .lines>g:not(:nth-child(${n})):not([data-line=total]){opacity:.15}`,
+  )
+  .join('\n');
+
+/** The dark tokens: applied under the device's dark scheme unless Light is chosen, and whenever Dark is. */
+const DARK = `
+  --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
+  --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
+  --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
+  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;
+  --due:#8f82d8;--due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
+  --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
+  --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
+  color-scheme:dark;
+`;
+const DARK_CHEVRON = `background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c5cd' stroke-width='1.5'/%3E%3C/svg%3E")`;
+
 /** Cockpit's tokens (docs/design-system.md), copied by value: the Monitor shares no code with Cockpit. */
 export const STYLE = `
 @font-face{font-family:'Inter Variable';font-style:normal;font-display:swap;font-weight:100 900;src:url(${FONT_URL}) format('woff2-variations')}
@@ -71,23 +170,15 @@ export const STYLE = `
   --ink-strong:#16181d;--ink:#3a3f4b;--ink-soft:#555b68;--ink-faint:#5a5f6d;--shade:#16181d;
   --graphite-top:#2d2e35;--graphite-bottom:#16181d;--chrome-ink:#f2f1f8;--chrome-ink-soft:#a5a3b5;
   --accent:#6f62b5;--accent-deep:#5d5294;--accent-soft:#b5abfc;--accent-tint:#e7e5fe;--on-accent:#fff;--bar:#594e91;--logo-dot:#9a8fd6;
-  --cat-slate:#2f4f7a;--cat-teal:#0e7490;--cat-amber:#c98a4b;--cat-green:#0b7a55;--cat-violet:#6a4cc9;--cat-grey:#a7b0be;
-  --due:#c98a4b;--due-soft:#f1dcc0;--due-ink:#6b4515;--over:#bf5d55;--over-ink:#9d4d46;--good:#0b7a55;
+  --series-1:#562ab4;--series-2:#eb6200;--series-3:#ab1f68;--series-4:#169b95;--series-5:#7f5704;--series-6:#257ff6;--series-7:#868b3d;--series-8:#7c2f85;--series-grey:#6e717a;
+  --due:#8579c4;--due-soft:#f1dcc0;--due-ink:#6b4515;--over:#bf5d55;--over-ink:#9d4d46;--good:#0b7a55;
   --shadow-panel:0 0 0 1px color-mix(in srgb,var(--accent) 14%,#d3d6e2),0 1px 2px rgb(22 24 29 / .05);
   --well-edge:inset 0 2px 3px -1px rgb(22 24 29 / .12);
   --radius-sm:4px;--radius-md:10px;--radius-lg:14px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
-  --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
-  --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
-  --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
-  --cat-slate:#93a6c2;--cat-teal:#5fc0d3;--cat-amber:#e3a752;--cat-green:#4ad6a0;--cat-violet:#b09af8;--cat-grey:#a7b0be;
-  --due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
-  --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
-  --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
-  color-scheme:dark;
-}}
+@media (prefers-color-scheme:dark){:root:not([data-appearance=light]){${DARK}}}
+:root[data-appearance=dark]{${DARK}}
 *{box-sizing:border-box}
 html{background:var(--ground)}
 body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.55 'Inter Variable',Inter,system-ui,sans-serif;font-feature-settings:'cv11','ss01';-webkit-font-smoothing:antialiased}
@@ -100,8 +191,6 @@ h1,h2,h3,p{margin:0}
 
 /* Top bar and band */
 .topbar{display:flex;align-items:center;gap:8px 20px;flex-wrap:wrap;padding:10px 20px 0;background:linear-gradient(var(--graphite-top),var(--graphite-bottom));color:var(--chrome-ink);border-top:3px solid var(--accent)}
-.pages a::before{content:'';display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--dot,var(--chrome-ink-soft));vertical-align:1px}
-.pages a:first-child{--dot:#e3a752}
 .brand{display:flex;align-items:center;gap:10px;color:var(--chrome-ink);text-decoration:none;font-weight:600;font-size:15px;padding-bottom:10px}
 .logo{width:24px;height:24px;flex-shrink:0}
 .pages{display:flex;gap:2px;align-self:flex-end}
@@ -109,12 +198,18 @@ h1,h2,h3,p{margin:0}
 .pages a:hover{color:var(--chrome-ink);background:rgb(255 255 255 / .06)}
 .pages a[aria-current=page]{background:var(--bar);color:var(--chrome-ink)}
 .status{margin-left:auto;color:var(--chrome-ink-soft);font-size:12px;padding-bottom:10px}
+.appearance{padding-bottom:10px}.appearance select{height:28px;font-size:12px;padding:0 26px 0 8px;background-position:right 8px center}
+@media (scripting:none){.appearance{display:none}}
 .band{background:var(--bar);padding:8px 20px 0}
-.band-tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
-.band-tabs a{flex-shrink:0;padding:7px 14px 9px;border-radius:var(--radius-md) var(--radius-md) 0 0;color:var(--chrome-ink);text-decoration:none;font-size:16px;font-weight:500;opacity:.9}
-.band-tabs a:hover{opacity:1;background:rgb(255 255 255 / .08)}
-.band-tabs a[aria-current=page]{background:var(--ground);color:var(--ink-strong);opacity:1;font-weight:600}
 
+/* A page's sentence, on the band and pinned */
+.band-controls{position:sticky;top:0;z-index:5;padding:12px 20px 14px;box-shadow:0 2px 6px rgb(22 24 29 / .18)}
+.sentence-form{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.sentence{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:18px;color:var(--chrome-ink)}
+.sentence select{height:40px;font-size:17px;font-weight:600}
+.only{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.only>span{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--chrome-ink-soft);margin-right:4px}
+.only select{height:34px;font-size:13px}.only .button{height:34px}
 main{max-width:1320px;margin:0 auto;padding:20px 20px 40px;display:flex;flex-direction:column;gap:20px}
 
 /* Filters */
@@ -122,12 +217,9 @@ main{max-width:1320px;margin:0 auto;padding:20px 20px 40px;display:flex;flex-dir
 .field{display:flex;flex-direction:column;gap:4px}
 .field>span,.field>label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
 select{height:38px;padding:0 32px 0 12px;font:inherit;font-size:14px;color:var(--ink-strong);background:var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235a5f6d' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 12px center;border:1px solid color-mix(in srgb,var(--shade) 18%,transparent);border-radius:var(--radius-md);appearance:none;box-shadow:inset 0 1px 2px rgb(22 24 29 / .06);cursor:pointer}
-@media (prefers-color-scheme:dark){select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c2c5cd' stroke-width='1.5'/%3E%3C/svg%3E")}}
+@media (prefers-color-scheme:dark){:root:not([data-appearance=light]) select{${DARK_CHEVRON}}}
+:root[data-appearance=dark] select{${DARK_CHEVRON}}
 select[data-set]{border:2px solid var(--accent);padding-left:11px}
-.toggles{display:flex;gap:2px;padding:3px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--shade) 7%,transparent)}
-.toggles button{height:32px;padding:0 14px;border:0;border-radius:7px;background:none;font:inherit;font-size:14px;font-weight:500;color:var(--ink-soft);cursor:pointer}
-.toggles button:hover{color:var(--ink-strong);background:color-mix(in srgb,var(--shade) 6%,transparent)}
-.toggles button[aria-pressed=true]{background:var(--accent);color:var(--on-accent);box-shadow:inset 0 1px 0 rgb(255 255 255 / .15),0 1px 2px rgb(22 24 29 / .2)}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
 noscript button{height:38px;padding:0 16px;font:inherit}
@@ -155,19 +247,13 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .note{font-size:13px;color:var(--ink-faint);border-top:1px solid color-mix(in srgb,var(--shade) 10%,transparent);padding-top:12px}
 .note strong{color:var(--ink)}
 
-/* The change on the previous period */
-.change h3{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--ink-strong)}
-.change ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.dimensions{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.drivers{min-width:420px}
-.up{color:var(--over-ink)}.down{color:var(--good)}
 
 /* Charts */
 .chart{padding:16px 12px 8px;overflow-x:auto}
 .chart svg{display:block;width:100%;min-width:640px;height:auto}
 .trend+.trend{border-top:1px solid color-mix(in srgb,var(--shade) 10%,transparent);padding-top:16px}
 .trend h3{font-size:14px;font-weight:600;color:var(--ink-strong)}
-.trend .note{border:0;padding:0 0 8px}
+.chart-note{border:0;padding:0 4px 8px}
 .trend .legend{padding:8px 4px 0}
 .gridline{stroke:color-mix(in srgb,var(--shade) 10%,transparent)}
 .axis{font-size:12px;fill:var(--ink-faint);font-family:inherit}
@@ -175,10 +261,12 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .legend{display:flex;flex-wrap:wrap;gap:4px 16px}
 .key{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--ink-soft);letter-spacing:0;text-transform:none}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
+.lines>g{transition:opacity .12s}
+${HIGHLIGHT}
 
 /* Tables */
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
-.costs{min-width:1100px}
+.costs{min-width:760px}
 th{position:sticky;top:0;padding:10px 12px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);background:var(--well);border-bottom:1px solid color-mix(in srgb,var(--shade) 14%,transparent);white-space:nowrap}
 th a{color:inherit}
 th i{margin-right:6px;vertical-align:-1px}
@@ -197,6 +285,23 @@ tbody tr:last-child td{border-bottom:0}
 .jobs .failed{color:var(--due-ink)}
 .empty{padding:28px 16px;color:var(--ink-faint)}
 
+/* Cockpit's Claude calls: the tiles, the changes beside where the dollars went, and a share beside each amount */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.tile{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 7%,transparent);outline:1px dotted color-mix(in srgb,var(--shade) 28%,transparent);outline-offset:4px;margin:5px;border-radius:0}
+.tile-label{font-size:12px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--accent-deep)}
+.tile-value{font-size:30px;font-weight:600;letter-spacing:-.02em;color:var(--ink-strong);font-variant-numeric:tabular-nums}
+.tile.up .tile-value{color:var(--over-ink)}.tile.down .tile-value{color:var(--good)}
+.tile-note{font-size:13px;color:var(--ink-faint)}
+.row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}.row.alone{grid-template-columns:minmax(0,1fr)}
+@media (max-width:900px){.row{grid-template-columns:minmax(0,1fr)}}
+.shares .share{width:36px;text-align:right;color:var(--ink-faint);font-size:13px;font-variant-numeric:tabular-nums}
+.changes{list-style:none;margin:0;padding:6px 0}
+.changes li{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:9px 16px;border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
+.changes li:last-child{border-bottom:0}
+.changes .name{color:var(--ink-strong);font-weight:500}.changes .delta{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}.changes .from{grid-column:1/-1;font-size:13px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.pr-no{color:var(--accent-deep);font-weight:600}
+.calls{min-width:860px}
+
 /* A pull request */
 .back{display:inline-flex;align-items:center;min-height:44px;align-self:flex-start}
 .head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px 40px}.head .title{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:6px}
@@ -212,11 +317,14 @@ footer{padding:0 20px 28px;text-align:center;font-size:12px;color:var(--ink-fain
 
 @media (max-width:640px){
   .topbar{padding:10px 12px 0}.status{display:none}.band{padding:8px 12px 0}
-  .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}.band-tabs a{font-size:14px;padding:7px 12px 9px}
-  .toggles button{white-space:nowrap;font-size:13px}
+  .brand{order:-2}.appearance{order:-1;margin-left:auto}
+  .pages{width:100%;overflow-x:auto;scrollbar-width:none}.pages a{white-space:nowrap;font-size:14px;padding:8px 12px 9px}
   main{padding:16px 16px 32px}
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px}.filters select{width:100%}
-  .filters .field:has(.toggles),.button{grid-column:1/-1}.toggles button{flex:1;padding:0 6px}.button{margin-left:0;justify-content:center}
+  .button{grid-column:1/-1;margin-left:0;justify-content:center}
+  .band-controls{padding:8px 12px 10px}.sentence-form{gap:6px}.sentence{font-size:15px;gap:6px 8px}.sentence select{height:34px;font-size:15px}
+  .only{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px}.only>span{grid-column:1/-1;margin:0}.only select,.only .button{height:32px}.only select{width:100%;min-width:0}
   .big{font-size:26px}
+  .tiles{grid-template-columns:1fr 1fr;gap:8px}.tile:nth-child(3){grid-column:1/-1}.tile-value{font-size:26px}
 }
 `;

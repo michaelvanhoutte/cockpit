@@ -174,7 +174,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 14,
+      "browserWalks": 16,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -222,6 +222,8 @@
         "packages/shared/src/domain/dashboard-filter.ts",
         "packages/shared/src/domain/find-item.ts",
         "apps/web/src/allItemsTab.ts",
+        "apps/web/src/finishedItems.ts",
+        "apps/web/src/api/finishedItems.ts",
         "apps/web/src/components/AllItemsBoard.tsx",
         "apps/web/src/pages/AllItemsPage.tsx",
         "apps/web/src/components/PanelBoard.tsx",
@@ -312,7 +314,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -335,8 +337,7 @@
         "packages/shared/src/commands.ts",
         "apps/api/src/domain/items.ts",
         "apps/web/src/components/ItemRow.tsx",
-        "apps/web/src/components/RepeatsChip.tsx",
-        "apps/web/src/components/RepeatsMark.tsx",
+        "apps/web/src/components/RecurringMark.tsx",
         "apps/web/src/itemFieldCommands.ts",
         "packages/shared/src/domain/series.ts",
         "apps/api/src/domain/series.ts",
@@ -376,6 +377,7 @@
         "apps/web/src/components/DeleteQuestion.tsx",
         "apps/web/src/components/RecurringModal.tsx",
         "apps/web/src/components/RecurringForm.tsx",
+        "apps/web/src/recurringModal.ts",
         "apps/web/src/api/recurringItems.ts",
         "apps/web/src/recurringItemsDrawnAhead.ts",
         "packages/shared/src/domain/recurring-item.ts"
@@ -577,7 +579,8 @@
       "sourcePatterns": [
         "apps/web/src/components/SettingsModal.tsx",
         "apps/web/src/components/SettingsWindow.tsx",
-        "apps/web/src/components/SettingsPanel.tsx"
+        "apps/web/src/components/SettingsPanel.tsx",
+        "apps/web/src/components/ManageFollowUps.tsx"
       ]
     },
     {
@@ -651,7 +654,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 3,
+      "browserWalks": 22,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",
@@ -659,6 +662,8 @@
         "apps/harness-monitor/src/store.ts",
         "apps/harness-monitor/src/page.ts",
         "apps/harness-monitor/src/look.ts",
+        "apps/harness-monitor/src/appearance.ts",
+        "apps/harness-monitor/src/palette.ts",
         "apps/harness-monitor/src/prices.ts",
         "apps/harness-monitor/src/price-list.ts",
         "apps/harness-monitor/src/linking.ts",
@@ -666,8 +671,53 @@
         "apps/harness-monitor/src/export.ts",
         "apps/harness-monitor/src/pull-request.ts",
         "apps/harness-monitor/src/pull-request-page.ts",
-        "apps/harness-monitor/src/github.ts"
+        "apps/harness-monitor/src/pull-request-strip.ts",
+        "apps/harness-monitor/src/pull-request-timeline.ts",
+        "apps/harness-monitor/src/costs-explain.ts",
+        "apps/harness-monitor/src/github.ts",
+        "apps/harness-monitor/src/claude-calls.ts",
+        "apps/harness-monitor/src/claude-call-shape.ts",
+        "apps/harness-monitor/src/stability.ts",
+        "apps/harness-monitor/src/stability-store.ts",
+        "apps/harness-monitor/src/stability-report.ts",
+        "apps/harness-monitor/src/stability-page.ts",
+        "apps/harness-monitor/src/stability-explain.ts",
+        "apps/harness-monitor/src/stability-workflow-page.ts",
+        "apps/harness-monitor/src/stability-fragile-page.ts",
+        "apps/harness-monitor/src/stability-rows.ts",
+        "apps/harness-monitor/src/ci-flakiness.ts",
+        "apps/harness-monitor/src/ci-flakiness-report.ts",
+        "apps/harness-monitor/src/copy-prompt.ts",
+        "apps/harness-monitor/src/cycle-time.ts",
+        "apps/harness-monitor/src/cycle-time-store.ts",
+        "apps/harness-monitor/src/cycle-time-report.ts",
+        "apps/harness-monitor/src/cycle-time-page.ts",
+        "apps/harness-monitor/src/cycle-time-explain.ts",
+        "apps/harness-monitor/src/cycle-time-timeline.ts",
+        "apps/harness-monitor/src/explain.ts",
+        "apps/harness-monitor/src/selection.ts",
+        "apps/harness-monitor/src/selection-store.ts",
+        "apps/harness-monitor/src/selection-view.ts",
+        "apps/harness-monitor/src/selection-report.ts",
+        "apps/harness-monitor/src/selection-page.ts",
+        "apps/harness-monitor/src/selection-explain.ts",
+        "apps/harness-monitor/src/tests.ts",
+        "apps/harness-monitor/src/tests-store.ts",
+        "apps/harness-monitor/src/tests-report.ts",
+        "apps/harness-monitor/src/tests-page.ts",
+        "apps/harness-monitor/src/tests-explain.ts",
+        "apps/harness-monitor/src/tests-prompts.ts",
+        "apps/harness-monitor/src/report.ts",
+        "apps/harness-monitor/src/claude-calls-page.ts",
+        "apps/harness-monitor/src/claude-calls-view.ts",
+        "apps/harness-monitor/src/claude-calls-explain.ts",
+        "apps/harness-monitor/src/claude-calls-export.ts"
       ]
+    },
+    {
+      "key": "Home-screen widget",
+      "label": "Home-screen widget",
+      "sourcePatterns": []
     }
   ]
 }

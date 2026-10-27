@@ -807,6 +807,15 @@ describe('Cycle time', () => {
       expect(failure).toMatchObject({ outcome, files, record: 'read', packagesNotRecorded: [] });
     });
 
+    it('names the same files from a record that also names the failed tests as from one that does not', () => {
+      const bare = recordOf(pkg('api', [['a.test.ts', 'failed'], ['b.test.ts', 'passed']]), pkg('web', [], 'none'));
+      const named = { ...bare, failedTests: [{ file: 'a.test.ts', name: 'Triage > a', error: 'expected 1 to be 2' }], failedTestsMore: 4 };
+      const [before] = roundOf([failing('Test', ['Run the tests'], read(bare))]).failures;
+      const [after] = roundOf([failing('Test', ['Run the tests'], read(named))]).failures;
+      expect(after).toEqual(before);
+      expect(after).toMatchObject({ files: ['a.test.ts'], packagesNotRecorded: ['web'] });
+    });
+
     it('reads a package that wrote no report as not recorded while the others still name their files', () => {
       const record = recordOf(pkg('api', [['a.test.ts', 'failed']]), pkg('web', [], 'none'));
       const [failure] = roundOf([failing('Test', ['Run the tests'], read(record))]).failures;
