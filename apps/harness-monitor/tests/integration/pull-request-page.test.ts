@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { emptyTheDatabase, micros, pullRequestFigures, send, spend, thePage, thePullRequest, usage, withPrices } from './support';
+import { cyclePull, emptyTheDatabase, micros, pullRequestFigures, send, sendPulls, spend, thePage, thePullRequest, usage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -114,6 +114,26 @@ describe('Harness Monitor', () => {
       const html = await thePage('?period=all&category=building&engineer=alice');
 
       expect(html).toContain('href="/pr/471?period=all&category=building"');
+    });
+
+    it('a pull request cycle time stores shows no timeline here, whether or not a branch is linked: the timeline is on Cycle time', async () => {
+      await seed();
+      await sendPulls([cyclePull(471, { timeline: { lanes: [null], reviewSlices: [], runSlices: [] } })]);
+
+      const html = await (await thePullRequest(471, '?period=all')).text();
+
+      expect(html).toContain('Add a &#60;Filter&#62; panel');
+      expect(html).not.toContain('id="timeline"');
+      expect(html).not.toContain('tl-');
+    });
+
+    it('a pull request cycle time stores but no branch is linked to is nothing found, with no page of its own', async () => {
+      await sendPulls([cyclePull(5001)]);
+
+      const response = await thePullRequest(5001);
+
+      expect(response.status).toBe(404);
+      expect(await response.text()).toContain('Nothing found');
     });
 
     it('a number no pull request has is nothing found', async () => {

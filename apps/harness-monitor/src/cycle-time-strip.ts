@@ -3,8 +3,10 @@
  * the row already carries (`data-figures`: one number per outline slot, in
  * OUTLINE_SLOTS order, milliseconds in base 36 on the table's own measure, a
  * dash for a part's time spent that is not recorded), so opening is no request.
- * On a row that is one pull request (`data-pr`) the strip's E2E (F3) and Test
- * lines open in turn what that check selected, one request each, the first time.
+ * On a row that is one pull request (`data-pr`) its timeline is drawn under the
+ * outline from one request made when the row is first opened, and the strip's
+ * E2E (F3) and Test lines open in turn what that check selected, one request each,
+ * the first time.
  * The table needs no script otherwise (the (i)'s is src/explain.ts): the chevrons
  * are the script's own, so without one the table is as it was and no strip opens.
  */
@@ -139,6 +141,20 @@ export const STRIP_SCRIPT = `${STRIP_LAYOUT_SOURCE}
       });
     });
   }
+  /** The timeline of the row's one pull request, as the piece the Monitor draws: one request, made when the row is opened, and again when the row is opened after one that failed. */
+  function loadTimeline(box,pr){
+    box.removeAttribute('data-failed');
+    box.textContent='Reading the timeline\\u2026';
+    fetch('/cycle-time/timeline?pr='+pr).then(function(r){
+      if(!r.ok)throw new Error(r.status);
+      return r.text();
+    }).then(function(html){
+      box.innerHTML=html;
+    },function(){
+      box.textContent='Could not read the timeline. Close this row and open it again to try again.';
+      box.setAttribute('data-failed','');
+    });
+  }
   function toggle(row){
     var next=row.nextElementSibling;
     var detail=next&&next.classList.contains('detail')?next:null;
@@ -154,9 +170,18 @@ export const STRIP_SCRIPT = `${STRIP_LAYOUT_SOURCE}
       cell.colSpan=row.cells.length;
       var strip=el('div','strip');
       strip.appendChild(outline(row));
+      // A row that is one pull request: its timeline under the outline, which is drawn at once from the row's own figures.
+      if(row.getAttribute('data-pr')){
+        var box=el('div','tl tl-box');
+        strip.appendChild(box);
+        loadTimeline(box,row.getAttribute('data-pr'));
+      }
       cell.appendChild(strip);
       detail.appendChild(cell);
       row.after(detail);
+    }else{
+      var shown=detail.querySelector('.tl-box');
+      if(shown&&shown.hasAttribute('data-failed'))loadTimeline(shown,row.getAttribute('data-pr'));
     }
     detail.hidden=false;
   }

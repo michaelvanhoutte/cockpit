@@ -1,5 +1,5 @@
 /**
- * A pull request's timeline on its page: the strip the static page draws for each pull request
+ * A pull request's timeline, opened under its row on Cycle time: the strip the static page draws for each pull request
  * (tools/cycle-time/src/render/html.js), ported with the same markup, controls and wording, in the
  * Monitor's own palette and date module. The layout it draws is src/pull-request-strip.ts.
  *
@@ -30,22 +30,15 @@ import type { TimelineLane } from './cycle-time';
 /** What a lane or a slice says of its place in a row, whichever kind it is. */
 type AnyLane = { offsetMs: number; ms: number; leadMs?: number; row: number };
 
-/**
- * Every kind of time a strip draws, and which side it is on: `local` is work on the developer's machine and `ci`
- * is the harness's. One colour each (STYLE below), so a later local kind joins here and in the stylesheet.
- */
-const KIND_GROUPS = [
-  { id: 'local', label: 'Local' },
-  { id: 'ci', label: 'CI' },
-] as const;
+/** Every kind of time a strip draws. One colour each (STYLE below), so a later local kind joins here and in the stylesheet. */
 const KIND = {
-  coding: { group: 'local', label: 'Coding before the first push', key: 'coding before the first push' },
-  fixing: { group: 'local', label: 'Fixing between rounds', key: 'fixing between rounds' },
-  'code-review': { group: 'local', label: 'Local code review', key: 'code review' },
-  'security-review': { group: 'local', label: 'Local security review', key: 'security review' },
-  test: { group: 'local', label: 'Local test run', key: 'test run' },
-  browser: { group: 'local', label: 'Browser pass', key: 'browser pass' },
-  checks: { group: 'ci', label: 'Tests and checks', key: 'held by tests and checks' },
+  coding: { label: 'Coding before the first push', key: 'coding before the first push' },
+  fixing: { label: 'Fixing between rounds', key: 'fixing between rounds' },
+  'code-review': { label: 'Local code review', key: 'code review' },
+  'security-review': { label: 'Local security review', key: 'security review' },
+  test: { label: 'Local test run', key: 'test run' },
+  browser: { label: 'Browser pass', key: 'browser pass' },
+  checks: { label: 'Tests and checks', key: 'held by tests and checks' },
 } as const;
 type Kind = keyof typeof KIND;
 
@@ -335,34 +328,12 @@ function strip(pull: StripPull, parts: ReturnType<typeof partsOf>, fitted: Fitte
 
 const swatch = (cls: string, text: string) => `<span class="tl-key"><span class="tl-swatch ${cls}"></span>${text}</span>`;
 
-/** The kinds in `ids`, each under its own group's heading, so a reader sees which side of the line it is on before reading what it is. */
-function groupedKeys(ids: Kind[], text: (id: Kind) => string): string {
-  return KIND_GROUPS.map((group) => ({ group, ids: ids.filter((id) => KIND[id].group === group.id) }))
-    .filter(({ ids: own }) => own.length > 0)
-    .map(({ group, ids: own }) => `<div class="tl-keygroup ${group.id}"><span class="tl-keyhead">${group.label}</span>${own.map((id) => swatch(id, esc(text(id)))).join('')}</div>`)
-    .join('');
+/** The one line of colour key under a strip: each kind of time and what stands for the time away. The marks (lead, re-run, red, fluke) are read in the table's (i). */
+function key(): string {
+  const text = (id: Kind) => (['code-review', 'security-review', 'test', 'browser'].includes(id) ? `${KIND[id].key} (local)` : KIND[id].key);
+  const kinds = (['coding', 'fixing', 'code-review', 'security-review', 'test', 'browser', 'checks'] as Kind[]).map((id) => swatch(id, esc(text(id))));
+  return `<p class="tl-keyline">${[...kinds, swatch('wait', 'waiting to merge'), swatch('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)].join('')}</p>`;
 }
-
-function legend(): string {
-  const text = (id: Kind) => (['code-review', 'security-review', 'test', 'browser'].includes(id) ? `${KIND[id].key} (local, at the time it ran)` : KIND[id].key);
-  return `<div class="tl-legend">
-    <p class="tl-ciround"><b>CI Round</b>: a push, until the last check on it finishes; a red one failed and was pushed again. Each job of a round is a lane from its own start to its own stop, so jobs that ran together sit in rows above one another.</p>
-    ${groupedKeys(['coding', 'fixing', 'code-review', 'security-review', 'test', 'browser', 'checks'], text)}
-    <div class="tl-keygroup">
-      ${swatch('lead', 'a job waiting for a runner, before its lane')}
-      ${swatch('rerun', 're-run of a job')}
-      ${swatch('wait', 'waiting to merge')}
-      ${swatch('away', `away (over ${humanMs(AWAY_MS)}, off the scale)`)}
-      <span class="tl-key"><i class="tl-mark red" aria-hidden="true">✕</i>red round</span>
-      <span class="tl-key"><i class="tl-mark fluke" aria-hidden="true">↻</i>fluke: failed, passed on re-run</span>
-      ${swatch('unrecorded', 'not recorded: no session record, so its strip starts at the first commit')}
-    </div>
-  </div>`;
-}
-
-/** What the strip is drawn to and how to read it, as the static page words it. */
-const scaleNote = (scaleMs: number) =>
-  `<p class="tl-sectionnote">The strip is drawn to a scale of up to ${humanMs(scaleMs)}, and every part sits at its own time and length on it; one too short to see is drawn a little wider, over what follows it. Time away is not on it. A CI Round is drawn as the jobs that ran in it, each a lane from its own start to its own stop with its wait for a runner as a dotted lead before it, so jobs that ran at the same time are in rows one above another and a job that waited on another starts where that one ended; hover a lane for when it started and stopped (Belgian time, to the second). A round whose jobs were not read is one block, split into the checks that held it, and says so on hover. A CI Round is named on the strip as far as its width allows. Click the strip to open the pull request on its own scale, uncut, with a clock-time axis (Belgian time); there, hover an element to outline it and click it to read it under the axis, and click the axis, or the empty rows above and below the line, to close it. A local review, test run or browser pass is cut out of the coding or fixing it sat in, at the time it ran; where several run at once they take as few rows as ever run together, each taking the free row that ended last, the busiest row on the line and the others above it, then below, and the minutes they share are counted once. CI is drawn in blue and each kind of local work in a colour of its own, as the key shows.</p>`;
 
 /** The strip's own head: what the pull request is marked with, and its strip with the notes and summary under it. */
 function stripRow(pull: StripPull, parts: ReturnType<typeof partsOf>, scaleMs: number, pickers: Picker[], base: { name: string; trunk: boolean; landing: boolean; head: string | null }): string {
@@ -402,12 +373,8 @@ function stripRow(pull: StripPull, parts: ReturnType<typeof partsOf>, scaleMs: n
  */
 const LABEL_FITS = { short: 2.6, long: 6, perDigit: 0.6, perMark: 1.9 };
 
-/**
- * What the stylesheet cannot say for itself, written out for the rounds this page has:
- * - which label a CI Round shows at the width it has, closed or zoomed, as container queries on the round;
- * - which detail the strip shows, one rule per detail naming every radio that shows it.
- */
-function generatedStyles(details: { id: string; radios: string[] }[]): string {
+/** Which label a CI Round shows at the width it has, closed or zoomed, as container queries on the round: the same for every strip, so the page carries them once. */
+function labelStyle(): string {
   const em = (value: number) => `${Math.round(value * 10) / 10}em`;
   const labelRules: string[] = [];
   for (let digits = 1; digits <= 3; digits += 1) {
@@ -420,9 +387,13 @@ function generatedStyles(details: { id: string; radios: string[] }[]): string {
       );
     }
   }
+  return labelRules.join('\n');
+}
+
+/** Which detail a strip shows, one rule per detail naming every radio that shows it: written for the strip, since the ids are its own. */
+function detailStyle(details: { id: string; radios: string[] }[]): string {
   const picked = (radios: string[]) => (radios.length === 1 ? `#${radios[0]}` : `:is(${radios.map((radio) => `#${radio}`).join(', ')})`);
-  const shown = details.map((detail) => `.tl-strip:has(${picked(detail.radios)}:checked) #${detail.id} { display: block; }`);
-  return `${labelRules.join('\n')}\n${shown.join('\n')}`;
+  return details.map((detail) => `.tl-strip:has(${picked(detail.radios)}:checked) #${detail.id} { display: block; }`).join('\n');
 }
 
 /**
@@ -431,7 +402,6 @@ function generatedStyles(details: { id: string; radios: string[] }[]): string {
  */
 export const TIMELINE_STYLE = `
 .tl{--tl-break:30px;--tl-checks:var(--series-6);--tl-on-checks:#0b1220;--tl-coding:var(--series-1);--tl-fixing:color-mix(in srgb,var(--series-1) 50%,var(--well));--tl-code-review:var(--series-4);--tl-security-review:var(--series-3);--tl-test:var(--series-2);--tl-browser:var(--series-5);--tl-wait:color-mix(in srgb,var(--series-grey) 45%,var(--well));--tl-line:color-mix(in srgb,var(--shade) 8%,transparent)}
-.tl-sectionnote{font-size:13px;color:var(--ink-faint);max-width:800px}
 .tl-swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;background:var(--tl-fixing)}
 .tl-swatch.coding{background:var(--tl-coding)}.tl-swatch.fixing{background:var(--tl-fixing)}.tl-swatch.checks{background:var(--tl-checks)}
 .tl-swatch.code-review{background:var(--tl-code-review)}.tl-swatch.security-review{background:var(--tl-security-review)}.tl-swatch.test{background:var(--tl-test)}.tl-swatch.browser{background:var(--tl-browser)}
@@ -440,11 +410,8 @@ export const TIMELINE_STYLE = `
 .tl-swatch.rerun{background:var(--tl-checks) repeating-linear-gradient(135deg,transparent 0 3px,rgb(255 255 255 / .45) 3px 5px)}
 .tl-swatch.away{background:transparent;border:1px dashed var(--ink-faint)}
 .tl-swatch.unrecorded{background:repeating-linear-gradient(135deg,var(--tl-coding) 0 2px,transparent 2px 4px);border:1px solid var(--tl-coding)}
-.tl-legend{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink)}
+.tl-keyline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin:8px 0 0;font-size:12px;color:var(--ink)}
 .tl-key{display:inline-flex;align-items:center}
-.tl-keygroup{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px}
-.tl-keyhead{min-width:44px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint)}
-.tl-ciround{margin:0;color:var(--ink)}.tl-ciround b{color:var(--ink-strong)}
 .tl-when{font-size:12px;color:var(--ink-faint)}
 .tl-strip{min-width:0;position:relative}
 /* A track is a line of time: each part is placed at its own start and length of it (inline left and width), so none is pushed by another and none is padded. */
@@ -472,7 +439,7 @@ export const TIMELINE_STYLE = `
 .tl-seg.coding{background:var(--tl-coding)}.tl-seg.fixing{background:var(--tl-fixing)}.tl-seg.wait{background:var(--tl-wait)}
 /* A round is not one colour: it is the checks that held it, each its own slice, in the order they finished. */
 .tl-seg.round{display:flex;align-items:stretch;container-type:inline-size;font-size:11px}
-/* A CI Round is named on the strip by the width it has: "CI Round 1", then "CI 1", then only its mark. Which one shows is decided by container queries written out per page. */
+/* A CI Round is named on the strip by the width it has: "CI Round 1", then "CI 1", then only its mark. Which one shows is decided by container queries the page carries once. */
 .tl-roundlabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;pointer-events:none;font-weight:600;line-height:1;color:var(--tl-on-checks)}
 .tl-cilong,.tl-cishort{display:none}
 .tl-seg.round:hover{outline:2px solid var(--ink-strong);outline-offset:-2px;z-index:2}
@@ -539,6 +506,10 @@ export const TIMELINE_STYLE = `
 @media (max-width:640px){.tl{--tl-break:20px}}
 `;
 
+/** What the page carries once for every strip it opens: the strip's styles and the CI Round labels. */
+export const TIMELINE_PAGE_STYLE = `${TIMELINE_STYLE}
+${labelStyle()}`;
+
 /** What a pull request's page needs of its base branch to mark it as the static page does. */
 export interface Base {
   name: string;
@@ -547,14 +518,17 @@ export interface Base {
   head: string | null;
 }
 
-/** The timeline section's body and the stylesheet it needs, written from the rounds this strip has. */
+/**
+ * The strip and its one line of key, and the rules that show what is picked on it (`style`, which the caller puts beside
+ * the strip, since they name this strip's own ids). The page's own styles are `TIMELINE_PAGE_STYLE`.
+ */
 export function renderTimeline(pull: StripPull, base: Base): { html: string; style: string } {
   const parts = partsOf(pull);
   const scaleMs = scaleFor([parts]);
   const pickers: Picker[] = [];
   const row = stripRow(pull, parts, scaleMs, pickers, base);
   return {
-    html: `${scaleNote(scaleMs)}${legend()}<div class="tl-row">${row}</div>`,
-    style: `${TIMELINE_STYLE}\n${generatedStyles(pickers.flatMap((pick) => pick.details()))}`,
+    html: `<div class="tl-row">${row}</div>${key()}`,
+    style: detailStyle(pickers.flatMap((pick) => pick.details())),
   };
 }

@@ -178,19 +178,14 @@ describe('Harness Monitor', () => {
       expect(row![0]).not.toContain('Fix the review findings');
     });
 
-    it('every pull request the Monitor holds links to its page from its row, its scatter dot and its bar, whether or not a branch is linked', async () => {
+    it('a pull request the Monitor has no branch link for has no Sessions link, which would be nothing found', async () => {
       await sendPulls([recorded(1, '2026-10-30T10:00:00Z'), recorded(2, '2026-10-29T10:00:00Z')]);
       await costing(1, 4.2);
 
-      // The rows are one to a pull request; the scatter and the bars are the overview a day's rows come with.
-      const rows = await thePage('?group=pr');
-      const overview = await thePage();
+      const html = await thePage('?group=pr');
 
-      for (const number of [1, 2]) {
-        expect(rows).toContain(`<a href="/pr/${number}">Sessions</a>`);
-        expect(overview).toMatch(new RegExp(`<a href="/pr/${number}"><circle`));
-        expect(overview).toMatch(new RegExp(`<a href="/pr/${number}"><rect`));
-      }
+      expect(html).toContain('<a href="/pr/1">Sessions</a>');
+      expect(html).not.toContain('/pr/2');
     });
 
     it('the Over time tiles name how many pull requests are priced and what each cost', async () => {
@@ -783,7 +778,6 @@ describe('Harness Monitor', () => {
 
     it.each([
       { tab: 'Over time', query: '', id: 't-day' },
-      { tab: 'Pull request', query: '?group=pr', id: 't-pr' },
       { tab: 'Issue', query: '?group=issue', id: 't-issue' },
       { tab: 'Size', query: '?group=size', id: 't-size' },
     ])('the $tab tab’s table carries an (i) saying what it shows', async ({ query, id }) => {
@@ -791,6 +785,22 @@ describe('Harness Monitor', () => {
 
       expect(infoOfPanel(html, 'cycle-table')).toBe(id);
       expect(partsOf(html, id)).toEqual(['What it shows']);
+    });
+
+    it('the Pull request tab’s (i) says what the timeline under an opened row shows and how to read it', async () => {
+      const html = await thePage('?group=pr');
+      const panel = new RegExp('<div id="x-t-pr" popover="manual" class="explain-pop">(.*?)</div>', 's').exec(html)![1]!;
+
+      expect(infoOfPanel(html, 'cycle-table')).toBe('t-pr');
+      expect(partsOf(html, 't-pr')).toEqual(THREE_PARTS);
+      for (const said of ['its timeline', 'scale of up to four hours', 'CI Round is a push', 'a dotted lead', 'clock-time axis in Belgian time']) expect(panel.replace(/<[^>]+>/g, '')).toContain(said);
+    });
+
+    it('only the Pull request tab carries the timeline’s styles, since only its rows open one', async () => {
+      const styled = async (query: string) => (await thePage(query)).includes('.tl-strip{');
+
+      expect(await styled('?group=pr')).toBe(true);
+      for (const query of ['', '?group=issue', '?group=size', '?group=check']) expect(await styled(query)).toBe(false);
     });
 
     it('the Check tab’s table, drawn apart from the others, carries one too', async () => {
@@ -826,7 +836,7 @@ describe('Harness Monitor', () => {
       // Named for the heading the empty panel wears, which a screen reader hears beside it.
       expect(panelOf(html, panel)).toContain(`aria-label="How to read ${named}"`);
       expect(infoOfPanel(html, panel)).toBe(id);
-      expect(partsOf(html, id)).toEqual(['What it shows']);
+      expect(partsOf(html, id)).toEqual(id === 't-pr' ? THREE_PARTS : ['What it shows']);
     });
 
     it('Check, over pull requests that held no CI round', async () => {
