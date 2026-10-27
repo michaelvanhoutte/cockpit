@@ -269,6 +269,7 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     // cache is persisted for a week (persistence.tsx), so leaving it there means a
     // deleted workspace's items can still be painted from it.
     queryClient.removeQueries({ queryKey: ['snapshot', args.payload.workspaceId] });
+    queryClient.removeQueries({ queryKey: ['finishedItems', args.payload.workspaceId] });
     // And the list is read below, which is what ends drawing the delete.
   }
 
