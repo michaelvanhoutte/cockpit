@@ -1,6 +1,6 @@
 import { beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { heldProposals, holdProposalsForClaude } from './held-proposals.js';
+import { heldProposals, holdWhatNobodyWaitsFor } from './held-proposals.js';
 
 /**
  * No model, in any tier this config drives.
@@ -21,9 +21,10 @@ Reflect.deleteProperty(env as unknown as Record<string, unknown>, 'AI');
 /**
  * Nor a proposal for Claude that nobody asked to see: each is held, even where
  * a case sets a key, and a case about them delivers them (`held-proposals.ts`).
- * Each case starts with none held, so it delivers only what it queued.
+ * Each case starts with none held, so it delivers only what it queued. A
+ * guest's delayed arrivals are dropped there too.
  */
-holdProposalsForClaude(env);
+holdWhatNobodyWaitsFor(env);
 beforeEach(() => {
   heldProposals.length = 0;
 });
