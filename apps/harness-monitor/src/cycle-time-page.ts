@@ -4,6 +4,7 @@ import { esc, inline, questionOf, sentenceForm } from './look';
 import { dollars, number, REPOSITORY } from './page';
 import { BLUE, GREY, RED, slot, VIOLET } from './palette';
 import { STRIP_SCRIPT } from './cycle-time-strip';
+import { TIMELINE_PAGE_STYLE } from './pull-request-timeline';
 import { LEAD_MORE, WHAT } from './cycle-time-explain';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
 import { outLink, reportPage, section, tile } from './report';
@@ -74,9 +75,10 @@ export function renderCycleTime(q: CycleTimeQuery, view: CycleTimeView, reposito
   const { list, previous } = filtered(view.pulls, q, now);
   const cost = (p: Pull) => costOf(view.costs, p);
   const issueOf = (p: Pull) => view.costs.get(p.number)?.issue ?? null;
-  /** Every pull request on this page is stored, so every one has a page of its own: its timeline, and its sessions where any are linked. */
-  const sessionsLink = (number: number, text: string) => `<a href="/pr/${number}">${text}</a>`;
-  const opening = (number: number, inner: string) => `<a href="/pr/${number}">${inner}</a>`;
+  /** A pull request's Sessions page exists only for one the Monitor has a branch link for; any other would be nothing found. */
+  const sessions = (number: number) => view.costs.has(number);
+  const sessionsLink = (number: number, text: string) => (sessions(number) ? `<a href="/pr/${number}">${text}</a>` : '');
+  const opening = (number: number, inner: string) => (sessions(number) ? `<a href="/pr/${number}">${inner}</a>` : inner);
 
   /** The tiles: a pull request's start to merge, how much of it was the harness, CI rounds, and what the Claude Code sessions cost. */
   function stats(): string {
@@ -338,7 +340,7 @@ ${tile('Claude Code cost', priced.length ? dollars(spent) : '—', priced.length
     const body = rows
       .map(
         (r) =>
-          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => `<a href="/pr/${n}">#${n}</a>`).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
+          `<tr><td class="first"><i class="swatch" style="background:${colourOf(r.name)}"></i>${esc(r.name)}${r.redPulls.length ? `<div class="sub">red on ${r.redPulls.slice(0, 6).map((n) => (sessions(n) ? `<a href="/pr/${n}">#${n}</a>` : `#${n}`)).join(', ')}${r.redPulls.length > 6 ? ` and ${r.redPulls.length - 6} more` : ''}</div>` : ''}</td><td class="num">${number(r.held)}</td><td class="num">${number(r.last)}</td><td class="split-cell"><div class="split"><div style="width:${((r.ms / max) * 100).toFixed(1)}%;background:${colourOf(r.name)}"></div></div></td><td class="num total">${hm(r.ms)}</td><td class="num faint-num">${all ? Math.round((r.ms / all) * 100) : 0}%</td><td class="num">${r.median === null ? '—' : hm(r.median)}</td><td class="num">${r.red ? `<span class="up">${r.red}</span>` : '<span class="faint">—</span>'}</td><td class="num">${r.flukes || '<span class="faint">—</span>'}</td><td class="num">${r.queue === null ? '<span class="faint">not recorded</span>' : hm(r.queue)}</td></tr>`,
       )
       .join('\n');
     return section(
@@ -373,7 +375,7 @@ merged ${inline('period', 'Merged', PERIOD_CHOICES, q.period)}`,
   );
   // The page opens with the question its top tab names and the words a newcomer will not know, under the band, on every tab.
   const pageLead = lead(questionOf('cycle-time'), LEAD_MORE);
-  return reportPage({ current: 'cycle-time', controls, body: `${pageLead}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE }, now);
+  return reportPage({ current: 'cycle-time', controls, body: `${pageLead}\n${partial}${content}\n${EXPLAIN_SCRIPT}`, style: EXTRA + EXPLAIN_STYLE + (q.group === 'pr' ? TIMELINE_PAGE_STYLE : '') }, now);
 }
 
 const EXTRA = `
@@ -426,6 +428,10 @@ a:hover .dot,a:focus .dot{fill-opacity:1;stroke:var(--ink-strong)}
 .openable tr.detail:hover{background:none}
 .openable tr.detail>td{padding:4px 10px 16px 48px;background:var(--open-tint)}
 .strip .outline{gap:1px}
+/* A row that is one pull request: its timeline under its outline, drawn from one request made when the row is opened. */
+.tl-box{margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--shade) 10%,transparent);font-size:13px;line-height:1.45;color:var(--ink-soft)}
+.tl-box[data-failed]{color:var(--over-ink)}
+.tl-none{margin:0;color:var(--ink-faint)}
 .strip .o-row .tr{background:var(--field)}
 .o-open{cursor:pointer}
 .o-open:hover{background:color-mix(in srgb,var(--shade) 6%,transparent)}

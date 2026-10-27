@@ -9,6 +9,7 @@ import { checkPulls, checkTimelines } from './cycle-time';
 import { renderCycleTime } from './cycle-time-page';
 import { cycleTimeAddress, loadCycleTime, parseCycleTimeQuery } from './cycle-time-report';
 import { cycleTimeAnswer, newestMerge, storePulls, storeTimelines } from './cycle-time-store';
+import { loadTimeline, renderTimelinePiece } from './cycle-time-timeline';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
@@ -322,6 +323,32 @@ async function cycleTime(request: Request, env: Env, ctx: ExecutionContext): Pro
 }
 
 /**
+ * One stored pull request's timeline as the fragment its opened Pull request row on Cycle time shows under its
+ * outline: `pr` a positive whole number the Monitor holds, anything else refused with no strip. One request, made
+ * when the row is opened rather than carried in the page (a timeline runs to tens of KB), and cached at the edge
+ * like the pages.
+ */
+async function cycleTimeTimeline(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const raw = url.searchParams.get('pr') ?? '';
+  const pr = /^[1-9][0-9]{0,15}$/.test(raw) ? Number(raw) : null;
+  if (pr === null || !Number.isSafeInteger(pr)) return new Response('pr must be a pull request number', { status: 400 });
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/cycle-time/timeline?pr=${pr}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const found = await loadTimeline(env.DB, pr);
+  if (found === null) return new Response('no such pull request', { status: 404, headers: { 'cache-control': 'no-store' } });
+  const response = new Response(renderTimelinePiece(found), {
+    headers: { 'cache-control': cache ? `public, max-age=${seconds}` : 'no-store', 'content-type': 'text/html; charset=utf-8' },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+/**
  * Test selection: the page, or its stored pull requests as JSON when the request
  * asks (`wantsJson`). The JSON is for the period and job the address asks: how
  * many pull requests ran, ran everything or were documentation only, each bar
@@ -576,6 +603,7 @@ export default {
       return request.method === 'POST' ? writeTimelines(request, env) : json({ error: 'Use POST.' }, 405);
     }
     if (pathname === '/cycle-time' && request.method === 'GET') return cycleTime(request, env, ctx);
+    if (pathname === '/cycle-time/timeline' && request.method === 'GET') return cycleTimeTimeline(request, env, ctx);
     if (pathname === '/v1/selection') {
       if (request.method === 'POST') return writeSelection(request, env);
       // Where the next send starts reading: public, as every read here is.
