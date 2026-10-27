@@ -151,10 +151,10 @@ describe('Harness Monitor', () => {
   describe('a zoomed strip has a clock-time axis from its start to its merge', () => {
     const clock = (minutes: number) => BASE + minutes * MIN;
 
-    it('puts a tick at the pull request’s start and at its merge, and round clock times between', () => {
+    it('puts a tick at the pull request’s start and at its merge, and round clock times between, leaving out the one a label’s width from the merge', () => {
       const ticks = axisFor(clock(0), fitTo(partsOf(pull([[10, 20], [30, 40]], 45, { before: 10 })), Infinity));
 
-      expect(ticks.map((tick) => [tick.atMs, tick.startMs / MIN])).toEqual([[clock(0), 0], [clock(10), 10], [clock(20), 20], [clock(30), 30], [clock(40), 40], [clock(45), 45]]);
+      expect(ticks.map((tick) => [tick.atMs, tick.startMs / MIN])).toEqual([[clock(0), 0], [clock(10), 10], [clock(20), 20], [clock(30), 30], [clock(45), 45]]);
       expect([ticks[0]!.align, ticks[ticks.length - 1]!.align]).toEqual(['start', 'end']);
     });
 
@@ -170,12 +170,48 @@ describe('Harness Monitor', () => {
     });
 
     it('puts the ticks between on round Belgian clock times, which a step of several hours tells from round Greenwich ones', () => {
-      // 24 hours from 13:05 UTC (15:05 in Brussels) is drawn in three-hour steps: Brussels' 18:00, 21:00 and 00:00 are 16:00, 19:00 and 22:00 UTC.
+      // 24 hours from 13:05 UTC (15:05 in Brussels) is drawn in three-hour steps where the labels fit, and in six-hour ones where they do not.
+      // Brussels' midnight is 22:00 UTC; Greenwich's, three hours of a step away from every Brussels one, would be 00:00 UTC.
       const start = Date.parse('2026-10-22T13:05:00Z');
 
       const between = axisFor(start, fitTo(partsOf(pull([[0, 24 * 60]], 24 * 60)), Infinity)).filter((tick) => tick.align === 'mid');
 
-      expect(between.slice(0, 3).map((tick) => new Date(tick.atMs).toISOString())).toEqual(['2026-10-22T16:00:00.000Z', '2026-10-22T19:00:00.000Z', '2026-10-22T22:00:00.000Z']);
+      expect(between.map((tick) => new Date(tick.atMs).toISOString())).toEqual(['2026-10-22T22:00:00.000Z']);
+      expect(between[0]!.label).toBe('23 Oct 00:00');
+    });
+
+    describe('every label has room, whatever time of day the pull request ran', () => {
+      // 30 minutes of coding, a round of 5, then 9 hours away to the merge: the strip ends in a break, and the merge falls on a later day than the start for some start times.
+      const awayAtTheEnd = pull([[30, 35]], 35 + 9 * 60, { before: 30 });
+
+      it('puts one tick, the end’s, where a break ends the strip, and none hanging past it', () => {
+        const zoomed = fitTo(partsOf(awayAtTheEnd), Infinity);
+
+        for (let minute = 0; minute < 24 * 60; minute += 15) {
+          const ticks = axisFor(BASE + minute * MIN, zoomed);
+
+          const last = ticks[ticks.length - 1]!;
+          expect(last.atMs).toBe(BASE + minute * MIN + (35 + 9 * 60) * MIN);
+          expect(last.align).toBe('end');
+          expect(ticks.filter((tick) => tick.startMs === zoomed.shownMs && tick.breaksBefore === 1)).toEqual([last]);
+          expect(ticks.filter((tick) => tick.align === 'start' && tick.breaksBefore === 1)).toEqual([]);
+        }
+      });
+
+      it('dates a label only on a later day than the start’s, and takes a wider step where the dates made the labels too wide to sit together', () => {
+        // From 20:00 in Brussels, 12 hours: 21:00 to 23:00 are on the start's day, so their labels are short; midnight and after carry the date.
+        const overnight = fitTo(partsOf(pull([[0, 12 * 60]], 12 * 60)), Infinity);
+
+        const ticks = axisFor(Date.UTC(2026, 8, 15, 18, 0), overnight);
+
+        expect(ticks.map((tick) => tick.label)).toEqual(['20:00', '16 Sept 00:00', '16 Sept 08:00']);
+      });
+    });
+
+    it('draws a strip of weeks in day steps, not minute ones', () => {
+      const ticks = axisFor(BASE, fitTo(partsOf(pull([[0, 20 * 24 * 60]], 20 * 24 * 60)), Infinity));
+
+      expect(ticks.length).toBeLessThan(30);
     });
 
     it('covers the whole pull request, though the closed strip was cut', () => {
