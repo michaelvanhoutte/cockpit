@@ -169,6 +169,12 @@ describe('Harness Monitor', () => {
       expect(ticks[ticks.length - 1]!.atMs).toBe(clock(430));
     });
 
+    it('leaves out the clock picking up after time away where the merge follows close behind, so its label stays on the axis', () => {
+      const ticks = axisFor(clock(0), fitTo(partsOf(pull([[0, 300], [700, 701]], 702)), Infinity));
+
+      expect(ticks.filter((tick) => tick.breaksBefore === 1).map((tick) => [tick.atMs, tick.align])).toEqual([[clock(702), 'end']]);
+    });
+
     it('puts the ticks between on round Belgian clock times, which a step of several hours tells from round Greenwich ones', () => {
       // 24 hours from 13:05 UTC (15:05 in Brussels) is drawn in three-hour steps where the labels fit, and in six-hour ones where they do not.
       // Brussels' midnight is 22:00 UTC; Greenwich's, three hours of a step away from every Brussels one, would be 00:00 UTC.

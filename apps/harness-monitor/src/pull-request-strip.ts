@@ -361,13 +361,13 @@ type Candidate = Tick & { from: number; to: number };
 
 /**
  * The clock-time axis of a strip drawn on its own scale: a tick at the start, at the end, at each
- * edge of a break, and at round Belgian clock times between (src/belgium.ts). Time away has no ticks
- * inside it, so the axis reads the real clock either side of a break. `align` says which side of its
- * tick a label hangs on.
+ * edge of a break (but the last break's far edge where the merge crowds it), and at round Belgian
+ * clock times between (src/belgium.ts). Time away has no ticks inside it, so the axis reads the real
+ * clock either side of a break. `align` says which side of its tick a label hangs on.
  *
  * Every label has room: none runs past either end of the strip or onto another label. Where two of the
  * ends and breaks' ticks would meet, the start and the end win over a break's, and a break's over the
- * ones between; the ones between that crowd each other take a wider step, then lose the ones that still do. A break at the very end leaves one tick there, the end's.
+ * ones between; the ones between that crowd each other take a wider step, then lose the ones that still do.
  *
  * @param startedAt the strip's start, in epoch milliseconds
  * @param fitted a strip from `fitTo`

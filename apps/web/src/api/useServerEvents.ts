@@ -84,6 +84,7 @@ export function useServerEvents() {
           // before it is built (`useLatestSnapshot`), and what is on screen
           // follows with the next read.
           void queryClient.invalidateQueries({ queryKey: ['snapshot'], refetchType: 'none' });
+          void queryClient.invalidateQueries({ queryKey: ['finishedItems'], refetchType: 'none' });
         }
         wasUp = true;
       });
