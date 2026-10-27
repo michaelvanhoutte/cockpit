@@ -135,6 +135,153 @@ describe('main', () => {
     expect(bars['e2e-forced-full']).toBeNull();
   });
 
+  describe('--send sends the pull requests to the Harness Monitor from the newest merge it holds, less two days', () => {
+    const NIGHT = new Date('2026-10-24T02:00:00Z');
+    const merged = (number, mergedAt) => pullData({ pull: { number, title: `Pull ${number}`, url: `https://github.com/o/r/pull/${number}`, mergedAt }, files: ['docs/notes.md'] });
+    const read = (pulls, extra = {}) => ({ pulls, truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-10-01'), ...extra });
+
+    /** A Monitor holding pull requests up to `newestMerge`, which stores what it is sent unless it `refuses`. */
+    function theMonitor({ newestMerge = '2026-10-22T08:00:00.000Z', refuses = false } = {}) {
+      const posts = [];
+      let asked = 0;
+      vi.stubGlobal('fetch', async (url, init) => {
+        if (init?.method === 'POST') {
+          posts.push(JSON.parse(init.body));
+          return refuses ? { ok: false, status: 400, json: async () => ({ error: 'Pull request 0 (#1): has no title.' }) } : { ok: true, status: 200, json: async () => ({ stored: 1 }) };
+        }
+        asked += 1;
+        return { ok: true, status: 200, json: async () => ({ newestMerge }) };
+      });
+      return { posts, asked: () => asked };
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NIGHT);
+      vi.stubEnv('HARNESS_MONITOR_URL', 'https://monitor.test');
+      vi.stubEnv('HARNESS_WRITE_KEY', 'k');
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it('sends only the pull requests merged since two days before the newest stored merge, with the bars, and still writes the page', async () => {
+      const monitor = theMonitor();
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z'), merged(2, '2026-10-19T10:00:00Z'), merged(3, '2026-10-21T10:00:00Z')]));
+      const out = path.join(tmp(), 'index.html');
+
+      const code = await main(['--send', '--out', out, '--repo', 'o/r']);
+
+      expect(code).toBe(0);
+      expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-10-10T02:00:00Z'));
+      expect(monitor.posts).toHaveLength(1);
+      expect(monitor.posts[0].pulls.map((pull) => pull.number)).toEqual([3, 1]);
+      expect(monitor.posts[0].bars.items.map((bar) => bar.id)).toEqual(['e2e-forced-full', 'test-forced-full', 'misses']);
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('reads back to two days before the newest stored merge when that is further back than the page goes', async () => {
+      theMonitor({ newestMerge: '2026-10-01T08:00:00.000Z' });
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
+
+      expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r'])).toBe(0);
+
+      expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-09-29T08:00:00Z'));
+    });
+
+    it('reads from the page window when the Monitor holds nothing', async () => {
+      const monitor = theMonitor({ newestMerge: null });
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
+
+      expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r', '--days', '5'])).toBe(0);
+
+      expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-10-19T02:00:00Z'));
+      expect(monitor.posts[0].pulls.map((pull) => pull.number)).toEqual([1]);
+    });
+
+    it('sends the open alarm issues with the bars, and none where they could not be read, so the Monitor keeps the ones it holds', async () => {
+      const monitor = theMonitor();
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
+      listAlarmIssues.mockResolvedValueOnce([{ number: 41, state: 'open', title: 'Selection: misses', body: '<!-- selection-alarm bar=misses first=2026-10-01 last=2026-10-02 -->', comments: [] }]);
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        await main(['--send', '--out', path.join(tmp(), 'a.html'), '--repo', 'o/r']);
+        listAlarmIssues.mockRejectedValueOnce(new Error('GitHub answered 502'));
+        await main(['--send', '--out', path.join(tmp(), 'b.html'), '--repo', 'o/r']);
+      } finally {
+        stderr.mockRestore();
+      }
+
+      expect(monitor.posts[0].bars.items.find((bar) => bar.id === 'misses').alarmIssue).toBe(41);
+      expect(monitor.posts[1].bars.items.some((bar) => 'alarmIssue' in bar)).toBe(false);
+    });
+
+    it('a Monitor that refuses the send costs the send and never the page, and the run fails', async () => {
+      theMonitor({ refuses: true });
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await main(['--send', '--out', out, '--repo', 'o/r'])).toBe(1);
+        expect(stderr.mock.calls.join('')).toContain('refused batch 1 of 1 (400: Pull request 0 (#1): has no title.)');
+      } finally {
+        stderr.mockRestore();
+      }
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('a Monitor that cannot say where to start costs the send and never the page', async () => {
+      vi.stubGlobal('fetch', async () => ({ ok: false, status: 502 }));
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const out = path.join(tmp(), 'index.html');
+      try {
+        expect(await main(['--send', '--out', out, '--repo', 'o/r'])).toBe(1);
+      } finally {
+        stderr.mockRestore();
+      }
+      expect(existsSync(out)).toBe(true);
+    });
+
+    it('a read the pull budget stopped inside the window sends what it read and fails, naming the backfill for the rest', async () => {
+      const monitor = theMonitor();
+      collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')], { truncated: true, coveredSince: new Date('2026-10-22T00:00:00Z') }));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r'])).toBe(1);
+        expect(stderr.mock.calls.join('')).toContain('the Selection backfill, --from 2026-10-20 --to 2026-10-22');
+      } finally {
+        stderr.mockRestore();
+      }
+      expect(monitor.posts).toHaveLength(1);
+    });
+
+    it('a window given by hand is the backfill: it sends that window and writes no page', async () => {
+      const monitor = theMonitor();
+      collect.mockResolvedValue(read([merged(1, '2026-09-03T10:00:00Z')]));
+      const out = path.join(tmp(), 'index.html');
+
+      expect(await main(['--send', '--from', '2026-09-01', '--to', '2026-09-05', '--out', out, '--repo', 'o/r'])).toBe(0);
+
+      expect(monitor.asked()).toBe(0);
+      expect(collect.mock.calls[0][0]).toMatchObject({ since: new Date('2026-09-01T00:00:00Z'), until: new Date('2026-09-06T00:00:00Z') });
+      expect(monitor.posts[0].pulls.map((pull) => pull.number)).toEqual([1]);
+      expect(existsSync(out)).toBe(false);
+    });
+
+    it('without the key or the address it refuses before reading anything', async () => {
+      vi.stubEnv('HARNESS_WRITE_KEY', '');
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        expect(await main(['--send', '--repo', 'o/r'])).toBe(2);
+      } finally {
+        stderr.mockRestore();
+      }
+      expect(collect).not.toHaveBeenCalled();
+    });
+  });
+
   it('writes the page without links when the alarm issues cannot be read, rather than losing the report', async () => {
     collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
     listAlarmIssues.mockRejectedValue(new Error('GitHub answered 502'));

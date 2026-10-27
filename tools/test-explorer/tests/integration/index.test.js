@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyze } from '../../src/analyze/index.js';
+import { conceptsCheck } from '../../src/cli.js';
 import { walkTree } from '../../src/model.js';
+import { renderHtml } from '../../src/render/html.js';
 
 /**
  * Builds a minimal synthetic repo under a temp directory and runs the real
@@ -24,9 +26,8 @@ function writeFixtureRepo() {
   mkdirSync(path.join(pkg, 'tests/unit'), { recursive: true });
   writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@demo/demo', exports: { '.': './src/index.ts' } }));
 
-  // Two source files: one genuinely imported and exercised by the test below,
-  // one imported ONLY via an inline `type` specifier — real per §2's fix,
-  // markReached must NOT count that as "reached".
+  // Two source files the test below imports, one only via an inline `type`
+  // specifier: what a test imports no longer decides anything.
   writeFileSync(path.join(pkg, 'src/index.ts'), 'export const noop = 0;\n');
   writeFileSync(path.join(pkg, 'src/thing.ts'), 'export function capture() { return 1; }\nexport interface Foo {}\n');
   writeFileSync(path.join(pkg, 'src/untouched.ts'), 'export const untouched = 1;\n');
@@ -63,7 +64,7 @@ describe('analyze (end to end against a fixture repo)', () => {
     if (repo) rmSync(repo, { recursive: true, force: true });
   });
 
-  it('extracts the rule at the right level, resolves the real import as reached, and leaves the type-only import unreached', () => {
+  it('extracts the rule at the right level, each rule and case carrying its own source', () => {
     repo = writeFixtureRepo();
     const model = analyze(repo);
 
@@ -84,18 +85,6 @@ describe('analyze (end to end against a fixture repo)', () => {
     expect(rule.cases[0].text).toBe('returns 1');
     expect(rule.cases[0].context.some((l) => l.line === rule.cases[0].line && l.text.includes("it('returns 1'"))).toBe(true);
     expect(rule.context.some((l) => l.line === rule.line && l.text.includes("describe('captures something'"))).toBe(true);
-
-    // Neither fixture source file matches a real concept's sourcePatterns (those are the actual
-    // repo's paths), so both fall into 'infrastructure' by the same file-resolution rules.js §5
-    // uses for the real repo — that's what lets this fixture test the reach logic in isolation.
-    const infra = findNode(model.tree, 'infrastructure');
-    const infraFiles = infra.filesNothingRuns.map((f) => f.file);
-    // thing.ts is imported for real (a value import) -> reached, not in filesNothingRuns.
-    expect(infraFiles).not.toContain('packages/demo/src/thing.ts');
-    // untouched.ts is imported ONLY via `import { type Foo }` -> not reached, IS in filesNothingRuns.
-    expect(infraFiles).toContain('packages/demo/src/untouched.ts');
-    const untouchedRef = infra.filesNothingRuns.find((f) => f.file === 'packages/demo/src/untouched.ts');
-    expect(untouchedRef.context[0]).toEqual({ line: 1, text: 'export const untouched = 1;' });
   });
 
   it('reports a describe naming an unregistered feature area, even with no cases written yet', () => {
@@ -221,5 +210,92 @@ describe('analyze (end to end against a fixture repo)', () => {
     // thing.ts genuinely was measured (present in the map, zero branches) — it must not be named
     // alongside untouched.ts as if it, too, were unmeasured.
     expect(model.warnings.some((w) => w.includes('packages/demo/src/thing.ts'))).toBe(false);
+  });
+});
+
+describe('Harness Monitor', () => {
+  /** The fixture with a coverage run in which thing.ts's first statement ran and its second did not; untouched.ts was never measured. */
+  function withCoverage() {
+    const pkg = path.join(repo, 'packages/demo');
+    mkdirSync(path.join(pkg, 'coverage'), { recursive: true });
+    const thing = path.join(pkg, 'src/thing.ts');
+    const at = (line) => ({ start: { line, column: 0 }, end: { line, column: 20 } });
+    writeFileSync(
+      path.join(pkg, 'coverage/coverage-final.json'),
+      JSON.stringify({ [thing]: { path: thing, statementMap: { 0: at(1), 1: at(2) }, s: { 0: 3, 1: 0 }, fnMap: {}, f: {}, branchMap: {}, b: {} } }),
+    );
+  }
+
+  let repo;
+  afterEach(() => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  describe('the analyzer no longer counts imports, and the static report draws no files nothing runs', () => {
+    it("the fixture's model carries no import count, and each measured area file its figures", () => {
+      repo = writeFixtureRepo();
+      withCoverage();
+      const model = analyze(repo);
+
+      for (const node of walkTree(model.tree)) {
+        expect(node).not.toHaveProperty('filesNothingRuns');
+        expect(node.subtree).not.toHaveProperty('filesNothingRuns');
+      }
+      expect(model.warnings.some((w) => w.includes('only sees direct imports'))).toBe(false);
+      // Neither fixture source file matches a real concept's sourcePatterns, so both fall into Infrastructure.
+      expect(findNode(model.tree, 'infrastructure').statements).toEqual([{ file: 'packages/demo/src/thing.ts', total: 2, covered: 1, uncovered: ['2'] }]);
+    });
+
+    it('the static report has no files column or tab', () => {
+      repo = writeFixtureRepo();
+      withCoverage();
+      const html = renderHtml(analyze(repo), { repoRelPrefix: '..' });
+
+      expect(html).not.toMatch(/files nothing runs/i);
+      expect(html).not.toContain("'Files ('");
+    });
+  });
+
+  describe('the analyzer carries the not-worth-a-test list into the snapshot, and the concepts check fails on an entry it cannot place', () => {
+    /** The fixture's own list, written beside it, holding `files`. */
+    const listing = (files) => {
+      const file = path.join(repo, 'not-worth-a-test.json');
+      writeFileSync(file, JSON.stringify({ files }));
+      return file;
+    };
+
+    it.each([
+      {
+        situation: 'an entry for a walked file is carried with its reason and count',
+        files: [{ file: 'packages/demo/src/thing.ts', reason: 'A re-export with nothing to decide', notRun: 1 }],
+        carried: [{ file: 'packages/demo/src/thing.ts', reason: 'A re-export with nothing to decide', notRun: 1 }],
+        code: 0,
+        says: '1 file(s) decided not worth a test, each placed',
+      },
+      {
+        situation: 'an entry naming a file the analyzer does not walk fails the check, naming it',
+        files: [{ file: 'packages/demo/src/gone.ts', reason: 'Wiring', notRun: 2 }],
+        carried: [],
+        code: 1,
+        says: '"packages/demo/src/gone.ts" is not a source file the analyzer walks',
+      },
+      {
+        situation: 'an entry with no reason fails the check, naming it',
+        files: [{ file: 'packages/demo/src/untouched.ts', reason: ' ', notRun: 0 }],
+        carried: [],
+        code: 1,
+        says: '"packages/demo/src/untouched.ts" gives no reason',
+      },
+    ])('$situation', ({ files, carried, code, says }) => {
+      repo = writeFixtureRepo();
+      withCoverage();
+
+      const model = analyze(repo, { notWorthATest: listing(files) });
+      const check = conceptsCheck(model);
+
+      expect(model.notWorthATest).toEqual(carried);
+      expect(check.code).toBe(code);
+      expect(check.text).toContain(says);
+    });
   });
 });

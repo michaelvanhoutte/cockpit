@@ -4,8 +4,9 @@ Answers, without querying the API by hand: **how long does a change spend being 
 against waiting on the harness, how many rounds does it take, and which check holds each
 round up.** Reads the pull request and Actions APIs and each pull request's session record
 ("Record what a session did, on the pull request it opens", issue 514), and draws them as one
-HTML page that opens from disk, or with `--json` writes the model. Keeps no state — GitHub
-already stores this history, so every run re-derives it.
+HTML page that opens from disk, or with `--json` writes the model. Keeps no state of its own —
+GitHub already stores this history, so every run re-derives it — and with `--send` hands each merged
+pull request to the Harness Monitor, which keeps them past what GitHub holds.
 
 ## Reading it without running it
 
@@ -38,6 +39,53 @@ node src/cli.js --help
 
 A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without one the API allows
 60 requests an hour, which is not enough for a window.
+
+## Where its rows go
+
+```bash
+node src/cli.js --send                                  # also sends the merged pull requests to the Harness Monitor
+node src/cli.js --send --from 2026-07-25 --to 2026-08-05   # sends that window instead, and writes nothing
+node src/cli.js --send --from 2026-07-25 --timelines-only  # sends only that window's timelines, beside the pull requests the Monitor holds
+```
+
+`--send` needs `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY`. It sends each pull request merged since
+the newest merge the Monitor holds less two days (the last `--days` days when it holds none) as one
+row with its time split, its rounds and each round's checks, from `monitorRows` in `src/model.js`.
+Its local time also goes as `localParts`, split into code review, security review, test runs and the
+browser pass with each minute counted once: a minute two of them shared goes to the one that ended
+last, so the four add up to `localMs` exactly, and the Monitor refuses a batch where they do not. The Monitor's page does not read them: it draws each kind's own minutes (`localReviews.byKind`, `localRuns`) as time spent.
+Each check attempt goes with its `runningMs`, the runner time its jobs used start to end: every shard of
+a family and its fan-in added up, a cancelled job until it was cancelled, a skipped shard, a check another
+app posted, a job that never started and a re-run's copy where its job list was read counting 0, queueing left out. So a pull request's GitHub Actions attempts add up to
+its `runnerMs`, and the Monitor refuses a batch with one negative, or on some of a pull request's attempts and not others.
+A pull request with no session record is sent with its writing and local time `null`, which the
+Monitor stores and answers as not recorded, never as zero; `localParts` is `null` wherever `localMs` is. A pull request is replaced by its number, so
+the overlap and a re-send store each once, and a batch with a row of the wrong shape is refused whole.
+A read the pull budget (`--max-pulls`) stopped inside the send's window fails the step and names the
+`--from` and `--to` that send the rest. So does a pull request GitHub would not let it read, named in
+the message, since once a later merge is stored the next send reaches past it. An attempt's failed
+steps and files are cut to their first 500, each to 500 characters, as the Monitor takes no more, and its detail is then marked not recorded.
+
+Each pull request also goes with its `timeline`, what its strip needs that the rows above do not hold:
+`lanes`, each round's job lanes in round order (`null` for a round whose job list was not read), and
+`reviewSlices` and `runSlices`, its local work cut to the gaps between rounds (none without a session
+record). The Monitor stores it beside the pull request and replaces it with it, and refuses a batch whose
+timeline does not have lanes for exactly the pull request's rounds. Batches close at 400,000 characters as
+well as 50 pull requests, timelines counted, and a pull request too large for a batch alone fails the send,
+named. `--timelines-only` sends each pull request's timeline alone, to `POST /v1/cycle-time/timelines`,
+which stores it beside the pull request the Monitor holds and never replaces the pull request: the safe
+way to re-send a window whose first pushes GitHub may no longer hold. A round sent without lanes keeps
+the lanes stored for it. A timeline for a pull request the Monitor does not hold, or whose rounds differ
+from the stored ones, refuses its batch, which is then sent one timeline at a time, so every other is
+stored and the send fails naming it. A send whose job lists the rate limit cut short fails too, after
+sending, since its lanes are all it carries: run the same window again once the limit resets.
+
+The `Cycle time` job in [`nightly.yml`](../../.github/workflows/nightly.yml) sends every night. The
+backfill is the *Cycle time backfill* workflow, run by hand, its `timelines-only` box sending `--timelines-only`
+([deployment.md](../../docs/deployment.md), "The Harness Monitor", says how to cover 90 days). The
+Monitor answers what it holds as JSON at `/cycle-time?format=json`, for a period (`?period=7d`, `30d`,
+`90d` or `all`): each window's figures (7, 14, 30 and 90 days up to the period) and every pull request in
+it with its rounds and checks.
 
 ## Which pull requests it reads
 

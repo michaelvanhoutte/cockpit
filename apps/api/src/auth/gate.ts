@@ -138,7 +138,8 @@ export const RETIRED_PATHS: readonly string[] = [
  *   in production, under a token per environment", issue 1458). Whoever calls
  *   it holds no session, and the route is not open: it answers only to one of
  *   three recording tokens, checked in `gateway/receive.ts`, none of which
- *   opens anything else.
+ *   opens anything else. Its GET, which the Harness Monitor reads Cockpit's
+ *   Claude calls from, answers only to `USAGE_READ_TOKEN` (`gateway/feed.ts`).
  *
  * **The list of people to choose from is gone from here**, along with the
  * endpoint behind it: once it is no longer the way in, publishing who has an

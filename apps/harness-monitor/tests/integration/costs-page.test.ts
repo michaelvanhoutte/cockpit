@@ -68,9 +68,9 @@ describe('Harness Monitor', () => {
       const another = await viewWith(env.DB, '?period=all&group=day&group=pr&junk=1&engineer=', cached);
 
       expect(first.headers.get('cache-control')).toBe('public, max-age=300');
-      expect(whereItWent(await second.text()).heading).toBe("Where the period's $1.00 went");
-      expect(whereItWent(await another.text()).heading).toBe("Where the period's $1.00 went");
-      expect(whereItWent(await thePage('?period=all&group=day')).heading).toBe("Where the period's $6.00 went");
+      expect(whereItWent(await second.text()).heading).toBe("Where the period's $1.00 went, by phase");
+      expect(whereItWent(await another.text()).heading).toBe("Where the period's $1.00 went, by phase");
+      expect(whereItWent(await thePage('?period=all&group=day')).heading).toBe("Where the period's $6.00 went, by phase");
     });
   });
 
@@ -80,13 +80,13 @@ describe('Harness Monitor', () => {
 
       expect(html).toContain('Nothing in this period');
       expect(costRows(html)).toEqual([]);
-      expect(whereItWent(html).heading).toBe("Where the period's $0.00 went");
+      expect(whereItWent(html).heading).toBe("Where the period's $0.00 went, by phase");
     });
 
-    it('the not-measured note and the list-price label are always there', async () => {
+    it('the not-measured note, in where it went’s explanation, and the list-price label are always there', async () => {
       const html = await thePage();
 
-      expect(html).toContain('Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai, and is <strong>not measured</strong>');
+      expect(/<div id="x-where" popover="manual" class="explain-pop">.*?<\/div>/s.exec(html)?.[0]).toContain('Claude Code Review runs on Anthropic&rsquo;s side, is billed through claude.ai and is <b>not measured</b>');
       expect(html).not.toContain('Approvals');
       await send([spend('r', 1)]);
       expect(await thePage('?period=all')).toContain('at API list price');

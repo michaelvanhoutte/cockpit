@@ -4,10 +4,12 @@ import {
   accountHoldingsSchema,
   attachmentAddress,
   checkedNowSchema,
+  finishedItemsSchema,
   usageSchema,
   rewriteHistoryResponseSchema,
   type AccountHoldings,
   type CheckedNow,
+  type FinishedItems,
   signedInSchema,
   workspaceListSchema,
   workspaceSnapshotSchema,
@@ -152,6 +154,19 @@ export async function fetchSnapshot(workspaceId: string): Promise<WorkspaceSnaps
 }
 
 /**
+ * One Workspace's finished Items, read when *All items* first opens or an
+ * address names an Item the Workspace's read does not hold ("Fetch a
+ * Workspace's finished Items the first time All items opens", issue 1434).
+ */
+export async function fetchFinishedItems(workspaceId: string): Promise<FinishedItems> {
+  const res = await api.v1.workspaces[':workspaceId']['finished-items'].$get({
+    param: { workspaceId },
+  });
+  if (!res.ok) throw refusal('finished items', res.status);
+  return finishedItemsSchema.parse(await res.json());
+}
+
+/**
  * Every rewrite attempt for one workspace's items, most recent first - the
  * table opened from the Inbox's own menu ("See the history of what Cockpit
  * proposed for the Inbox's items", issue 444).
@@ -249,6 +264,8 @@ const commandSenders = {
     api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
+  wait_for_reply: (p: CommandPayload<'wait_for_reply'>, o?: ClientRequestOptions) =>
+    api.v1.commands.wait_for_reply.$post({ json: p }, o),
   send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>
     api.v1.commands.send_item_to_claude.$post({ json: p }, o),
   finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
@@ -284,6 +301,8 @@ const commandSenders = {
     api.v1.commands.delete_remembered_sentence.$post({ json: p }, o),
   set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
+  set_follow_up_days: (p: CommandPayload<'set_follow_up_days'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_follow_up_days.$post({ json: p }, o),
 } as const;
 
 /**

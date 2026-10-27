@@ -1018,6 +1018,14 @@ export const items = sqliteTable(
      * carries no CHECK, the same trade `completed_at` above already records.
      */
     startedAt: text('started_at'),
+    /**
+     * When this first started waiting for a reply ("Set an Item Waiting for
+     * reply, and wait again after chasing", issue 1463) - the third time
+     * `itemStatus` reads, after `completed_at` and before `started_at`. NULL on
+     * every Item from before it, which is not waiting. Nullable and carries no
+     * CHECK, the same trade `started_at` records.
+     */
+    waitingSince: text('waiting_since'),
     priority: text('priority').$type<Priority>(),
     /**
      * When the person first set or cleared `priority` ("Read a priority you
@@ -1496,6 +1504,23 @@ export const accountItemFormPresentation = sqliteTable(
 );
 
 /**
+ * One row per account: how many days *Wait for reply…* starts on, chosen in
+ * Settings › Follow-ups ("Choose in Settings how many days to wait for a
+ * reply", issue 1465). **The shape `accountItemFormPresentation` above takes**:
+ * no row until the account chooses, which `getFollowUpDays` (`repo.ts`) reads
+ * as `FOLLOW_UP_DAYS`, 3. A whole number from 1 to 365, the range
+ * `followUpDaysSchema` refuses outside.
+ */
+export const accountFollowUps = sqliteTable(
+  'account_follow_ups',
+  {
+    tenantId: text('tenant_id').primaryKey(),
+    days: integer('days').notNull(),
+  },
+  (t) => [check('account_follow_ups_days_is_in_range', sql.raw('days BETWEEN 1 AND 365'))],
+);
+
+/**
  * A worked example of a note and the title and message chosen for it, added
  * by hand rather than corrected after the fact ("Pin an example of how you
  * want a note written", issue 397). Nothing reads or writes it any more
@@ -1603,8 +1628,8 @@ export const attachments = sqliteTable(
  *   it, and moved on by the account's alarm each time the series comes round.
  * - **`due_after_days`** is the calendar days from an occurrence appearing to its
  *   due date, NULL for none.
- * - **`stopped_at` is *Never***: the series stays and the Items keep naming it,
- *   so setting a rule again on any of them starts the same series over.
+ * - **`stopped_at` is set by deleting the recurring item**: the series stays and
+ *   the Items keep naming it; it is never started again.
  * - **`frequency` carries no CHECK**: the set the product may extend is guarded
  *   by its Zod enum alone, as this file's header says of panel kinds.
  */
@@ -1638,7 +1663,7 @@ export const series = sqliteTable(
      * description and priority, beside the Panels in `series_panels`. **NULL
      * `title` is a series that holds nothing yet** - one from before
      * `0094-series-masters` that `0095-series-masters-from-latest-copy` left
-     * stopped - and the old Repeats chip fills it on a rule set again.
+     * stopped - and it stays so: no screen sets a repeat on an Item any more.
      */
     workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'restrict' }),
     title: text('title'),

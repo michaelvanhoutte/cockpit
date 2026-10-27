@@ -12,9 +12,13 @@ import { DockedItemContext, type DockedItem } from '../../../src/itemForm';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { aClipboard } from '../support/clipboard';
 
+/** A read of the Workspace, which the row never makes: what it draws is what the tab already holds. */
+const readTheWorkspace = vi.hoisted(() => vi.fn(() => new Promise<never>(() => {})));
+
 vi.mock('../../../src/api/queries', () => ({
   useCommand: vi.fn(),
   useSendCommand: vi.fn(),
+  snapshotQuery: (workspaceId: string) => ({ queryKey: ['snapshot', workspaceId], queryFn: readTheWorkspace }),
 }));
 
 const mockUseCommand = vi.mocked(useCommand);
@@ -42,6 +46,7 @@ function anItem(overrides: Partial<Item> = {}): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -85,7 +90,10 @@ function aRow({
   alsoIn,
   dock,
   extra,
+  followUpDays,
 }: {
+  /** The days the account chose in Settings › Follow-ups, in the Workspace the tab holds; nothing held where absent. */
+  followUpDays?: number;
   refused?: boolean;
   unanswered?: boolean;
   onMoveTo?: (from: HTMLElement | null) => void;
@@ -140,6 +148,8 @@ function aRow({
   );
   // The query client is what the row's own suggestions window reads through.
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The Workspace as the tab holds it, where a case says what the account chose in Follow-ups.
+  if (followUpDays !== undefined) queries.setQueryData(['snapshot', 'ws-work'], { followUpDays });
   const withDock = (node: React.ReactNode) => (
     <QueryClientProvider client={queries}>
       <DockedItemContext.Provider value={dock ?? { openId: null, show: () => {} }}>
@@ -220,7 +230,7 @@ async function choose(user: ReturnType<typeof userEvent.setup>, option: string) 
   await user.click(await screen.findByText(option));
 }
 
-const STATES = ['To do', 'In progress', 'Done'];
+const STATES = ['To do', 'In progress', 'Waiting for reply', 'Done'];
 
 /**
  * Picks a state from the menu already open, by keyboard: arrow-right opens
@@ -352,7 +362,7 @@ describe('Triage', () => {
       expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('opens the three states by arrow-right and chooses one by arrows and Enter', async () => {
+    it('opens the four states by arrow-right and chooses one by arrows and Enter', async () => {
       const user = userEvent.setup();
       const { mutate } = aRow();
 
@@ -360,7 +370,7 @@ describe('Triage', () => {
       const row = await screen.findByRole('menuitem', { name: /^Status/ });
       row.focus();
       await user.keyboard('{ArrowRight}');
-      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(3);
+      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(4);
       await user.keyboard('{ArrowDown}{Enter}');
 
       expect(mutate).toHaveBeenCalledTimes(1);
@@ -812,18 +822,18 @@ describe('Item editing', () => {
     });
 
     /**
-     * "Set an Item to repeat from its form, and see the rule on its row" (issue
-     * 1406): the list hands the row the rule its Item repeats by, none for an Item
-     * that does not repeat or whose series is stopped.
+     * "Point a copy at its master, and retire the Repeats chip" (issue 1450): the
+     * list hands the row the rule of the recurring item its Item is a copy of,
+     * none for an Item that is no copy.
      */
     it.each([
-      { situation: 'a weekly rule from a Monday', repeat: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null }, hover: 'Repeats weekly on Monday' },
-      { situation: 'a daily rule', repeat: { frequency: 'daily' as const, nextOn: '2026-11-02', dueAfterDays: 3 }, hover: 'Repeats daily' },
-      { situation: 'no rule, as for an Item that does not repeat or whose series is stopped', repeat: null, hover: null },
-    ])('wears a ↻ naming the rule for $situation', ({ repeat, hover }) => {
-      aRow({ extra: { repeat } });
+      { situation: 'a copy of a weekly recurring item from a Monday', recurring: { frequency: 'weekly' as const, nextOn: '2026-11-02', dueAfterDays: null }, hover: 'Recurring weekly on Monday' },
+      { situation: 'a copy of a daily recurring item', recurring: { frequency: 'daily' as const, nextOn: '2026-11-02', dueAfterDays: 3 }, hover: 'Recurring daily' },
+      { situation: 'an Item that is no copy', recurring: null, hover: null },
+    ])('wears a ↻ naming how often it recurs for $situation', ({ recurring, hover }) => {
+      aRow({ extra: { recurring } });
 
-      const mark = screen.queryByRole('img', { name: /^Repeats/ });
+      const mark = screen.queryByRole('img', { name: /^Recurring/ });
       expect(mark?.getAttribute('title') ?? null).toBe(hover);
       expect(mark === null ? null : mark.textContent).toBe(hover === null ? null : '↻');
     });
@@ -1048,7 +1058,7 @@ describe('Item editing', () => {
       );
     };
 
-    it('orders Open, Filing, Claude, Status and Dismiss, a divider between each', async () => {
+    it('orders Open, Filing, Claude, Status with Wait for reply…, and Dismiss, a divider between each', async () => {
       const user = userEvent.setup();
       onAScreen(A_DESK);
       aRow({
@@ -1068,6 +1078,7 @@ describe('Item editing', () => {
         '---',
         'Send to Claude…',
         '---',
+        'Wait for reply…',
         expect.stringMatching(/^Status/),
         '---',
         'Dismiss',
@@ -1087,6 +1098,7 @@ describe('Item editing', () => {
         '---',
         'Move to…',
         '---',
+        'Wait for reply…',
         expect.stringMatching(/^Status/),
         '---',
         'Dismiss',
@@ -1751,6 +1763,150 @@ describe('Triage', () => {
       else expect(within(title).queryByText(/^(Due|Overdue)/)).toBeNull();
       expect(within(meta).queryByText(/^(Due in|Due today|Due tomorrow|Overdue)/)).toBeNull();
       expect(within(meta).queryByText(/^Due .*2026/) !== null).toBe(date);
+    });
+  });
+
+  /**
+   * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463):
+   * which line carries *Waiting since* is the same branch on the screen's width
+   * as the deadline pill's, and the pill is worn only while the Item waits.
+   */
+  describe('a waiting row wears Waiting since beside its deadline pill, on the title line at a desk and under the title on a phone', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    const lines = () => ({
+      title: screen.getByText('Make appointment with Novy').parentElement as HTMLElement,
+      meta: screen.getByText(/Own/).parentElement as HTMLElement,
+    });
+
+    it.each([
+      { situation: 'at a desk', width: A_DESK, on: 'title' as const },
+      { situation: 'on a phone', width: A_PHONE, on: 'meta' as const },
+    ])('$situation', ({ width, on }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-17T12:00:00'));
+      onAScreen(width);
+      aRow({ item: anItem({ waitingSince: '2026-09-14T09:00:00.000Z', dueDate: '2026-09-19' }) });
+
+      const line = lines()[on];
+      const pills = within(line).getAllByText(/^(Waiting since|Due in)/).map((pill) => pill.textContent);
+      expect(pills).toEqual([expect.stringMatching(/^Waiting since .*14/), 'Due in 2d']);
+      expect(within(lines()[on === 'title' ? 'meta' : 'title']).queryByText(/^Waiting since/)).toBeNull();
+    });
+
+    it.each([
+      { situation: 'To do', over: {} },
+      { situation: 'In progress', over: { startedAt: '2026-09-14T09:00:00.000Z' } },
+    ])('a row $situation wears none', ({ over }) => {
+      aRow({ item: anItem(over) });
+
+      expect(screen.queryByText(/^Waiting since/)).toBeNull();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * "Set an Item Waiting for reply, and wait again after chasing" (issue 1463):
+   * F1, the entries the row offers and what a choice in the question asks for.
+   * What a wait does to the Item is L2 (`waiting-for-reply.test.ts`); that the
+   * row is drawn at once and goes back when refused is
+   * `ChangesAtOnce.test.tsx`.
+   */
+  describe('a row asks how long to wait for a reply from Wait for reply…, Wait again… and Status ▸ Waiting for reply', () => {
+    it.each([
+      { situation: 'a To do row offers Wait for reply…', over: {}, entry: 'Wait for reply…', status: 'To do' },
+      {
+        situation: 'a waiting row offers Wait again…',
+        over: { waitingSince: '2026-08-12T10:00:00.000Z' },
+        entry: 'Wait again…',
+        status: 'Waiting for reply',
+      },
+    ])('$situation', async ({ over, entry, status }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem(over) });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+
+      expect(await screen.findByRole('menuitem', { name: entry })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: /^Status/ })).toHaveTextContent(status);
+    });
+
+    it.each([
+      { situation: 'Enter takes the 3 it starts on', press: null, days: 3 },
+      { situation: 'a choice of 14 days', press: '14 days', days: 14 },
+      { situation: 'a number typed, then Enter', press: '5', days: 5 },
+    ])('$situation asks for that many days, for this row', async ({ press, days }) => {
+      const user = userEvent.setup();
+      const { send, mutate } = aRow({ item: anItem({ waitingSince: '2026-08-12T10:00:00.000Z' }) });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait again…' }));
+      const box = await screen.findByLabelText('Days to wait');
+      if (press === null) await user.keyboard('{Enter}');
+      else if (/^\d+$/u.test(press)) {
+        await user.clear(box);
+        await user.type(box, `${press}{Enter}`);
+      } else await user.click(screen.getByRole('button', { name: press }));
+
+      expect(mutate).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({
+        name: 'wait_for_reply',
+        payload: expect.objectContaining({ itemId: 'item-1', workspaceId: 'ws-work', days, timeZone: expect.any(String) }),
+      });
+      expect(screen.queryByLabelText('Days to wait')).toBeNull();
+    });
+
+    /**
+     * "Choose in Settings how many days to wait for a reply" (issue 1465): off
+     * the copy the tab holds, which is the one saved on the device when
+     * offline, so the question never waits on a read. That the account's
+     * choice reaches that copy is L2 (`follow-ups.test.ts`).
+     */
+    it.each([
+      { situation: 'the days the account chose', followUpDays: 7, days: 7 },
+      { situation: '3, where the Workspace held says nothing', followUpDays: undefined, days: 3 },
+    ])('starts on $situation, without reading for them', async ({ followUpDays, days }) => {
+      readTheWorkspace.mockClear();
+      const user = userEvent.setup();
+      const { send } = aRow(followUpDays === undefined ? {} : { followUpDays });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait for reply…' }));
+
+      expect(await screen.findByLabelText('Days to wait')).toHaveValue(days);
+      await user.keyboard('{Enter}');
+      expect(send).toHaveBeenCalledWith({ name: 'wait_for_reply', payload: expect.objectContaining({ days }) });
+      expect(readTheWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('Waiting for reply in the Status submenu opens the same question', async () => {
+      const user = userEvent.setup();
+      const { send } = aRow();
+
+      await chooseStatus(user, 'Waiting for reply');
+      await screen.findByLabelText('Days to wait');
+      await user.keyboard('{Enter}');
+
+      expect(send).toHaveBeenCalledWith({ name: 'wait_for_reply', payload: expect.objectContaining({ days: 3 }) });
+    });
+
+    it.each(['0', '366', '2.5'])('asks nothing for %s days, and says what it takes', async (typed) => {
+      const user = userEvent.setup();
+      const { send } = aRow();
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Wait for reply…' }));
+      const box = await screen.findByLabelText('Days to wait');
+      await user.clear(box);
+      await user.type(box, `${typed}{Enter}`);
+
+      expect(send).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent('Use a whole number from 1 to 365.');
     });
   });
 });

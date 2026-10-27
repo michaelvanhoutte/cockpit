@@ -59,7 +59,6 @@ export function renderHtml(model, { repoRelPrefix }) {
       }
       <span>generated <b>${esc(formatDateTime(model.generatedAt))}</b></span>
       <span>rules <b>${totals.rules}</b></span>
-      <span>files nothing runs <b>${totals.filesNothingRuns}</b></span>
       <span>branches nothing takes <b>${model.coverageAvailable ? totals.branchesNothingTakes : 'unknown'}</b></span>
       <!-- The other three pages of the published site, assembled by ci.yml's
            Publish job. Relative, so they resolve wherever the site is served
@@ -80,7 +79,6 @@ export function renderHtml(model, { repoRelPrefix }) {
       ${LEVELS.map((l) => `<div class="legend-item"><b>${esc(l.label)}</b> ${esc(l.name)} &mdash; ${esc(l.description)}</div>`).join('')}
     </div>
     <div class="legend-grid">
-      <div class="legend-item"><b>Files nothing runs</b> source files this area owns (per concepts.json) that no test file imports at all &mdash; a file with zero tests touching it, at any level.</div>
       <div class="legend-item"><b>Branches nothing takes</b> a specific <code>if</code>/<code>?:</code>/<code>&amp;&amp;</code> branch, in a file this area owns, where real coverage data shows one path was never exercised &mdash; e.g. an <code>if</code> with no <code>else</code>, tested only on the true side. Needs coverage data to be collected first (see the note above if it says "unknown").</div>
     </div>
   </section>
@@ -99,7 +97,6 @@ export function renderHtml(model, { repoRelPrefix }) {
                 </span>
               </th>
               ${LEVELS.map((l) => `<th class="c" title="Click a count to see just ${esc(l.name)} (${esc(l.label)}) rules — ${esc(l.description)}">${esc(l.label)}</th>`).join('')}
-              <th class="c" title="Click a count to open this tab — source files this area owns that no test imports">Files nothing runs</th>
               <th class="c" title="Click a count to open this tab — branches in this area's files that real coverage shows are never taken">Branches nothing takes</th>
             </tr>
           </thead>

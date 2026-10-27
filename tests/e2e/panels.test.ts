@@ -1181,20 +1181,33 @@ test.describe('Panels', () => {
       await expectTheDashboardFits(page);
     });
 
-    test('narrows the dashboard to what is in progress', async ({ page, isMobile }) => {
-      // One item is started, then the filter's Status group keeps only it.
+    test('narrows the dashboard to what is in progress, and to what is waiting for a reply only when asked', async ({
+      page,
+      isMobile,
+    }) => {
+      // One item is started and one waits, then the filter's Status group keeps one at a time.
       // Which statuses match is packages/shared/tests/unit/domain/dashboard-filter.test.ts's.
       const { first, items } = await twoPanelsInARow(page, isMobile, {
-        items: 2,
+        items: 3,
         also: async (panel) => {
           await arrange(page, 'set_started', { itemId: panel.itemIds[1], started: true });
+          await arrange(page, 'wait_for_reply', { itemId: panel.itemIds[2], days: 3, timeZone: 'UTC' });
         },
       });
-      const started = items[1]!;
+      const [plain, started, waiting] = items as [string, string, string];
       await expect(itemRow(page, started).getByText('In progress')).toBeVisible();
+      await expect(itemRow(page, waiting).getByText(/^Waiting since/)).toBeVisible();
       await page.getByRole('button', { name: 'Filter this dashboard' }).click();
-      await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'In progress' }).click();
+      const status = page.getByRole('group', { name: 'Status' });
+      await expect(status.getByRole('button')).toHaveText(['To do', 'In progress', 'Waiting for reply']);
+      await status.getByRole('button', { name: 'In progress' }).click();
       await expect.poll(() => itemsOn(page, first)).toEqual([started]);
+      await status.getByRole('button', { name: 'In progress' }).click();
+      await status.getByRole('button', { name: 'To do' }).click();
+      await expect.poll(() => itemsOn(page, first)).toEqual([plain]);
+      await status.getByRole('button', { name: 'To do' }).click();
+      await status.getByRole('button', { name: 'Waiting for reply' }).click();
+      await expect.poll(() => itemsOn(page, first)).toEqual([waiting]);
       await page.getByRole('button', { name: 'Clear the filter and close it' }).click();
       await expect.poll(() => itemsOn(page, first)).toEqual(items);
     });

@@ -4,6 +4,7 @@ import type { Column } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
+  FOLLOW_UP_DAYS,
   REWRITE_HISTORY_LIMIT,
   panelFilterFrom,
   panelColumnsSchema,
@@ -43,6 +44,7 @@ import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } fr
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
+  accountFollowUps,
   accountItemFormPresentation,
   agentRunActivity,
   agentRuns,
@@ -722,6 +724,7 @@ const itemColumns = {
   nextAction: items.nextAction,
   completedAt: items.completedAt,
   startedAt: items.startedAt,
+  waitingSince: items.waitingSince,
   priority: items.priority,
   prioritySetAt: items.prioritySetAt,
   dueDate: items.dueDate,
@@ -866,6 +869,30 @@ export function placesOfItems(
   return { filings, panels: filedPanels, dashboards: filedDashboards };
 }
 
+/**
+ * The Workspace's finished Items: the ones `listOpenItems` returns that are
+ * marked done ("Fetch a Workspace's finished Items the first time All items
+ * opens", issue 1434), dismissed ones left out as there. **Every one, with no
+ * page**: *All items* draws them whole, once, and pages only what it draws. The
+ * same `or` as `listOpenItems`: a finished Item belonging to no Workspace is
+ * listed in every one, as *All items* has listed it.
+ */
+export function listFinishedItems(db: AccountDb, tenantId: string, workspaceId: string): Item[] {
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNotNull(items.completedAt),
+        isNull(items.deletedAt),
+      ),
+    )
+    .orderBy(items.createdAt)
+    .all();
+}
+
 export function getItem(db: AccountDb, tenantId: string, itemId: string): Item | null {
   return (
     db
@@ -967,7 +994,7 @@ function seriesRowColumns() {
 }
 
 /**
- * Every series *Never* has not stopped ("Bring a repeating Item back on its day",
+ * Every series not yet stopped by deleting its recurring item ("Bring a repeating Item back on its day",
  * issue 1407) - what the account's alarm is set by and brings back. A handful
  * per account, so the day each is due on is worked out by the caller rather than
  * stored beside it.
@@ -1000,17 +1027,6 @@ export function latestOccurrence(db: AccountDb, tenantId: string, seriesId: stri
   );
 }
 
-/** The Panels an Item is filed on, live or not - the caller asks which still are. */
-export function panelIdsOf(db: AccountDb, tenantId: string, itemId: string): string[] {
-  return db
-    .select({ panelId: panelItems.panelId })
-    .from(panelItems)
-    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
-    .orderBy(asc(panelItems.createdAt), asc(panelItems.panelId))
-    .all()
-    .map((row) => row.panelId);
-}
-
 const seriesColumns = {
   id: series.id,
   tenantId: series.tenantId,
@@ -1023,13 +1039,14 @@ const seriesColumns = {
 
 /**
  * Every series the Items of one Workspace name ("Repeat an Item on a schedule",
- * issue 1405), stopped ones included: an Item still names the series *Never*
- * stopped. **The same Items `listOpenItems` returns**, which is why this carries
+ * issue 1405), stopped ones included: an Item still names the series
+ * deleting its recurring item stopped. **The same Items `listOpenItems` returns**, which is why this carries
  * the same `or`: an Item belonging to no Workspace is drawn in every one.
  */
 export function listSeriesInWorkspace(db: AccountDb, tenantId: string, workspaceId: string): Series[] {
   return db
-    .selectDistinct(seriesColumns)
+    // With the recurring item's own title and Workspace, which a copy's line and mark say ("Point a copy at its master, and retire the Repeats chip", issue 1450); null on a series never made into one.
+    .selectDistinct({ ...seriesColumns, title: series.title, workspaceId: series.workspaceId })
     .from(series)
     .innerJoin(items, eq(items.seriesId, series.id))
     .where(
@@ -1092,6 +1109,8 @@ export function listAttachmentsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
+  /** Only the files of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
+  finishedOnly = false,
 ): Attachment[] {
   return db
     .select({
@@ -1110,6 +1129,7 @@ export function listAttachmentsInWorkspace(
         eq(attachments.tenantId, tenantId),
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
+        finishedOnly ? isNotNull(items.completedAt) : undefined,
       ),
     )
     .all();
@@ -1235,6 +1255,8 @@ export function listFilingsInWorkspace(
   db: AccountDb,
   tenantId: string,
   workspaceId: string,
+  /** Only the filings of Items marked done: what a Workspace's finished Items are read with ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
+  finishedOnly = false,
 ): Filing[] {
   return db
     .select({
@@ -1253,6 +1275,7 @@ export function listFilingsInWorkspace(
         eq(items.workspaceId, workspaceId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
+        finishedOnly ? and(isNotNull(items.completedAt), isNull(items.deletedAt)) : undefined,
       ),
     )
     .orderBy(asc(panelItems.position))
@@ -1852,6 +1875,20 @@ export function getItemFormPresentation(db: AccountDb, tenantId: string): ItemFo
     .where(eq(accountItemFormPresentation.tenantId, tenantId))
     .get();
   return row?.presentation ?? DEFAULT_ITEM_FORM_PRESENTATION;
+}
+
+/**
+ * How many days *Wait for reply…* starts on for this account ("Choose in
+ * Settings how many days to wait for a reply", issue 1465), resolved to
+ * `FOLLOW_UP_DAYS`, 3, for an account that has never chosen.
+ */
+export function getFollowUpDays(db: AccountDb, tenantId: string): number {
+  const row = db
+    .select({ days: accountFollowUps.days })
+    .from(accountFollowUps)
+    .where(eq(accountFollowUps.tenantId, tenantId))
+    .get();
+  return row?.days ?? FOLLOW_UP_DAYS;
 }
 
 /**

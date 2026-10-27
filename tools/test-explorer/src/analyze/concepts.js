@@ -35,6 +35,49 @@ export function loadConcepts() {
   return parsed.concepts;
 }
 
+/** Where the list of files judged not worth a test lives: beside concepts.json, in this tool's own package. */
+export const NOT_WORTH_A_TEST = path.join(here, '../../not-worth-a-test.json');
+
+/**
+ * The files judged not worth a test, checked against the files the analyzer
+ * walks: each entry that names a walked file once, with a reason and how many
+ * of its statements were not run when decided, is carried; every other is a
+ * problem, named, which `--check-concepts` fails on. A missing file is an
+ * empty list.
+ *
+ * @param {string} file the list's path
+ * @param {Set<string>} walked repo-relative source files the analyzer walks
+ * @returns {{ decided: { file: string, reason: string, notRun: number }[], problems: string[] }}
+ */
+export function loadNotWorthATest(file, walked) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return { decided: [], problems: [] };
+    return { decided: [], problems: [`${path.basename(file)} is not JSON: ${error.message}`] };
+  }
+  const entries = parsed?.files;
+  if (!Array.isArray(entries)) return { decided: [], problems: [`${path.basename(file)} has no "files" list.`] };
+  const decided = [];
+  const problems = [];
+  const seen = new Set();
+  entries.forEach((entry, i) => {
+    if (typeof entry?.file !== 'string' || entry.file === '') {
+      problems.push(`entry ${i + 1} names no file.`);
+      return;
+    }
+    const named = JSON.stringify(entry.file);
+    if (!walked.has(entry.file)) problems.push(`${named} is not a source file the analyzer walks: fix the path, or remove the entry if the file has gone.`);
+    else if (seen.has(entry.file)) problems.push(`${named} is listed twice.`);
+    else if (typeof entry.reason !== 'string' || entry.reason.trim() === '') problems.push(`${named} gives no reason.`);
+    else if (!Number.isInteger(entry.notRun) || entry.notRun < 0) problems.push(`${named} does not say how many of its statements were not run when it was decided ("notRun").`);
+    else decided.push({ file: entry.file, reason: entry.reason, notRun: entry.notRun });
+    seen.add(entry.file);
+  });
+  return { decided, problems };
+}
+
 /** Converts one glob pattern (using '*' and '**') into a RegExp anchored to a repo-relative path. */
 function globToRegExp(glob) {
   let out = '';
@@ -163,10 +206,10 @@ export function buildTree(concepts, makeNode) {
  * carries both: `counts` stays its own (the Rules tab lists exactly those),
  * and `subtree` is what it plus everything under it holds.
  *
- * Files and branches are counted once per file, not summed. One source file
+ * Branches are counted once per file, not summed. One source file
  * legitimately belongs to several areas ("The area registry" in
  * docs/test-explorer-spec.md), and `Menu.tsx` under both Dashboards and Panels
- * is one file nothing runs, not two. Branches go through `countBranchGaps` in
+ * holds its gaps once, not twice. They go through `countBranchGaps` in
  * model.js, which the masthead's totals share so the two cannot drift.
  *
  * A level that is `null` is n/a rather than zero, so a total ignores the nulls
@@ -194,9 +237,6 @@ function annotate(node, ancestorLabels) {
     counts[id] = known.length ? known.reduce((a, b) => a + b, 0) : null;
   }
 
-  const files = new Set();
-  for (const n of inSubtree) for (const f of n.filesNothingRuns) files.add(f.file);
-
   // Counted once per file by `countBranchGaps`, which the masthead's totals
   // also use — the two must agree, or the page total prints smaller than a row
   // beneath it.
@@ -204,7 +244,6 @@ function annotate(node, ancestorLabels) {
 
   node.subtree = {
     counts,
-    filesNothingRuns: files.size,
     branchesNothingTakes: measured.length ? countBranchGaps(measured) : null,
   };
   return inSubtree;

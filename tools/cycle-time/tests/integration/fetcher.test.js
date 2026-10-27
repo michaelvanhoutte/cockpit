@@ -156,6 +156,16 @@ describe('Cycle time', () => {
       expect(pulls.map((pull) => pull.number)).toEqual([3]);
     });
 
+    it('reads an older window as a range, leaving out what merged after its end without spending the budget on it', async () => {
+      const api = stubApi({
+        listing: [listed(1, '2026-09-21T00:00:00Z'), listed(2, '2026-09-18T00:00:00Z'), listed(3, '2026-09-12T00:00:00Z'), listed(4, '2026-09-10T00:00:00Z')],
+      });
+      const collected = await collectFrom(api, { until: new Date('2026-09-19T00:00:00Z'), maxPulls: 2 });
+
+      expect(collected.pulls.map((pull) => pull.number)).toEqual([2, 3]);
+      expect(api.calls.some((url) => url.endsWith('/pulls/1'))).toBe(false);
+    });
+
     describe('pull requests into a feature branch are read beside those into main, from one listing', () => {
       const merged = '2026-09-18T00:00:00Z';
       const api = () =>
@@ -477,6 +487,13 @@ describe('Cycle time', () => {
       const { pulls } = await collect({ repo: 'o/r', since: early, now: NOW, fetchImpl: api.fetchImpl, retries: 0 });
       expect(pulls[0].commits[0].checks[0].queue).toEqual({ state: 'not-recorded', why: 'outside-listing' });
       expect(api.calls.find((url) => url.includes('ci.yml/runs'))).toContain(encodeURIComponent('>=2026-09-19'));
+    });
+
+    it('lists the CI runs of an older window as a range, so paging back from today cannot spend the listing before it', async () => {
+      const api = stub({ commits: { a: [run(11, 'Test', 60, '09:05', '09:15')] }, ci: [], merged: '2026-09-25T00:00:00Z' });
+      const early = new Date('2026-09-20T00:00:00Z');
+      await collect({ repo: 'o/r', since: early, until: new Date('2026-09-27T00:00:00Z'), now: NOW, fetchImpl: api.fetchImpl, retries: 0 });
+      expect(api.calls.find((url) => url.includes('ci.yml/runs'))).toContain(encodeURIComponent('2026-09-19..2026-09-27'));
     });
 
     it('leaves a CI check whose run the complete listing lacks as outside the listing, never silent', async () => {

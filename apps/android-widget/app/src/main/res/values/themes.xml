@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The phone's own look; from Android 10 it follows the phone's light or dark setting. -->
+    <style name="AppTheme" parent="android:Theme.DeviceDefault">
+        <!-- Each screen draws its own heading, and an action bar is what its first lines slid under. -->
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

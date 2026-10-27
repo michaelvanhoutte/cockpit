@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compare, topChanges, windowFigures, windowsOf, dayChart, firstDay, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
+import { dayChart, firstDay, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
 
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
@@ -8,6 +8,10 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   series: 'building',
   costMicros: 1_000_000,
   unpricedRequests: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
   lastAt: 0,
   prNumber: 1,
   title: 'T',
@@ -18,12 +22,11 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
   linesAdded: null,
   linesRemoved: null,
   openedAt: null,
-  ciRounds: null,
-  localRounds: null,
-  findings: null,
   issueTitle: null,
   issueParent: null,
   issueParentTitle: null,
+  credited: 0,
+  creditIssue: null,
   ...over,
 });
 
@@ -42,12 +45,39 @@ describe('Harness Monitor', () => {
         expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
       {
+        situation: 'a colouring by engineer',
+        query: 'split=engineer&group=pr',
+        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
+      },
+      {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
         expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
+    });
+
+    it.each([
+      { situation: 'each engineer, coloured by engineer', query: 'group=engineer&split=engineer', group: 'engineer', split: 'phase' },
+      { situation: 'each phase, coloured by phase', query: 'group=category&split=phase', group: 'category', split: 'engineer' },
+      { situation: 'each phase, with no colouring named', query: 'group=category', group: 'category', split: 'engineer' },
+      { situation: 'each engineer, coloured by model', query: 'group=engineer&split=model', group: 'engineer', split: 'model' },
+      { situation: 'each phase, coloured by model', query: 'group=category&split=model', group: 'category', split: 'model' },
+      { situation: 'each pull request, coloured by phase', query: 'group=pr&split=phase', group: 'pr', split: 'phase' },
+      { situation: 'each day, coloured by engineer', query: 'group=day&split=engineer', group: 'day', split: 'engineer' },
+      { situation: 'each issue, coloured by engineer', query: 'group=issue&split=engineer', group: 'issue', split: 'engineer' },
+    ])('an address never colours the rows by what they already are: $situation', ({ query, group, split }) => {
+      expect(parseQuery(new URLSearchParams(query))).toMatchObject({ group, split });
+    });
+
+    it.each([
+      { situation: 'each engineer with an Engineer filter', query: 'group=engineer&engineer=alice', held: { engineer: null, category: null } },
+      { situation: 'each phase with a Phase filter', query: 'group=category&category=building', held: { engineer: null, category: null } },
+      { situation: 'each phase with an Engineer filter, which it does not repeat', query: 'group=category&engineer=alice', held: { engineer: 'alice', category: null } },
+      { situation: 'each pull request with an Engineer filter', query: 'group=pr&engineer=alice&category=building', held: { engineer: 'alice', category: 'building' } },
+    ])('an address never filters to what the rows already are: $situation holds $held', ({ query, held }) => {
+      expect(parseQuery(new URLSearchParams(query))).toMatchObject(held);
     });
 
     it('the same page has one address however it was spelled', () => {
@@ -121,26 +151,7 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('a pull request row says how long it was open, and an issue row names the issue', () => {
-    it.each([
-      { situation: 'under an hour', opened: '2026-03-01T10:00:00Z', merged: '2026-03-01T10:45:59Z', says: '45m' },
-      { situation: 'under a day', opened: '2026-03-01T10:00:00Z', merged: '2026-03-01T15:10:00Z', says: '5h 10m' },
-      { situation: 'days', opened: '2026-03-01T10:00:00Z', merged: '2026-03-03T14:30:00Z', says: '2d 4h' },
-    ])('open $situation reads $says', ({ opened, merged, says }) => {
-      const [group] = groupRows([row({ openedAt: opened, mergedAt: merged })], 'pr', null);
-
-      expect(group!.openToMerged).toBe(says);
-    });
-
-    it.each([
-      { situation: 'not merged', over: { openedAt: '2026-03-01T10:00:00Z', mergedAt: null } },
-      { situation: 'its opening unread', over: { openedAt: null } },
-    ])('a pull request $situation has no open → merged time', ({ over }) => {
-      const [group] = groupRows([row(over)], 'pr', null);
-
-      expect(group!.openToMerged).toBeNull();
-    });
-
+  describe('an issue row names the issue', () => {
     it.each([
       { situation: 'with a stored title', title: 'Show costs', label: '#5 Show costs' },
       { situation: 'with no title yet', title: null, label: '#5' },
@@ -168,6 +179,27 @@ describe('Harness Monitor', () => {
 
       expect(group!.sub).toBe(says);
     });
+
+    it.each([
+      { situation: 'requests credited to one issue', credited: [11, 11], says: 'Issue #11' },
+      { situation: 'requests credited to two issues', credited: [11, 12], says: 'several issues' },
+      { situation: 'requests credited to a pull request that closes no issue', credited: [null], says: 'No issue' },
+      { situation: 'requests credited to an issue and to a pull request that closes none', credited: [11, null], says: 'Issue #11' },
+    ])('a branch with $situation says so once the credit is good through its newest request', ({ credited, says }) => {
+      const rows = credited.map((creditIssue, i) => row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, series: `s${i}`, credited: 1, creditIssue }));
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe(says);
+    });
+
+    it('a branch with credited requests and a newer one the credit has not reached is linking', () => {
+      const rows = [row({ prNumber: null, title: null, branch: 'b/x', lastAt: 10, credited: 1, creditIssue: 11 }), row({ prNumber: null, title: null, branch: 'b/x', lastAt: 30, series: 'later' })];
+
+      const [group] = groupRows(rows, 'pr', 20);
+
+      expect(group!.sub).toBe('linking…');
+    });
   });
 
   describe('Over time lists the newest day first and charts every day of the range', () => {
@@ -188,7 +220,7 @@ describe('Harness Monitor', () => {
     it('split by phase there is a line per phase with cost, and the total', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-01', 'after-push', 1)], 'phase', null, '2026-10-01T12:00:00Z');
 
-      expect(chart.lines.map((l) => [l.key, l.micros])).toEqual([
+      expect(chart.lines.map((l) => [l.key, l.values])).toEqual([
         ['building', [2]],
         ['after-push', [1]],
       ]);
@@ -205,7 +237,7 @@ describe('Harness Monitor', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2), day('2026-10-03', 'building', 4)], 'phase', null, '2026-10-03T12:00:00Z');
 
       expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
-      expect(chart.lines[0]!.micros).toEqual([2, 0, 4]);
+      expect(chart.lines[0]!.values).toEqual([2, 0, 4]);
       expect(chart.total).toEqual([2, 0, 4]);
     });
 
@@ -220,11 +252,35 @@ describe('Harness Monitor', () => {
       const chart = chartOf([day('2026-10-01', 'building', 2)], 'phase', null, '2026-10-01T12:00:00Z');
 
       expect(chart.days).toEqual(['2026-10-01']);
-      expect(chart.lines[0]!.micros).toEqual([2]);
+      expect(chart.lines[0]!.values).toEqual([2]);
     });
 
     it('with no cost there is nothing to chart', () => {
       expect(chartOf([], 'phase', null, '2026-10-01T12:00:00Z')).toEqual({ days: [], lines: [], total: [] });
+    });
+  });
+
+  describe("Tokens per day draws each series' tokens summed per day, and a day without requests is zero", () => {
+    /** A day's requests in one series: the four kinds of token, priced or not. */
+    const tokens = (d: string, series: string, [input, output, cacheWrite, cacheRead]: number[]) =>
+      row({ day: d, series, costMicros: 0, prNumber: null, title: null, branch: '', inputTokens: input!, outputTokens: output!, cacheCreationTokens: cacheWrite!, cacheReadTokens: cacheRead! });
+    const groups = groupRows(
+      [tokens('2026-10-01', 'building', [1, 2, 3, 4]), tokens('2026-10-01', 'after-push', [10, 0, 0, 20]), tokens('2026-10-03', 'building', [100, 0, 0, 0])],
+      'day',
+      null,
+    );
+    const chart = dayChart(groups, seriesOf('phase', {}), null, Date.parse('2026-10-03T12:00:00Z'), 'tokens');
+
+    it.each([
+      { situation: 'each series', line: 'building', expected: [10, 0, 100] },
+      { situation: 'a series on one day of the two', line: 'after-push', expected: [30, 0, 0] },
+    ])("$situation reads its four kinds summed on each day, the empty day a zero point", ({ line, expected }) => {
+      expect(chart.days).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
+      expect(chart.lines.find((l) => l.key === line)!.values).toEqual(expected);
+    });
+
+    it('the total line is each day\'s four kinds summed over every series', () => {
+      expect(chart.total).toEqual([40, 0, 100]);
     });
   });
 
@@ -310,105 +366,6 @@ describe('Harness Monitor', () => {
       expect(line('outside-process')['2026-09-17']).toBeNull();
       expect(line('outside-process')['2026-09-22']).toBe(2);
       expect(line('process-review')['2026-09-22']).toBe(3);
-    });
-  });
-
-  describe("a period's drivers are computed for both windows, and a ratio with nothing to divide by is a dash", () => {
-    const pr = (lines: number | null, costMicros: number) => ({ day: '2026-10-01', lines, costByPhase: { building: costMicros } });
-    const none = { phase: {}, model: {}, where: {}, outcome: {} };
-    const driversOf = (current: ReturnType<typeof windowFigures>, previous: ReturnType<typeof windowFigures>) =>
-      Object.fromEntries(compare(current, previous, { current: { from: 'a', to: 'b' }, previous: { from: 'c', to: 'd' } }).drivers.map((d) => [d.key, [d.current, d.previous]]));
-
-    it('merged pull requests with lines give their count, cost per pull request, lines per pull request and cost per 1,000 lines', () => {
-      const current = windowFigures({ ...none, phase: { building: 10_000_000 } }, [{ day: 'x', tokens: 100 }, { day: 'x', tokens: 300 }], [pr(1_000, 4_000_000), pr(3_000, 6_000_000)]);
-      const previous = windowFigures(none, [], [pr(500, 1_000_000)]);
-
-      expect(driversOf(current, previous)).toEqual({
-        merged: [2, 1],
-        'cost-per-pr': [5_000_000, 1_000_000],
-        'lines-per-pr': [2_000, 500],
-        'cost-per-line': [2_500_000, 2_000_000],
-        'starting-context': [200, null],
-      });
-    });
-
-    it('lines per pull request is the median, so one very large pull request does not swing it', () => {
-      const current = windowFigures(none, [], [pr(100, 1_000_000), pr(200, 1_000_000), pr(50_000, 1_000_000)]);
-
-      expect(driversOf(current, windowFigures(none, [], []))['lines-per-pr']).toEqual([200, null]);
-    });
-
-    it('a window with no merged pull request has a dash for each ratio, not zero or infinity', () => {
-      const empty = windowFigures(none, [], []);
-      const unsized = windowFigures(none, [], [pr(null, 1_000_000)]);
-
-      expect(driversOf(empty, unsized)).toEqual({
-        merged: [0, 1],
-        'cost-per-pr': [null, 1_000_000],
-        'lines-per-pr': [null, null],
-        'cost-per-line': [null, null],
-        'starting-context': [null, null],
-      });
-    });
-
-    it('the starting context is the median of each window', () => {
-      const tokens = (...values: number[]) => windowFigures(none, values.map((t) => ({ day: 'x', tokens: t })), []);
-
-      expect(driversOf(tokens(10, 30, 20), tokens(7, 9))['starting-context']).toEqual([20, 8]);
-    });
-  });
-
-  describe('the change card compares the period with the one before it, of the same length', () => {
-    const NOW = Date.parse('2026-10-31T12:00:00Z');
-
-    it.each([
-      { situation: 'the last 7 days', period: '7d' as const, expected: { current: { from: '2026-10-25', to: '2026-10-31' }, previous: { from: '2026-10-18', to: '2026-10-24' } } },
-      { situation: 'the last 30 days', period: '30d' as const, expected: { current: { from: '2026-10-02', to: '2026-10-31' }, previous: { from: '2026-09-02', to: '2026-10-01' } } },
-      { situation: 'all time', period: 'all' as const, expected: null },
-    ])('$situation', ({ period, expected }) => {
-      expect(windowsOf(period, NOW)).toEqual(expected);
-    });
-
-    it('the change is in dollars and percent, and only dollars when the period before had no cost', () => {
-      const windows = { current: { from: 'a', to: 'b' }, previous: { from: 'c', to: 'd' } };
-      const cost = (micros: number) => windowFigures({ phase: { building: micros }, model: {}, where: {}, outcome: {} }, [], []);
-
-      const grown = compare(cost(15_000_000), cost(10_000_000), windows);
-      const fresh = compare(cost(3_000_000), cost(0), windows);
-
-      expect([grown.changeMicros, grown.changePercent]).toEqual([5_000_000, 50]);
-      expect([fresh.changeMicros, fresh.changePercent]).toEqual([3_000_000, null]);
-    });
-  });
-
-  describe('each dimension lists its four largest changes by size, telling increases from decreases', () => {
-    it('five models changed: the four largest by size, whichever way they went', () => {
-      const current = { a: 10_000_000, b: 1_000_000, c: 6_000_000, d: 2_000_000, e: 9_000_000 };
-      const previous = { a: 1_000_000, b: 9_000_000, c: 5_000_000, d: 1_000_000, e: 8_000_000 };
-
-      const changes = topChanges('model', current, previous);
-
-      expect(changes.map((c) => [c.key, c.changeMicros])).toEqual([['a', 9_000_000], ['b', -8_000_000], ['c', 1_000_000], ['d', 1_000_000]]);
-    });
-
-    it('a series only in the previous period is a decrease, and one only in this period an increase', () => {
-      const changes = topChanges('model', { new: 3_000_000 }, { gone: 4_000_000 });
-
-      expect(changes.map((c) => [c.key, c.changeMicros])).toEqual([['gone', -4_000_000], ['new', 3_000_000]]);
-    });
-
-    it('a change under 50 cents is left out, and one of exactly 50 cents is kept', () => {
-      const changes = topChanges('where', { local: 1_499_999, cloud: 2_500_000 }, { local: 1_000_000, cloud: 2_000_000 });
-
-      expect(changes.map((c) => c.key)).toEqual(['cloud']);
-    });
-
-    it('nothing changed gives no changes to list', () => {
-      expect(topChanges('outcome', { merged: 5_000_000 }, { merged: 5_000_000 })).toEqual([]);
-    });
-
-    it('a series is named as the page names it', () => {
-      expect(topChanges('phase', { building: 3_000_000 }, {})[0]!.label).toBe('Building');
     });
   });
 
@@ -574,6 +531,19 @@ describe('Harness Monitor', () => {
         expect(queryString(byTotal, { sort: 'default' })).toBe('?group=pr');
         expect(queryString(byTotal, { group: 'engineer' })).toBe('?group=engineer');
       });
+    });
+  });
+
+  describe('coloured by engineer, the engineers come dearest first and the requests no pull request claims come last', () => {
+    it('a dearer Unattributed still comes after every engineer, and an unknown author is named "unknown"', () => {
+      const colours = seriesOf('engineer', { '~unattributed': 9_000_000, alice: 1_000_000, bob: 3_000_000, '~unknown': 2_000_000, carol: 0 });
+
+      expect(colours.map((c) => [c.key, c.label])).toEqual([
+        ['bob', 'bob'],
+        ['~unknown', 'unknown'],
+        ['alice', 'alice'],
+        ['~unattributed', 'Unattributed'],
+      ]);
     });
   });
 });

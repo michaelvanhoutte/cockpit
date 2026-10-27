@@ -42,8 +42,8 @@ export const PAGE_SIZE = 25;
 /**
  * Most requests one run makes to GitHub for pages of pull requests, a retry after a
  * timeout included. Each is one subrequest, and the free plan allows 50 per
- * invocation (D1 queries count too): with MAX_FILE_REQUESTS more and the run's five
- * D1 statements, a run makes at most 45.
+ * invocation (D1 queries count too): with MAX_FILE_REQUESTS more and the run's six
+ * D1 statements, a run makes at most 46.
  */
 export const MAX_REQUESTS = 30;
 
@@ -92,8 +92,9 @@ export const ISSUES_PER_REQUEST = 50;
 
 /**
  * Most requests one run makes for the issues its pull requests name in a `Part of`
- * line, on top of MAX_REQUESTS and MAX_FILE_REQUESTS: with the run's five D1
- * statements a run makes at most 48 subrequests, inside the 50. A pull request whose
+ * line, on top of MAX_REQUESTS and MAX_FILE_REQUESTS: with the run's six D1
+ * statements and the job's record of the run, a run makes at most 50 subrequests,
+ * the 50 allowed. A pull request whose
  * issue is not read by then is stored without its parent, and gains it when next read.
  */
 export const MAX_ISSUE_REQUESTS = 3;

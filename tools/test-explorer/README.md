@@ -1,7 +1,7 @@
 # Test Explorer
 
 Answers, without reading the code: which parts of the product own which tests, at which
-testing-strategy level, and which files or branches nothing exercises. Generates one
+testing-strategy level, and which branches nothing exercises. Generates one
 self-contained HTML page from the repository as it exists right now.
 
 The design rationale — what was tried and rejected, and why it is shaped this way —
@@ -22,11 +22,19 @@ Every run on every branch, `main` included, also uploads its report as the
 `main`'s raw `out/` is when the page is not what you want. Both come from the `Test
 Explorer` job in `.github/workflows/ci.yml`.
 
+**`main`'s latest model also goes to the Harness Monitor**, which keeps no history:
+the `Tests snapshot` job sends the model `Test Explorer` wrote with `--model`, as the tree
+without source lines, then each area's source lines, then the switch that shows them.
+An open pull request's latest model goes there too, sent with `--pull-request` by
+`.github/workflows/pr-tests.yml` from its run's `test-explorer-model` artifact.
+`GET /tests?format=json` on the Monitor answers the tree it shows, and `&pr=<number>` a
+pull request's ("The Harness Monitor" in [docs/architecture.md](../../docs/architecture.md)).
+
 ## Running it
 
 ```bash
 pnpm test:explorer          # from the repo root — writes out/index.html
-pnpm test:explorer:check    # fails if a test names a feature area not in concepts.json
+pnpm test:explorer:check    # fails if a test names a feature area not in concepts.json, or not-worth-a-test.json has an entry it cannot place
 ```
 
 Or directly from this package:
@@ -35,6 +43,10 @@ Or directly from this package:
 cd tools/test-explorer
 node src/cli.js                    # writes out/index.html
 node src/cli.js --json             # writes out/model.json instead, for another consumer
+node src/cli.js --model <file>     # writes the page and the model beside it
+node src/cli.js --send <file>      # sends a model to the Harness Monitor as main's tests, with
+                                   # HARNESS_MONITOR_URL and HARNESS_WRITE_KEY set
+node src/cli.js --send <file> --pull-request <n>   # the same, as pull request n's tests
 node src/cli.js --check-concepts   # the CI check, see below
 node src/cli.js --repo <path>      # analyze a different checkout
 node src/cli.js --help
@@ -56,9 +68,8 @@ under another entry — which is what makes the rows read as the product's own c
 a Workspace holding an Inbox and Dashboards, a Dashboard holding Panels. Both are
 registry decisions, unconnected to whether any test exists.
 
-**What populates a row** — every count, rule, case and coverage gap — is derived from
-what is really in the repository: real `describe`/`it` blocks, real import graphs, real
-merged coverage. None of it is ever invented.
+**What populates a row** — every count, rule, case and coverage figure — is derived from
+what is really in the repository: real `describe`/`it` blocks and real merged coverage. None of it is ever invented.
 
 So a row at zero across the board is not a bug: the registry knows the area's name and
 nothing has tested it yet. If a row looks wrong or unexpected, `concepts.json` is always
@@ -70,8 +81,8 @@ the first place to look.
   concept's Rules tab filtered to that level; a gap count jumps to its tab; the concept's
   name shows everything.
 - **A row that holds other rows shows two numbers**: its own, then its whole subtree's in
-  brackets, so collapsing one never reads as an untested part of the product. Files and
-  branches are counted once per file rather than summed, so a file backing two areas under
+  brackets, so collapsing one never reads as an untested part of the product. Branches
+  are counted once per file rather than summed, so a file backing two areas under
   the same row is counted once — while two uncovered paths on one line stay two gaps. The
   masthead's totals use the same counting, so a page total is never smaller than a row
   beneath it. Collapse all / expand all are in the first column's header.
@@ -80,8 +91,8 @@ the first place to look.
 - **A `.each` case shows its template with real values substituted** where they are
   statically known (`'$situation'` → `'without a request id'`).
 - **Rules group under their level** rather than one flat list.
-- **One "Copy prompt for missing tests" per concept**, covering every gap as plain file
-  paths and pointing at this repo's test strategy to decide which need a test. It never
+- **One "Copy prompt for missing tests" per concept**, covering every branch gap as plain
+  file paths and pointing at this repo's test strategy to decide which need a test. It never
   embeds a snippet or suggests what to assert: a handful of import lines is not enough to
   judge that, so the judgment stays with whoever pastes the prompt.
 
@@ -101,10 +112,10 @@ analyze(repo)  →  Model  →  renderHtml(Model)  →  out/index.html
 3. **`analyze/concepts.js`** loads `concepts.json`, matches every source file to the
    area(s) whose patterns cover it — a file can match more than one, which is expected —
    and builds the tree from each entry's `parent`.
-4. **`analyze/ast.js`** resolves every test file's real (non-type-only) imports, which is
-   the basis for "files nothing runs".
+4. **`analyze/ast.js`** parses each test file once for the rule extraction.
 5. **`analyze/coverage.js`** merges each package's `coverage/coverage-final.json` if
-   present, to find branches no test path took.
+   present, to find branches no test path took and give each area file its statements,
+   how many ran and the lines none ran.
 6. **`analyze/index.js`** orchestrates the above into one `Model`, plus a `commitUrl`
    from the `origin` remote and a source-context snippet per file:line reference.
 7. **`render/html.js`** and **`render/client.js`** turn the Model into the page: a static
@@ -117,12 +128,28 @@ for diffing one run against another.
 
 `pnpm test:explorer:check` runs the full analysis and fails if any test's outer
 `describe` names a feature area not in `concepts.json` — a typo, or an unregistered area.
-It does **not** fail on a row full of zeros, and it does not gate on report content.
+It also fails on an entry of [`not-worth-a-test.json`](./not-worth-a-test.json) naming a file the
+analyzer does not walk, giving no reason, or with no count of statements not run. It does
+**not** fail on a row full of zeros, and it does not gate on report content.
+
+## Files decided not worth a test
+
+[`not-worth-a-test.json`](./not-worth-a-test.json), beside `concepts.json`, lists the source
+files judged not worth a test (wiring, a type, a log line): each one's path as the analyzer
+walks it, the reason, in a sentence a reviewer can disagree with, and how many of its
+statements CI's coverage run on main left unrun when it was decided (`notRun`): the Test
+coverage page's Statements not run for it, or its `total` less `covered` in the model
+`pnpm test:coverage` then `node tools/test-explorer/src/cli.js --json` writes. Whoever acts on a prompt copied from the Harness Monitor's Test coverage page writes the
+entry, in the pull request that decides it, so the decision is reviewed like code. The
+analyzer carries the list into the model, where the Monitor's Gaps tab shows the file under
+Decided not to test with its reason, until more than `notRun` of its statements go unrun and
+it returns to Files to test next, marked changed since decided.
 
 ## Coverage
 
-"Branches nothing takes" needs instrumented coverage; there is no way around running the
-suite for that one column.
+"Branches nothing takes", and each area file's statements run that the Harness Monitor
+draws as Covered, need instrumented coverage; there is no way around running the suite
+for them.
 
 ```bash
 pnpm test:coverage   # from the repo root — runs every package's test:coverage script
@@ -135,10 +162,6 @@ step needs no provider-awareness.
 
 ## Known limitations
 
-- **HTTP-driven integration tests undercount "files nothing runs."** A test calling the
-  real Worker over HTTP exercises the whole pipeline without importing those files, so
-  they can appear as false positives. The report warns by name when it detects the
-  pattern rather than guessing which files an HTTP call reached.
 - **`` it.each`template`(...) `` is not recognized**; the array form is. Neither is used here today.
 - **L3 reads `n/a` everywhere.** It needs a second backend service to mean anything, and
   is derived from real workspace data, so it lights up on its own.

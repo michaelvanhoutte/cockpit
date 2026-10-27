@@ -1,11 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // The Harness Monitor: its own Worker and its own D1 database, sharing no
-  // code, binding or secret with Cockpit (docs/architecture.md, "The Harness
-  // Monitor").
+  // code or binding with Cockpit, and one secret value, USAGE_READ_TOKEN
+  // (docs/architecture.md, "The Harness Monitor").
   "name": "harness-monitor",
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-01",
+  // Without it Cloudflare refuses a fetch from this Worker to Cockpit's, another
+  // Worker on the same account's workers.dev, with error 1042. Every other fetch
+  // here is to the public internet already, so nothing else changes.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "preview_urls": false,
   "observability": { "logs": { "enabled": true } },
 
@@ -17,11 +21,17 @@
 
   // Hourly: link branches to pull requests (src/linking.ts). Daily, 03:10 UTC:
   // fetch the price list and price the rows waiting for one. 03:20 UTC: rebuild
-  // the daily totals from the rows. Separate schedules, so each stays inside the
-  // free plan's 50 queries per invocation.
-  "triggers": { "crons": ["0 * * * *", "10 3 * * *", "20 3 * * *"] },
+  // the daily totals from the rows. 00:30 and 12:30 UTC: copy Cockpit's Claude
+  // calls from production (src/claude-calls.ts). Separate schedules, so each
+  // stays inside the free plan's 50 queries per invocation.
+  "triggers": { "crons": ["0 * * * *", "10 3 * * *", "20 3 * * *", "30 */12 * * *"] },
   // PAGE_CACHE_SECONDS: how long the edge keeps the public costs page (src/worker.ts).
-  "vars": { "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit", "PAGE_CACHE_SECONDS": "300" },
+  // COCKPIT_URL: production's address, which the import reads its calls from.
+  "vars": {
+    "GITHUB_REPOSITORY": "michaelvanhoutte/cockpit",
+    "PAGE_CACHE_SECONDS": "300",
+    "COCKPIT_URL": "https://cockpit.vanhoutte-michael.workers.dev"
+  },
 
   "d1_databases": [
     {
@@ -34,6 +44,6 @@
       "migrations_dir": "migrations"
     }
   ]
-  // GITHUB_TOKEN and HARNESS_WRITE_KEY are secrets (`wrangler secret put`), so they are not here.
+  // GITHUB_TOKEN, HARNESS_WRITE_KEY and USAGE_READ_TOKEN are secrets (`wrangler secret put`), so they are not here.
   // Locally scripts/dev-harness.mjs passes a local-only value with --var.
 }

@@ -31,6 +31,7 @@ import {
   phoneCodeSentSchema,
   confirmPhoneCodeSchema,
   phoneConnectedSchema,
+  finishedItemsSchema,
   recurringItemListSchema,
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
@@ -107,6 +108,7 @@ import { offerToRemember } from '../jobs/offer-to-remember.js';
 import { onOneLine } from '../domain/remembered-sentences.js';
 import { readUsage } from '../accounts/usage.js';
 import { USAGE_RECORDS_PATH, receiveRecord } from '../gateway/receive.js';
+import { readClaudeCalls, readTokenAccepted } from '../gateway/feed.js';
 import { ADMIN_PREFIX, adminGate } from '../auth/admin.js';
 import {
   MOVED_OPERATOR_PREFIXES,
@@ -683,6 +685,27 @@ const snapshotRoute = createRoute({
     200: {
       description: 'The full read model for one workspace',
       content: { 'application/json': { schema: workspaceSnapshotSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * One Workspace's finished Items ("Fetch a Workspace's finished Items the first
+ * time All items opens", issue 1434): its own route rather than a slice of the
+ * snapshot, which every navigation reads while only *All items* draws these.
+ */
+const finishedItemsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/finished-items',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: "The Workspace's finished, undismissed Items, with where each is filed and its files",
+      content: { 'application/json': { schema: finishedItemsSchema } },
     },
     404: {
       description: 'Unknown workspace',
@@ -1331,6 +1354,11 @@ const routes = app
     await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
     return c.json({ ...snapshot, sourceNames: sourceNames(c.env), generatedAt: new Date().toISOString() }, 200);
   })
+  .openapi(finishedItemsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json(await account.finishedItems(workspaceId), 200);
+  })
   .openapi(sourceAccountsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -1713,6 +1741,7 @@ const routes = app
   })
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
+  .openapi(commandRoute('wait_for_reply'), async (c) => c.json(await change(c, 'wait_for_reply', c.req.valid('json')), 200))
   .openapi(commandRoute('finish_agent_run'), async (c) =>
     c.json(await change(c, 'finish_agent_run', c.req.valid('json')), 200),
   )
@@ -1745,6 +1774,9 @@ const routes = app
   )
   .openapi(commandRoute('set_item_form_presentation'), async (c) =>
     c.json(await change(c, 'set_item_form_presentation', c.req.valid('json')), 200),
+  )
+  .openapi(commandRoute('set_follow_up_days'), async (c) =>
+    c.json(await change(c, 'set_follow_up_days', c.req.valid('json')), 200),
   )
   // --- dictation ("Dictate in Write with Whisper", issue 1041): outside the
   // OpenAPI/JSON contract for the reason attachments are - the body is the
@@ -2421,6 +2453,26 @@ const routes = app
   .post(USAGE_RECORDS_PATH, async (c) => {
     const received = await receiveRecord(c.env, c.req.header('authorization'), () => c.req.json());
     return received.status === 201 ? c.body(null, 201) : c.json({ error: received.error }, received.status);
+  })
+  // What the Harness Monitor reads of Cockpit's Claude calls ("Let the Harness
+  // Monitor read Cockpit's Claude calls, without users, under a token of its
+  // own", issue 1481): the same address, read rather than written. Admitted by
+  // `USAGE_READ_TOKEN` alone, checked in `gateway/feed.ts`; unset, it refuses
+  // every request and says why, the one state worth telling the Monitor's
+  // operator about.
+  .get(USAGE_RECORDS_PATH, async (c) => {
+    if (!c.env.USAGE_READ_TOKEN) {
+      return c.json({ error: 'reading is not set up here' }, 503);
+    }
+    if (!(await readTokenAccepted(c.env.USAGE_READ_TOKEN, c.req.header('authorization')))) {
+      return c.json({ error: 'not allowed' }, 401);
+    }
+    const asked = c.req.query('after') ?? '0';
+    const after = /^\d+$/.test(asked) ? Number(asked) : Number.NaN;
+    if (!Number.isSafeInteger(after)) {
+      return c.json({ error: 'after has to be a row number, or left out' }, 400);
+    }
+    return c.json(await readClaudeCalls(c.env, after), 200);
   })
   // Restoring, which is the half that destroys something. Accounts go in first
   // and the register after, so a user never exists pointing at a store that has

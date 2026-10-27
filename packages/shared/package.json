@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./usage-export": "./src/api/usage-export.ts"
+    "./usage-export": "./src/api/usage-export.ts",
+    "./claude-calls-feed": "./src/api/claude-calls-feed.ts"
   },
   "scripts": {
     "typecheck": "tsc",

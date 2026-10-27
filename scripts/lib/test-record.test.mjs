@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { FAILED_TESTS_CAP } from './failed-tests.mjs';
 import { planTestRun } from './test-selection.mjs';
 import { buildRecord, renderSlowTests, renderSummary, selectionChain, slowTests, slowTestsWarning, testLevel } from './test-record.mjs';
 
@@ -71,6 +72,38 @@ describe('buildRecord', () => {
     const reports = { '@cockpit/api': { all: [test], ran: [{ file: test, state: 'passed' }], edges: { [test]: ['apps/api/src/x.ts'] } } };
     const [file] = entry(recordOf(pr(['apps/api/src/x.ts']), reports, ['apps/api/src/x.ts']), '@cockpit/api').files;
     assert.deepEqual(file.selectedBy, { kind: 'chain', chain: [test, 'apps/api/src/x.ts'] });
+  });
+});
+
+describe('the failed tests in a record', () => {
+  const failedTest = (file, name) => ({ file, name, error: 'expected 1 to be 2' });
+  const written = (failedTests, failedTestsMore = 0) => ({ all: [], ran: [], edges: {}, failedTests, failedTestsMore });
+  const plan = () => pr(['apps/api/src/x.ts']);
+
+  it('names the failed tests of every package, in the order the plan lists them', () => {
+    const reports = {
+      '@cockpit/api': written([failedTest('apps/api/tests/unit/a.test.ts', 'Triage > a')]),
+      '@cockpit/shared': written([failedTest('packages/shared/tests/unit/b.test.ts', 'Menus > b')]),
+    };
+    assert.deepEqual(recordOf(plan(), reports).failedTests.map((test) => test.name), ['Menus > b', 'Triage > a']);
+  });
+
+  it('names no failed test where every test passed, or no package wrote a report', () => {
+    assert.deepEqual([recordOf(plan(), { '@cockpit/api': written([]) }), recordOf(plan(), {})].map((record) => [record.failedTests, record.failedTestsMore]), [[[], 0], [[], 0]]);
+  });
+
+  it('caps the whole record, not each package, and counts the rest', () => {
+    const many = (count) => Array.from({ length: count }, (_, index) => failedTest('a.test.ts', `t${index}`));
+    const reports = { '@cockpit/api': written(many(40), 5), '@cockpit/shared': written(many(40)) };
+    const record = recordOf(plan(), reports);
+    assert.equal(record.failedTests.length, FAILED_TESTS_CAP);
+    assert.equal(record.failedTestsMore, 5 + 80 - FAILED_TESTS_CAP);
+  });
+
+  it('leaves the files each package marks failed as they were', () => {
+    const file = 'apps/api/tests/unit/a.test.ts';
+    const reports = { '@cockpit/api': { all: [file], ran: [{ file, state: 'failed' }], edges: {}, failedTests: [failedTest(file, 'a')], failedTestsMore: 0 } };
+    assert.deepEqual(entry(recordOf(plan(), reports), '@cockpit/api').files, [{ path: file, level: 'unit', status: 'failed', selectedBy: null }]);
   });
 });
 

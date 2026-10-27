@@ -27,7 +27,12 @@ import type { ToolDefinition } from './create-item.js';
 export const FIND_ITEMS = 'find_items';
 
 /** The words each value of `status`, `priority` and `due` goes by, as the screen's filter bar says them. */
-const STATUS_NAMES: Record<ItemStatus, string> = { to_do: 'To do', in_progress: 'In progress', done: 'Done' };
+const STATUS_NAMES: Record<ItemStatus, string> = {
+  to_do: 'To do',
+  in_progress: 'In progress',
+  waiting: 'Waiting for reply',
+  done: 'Done',
+};
 const PRIORITY_NAMES: Record<PriorityChoice, string> = { low: 'Low', normal: 'Normal', high: 'High', none: 'None' };
 const DUE_NAMES: Record<DueWindow, string> = {
   overdue: 'Overdue',

@@ -391,101 +391,102 @@ test.describe('Item editing', () => {
   });
 
   /**
-   * F3, because this is the capability ("Set an Item to repeat from its form, and
-   * see the rule on its row", issue 1406): a person opens an Item, sets it to
-   * repeat, and finds the rule again on its form and its row. What the rule says
-   * is proved in packages/shared/tests/unit/domain/series.test.ts, what the server
-   * keeps in apps/api/tests/integration/http/repeats.test.ts and what is drawn
-   * before the answer in apps/web/tests/unit/components/RepeatsAtOnce.test.tsx.
-   * None of those can say where the chip sits, or that it reaches a phone.
+   * F3, because this is the capability ("Set an Item Waiting for reply, and wait
+   * again after chasing", issue 1463): a person opens an Item, chooses Waiting
+   * for reply from its Status, says how long, saves, and finds the wait on its
+   * row. What the form sends on Save is apps/web/tests/unit/components/ItemForm.test.tsx
+   * and what the server keeps apps/api/tests/integration/http/waiting-for-reply.test.ts;
+   * neither can say the question opens over a real form on either device.
    */
-  test.describe('an Item can be set to repeat from its form', () => {
-    test('ends the field line at a desk and is a chip on a phone, and the rule survives closing and reopening', async ({
-      page,
-      isMobile,
-    }) => {
-      const weekly = uniqueTitle('Weekly review');
-      await openInboxHolding(page, isMobile, [weekly]);
-      await openItem(page, weekly, isMobile);
+  test.describe('waiting for a reply is asked from the form’s Status, and saved with the form', () => {
+    test('Waiting for reply, 7 days, then Save: the row waits and is due in 7 days', async ({ page, isMobile }) => {
+      const thought = uniqueTitle('Reply from Jan about the audit trail');
+      await openInboxHolding(page, isMobile, [thought]);
+      await openItem(page, thought, isMobile);
 
-      // Named by its title on both devices: once set, the chip is named for the rule instead.
-      const repeatsChip = form(page).getByTitle('Repeats');
-      await expect(repeatsChip).toBeVisible();
-      if (isMobile) {
-        // One more chip in the row, after Due and before + Attach.
-        await expect(chips(page)).toHaveText(['To do', 'Priority', 'Due date', '↻Repeats', '+ Attach']);
-      } else {
-        // The end of the line the status, priority and Due choices make.
-        const dueGroup = (await form(page).getByRole('group', { name: 'Due', exact: true }).boundingBox())!;
-        const chip = (await repeatsChip.boundingBox())!;
-        expect(chip.x).toBeGreaterThan(dueGroup.x + dueGroup.width - 1);
-        expect(Math.abs(chip.y + chip.height / 2 - (dueGroup.y + dueGroup.height / 2))).toBeLessThan(dueGroup.height);
-      }
-
-      await press(repeatsChip, isMobile);
-      const choices = page.getByRole('group', { name: 'Repeats' });
-      await press(choices.getByRole('button', { name: 'Weekly', exact: true }), isMobile);
-      await page.getByRole('spinbutton').fill('5');
-      // The days in the order of the browser's region: Mon, Nov 2 here, Mon, 2 Nov under nl-BE.
-      const day = /\w{3}, (?:\w{3} \d+|\d+ \w{3})/.source;
-      await expect(choices.locator('xpath=..')).toContainText(new RegExp(`Weekly on \\w+ · next ${day} · due ${day}`));
-      await page.keyboard.press('Escape');
-      await expect(repeatsChip).toContainText(/Weekly on \w+/);
+      await setFormStatus(page, 'waiting', isMobile);
+      await press(page.getByRole('button', { name: '7 days' }), isMobile);
+      await expect(form(page).getByTitle('Status').or(chips(page).nth(0))).toContainText('Waiting for reply');
       await saveTheItem(page, isMobile);
 
       await expect(form(page)).toHaveCount(0);
-      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats weekly on \w+$/ })).toBeVisible();
-
-      await openItem(page, weekly, isMobile);
-      await expect(repeatsChip).toContainText(/Weekly on \w+/);
-      await press(repeatsChip, isMobile);
-      await expect(page.getByRole('spinbutton')).toHaveValue('5');
-      await press(page.getByRole('group', { name: 'Repeats' }).getByRole('button', { name: 'Never', exact: true }), isMobile);
-      await page.keyboard.press('Escape');
-      await saveTheItem(page, isMobile);
-
-      await expect(form(page)).toHaveCount(0);
-      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats/ })).toHaveCount(0);
+      await expect(itemRow(page, thought).getByText(/^Waiting since/)).toBeVisible();
+      await expect(itemRow(page, thought).getByText('Due in 7d', { exact: true })).toBeVisible();
     });
   });
 
   /**
-   * F3, because this is the capability ("Bring a repeating Item back on its day,
-   * as a fresh copy", issue 1407): on its day a repeating Item comes back by
-   * itself, in a tab nobody reloads. What comes back, where and when is proved
-   * against the account's real store and alarm in
-   * apps/api/tests/integration/accounts/repeating-items.test.ts; only a browser
-   * can say the copy reaches a tab already open. Arranged through the API: setting
-   * the rule from the form is the walk above.
+   * F3, because this is the capability ("Make each copy of a recurring item from its
+   * own series", issue 1448): on its day a copy of a recurring item appears by itself,
+   * in a tab nobody reloads, and says where it came from ("Point a copy at its master,
+   * and retire the Repeats chip", issue 1450). What comes back, where and when is
+   * proved against the account's real store and alarm in
+   * apps/api/tests/integration/accounts/repeating-items.test.ts; only a browser can
+   * say the copy reaches a tab already open, and that its line opens the recurring
+   * item over the page it is on. Arranged through the API: making one from the
+   * Workspace menu is workspace-management.test.ts's walk.
    *
    * **In the second person's account, on a dashboard without the `Panel 1` it
    * arrives with**: the run shares one database, and a second `Panel 1` in the
    * first person's account makes the Move to… picker of every later walk that
    * files there ambiguous.
    */
-  test.describe('a repeating Item comes back on its day', () => {
-    test('a fresh copy appears at the top of its Panel in a tab already open', async ({ page, isMobile }) => {
-      const weekly = uniqueTitle('Weekly review');
-      const other = uniqueTitle('Already there');
+  test.describe('a recurring item’s copy comes back on its day, and names where it came from', () => {
+    /** A recurring item due today, filed on the Panel, and the Dashboard the copy appears on. */
+    async function aRecurringItemDueToday(page: Page, isMobile: boolean, title: string) {
       await signIn(page, ADA, isMobile);
       const dashboard = await giveAnEmptyDashboard(page, uniqueTitle('Routines'), [uniqueTitle('Every week')]);
       const panel = dashboard.panels[0]!;
-      await giveToAPanel(page, panel, [other, weekly]);
-      const itemId = panel.itemIds[1]!;
-      await arrange(page, 'set_done', { itemId, done: true });
       await page.reload();
       await openDashboard(page, dashboard.name, isMobile);
-      await expect.poll(() => itemsOn(page, panel.name)).toEqual([other]);
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([]);
 
-      const today = new Date().toISOString().slice(0, 10);
-      await arrange(page, 'set_repeat', {
-        itemId,
-        seriesId: randomUUID(),
+      const today = new Date().toISOString().slice(0, 10); // clock-ok: the account's alarm fires on the real day
+      const seriesId = randomUUID();
+      await arrange(page, 'create_recurring_item', {
+        seriesId,
+        title,
+        description: '',
+        priority: null,
+        panelIds: [panel.id],
         repeat: { frequency: 'weekly', nextOn: today, dueAfterDays: null, timeZone: 'UTC' },
       });
+      return { panel };
+    }
 
-      await expect.poll(() => itemsOn(page, panel.name)).toEqual([weekly, other]);
-      await expect(itemRow(page, weekly).getByRole('img', { name: /^Repeats weekly on \w+$/ })).toBeVisible();
+    test('a fresh copy appears at the top of its Panel in a tab already open, wearing ↻', async ({ page, isMobile }) => {
+      const weekly = uniqueTitle('Weekly review');
+      const { panel } = await aRecurringItemDueToday(page, isMobile, weekly);
+
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([weekly]);
+      await expect(itemRow(page, weekly).getByRole('img', { name: /^Recurring weekly on \w+$/ })).toBeVisible();
+    });
+
+    test('its form says which recurring item it came from, the name opens that recurring item, and a deleted one is named without a link', async ({
+      page,
+      isMobile,
+    }) => {
+      const weekly = uniqueTitle('Weekly review');
+      const { panel } = await aRecurringItemDueToday(page, isMobile, weekly);
+      await expect.poll(() => itemsOn(page, panel.name)).toEqual([weekly]);
+
+      await openItem(page, weekly, isMobile);
+      await expect(form(page).getByText('From recurring item')).toContainText(`From recurring item ${weekly} ›`);
+      await press(form(page).getByRole('button', { name: `${weekly} ›` }), isMobile);
+
+      // The Item form gives way to the Recurring items modal, open on that recurring item's form.
+      const modal = page.getByRole('dialog');
+      await expect(modal).toHaveCount(1);
+      await expect(modal.getByLabel('Title')).toHaveValue(weekly);
+      await press(modal.getByRole('button', { name: 'Delete recurring item' }), isMobile);
+      await press(modal.getByRole('button', { name: 'Delete', exact: true }), isMobile);
+      await press(modal.getByRole('button', { name: 'Close' }), isMobile);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+
+      // The copy stays, and names what it came from without a way to it.
+      await openItem(page, weekly, isMobile);
+      await expect(form(page).getByText('From recurring item')).toContainText(`${weekly} (since deleted)`);
+      await expect(form(page).getByRole('button', { name: `${weekly} ›` })).toHaveCount(0);
     });
   });
 

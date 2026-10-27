@@ -204,7 +204,7 @@ function normalizeCheck(raw) {
  *   reachedWindowEdge: boolean, oldestSeen: Date|null }>} `oldestSeen` is the instant the
  *   listing was read back to when it did not reach the window's edge.
  */
-export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }) {
+export async function listPulls({ repo, base = 'main', since, until = null, maxPulls, ...ctx }) {
   const intoTrunkOrFeature = (ref) => ref === base || ref?.startsWith(FEATURE_PREFIX);
   const pulls = [];
   let page = 1;
@@ -226,7 +226,8 @@ export async function listPulls({ repo, base = 'main', since, maxPulls, ...ctx }
         break;
       }
       oldestSeen = updatedAt;
-      if (!raw.merged_at || new Date(raw.merged_at) < since || !intoTrunkOrFeature(raw.base?.ref)) continue;
+      // An older window (the Harness Monitor's backfill) leaves out what merged at or after its end; those cost nothing and do not count against `maxPulls`.
+      if (!raw.merged_at || new Date(raw.merged_at) < since || (until && new Date(raw.merged_at) >= until) || !intoTrunkOrFeature(raw.base?.ref)) continue;
       if (pulls.length >= maxPulls) {
         truncated = true;
         break;
@@ -336,7 +337,7 @@ const LISTING_CAP = 1000;
  * a listing that failed or reports more runs than it can return (`unreadable`), or a check
  * older than the listing reaches (`outside-listing`), says so.
  */
-async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
+async function readQueue({ repo, pulls, since, until = null, concurrency = 4, ...ctx }) {
   const checks = pulls
     .flatMap((pull) => pull.commits.flatMap((commit) => commit.checks))
     .filter((check) => check.runId !== null && (check.app === null || check.app === 'github-actions'));
@@ -346,13 +347,15 @@ async function readQueue({ repo, pulls, since, concurrency = 4, ...ctx }) {
 
   const bound = new Date(since.getTime() - DAY_MS);
   const from = bound.toISOString().slice(0, 10);
+  // An older window is asked of the API as a range: an open-ended listing stops at 1,000 runs, which paging back from today would spend before such a window was reached.
+  const created = until ? `${from}..${until.toISOString().slice(0, 10)}` : `>=${from}`;
 
   let ci;
   let complete = true;
   try {
     let total = 0;
     const runs = await listAll(
-      `/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?event=pull_request&exclude_pull_requests=true&created=${encodeURIComponent(`>=${from}`)}`,
+      `/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?event=pull_request&exclude_pull_requests=true&created=${encodeURIComponent(created)}`,
       'workflow_runs',
       ctx,
       {
@@ -461,6 +464,7 @@ export async function collect({
   repo,
   branch = 'main',
   since,
+  until = null,
   now = new Date(),
   maxPulls = 120,
   concurrency = 2,
@@ -477,7 +481,7 @@ export async function collect({
   const abort = { stopped: false };
   const ctx = { token, fetchImpl, retries, retryDelayMs, counter, abort };
 
-  const listing = await listPulls({ repo, base: branch, since, maxPulls, ...ctx });
+  const listing = await listPulls({ repo, base: branch, since, until, maxPulls, ...ctx });
 
   const failed = [];
   const read = await pool(
@@ -496,7 +500,7 @@ export async function collect({
   );
 
   const pulls = read.filter(Boolean);
-  await readQueue({ repo, pulls, since, ...ctx });
+  await readQueue({ repo, pulls, since, until, ...ctx });
 
   return {
     pulls,

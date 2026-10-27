@@ -329,6 +329,7 @@ describe('Offline', () => {
       attachments: [],
       series: [],
       itemFormPresentation: 'centered' as const,
+      followUpDays: 3,
       duplicates: [],
       filings: [],
       agentRuns: [],

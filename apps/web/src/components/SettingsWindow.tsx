@@ -10,9 +10,10 @@ const ManageConnections = lazy(() => import('./ManageConnections'));
 const ManageConnectedApps = lazy(() => import('./ManageConnectedApps'));
 const ManageAppearance = lazy(() => import('./ManageAppearance'));
 const ManageRememberedSentences = lazy(() => import('./ManageRememberedSentences'));
+const ManageFollowUps = lazy(() => import('./ManageFollowUps'));
 
-/** The sections of Settings, in the order they are listed. */
-export type SettingsKey = 'connections' | 'mcp' | 'remembered' | 'appearance';
+/** The sections of Settings. */
+export type SettingsKey = 'connections' | 'mcp' | 'followups' | 'remembered' | 'appearance';
 
 /** How a trip out to Microsoft or Google ended, and the workspace it was made from. */
 export interface ConnectOutcomeFor {
@@ -72,10 +73,21 @@ export default function SettingsWindow({
           content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
         },
         { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
+        { key: 'followups', label: 'Follow-ups', content: <FollowUpsOf startsIn={startsIn} /> },
         { key: 'remembered', label: 'What Cockpit remembers', content: <ManageRememberedSentences focus={sentenceId} /> },
       ]}
     />
   );
+}
+
+/**
+ * Follow-ups, read off the open Workspace's copy, or the first Workspace's
+ * where Settings is opened with none open (the capture page): the number is
+ * the account's, and every Workspace's copy carries it.
+ */
+function FollowUpsOf({ startsIn }: { startsIn: string | undefined }) {
+  const { data } = useWorkspaces();
+  return <ManageFollowUps workspaceId={startsIn ?? data?.workspaces[0]?.id} pageHoldsIt={startsIn !== undefined} />;
 }
 
 /**

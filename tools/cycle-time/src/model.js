@@ -218,7 +218,9 @@ function derivedConclusion(members) {
  * (a shard missing, or no fan-in), never the longest of the shards that happened to be read.
  */
 function familyAttempt(family, members, fresh, fanIn, complete) {
-  const starts = [...fresh, ...(fanIn ? [fanIn] : [])].map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
+  // The jobs this attempt ran, for its start and running time: each shard's own attempt in this wave, never a stand-in counted again, and the fan-in.
+  const jobs = [...fresh, ...(fanIn ? [fanIn] : [])];
+  const starts = jobs.map((attempt) => time(attempt.startedAt)).filter((ms) => ms !== null);
   const ended = fanIn ? fanIn.completedAt : members.every((member) => time(member.completedAt) !== null) ? iso(Math.max(...members.map((member) => time(member.completedAt)))) : null;
   const failing = members.filter((member) => classify(member) === 'fail');
   // A fan-in skipped behind a failed shard (a `needs` job without `always()`) says nothing, so the shards' verdict stands in.
@@ -251,6 +253,7 @@ function familyAttempt(family, members, fresh, fanIn, complete) {
     ...(queue ? { queue } : {}),
     failure,
     family: { shards: members.length, complete },
+    jobs,
   };
 }
 
@@ -348,13 +351,19 @@ function queuedMs(attempt) {
   return created === null || started === null ? null : Math.max(0, started - created);
 }
 
-/** Runner time one attempt used, start to end; a copy, a skipped job and one that never started used none. */
+/** Runner time one attempt used, start to end; a check another app posted, a copy, a skipped job and one that never started used none. */
 function runnerMs(attempt) {
   const from = time(attempt.startedAt);
   const to = time(attempt.completedAt);
-  if (isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
+  if ((attempt.app != null && attempt.app !== 'github-actions') || isCopy(attempt) || classify(attempt) === 'skipped' || from === null || to === null) return 0;
   return Math.max(0, to - from);
 }
+
+/**
+ * Runner time an attempt's jobs used between them, each by `runnerMs`: a folded family's every shard
+ * and its fan-in, added up. Queueing is never in it, so a pull request's GitHub Actions attempts add up to its runner total.
+ */
+const runningMs = (attempt) => sum((attempt.jobs ?? [attempt]).map(runnerMs));
 
 /** A cancelled job stamped as started the moment it ended was cancelled before a runner took it. */
 const neverStarted = (attempt) => {
@@ -538,7 +547,10 @@ function buildRounds(commits, mergedAt) {
     const held = ordered.map(({ attempt, rerun, end }) => {
       const ms = end - previous;
       previous = end;
-      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}) };
+      // `attempt` is its place among every attempt of the check, as `failures` numbers them, and `queuedMs` its own wait for a runner: what the Harness Monitor's rows are linked by.
+      // `runningMs` is the runner time its jobs used, start to end, however long it held the round.
+      const attemptNumber = push.groups.find((attempts) => attempts.includes(attempt)).indexOf(attempt) + 1;
+      return { name: attempt.name, ms, ...(rerun ? { rerun: true } : {}), attempt: attemptNumber, queuedMs: queuedMs(attempt), runningMs: runningMs(attempt) };
     });
 
     // What a check ended as is its last attempt that reached a verdict: a failure
@@ -605,11 +617,12 @@ function readRecord(body, firstCommit) {
 
   // A review is its start paired with the next end of the same kind; a second
   // start with no end between leaves the earlier one unpaired, and unpaired marks
-  // say nothing about how long a review took.
+  // say nothing about how long a review took. A review of a kind the session record does not
+  // know, written by hand, is left out, since the local time is split by the kinds it knows.
   const open = new Map();
   const reviews = [];
   for (const mark of marks) {
-    if (mark.phase === 'review-start') open.set(mark.kind, mark);
+    if (mark.phase === 'review-start' && REVIEW_KINDS.includes(mark.kind)) open.set(mark.kind, mark);
     else if (mark.phase === 'review-end' && open.has(mark.kind)) {
       const begun = open.get(mark.kind);
       open.delete(mark.kind);
@@ -710,6 +723,31 @@ function sliceRuns(runs, gaps) {
 /** The minutes that slices cover between them, where two that overlap count their shared minutes once. */
 function unionMs(slices) {
   return unionRanges(slices.map((slice) => ({ from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms })));
+}
+
+/** The local kinds in the order a part of Local checks is named: each review kind, then test runs and the browser pass. */
+const LOCAL_KINDS = [...LOCAL_REVIEW_KINDS, ...LOCAL_RUN_KINDS];
+
+/**
+ * Each local kind's minutes with every minute counted once, so the four add up to the local time
+ * `unionMs` gives exactly. A minute two slices share goes to the one that ends last; of two ending together, to the one that started later, then to the kind
+ * later in `LOCAL_KINDS`, so the same slices always give the same parts. A kind with no slice is 0.
+ *
+ * @param {{ kind: string, at: string, ms: number }[]} slices the review and run slices, already cut to the gaps
+ */
+function localPartsOf(slices) {
+  const ranges = slices
+    .map((slice) => ({ kind: slice.kind, from: Date.parse(slice.at), to: Date.parse(slice.at) + slice.ms }))
+    .sort((a, b) => b.to - a.to || b.from - a.from || LOCAL_KINDS.indexOf(b.kind) - LOCAL_KINDS.indexOf(a.kind));
+  const parts = Object.fromEntries(LOCAL_KINDS.map((kind) => [kind, 0]));
+  const taken = [];
+  // The slice that ends last takes every minute it covers; each after it takes only what none before it took.
+  for (const range of ranges) {
+    const shared = taken.map((other) => ({ from: Math.max(other.from, range.from), to: Math.min(other.to, range.to) })).filter((overlap) => overlap.to > overlap.from);
+    parts[range.kind] += range.to - range.from - unionRanges(shared);
+    taken.push(range);
+  }
+  return parts;
 }
 
 /** The minutes that `{ from, to }` ranges cover between them, shared minutes once. */
@@ -825,6 +863,9 @@ export function pullModel(pull, trunk = 'main') {
     runSlices,
     // What the record marked of each, as `localReviews` is: `null` for a kind it has none of.
     localRuns: record.localRuns,
+    // The local time split by kind with each minute counted once, adding up to the local time; `null` where
+    // that time is (no session record, or no round to weigh it against), never zero.
+    localParts: balance ? localPartsOf([...reviewSlices, ...runSlices]) : null,
     // What each kind of check held this pull request's own rounds up for, the same
     // shape a window's `harness` is in — so the evolution chart can plot one pull
     // request's kinds the same way it reads a window's. `local` is the local review
@@ -1032,6 +1073,131 @@ function windowModel(pulls, { days, now, coveredSince }) {
         }
       : null,
   };
+}
+
+/** The most steps or files kept for one attempt, and characters kept of each: the Monitor refuses a send past either (apps/harness-monitor/src/cycle-time.ts), and an attempt that failed every spec would otherwise hold the whole night back. */
+const KEPT_ITEMS = 500;
+const KEPT_CHARS = 500;
+const kept = (items) => items.slice(0, KEPT_ITEMS).map((item) => item.slice(0, KEPT_CHARS));
+const cutShort = (items) => items.length > KEPT_ITEMS || items.some((item) => item.length > KEPT_CHARS);
+
+/** One round's checks as the Harness Monitor stores them: one per attempt that ran, in the order they finished. */
+function checkRows(round) {
+  const rows = round.held.map((held, position) => {
+    const failure = round.failures.find((candidate) => candidate.check === held.name && candidate.attempt === held.attempt) ?? null;
+    return {
+      name: held.name,
+      attempt: held.attempt,
+      heldMs: held.ms,
+      last: position === round.held.length - 1,
+      // Red where the check never passed on the commit, a fluke where a re-run did; null for an attempt that did not fail.
+      failure: failure?.outcome ?? null,
+      flukeMs: null,
+      queuedMs: held.queuedMs,
+      // The runner time its jobs used, every shard of a family added up and queueing left out, so a pull request's attempts add up to its `runnerMs`.
+      runningMs: held.runningMs,
+      // What `failures` says of the attempt's detail: it could not be read, wholly or in part, or it was read and names no failed file. Detail cut to what the Monitor takes is not wholly recorded either.
+      detailNotRecorded: failure
+        ? failure.record === 'not-recorded' || failure.packagesNotRecorded.length > 0 || failure.why === 'unreadable' || cutShort(failure.steps) || cutShort(failure.files)
+        : false,
+      noFileFailed: failure?.why === 'no-file-failed',
+      failedSteps: kept(failure?.steps ?? []),
+      failedFiles: kept(failure?.files ?? []),
+    };
+  });
+  // A fluke's extra minutes sit on the first attempt of its check that failed, as `flukesOf` found it.
+  for (const fluke of round.flukes) {
+    const first = rows.filter((row) => row.name === fluke.name && row.failure !== null).sort((a, b) => a.attempt - b.attempt)[0];
+    if (first) first.flukeMs = fluke.ms;
+  }
+  return rows;
+}
+
+/**
+ * The merged pull requests as the Harness Monitor stores them, each cut as `pullModel` cuts it and
+ * flattened to what the Monitor keeps: the time split, the rounds and each round's checks, with the
+ * steps and test files that failed an attempt, and its timeline. The Monitor derives nothing from them.
+ *
+ * Time nobody wrote down is `null`, never zero: a pull request with no session record, or no round to
+ * weigh it against, has no writing time (`codingMs`) and no local time (`localMs`), and a kind of local
+ * time the record has none of is `null`. `ciMs` is zero when no check ran, which is a fact.
+ *
+ * @param {object} input
+ * @param {import('./github.js').Pull[]} input.pulls
+ * @param {string} [input.trunk]
+ */
+export function monitorRows({ pulls, trunk = 'main' }) {
+  return pulls
+    .filter((pull) => time(pull.mergedAt) !== null)
+    .map((pull) => pullModel(pull, trunk))
+    .map((pull) => {
+      const ciMs = sum(pull.rounds.map((round) => round.ms));
+      return {
+        number: pull.number,
+        title: pull.title,
+        url: pull.url,
+        mergedAt: pull.mergedAt,
+        base: pull.base,
+        head: pull.head,
+        landing: pull.landing,
+        size: pull.size,
+        start: pull.start,
+        recorded: pull.recorded,
+        codingMs: pull.balance ? pull.balance.codingMs : null,
+        localMs: pull.balance ? pull.balance.harnessMs - ciMs : null,
+        ciMs,
+        waitingToMergeMs: pull.waitingToMergeMs,
+        awayMs: sum(pull.awayMs),
+        totalMs: pull.totalMs,
+        // `byKind` is each review kind's own count and minutes, zero for a kind the record marked none of; the Monitor keeps them beside the combined figure.
+        localReviews: pull.localReviews
+          ? {
+              count: pull.localReviews.count,
+              ms: pull.localReviews.ms,
+              byKind: Object.fromEntries(LOCAL_REVIEW_KINDS.map((kind) => [kind, { count: pull.localReviews.byKind[kind]?.count ?? 0, ms: pull.localReviews.byKind[kind]?.ms ?? 0 }])),
+            }
+          : null,
+        localRuns: { test: pull.localRuns.test, browser: pull.localRuns.browser },
+        // `localMs` split by kind, each minute counted once, so the four add up to it; `null` where `localMs` is.
+        localParts: pull.localParts,
+        runnerMs: pull.runnerMs,
+        cancelled: pull.cancelled,
+        rounds: pull.rounds.map((round) => ({
+          sha: round.sha,
+          pushedAt: round.pushedAt,
+          endedAt: round.endedAt,
+          ms: round.ms,
+          red: round.red,
+          commits: round.commits,
+          queueNotRecorded: round.queueNotRecorded,
+          checks: checkRows(round),
+        })),
+        timeline: timelineOf(pull),
+      };
+    });
+}
+
+/**
+ * What a pull request's strip needs that its row, rounds and checks do not hold, as the Monitor
+ * stores it beside them: each round's job lanes in round order, `null` for a round whose job list was
+ * not read (or where no job drew a lane), and the local review and run slices, none without a session record.
+ */
+function timelineOf(pull) {
+  // A hand-edited record can leave a review's level word empty (`code-review :2`), which the Monitor refuses as a level: it is sent as no level, so one body never holds up a send.
+  const reviewSlices = pull.reviewSlices.map(({ level, ...slice }) => (level ? { ...slice, level } : slice));
+  return { lanes: pull.rounds.map((round) => round.lanes), reviewSlices, runSlices: pull.runSlices };
+}
+
+/**
+ * Each merged pull request's timeline alone, as the backfill sends it beside pull requests the Monitor
+ * already holds, cut exactly as `monitorRows` cuts it.
+ *
+ * @param {object} input
+ * @param {import('./github.js').Pull[]} input.pulls
+ * @param {string} [input.trunk]
+ */
+export function monitorTimelines({ pulls, trunk = 'main' }) {
+  return monitorRows({ pulls, trunk }).map((row) => ({ number: row.number, timeline: row.timeline }));
 }
 
 /**

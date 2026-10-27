@@ -23,6 +23,28 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const ci = readFileSync(path.join(repo, '.github/workflows/ci.yml'), 'utf8');
 const publish = readFileSync(path.join(repo, '.github/workflows/publish.yml'), 'utf8');
 
+describe("the nightly send of the branches' attempts, as nightly.yml wires it", () => {
+  const nightly = readFileSync(path.join(repo, '.github/workflows/nightly.yml'), 'utf8');
+  const job = nightly.slice(nightly.indexOf('  branch-attempts:'), nightly.indexOf('  architecture:'));
+
+  it('runs the branches mode with --send, and writes no page', () => {
+    expect(job).toContain('node tools/ci-stability/src/cli.js --branches --send');
+    expect(job).not.toContain('--out');
+    expect(job).not.toContain('upload-artifact');
+  });
+
+  it('hands the write key over on main only, and sends nothing, passing, until both it and the address are set', () => {
+    expect(job).toContain("HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}");
+    expect(job).toContain('HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}');
+    expect(job).toMatch(/\[ -z "\$HARNESS_WRITE_KEY" \] \|\| \[ -z "\$HARNESS_MONITOR_URL" \][\s\S]*?::notice[\s\S]*?exit 0/);
+  });
+
+  it('reads the Actions API and writes nothing to GitHub', () => {
+    expect(job).toMatch(/permissions:\n\s+contents: read\n\s+actions: read\n/);
+    expect(job).not.toMatch(/: write/);
+  });
+});
+
 describe('the published site, as ci.yml and publish.yml assemble it', () => {
   it('writes the report where the job then uploads it from', () => {
     expect(ci).toContain('--out tools/ci-stability/out/index.html');

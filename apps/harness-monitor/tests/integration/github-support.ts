@@ -4,7 +4,7 @@ import worker from '../../src/worker';
 import recorded from './fixtures/github-pull-requests.json';
 import recordedSizes from './fixtures/github-pull-request-sizes.json';
 import recordedFilesPage from './fixtures/github-pull-request-files-page.json';
-import { costRows, thePage, WRITE_KEY, type CostRow } from './support';
+import { costRows, giveTheWorker, thePage, WRITE_KEY, type CostRow } from './support';
 
 /**
  * The pull requests of GitHub's real answer, recorded once from the job's GraphQL search. The repository listing
@@ -198,9 +198,9 @@ export async function theParents() {
 }
 
 /** What the page says about a job's last run, as a sentence. */
-export async function jobLine(job: 'linking' | 'prices' | 'rebuild') {
+export async function jobLine(job: 'linking' | 'prices' | 'rebuild' | 'claude-calls') {
   const line = new RegExp(`<li data-job="${job}"[^>]*>(.*?)</li>`, 's').exec(await thePage())?.[1];
-  return line?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'");
+  return line?.replace(/&mdash;/g, '—').replace(/&rsquo;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
 export const linkingLine = () => jobLine('linking');
@@ -252,14 +252,4 @@ export const startJob = (job: string, headers: Record<string, string> = { author
   SELF.fetch(`https://monitor.test/v1/jobs/${job}`, { method: 'POST', headers });
 
 /** Gives the Worker a token and a repository for linking started by hand, and returns what puts both back as they were. */
-export function giveTheWorkerAToken() {
-  const before = { GITHUB_TOKEN: env.GITHUB_TOKEN, GITHUB_REPOSITORY: env.GITHUB_REPOSITORY };
-  env.GITHUB_TOKEN = 'test-token';
-  env.GITHUB_REPOSITORY = 'owner/repo';
-  return () => {
-    for (const [name, value] of Object.entries(before) as [keyof typeof before, string | undefined][]) {
-      if (value === undefined) delete env[name];
-      else env[name] = value;
-    }
-  };
-}
+export const giveTheWorkerAToken = () => giveTheWorker({ GITHUB_TOKEN: 'test-token', GITHUB_REPOSITORY: 'owner/repo' });

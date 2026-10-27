@@ -3,6 +3,7 @@ import type {
   CommandPayload,
   CommandResult,
   ConnectionHistory,
+  FinishedItems,
   Item,
   Panel,
   ReadableSnapshot,
@@ -120,6 +121,8 @@ export class NotFoundInAccountError extends Error {
 export interface Account {
   workspaces(): Promise<Workspace[]>;
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
+  /** One Workspace's finished Items with their filings and files ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
+  finishedItems(workspaceId: string): Promise<FinishedItems>;
   /** Every live Workspace with its Dashboards, Panels and Layouts - the list of Panels an app allowed to read is shown (issue 1445). */
   panelCatalogue(): Promise<ReadableWorkspace[]>;
   /** What one Panel is read from; throws `NotFoundInAccountError` for a Panel that is deleted or was never this account's (issue 1445). */
@@ -425,6 +428,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
   return {
     workspaces: async () => unwrap(await store.workspaces(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
+    finishedItems: async (workspaceId) => unwrap(await store.finishedItems(accountName, workspaceId)),
     panelCatalogue: async () => unwrap(await store.panelCatalogue(accountName)),
     panelReadInputs: async (panelId) => unwrap(await store.panelReadInputs(accountName, panelId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),

@@ -40,7 +40,8 @@ jobs:
     name: Cycle time
     runs-on: ubuntu-latest
     # Reads pull requests, their commits, their check runs and the Actions API,
-    # all through the workflow's own token. Nothing else, and no write anywhere.
+    # all through the workflow's own token. Nothing else, and no write to GitHub:
+    # the one write is to the Harness Monitor, below.
     permissions:
       contents: read
       pull-requests: read
@@ -54,11 +55,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
+      # Also sends the merged pull requests to the Harness Monitor, from the
+      # newest merge it holds less two days, after the page is written. The
+      # write key is handed over on `main` only, never to a branch a manual run
+      # could pick. Until both the secret and the variable are set it says so
+      # and only writes the page (docs/deployment.md, "The Harness Monitor").
       - name: Work out where a change spends its time
-        run: node tools/cycle-time/src/cli.js --out tools/cycle-time/out/index.html --model tools/cycle-time/out/model.json
+        run: |
+          send=--send
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Cycle time not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the pull requests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            send=
+          fi
+          node tools/cycle-time/src/cli.js --out tools/cycle-time/out/index.html --model tools/cycle-time/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # A send the Monitor refused, or the pull budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: cycle-time-report
           path: tools/cycle-time/out/
@@ -86,20 +103,78 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: package.json
+      # Also sends each pull request's selection to the Harness Monitor, from the
+      # newest merge it holds less two days, after the page is written. The write
+      # key is handed over on `main` only, never to a branch a manual run could
+      # pick. Until both the secret and the variable are set it says so and only
+      # writes the page (docs/deployment.md, "The Harness Monitor").
       - name: Work out whether test selection is working
-        run: node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json
+        run: |
+          send=--send
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Selection not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the pull requests did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            send=
+          fi
+          node tools/selection/src/cli.js --out tools/selection/out/index.html --model tools/selection/out/model.json $send
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+      # A send the Monitor refused, or the pull budget cut short, fails the step
+      # above with the page already written, so the page is still uploaded.
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: test-selection-report
           path: tools/selection/out/
       # After the upload, so a refused write turns this job red and costs the
-      # page nothing: Publish already tolerates a failed report job.
+      # page nothing: Publish already tolerates a failed report job. Runs after a
+      # failed send too, whenever the model was written, since the alarms read
+      # that and not the Monitor.
       - name: File, update or comment on the alarm for each bar
+        if: ${{ !cancelled() && hashFiles('tools/selection/out/model.json') != '' }}
         run: node tools/selection/src/alarm-cli.js --model tools/selection/out/model.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Every attempt of every run on a branch other than `main`'s - a pull request's
+  # run, or a push to another branch - sent to the Harness Monitor with its
+  # verdict, its branch and pull request and, where it failed, its failed jobs
+  # and their tests ("Send feature branches' CI attempts to the Harness Monitor
+  # nightly", issue 1582). `main`'s own arrive from the `Stability` job in
+  # `ci.yml` on each merge. Nightly because reading them is a listing of the
+  # window's runs, a read of each failed attempt's jobs and of each failed
+  # job's record: run on every merge it would spend the allowance every
+  # workflow here shares.
+  #
+  # Sends and writes no page, so there is no artifact to upload and `Publish`
+  # does not wait on it. The write key is handed over on `main` only, never to a
+  # branch a manual run could pick; until both it and the variable are set the
+  # job says so and sends nothing (docs/deployment.md, "The Harness Monitor").
+  branch-attempts:
+    name: Branch attempts
+    runs-on: ubuntu-latest
+    # Reads the Actions API: the runs, their jobs and the records they uploaded.
+    # No write to GitHub; the one write is to the Harness Monitor.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+      - name: Send the attempts on every branch but main
+        run: |
+          if [ -z "$HARNESS_WRITE_KEY" ] || [ -z "$HARNESS_MONITOR_URL" ]; then
+            echo "::notice title=Branch attempts not sent::The secret HARNESS_WRITE_KEY or the variable HARNESS_MONITOR_URL is not set, or this run is not on main, so the attempts did not reach the Harness Monitor. See docs/deployment.md, \"The Harness Monitor\"."
+            exit 0
+          fi
+          node tools/ci-stability/src/cli.js --branches --send
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HARNESS_WRITE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.HARNESS_WRITE_KEY || '' }}
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
 
   # How Cockpit is deployed, drawn from the checkout alone: every environment
   # the Worker config declares with the resources it binds, and every workflow

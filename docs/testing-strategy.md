@@ -60,6 +60,23 @@ The failure mode this guards against is a mock-heavy suite staying green while t
 
 The six levels describe *roles* and need not all be populated. With only one service there is no horizontal boundary except third parties, so L2 and L3 largely collapse. Do not invent tests or empty folders to populate the taxonomy; the levels become distinct the moment a second service exists.
 
+### The Android widget
+
+The home-screen widget (`apps/android-widget`, Kotlin, built by Gradle) is the one part of Cockpit that is not TypeScript, and has two levels of its own, both run by `./gradlew testStagingDebugUnitTest` in the `Widget` job of CI (only when a file it reads changes):
+
+| Level | What runs | Proves |
+|---|---|---|
+| **A1** | A Kotlin unit test on the JVM: no Android, no network | The app's own rules and arithmetic: the due pill, the *Updated* line, the addresses a tap opens, the sign-in's PKCE and redirect checks, and that a field it does not know changes nothing |
+| **A2** | Robolectric's simulated Android runs the app's real code against a fake Cockpit at the network boundary (OkHttp's MockWebServer), answering with the sample files in `packages/shared/samples/`, read from the repository and never copied | The app and the views of its widget agree with the server: sign-in, the picker, what a widget draws, each answer of a refresh, the scheduling, sign-out |
+
+The sample files are the contract between the two halves: the server's tests hold its real answers to them, the app's tests are answered from them, so a change to an answer that breaks the app fails a test on one side or the other.
+
+**There is no emulator tier.** It costs minutes a run and is flaky at placing widgets, for code that rarely changes. **The proof that the widget works for a person is the owner's walk on a real phone**, written in the pull request as a `Real device: <device> - <what happened>` line, which `/build` holds the pull request on until it has a result. That is the exception to the definition of done's "started and driven in the browser" ("Definition of done for agents"): there is no browser to drive.
+
+A Kotlin test follows "Tests are named in the product's language, not the implementation's" with what a JUnit class allows: the class is the rule, short because the build's paths are limited on Windows, and its doc comment names the feature area, *Home-screen widget*; each method is a case, in product language. The test explorer reads TypeScript only, so the area is registered in `tools/test-explorer/concepts.json` with no source patterns and no browser walks.
+
+Robolectric runs Android 14 (API 34): its newer Android needs a newer Java than CI and a developer machine have.
+
 ## 3. Third-party dependencies
 
 Third-party APIs are the hardest horizontal dependency: sandboxes are often unavailable, slow, rate-limited or flaky.

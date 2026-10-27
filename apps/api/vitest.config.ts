@@ -125,6 +125,8 @@ export default defineConfig({
           USAGE_TOKEN_STAGING: 'test-staging-usage-token',
           USAGE_TOKEN_CI: 'test-ci-usage-token',
           USAGE_TOKEN_LOCAL: 'test-local-usage-token',
+          /** What the Harness Monitor reads under (`gateway/feed.ts`), distinct from the four above. */
+          USAGE_READ_TOKEN: 'test-usage-read-token',
           /**
            * Empty for the reason `ANTHROPIC_API_KEY` is: a developer's own
            * recording token in `.dev.vars` would let a case spend a key on

@@ -1,0 +1,4 @@
+{
+  "$comment": "Source files judged not worth a test, each {\"file\", \"reason\", \"notRun\"}. tools/test-explorer/README.md, under \"Files decided not worth a test\", says what each holds, where to read notRun, and who writes an entry.",
+  "files": []
+}

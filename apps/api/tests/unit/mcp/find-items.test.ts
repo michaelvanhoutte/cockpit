@@ -98,7 +98,7 @@ describe('MCP connections', () => {
       { situation: 'two arguments the tool does not have', args: { a: 1, b: 2 }, says: ['a, b are not arguments'] },
       { situation: 'a type, which items no longer have', args: { type: 'Task' }, says: ['type is not an argument'] },
       { situation: 'a priority there is not', args: { priority: 'urgent' }, says: ['"Low", "Normal", "High", "None"'] },
-      { situation: 'a status there is not', args: { status: 'blocked' }, says: ['"To do", "In progress", "Done"'] },
+      { situation: 'a status there is not', args: { status: 'blocked' }, says: ['"To do", "In progress", "Waiting for reply", "Done"'] },
       { situation: 'a due window there is not', args: { due: 'next year' }, says: ['"Overdue", "Today", "This week"'] },
       { situation: 'a today that is no date', args: { today: 'tomorrow' }, says: ['today must be a date'] },
       { situation: 'a today that is no day on the calendar', args: { today: '2026-02-30' }, says: ['today must be a date'] },

@@ -2,7 +2,8 @@
 
 Answers, without opening the Actions tab and counting: **is `main` staying green, and
 which job is least reliable.** Reads the GitHub Actions API and writes one self-contained
-HTML page. Keeps no state — GitHub already stores this history, so every run re-derives it.
+HTML page. Keeps no state — GitHub already stores this history, so every run re-derives it —
+and with `--send` hands the runs to the Harness Monitor, which keeps them past GitHub's 90 days.
 
 The options considered and rejected, and the measured baseline, are in
 [docs/ci-stability-options.md](../../docs/ci-stability-options.md).
@@ -35,6 +36,61 @@ node src/cli.js --repo owner/name     # a different repository
 node src/cli.js --model out/model.json   # writes the page and, beside it, the model
 node src/cli.js --help
 ```
+
+```bash
+node src/cli.js --send                                  # also sends the runs to the Harness Monitor
+node src/cli.js --send --from 2026-07-25 --to 2026-08-24   # sends that window only, writes nothing
+```
+
+`--send` needs `HARNESS_MONITOR_URL` and `HARNESS_WRITE_KEY`, and sends each run with its jobs
+and steps, counted as this page counts them, from the newest run the Monitor holds less two
+days. The `Stability` job does it on every merge; the backfill is the *Stability backfill*
+workflow ([deployment.md](../../docs/deployment.md), "The Harness Monitor").
+
+It also sends every attempt of those runs, a re-run's each its own, from the newest attempt the
+Monitor holds less two days (the last 30 days when it holds none). An attempt carries its verdict
+(an earlier one's read from its own jobs), the branch and pull request it ran for, and on `main` its
+jobs and steps. Each failed job carries the tests that failed in it, read from the record the job
+uploaded during that attempt (`test-selection-record`, `e2e-selection-record`, or
+`failed-tests-record`); a job with no record, an expired one or one that cannot be read keeps its
+failed step and names no test. Dependabot's runs, named for their update, are one workflow,
+`Dependabot`, whose jobs are read only where the run failed. A re-run costs a request for each
+earlier attempt, and a failed job with a record two more.
+
+```bash
+node src/cli.js --branches --send                       # every other branch's attempts, no page
+node src/cli.js --branches --send --from 2026-10-01     # that window, whatever the Monitor holds
+```
+
+`--branches` sends every attempt of every run on a branch other than `main`'s (a pull request's run,
+or a push to another branch) and nothing else: no page, no run. It is the `Branch attempts` job in
+[`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), every night. It starts from the
+newest *branch* attempt the Monitor holds less two days (`GET /v1/ci-attempts?on=branches`), so
+`main`'s send never moves it, and goes a day at a time, oldest first: list the day's runs by their
+`created` time (GitHub's `branch=` filter is exact, and a list ends at 1,000 runs, so a fuller span
+is read as halves), read the jobs of the attempts that failed and each earlier attempt of a re-run,
+send. A branch attempt keeps its verdict, branch, pull request and failed jobs with their tests, and
+no passing job or step. A day sent stays stored whatever stops the next; `--max-runs` stops it after
+the day that reaches it, and a stop of any kind fails the run, naming where, for the next night to
+carry on from. A re-run's attempt, which carries the time it started, is sent after the last day
+when that is later than its run's day, so a stop leaves it unsent and says `--from` sends it.
+
+A run's `pull_requests` list is empty on GitHub once its pull request has closed. The Monitor keeps the pull
+request an attempt was stored with, so only a run first read after that is stored with its branch alone.
+
+```bash
+pnpm stability:backfill                                 # every attempt since 1 October, on main and every other branch
+pnpm stability:backfill --from 2026-10-12 --only branches   # carry on after a stop
+```
+
+`pnpm stability:backfill` ([src/backfill.js](src/backfill.js)) is the one-off that fills the Monitor from before the
+nightly sends: `main`'s runs and attempts a week at a time, then every other branch's attempts a day at a time,
+both oldest first, by the sends above. It adds `--old-failures` to both, which reads a failed job's tests from
+GitHub's annotations (Playwright: the title names the spec and project, never the helper under `path`) or its
+log (Vitest's `FAIL <file> > <name>` lines, behind pnpm's prefixes and colour codes, the file put under its package's folder as a record has it, the package found from the workspace's own list) where no record names them:
+records exist only from the day they began to name tests and expire after 30 days. It costs a request for the
+annotations and one more for the log of each such job, and a job that ran no tests, or whose log names none,
+keeps its failed step alone.
 
 `out/index.html` is a complete file — open it directly, no server needed, and it is
 gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without

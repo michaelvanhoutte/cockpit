@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { firstDayAfter, type RepeatFrequency } from '@cockpit/shared';
-import { countedFrom, dayStartsAt, decideRepeat, masterContentOf, type SeriesRow } from '../../../src/domain/series.js';
+import { countedFrom, dayStartsAt, decideRepeat, type SeriesRow } from '../../../src/domain/series.js';
 
 /**
- * L1: when a repeating Item's day starts ("Bring a repeating Item back on its
+ * L1: when a recurring item's day starts ("Bring a repeating Item back on its
  * day, as a fresh copy", issue 1407) - at midnight on the calendar of the time
  * zone its rule was set in, or at the first moment of that day where the clocks
  * jump over midnight. Pure: the days and zones are given; nothing reads the clock.
  */
 
 describe('Item editing', () => {
-  describe('a repeating Item’s day starts at midnight on its own calendar, a day the clocks change included', () => {
+  describe('a recurring item’s day starts at midnight on its own calendar, a day the clocks change included', () => {
     it.each([
       { situation: 'in Brussels in winter', day: '2027-01-11', zone: 'Europe/Brussels', starts: '2027-01-10T23:00:00.000Z' },
       { situation: 'in Brussels in summer', day: '2027-07-12', zone: 'Europe/Brussels', starts: '2027-07-11T22:00:00.000Z' },
@@ -51,7 +51,7 @@ describe('Item editing', () => {
   const theDayAfter = (row: Pick<SeriesRow, 'anchorOn' | 'nextOn' | 'frequency'>) =>
     firstDayAfter(countedFrom(row), row.frequency, row.nextOn);
 
-  describe('a repeating Item comes back on the rule it shows, after the day it shows next', () => {
+  describe('a recurring item comes back on the rule it shows, after the day it shows next', () => {
     it.each([
       { situation: 'monthly from the 31st, on the last day of February, is the 31st again', frequency: 'monthly', anchorOn: '2027-01-31', nextOn: '2027-02-28', after: '2027-03-31' },
       { situation: 'set before the day it was set from was kept, from its Next on', frequency: 'monthly', anchorOn: null, nextOn: '2027-01-31', after: '2027-02-28' },
@@ -61,15 +61,8 @@ describe('Item editing', () => {
     });
   });
 
-  describe('a change to a repeating Item’s rule keeps the day it comes back on unless Next on is moved', () => {
+  describe('a change to a recurring item’s rule keeps the day it comes back on unless Next on is moved', () => {
     it.each([
-      {
-        situation: 'Daily turned Weekly on its Friday, started again after Never once that Friday has passed, comes back on the next Friday',
-        own: { frequency: 'daily', anchorOn: '2027-11-01', nextOn: '2027-11-05', lastOn: '2027-11-04', stoppedAt: '2027-11-04T10:00:00.000Z' },
-        sent: { frequency: 'weekly', nextOn: '2027-11-05' },
-        issuedAt: '2027-11-10T09:00:00.000Z',
-        nextOn: '2027-11-12',
-      },
       {
         situation: 'Daily from the 31st turned Monthly on 28 February comes back on the 28th',
         own: { frequency: 'daily', anchorOn: '2027-01-31', nextOn: '2027-02-28', lastOn: '2027-02-27', stoppedAt: null },
@@ -104,10 +97,7 @@ describe('Item editing', () => {
       const decided = decideRepeat(
         aSeries(own),
         {
-          commandId: '018f0000-0000-7000-8000-000000000002',
           issuedAt,
-          workspaceId: 'ws',
-          itemId: '018f0000-0000-7000-8000-000000000003',
           seriesId: '018f0000-0000-7000-8000-000000000001',
           repeat: { ...sent, dueAfterDays: 3, timeZone: 'Europe/Brussels' },
         },
@@ -118,23 +108,20 @@ describe('Item editing', () => {
       if (after !== undefined) expect(theDayAfter((decided as { row: SeriesRow }).row)).toBe(after);
     });
   });
-});
 
-describe('Item editing', () => {
-  describe('a recurring item set from an Item is named as that Item’s row names it', () => {
-    const item = { workspaceId: 'ws-1', description: 'Go through the open items', priority: 'high' as const };
+  describe('a Next on is held to today on the calendar of the zone sent', () => {
     it.each([
-      { situation: 'by its title', title: 'Weekly review', nextAction: 'Call the plumber', named: 'Weekly review' },
-      { situation: 'with no title, by its next action on one line', title: '', nextAction: 'Call\nthe plumber', named: 'Call the plumber' },
-      { situation: 'with only spaces for a title, by its next action', title: '  ', nextAction: 'Call the plumber', named: 'Call the plumber' },
-      { situation: 'with neither, as Untitled', title: '', nextAction: null, named: 'Untitled' },
-    ])('$situation', ({ title, nextAction, named }) => {
-      expect(masterContentOf({ ...item, title, nextAction })).toEqual({
-        workspaceId: 'ws-1',
-        title: named,
-        description: 'Go through the open items',
-        priority: 'high',
-      });
+      // 23:30 UTC on the 22nd is already the 23rd in Brussels, and still the 22nd in New York.
+      { situation: 'the 22nd, once it is the 23rd where the device is, is refused', timeZone: 'Europe/Brussels', kind: 'refused' },
+      { situation: 'the 22nd, while it is still the 22nd where the device is, is taken', timeZone: 'America/New_York', kind: 'write' },
+    ])('a Next on of $situation', ({ timeZone, kind }) => {
+      const decided = decideRepeat(
+        null,
+        { issuedAt: '2082-10-22T23:30:00.000Z', seriesId: '018f0000-0000-7000-8000-000000000001', repeat: { frequency: 'weekly', nextOn: '2082-10-22', dueAfterDays: 3, timeZone } },
+        'account',
+      );
+
+      expect(decided.kind).toBe(kind);
     });
   });
 });

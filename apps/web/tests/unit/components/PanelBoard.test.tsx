@@ -196,6 +196,7 @@ function anItem(id: string, title: string): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,
@@ -3047,7 +3048,7 @@ describe('Onboarding', () => {
       );
     });
 
-    it('offers a Status card To do and In progress but not Done, and sends what is ticked', async () => {
+    it('offers a Status card To do, In progress and Waiting for reply but not Done, and sends what is ticked', async () => {
       const { mutate, user } = showBoard({ panels: [aFilter('due', 'Due soon')] });
 
       await choose(user, 'Due soon', 'Filter…');
@@ -3055,16 +3056,18 @@ describe('Onboarding', () => {
       await openList(user, 'Status');
       expect(screen.getByRole('checkbox', { name: 'To do' })).toBeVisible();
       expect(screen.getByRole('checkbox', { name: 'In progress' })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Waiting for reply' })).not.toBeChecked();
       expect(screen.queryByRole('checkbox', { name: 'Done' })).toBeNull();
       await user.click(screen.getByRole('checkbox', { name: 'To do' }));
       await user.click(screen.getByRole('checkbox', { name: 'In progress' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Waiting for reply' }));
       await user.keyboard('{Escape}');
       await user.click(screen.getByRole('button', { name: 'Save' }));
 
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do'] }]] }),
+          payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do', 'waiting'] }]] }),
         }),
       );
     });
