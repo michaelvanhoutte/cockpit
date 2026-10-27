@@ -11,7 +11,7 @@ import { useSendCommand } from '../../../src/api/queries';
 import { useSnapshot } from '../../../src/api/useSnapshot';
 import AllItemsBoard from '../../../src/components/AllItemsBoard';
 import { ItemForm } from '../../../src/components/ItemForm';
-import { resetStanding } from '../../../src/offline';
+import { resetStanding, stand } from '../../../src/offline';
 import { UndoWhatJustHappened } from '../../../src/undo';
 
 /**
@@ -21,10 +21,12 @@ import { UndoWhatJustHappened } from '../../../src/undo';
  * Workspace's finished Items the first time All items opens", issue 1434). The
  * screens, the queries, the tab's queue and its reads are the app's own and only
  * the network is replaced, by a server that keeps its Items and answers a read
- * with what it holds. **Its Workspace read carries open Items only**, so that a
- * finished Item can only reach the screen through the finished read: the merge
- * itself is tests/unit/finishedItems.test.ts, and what the read answers is
- * apps/api/tests/integration/http/finished-items.test.ts.
+ * with what it holds. **Its Workspace read carries open Items and those finished
+ * in the last day**, as the real one does ("Open a Workspace without its finished
+ * Items", issue 1435), so an Item finished before that reaches the screen only
+ * through the finished read: the merge itself is tests/unit/finishedItems.test.ts,
+ * and what each read answers is apps/api/tests/integration/http/finished-items.test.ts
+ * and workspace-read-finished.test.ts.
  */
 
 const opened = vi.hoisted(() => ({ item: undefined as string | undefined, close: vi.fn() }));
@@ -118,10 +120,13 @@ let clock: number;
 
 const stamp = () => `2026-10-20T10:00:${String(clock).padStart(2, '0')}.000Z`;
 
+/** A day before the server's clock: an Item finished before it is the finished read's alone. */
+const A_DAY_AGO = Date.parse('2026-10-19T10:00:00.000Z');
+
 function theWorkspace(): WorkspaceSnapshot {
   return {
     workspace: { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
-    items: stored.filter((item) => item.completedAt === null),
+    items: stored.filter((item) => item.completedAt === null || Date.parse(item.completedAt) > A_DAY_AGO),
     dashboards: [],
     panels: [],
     layouts: [],
@@ -414,6 +419,20 @@ describe('Dashboards', () => {
 
       expect(await screen.findByText(/could not be looked up/)).toBeInTheDocument();
       expect(screen.queryByText('That item is not here any more.')).toBeNull();
+    });
+
+    it('says it needs a connection, not that the Item is gone, for an Item finished before the last day opened offline', async () => {
+      stand({ connecting: false, found: true });
+      // What an offline open draws the Workspace from: the copy this device saved, which lacks the Item.
+      client.setQueryData(['snapshot', 'ws-work'], theWorkspace());
+      opened.item = 'old-1';
+
+      render(theForm());
+
+      expect(await screen.findByText(/needs a connection/)).toBeInTheDocument();
+      expect(screen.queryByText('That item is not here any more.')).toBeNull();
+      expect(screen.queryByText(/could not be looked up/)).toBeNull();
+      expect(reads.finished).toBe(0);
     });
 
     it('says it is opening, not that the Item is gone, while a copy that is out of date is read again for an Item it lacks', async () => {

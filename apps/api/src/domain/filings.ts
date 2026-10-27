@@ -88,13 +88,24 @@ export function filingRows(tenantId: string, cmd: Arriving): FilingRow[] {
  * it is added to the expected set rather than required to be absent from the
  * held one.
  *
+ * **Except an Item in `mayLeaveOut`**, one finished more than a day ago: no
+ * up-to-date read carries its filing, so an order may leave it out, and one
+ * still naming it, as an app from before that read sends, is accepted too ("Open
+ * a Workspace without its finished Items", issue 1435). The Item arriving is
+ * never left out.
+ *
  * Returned rather than thrown so the caller decides what it means, the way
  * `panelsNotOn` does.
  */
-export function orderIsNotOfThePanel(held: readonly Filing[], cmd: Arriving): string | null {
+export function orderIsNotOfThePanel(
+  held: readonly Filing[],
+  cmd: Arriving,
+  mayLeaveOut: ReadonlySet<string> = new Set(),
+): string | null {
   if (cmd.panelId === null) return null;
   const expected = new Set(held.map((filing) => filing.itemId));
   expected.add(cmd.itemId);
+  const named = new Set(cmd.order);
 
   // One comparison rather than two, because leaving an item out and naming one
   // that is not there are the same fault seen from either end - the list is not
@@ -103,10 +114,11 @@ export function orderIsNotOfThePanel(held: readonly Filing[], cmd: Arriving): st
   // No id in the sentence. What comes back here is shown to the person who made
   // the move, and an item id tells them nothing and suggests nothing to do;
   // what they need to know is that the panel changed underneath them. The
-  // shape check on the command has already ruled out a repeated id, so counting
-  // is enough to make this a comparison of sets.
+  // shape check on the command has already ruled out a repeated id, so this is
+  // a comparison of sets.
   const sameItems =
-    cmd.order.length === expected.size && cmd.order.every((itemId) => expected.has(itemId));
+    cmd.order.every((itemId) => expected.has(itemId)) &&
+    [...expected].every((itemId) => named.has(itemId) || (itemId !== cmd.itemId && mayLeaveOut.has(itemId)));
 
   return sameItems ? null : 'this panel changed while you were looking at it: try the move again';
 }
@@ -159,6 +171,12 @@ export interface FilingFacts {
   panel: FilingTarget | null;
   /** What that Panel holds now. */
   held: readonly Filing[];
+  /**
+   * Of those, the rows whose Item the Workspace's read leaves out, finished more
+   * than a day ago: an order may leave them out, and they are then written back
+   * as they were (issue 1435). None where not given.
+   */
+  heldOutOfTheRead?: readonly FilingRow[];
   /** Whether the Item is on a Panel already, read before anything moves it. */
   alreadyFiled: boolean;
   /** Whether the Panel its open proposal names is flagged Never propose. */
@@ -229,12 +247,18 @@ function decideFiling(
   if (!facts.workspaceExists) return { refusal: 'workspace-not-found', id: cmd.workspaceId };
   if (cmd.panelId !== null && !facts.panel) return { refusal: 'panel-not-found', id: cmd.panelId };
   const panel = cmd.panelId === null ? null : facts.panel;
+  const outOfTheRead = facts.heldOutOfTheRead ?? [];
   if (panel) {
     const why = whyNothingIsFiledOn(panel);
     if (why) return { refusal: 'panel-holds-something-else', why };
-    const stale = orderIsNotOfThePanel(facts.held, { ...cmd, panelId: panel.id });
+    const mayLeaveOut = new Set(outOfTheRead.map((row) => row.itemId));
+    const stale = orderIsNotOfThePanel(facts.held, { ...cmd, panelId: panel.id }, mayLeaveOut);
     if (stale) return { refusal: 'order-stale', why: stale };
   }
+  // The rows an order left out keep their place: the Panel's order is written
+  // whole, and without them an Item reopened later would have lost its Panel.
+  const inTheOrder = new Set(cmd.order);
+  const keptAsTheyWere = panel ? outOfTheRead.filter((row) => !inTheOrder.has(row.itemId) && row.itemId !== cmd.itemId) : [];
 
   // One it has since left, or that was deleted in another tab, is no mistake
   // and is ignored; a live one must be a Panel of this Workspace. Naming none,
@@ -259,7 +283,7 @@ function decideFiling(
     // Every one named gone is nothing to take it off, not every Panel.
     takesItOffPanels: !fromPanelIds || fromPanelIds.length > 0,
     panelId: panel ? panel.id : null,
-    rows: filingRows(item.tenantId, { ...cmd, panelId: panel ? panel.id : null }),
+    rows: [...filingRows(item.tenantId, { ...cmd, panelId: panel ? panel.id : null }), ...keptAsTheyWere],
     decision:
       panel && !facts.alreadyFiled
         ? decisionHistoryEntryFor(proposalAsShown(item, facts.proposedPanelNeverPropose), cmd, panel.id)

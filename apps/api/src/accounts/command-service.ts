@@ -55,6 +55,7 @@ import {
   deleteRememberedSentence,
   countSentencesUsed,
   listFilingsOnPanel,
+  listFilingsOnPanelOutOfTheRead,
   listLayoutIds,
   listLayoutRows,
   layoutOfDashboard,
@@ -112,6 +113,7 @@ import {
   panelNamed,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
+import { finishedKeptAfter } from '../domain/workspace-read.js';
 import {
   nextPosition,
   ordersExactly,
@@ -720,6 +722,9 @@ function filingFactsFor(
     workspaceExists: !!getWorkspace(db, tenantId, cmd.workspaceId),
     panel: panel ? { id: panel.id, name: panel.name, kind: panel.kind } : null,
     held: panel ? listFilingsOnPanel(db, tenantId, panel.id) : [],
+    // As of the store's clock now, as the Workspace's read is made: an order
+    // built on any read since names at least what this leaves required.
+    heldOutOfTheRead: panel ? listFilingsOnPanelOutOfTheRead(db, tenantId, panel.id, finishedKeptAfter(new Date())) : [],
     alreadyFiled: isItemFiled(db, tenantId, cmd.itemId),
     proposedPanelNeverPropose: item?.proposedPanelId
       ? !!getPanel(db, tenantId, item.proposedPanelId)?.neverPropose

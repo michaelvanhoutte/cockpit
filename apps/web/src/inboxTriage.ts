@@ -1,7 +1,7 @@
 import { itemLabel, uuidv7, workspaceIsDecided, type Item } from '@cockpit/shared';
 import { refusalFrom, type CommandArgs } from './api/queries';
 import { plainKey, type Press } from './inboxKeys';
-import { allAnswered } from './filing';
+import { allAnswered, filedOrderOnPanel } from './filing';
 import { updateSelection, type Selection } from './selection';
 import type { Undoable } from './undo';
 
@@ -233,7 +233,7 @@ export function acceptSelection(d: AcceptingSelection): void {
     answers = chosen.map((item) => {
       const panelId = d.panelFor(item)!;
       const filed = sentTo.get(panelId) ?? [];
-      const held = d.filings.filter((f) => f.panelId === panelId).sort((a, b) => a.position - b.position).map((f) => f.itemId);
+      const held = filedOrderOnPanel(d.filings, panelId);
       sentTo.set(panelId, [...filed, item.id]);
       return d.send({
         name: 'move_item_to_panel',

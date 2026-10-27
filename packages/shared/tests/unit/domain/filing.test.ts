@@ -101,6 +101,15 @@ describe('Panels', () => {
     it('draws an empty panel as empty', () => {
       expect(itemsOnPanel([anItem('a')], [filed('anna', 'a', 0)], 'falcon')).toEqual([]);
     });
+
+    it('draws an item reopened onto a place another holds in one order, whichever way the filings arrived', () => {
+      // `r` was finished long ago and kept its old place while orders left it out.
+      const items = [anItem('b'), anItem('r'), anItem('a')];
+      const tied = [filed('falcon', 'b', 0), filed('falcon', 'r', 1), filed('falcon', 'a', 1)];
+
+      expect(itemsOnPanel(items, tied, 'falcon').map((i) => i.id)).toEqual(['b', 'a', 'r']);
+      expect(itemsOnPanel(items, [...tied].reverse(), 'falcon').map((i) => i.id)).toEqual(['b', 'a', 'r']);
+    });
   });
 
   describe('the Inbox holds every item you still have to deal with that is filed nowhere', () => {

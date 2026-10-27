@@ -17,14 +17,15 @@ import type { Dashboard, Item } from './item.js';
  * finished with", issue 154).
  *
  * Dismissed items never reach the client at all - the snapshot leaves them out
- * server-side - and finished ones do, so this is what keeps a completed item
- * off the panel it was filed on as well as out of the Inbox. One predicate for
- * both lists, because "gone from the Inbox but still on a panel" is a
- * distinction nobody asked for.
+ * server-side - and the last day's finished ones do, so this is what keeps a
+ * completed item off the panel it was filed on as well as out of the Inbox. One
+ * predicate for both lists, because "gone from the Inbox but still on a panel"
+ * is a distinction nobody asked for.
  *
  * **They arrive so that undoing has something to put back.** A finished item
  * has to be in the copy the browser holds for the bar offering to undo it to
- * work without a round trip.
+ * work without a round trip, which is why the snapshot keeps one for a day
+ * ("Open a Workspace without its finished Items", issue 1435).
  */
 export function stillOpen(item: Item): boolean {
   return item.completedAt === null;
@@ -55,6 +56,18 @@ export function itemsThatAreFiled(items: readonly Item[], filings: readonly Fili
 }
 
 /**
+ * Which of two filings on one Panel comes first: the lower position, and on a
+ * tie the lower Item id. **A tie is real**: an order sent without an Item
+ * finished more than a day ago leaves its filing where it was, so once it is
+ * reopened its position can equal another's ("Open a Workspace without its
+ * finished Items", issue 1435). The id breaks it the way the store's own order
+ * does (`listFilingsInWorkspace`), so every device draws one order.
+ */
+export function byPlaceOnPanel(a: Filing, b: Filing): number {
+  return a.position - b.position || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0);
+}
+
+/**
  * The items filed on one panel, in the order they were filed into.
  *
  * Driven from the filings rather than from the items, because the filings are
@@ -72,7 +85,7 @@ export function itemsOnPanel(
   return filings
     .filter((filing) => filing.panelId === panelId)
     .slice()
-    .sort((a, b) => a.position - b.position)
+    .sort(byPlaceOnPanel)
     .map((filing) => byId.get(filing.itemId))
     .filter((item): item is Item => item !== undefined);
 }
