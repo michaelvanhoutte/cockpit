@@ -16,7 +16,7 @@
  * by the page, over what follows it, and what follows still starts at its own time.
  */
 
-import { nextRoundTime } from './belgium';
+import { belgianDay, formatClockMinutes, formatDayMonth, nextRoundTime } from './belgium';
 import type { CycleTimeline, ReviewKind, ReviewSlice, RunKind, RunSlice, TimelineLane } from './cycle-time';
 import { REVIEW_KINDS, RUN_KINDS } from './cycle-time';
 import type { CycleTimePull } from './cycle-time-store';
@@ -339,57 +339,96 @@ function placed(parts: (StripPart & { cut?: true })[]): { parts: PlacedPart[]; b
 /** Axis steps, whole clock minutes up to a day: the smallest that puts no more than `AXIS_TICKS` across the strip. */
 const AXIS_STEPS_MS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440].map((minutes) => minutes * 60_000);
 const AXIS_TICKS = 8;
-/** A tick this close (as a share of the strip) to an end or the edge of a break is left out, since its label would sit on the other's. */
-const AXIS_CROWD = 0.07;
+
+/**
+ * What the axis assumes of the page, in CSS pixels, since the page is markup with no script to measure it: the strip
+ * as narrow as a small phone draws it, a break as wide as a phone draws one, and a label as wide as its characters
+ * make it with a gap beside it. A label that fits there fits wherever the strip is wider.
+ */
+const AXIS_FIT = { stripPx: 320, breakPx: 20, charPx: 6.4, gapPx: 8 };
 
 export interface Tick {
   atMs: number;
   startMs: number;
   breaksBefore: number;
   align: 'start' | 'end' | 'mid';
+  /** The clock time in Belgian time: the hour and minute, with the day too where it is not the strip's first. */
+  label: string;
 }
+
+/** A tick's label and its place, before the axis has settled which of them it has room for. */
+type Candidate = Tick & { from: number; to: number };
 
 /**
  * The clock-time axis of a strip drawn on its own scale: a tick at the start, at the end, at each
  * edge of a break (but the last break's far edge where the merge crowds it), and at round Belgian
- * clock times between (src/belgium.ts). Time away has no ticks
- * inside it, so the axis reads the real clock either side of a break. `align` says which side of its
- * tick a label hangs on.
+ * clock times between (src/belgium.ts). Time away has no ticks inside it, so the axis reads the real
+ * clock either side of a break. `align` says which side of its tick a label hangs on.
+ *
+ * Every label has room: none runs past either end of the strip or onto another label. Where two of the
+ * ends and breaks' ticks would meet, the start and the end win over a break's, and a break's over the
+ * ones between; the ones between that crowd each other take a wider step, then lose the ones that still do.
  *
  * @param startedAt the strip's start, in epoch milliseconds
  * @param fitted a strip from `fitTo`
  * @returns in order of position
  */
 export function axisFor(startedAt: number, fitted: Fitted): Tick[] {
-  const ticks: (Tick & { edge?: true })[] = [];
-  const edge = (atMs: number, offsetMs: number, breaksBefore: number, align: Tick['align']) => ticks.push({ atMs, startMs: offsetMs, breaksBefore, align, edge: true });
+  const shownMs = Math.max(1, fitted.shownMs);
+  const breaks = fitted.parts.filter((part) => part.type === 'away').length;
+  const span = AXIS_FIT.stripPx - breaks * AXIS_FIT.breakPx;
+  const candidate = (atMs: number, startMs: number, breaksBefore: number, align: Tick['align']): Candidate => {
+    const label = clockLabel(atMs, startedAt);
+    const x = (startMs / shownMs) * span + breaksBefore * AXIS_FIT.breakPx;
+    const width = label.length * AXIS_FIT.charPx;
+    const from = align === 'start' ? x : align === 'end' ? x - width : x - width / 2;
+    return { atMs, startMs, breaksBefore, align, label, from, to: from + width };
+  };
+  const fits = (each: Candidate, kept: Candidate[]) =>
+    each.from >= 0 && each.to <= AXIS_FIT.stripPx && kept.every((other) => each.from >= other.to + AXIS_FIT.gapPx || each.to + AXIS_FIT.gapPx <= other.from);
+
+  // In the order they win a place: the start, the end, then each break's two sides.
+  const wanted: Candidate[] = [candidate(startedAt, 0, 0, 'start'), candidate(startedAt + fitted.parts.reduce((total, part) => total + part.ms, 0), shownMs, breaks, 'end')];
   let clock = startedAt;
-  edge(clock, 0, 0, 'start');
   for (const part of fitted.parts) {
     if (part.type === 'away') {
-      edge(clock, part.startMs, part.breaksBefore, 'end');
-      edge(clock + part.ms, part.startMs, part.breaksBefore + 1, 'start');
+      wanted.push(candidate(clock, part.startMs, part.breaksBefore, 'end'), candidate(clock + part.ms, part.startMs, part.breaksBefore + 1, 'start'));
     }
     clock += part.ms;
   }
-  const breaks = fitted.parts.filter((part) => part.type === 'away').length;
-  // The clock picking up after the last time away gives way to the merge where the two would crowd, since its label would hang past the axis's end.
-  const last = ticks[ticks.length - 1]!;
-  if (ticks.length > 1 && last.breaksBefore === breaks && fitted.shownMs - last.startMs < fitted.shownMs * AXIS_CROWD) ticks.pop();
-  edge(clock, fitted.shownMs, breaks, 'end');
+  const kept: Candidate[] = [];
+  for (const each of wanted) if (fits(each, kept)) kept.push(each);
 
-  const step = AXIS_STEPS_MS.find((each) => fitted.shownMs / each <= AXIS_TICKS) ?? AXIS_STEPS_MS[AXIS_STEPS_MS.length - 1]!;
-  const crowded = (offsetMs: number, breaksBefore: number) =>
-    ticks.some((tick) => tick.edge && tick.breaksBefore === breaksBefore && Math.abs(tick.startMs - offsetMs) < fitted.shownMs * AXIS_CROWD);
-  clock = startedAt;
-  for (const part of fitted.parts) {
-    if (part.type !== 'away') {
-      for (let at = nextRoundTime(clock, step); at < clock + part.ms; at = nextRoundTime(at + 1, step)) {
-        const offsetMs = part.startMs + (at - clock);
-        if (!crowded(offsetMs, part.breaksBefore)) ticks.push({ atMs: at, startMs: offsetMs, breaksBefore: part.breaksBefore, align: 'mid' });
+  const between = (step: number) => {
+    const found: Candidate[] = [];
+    let at = startedAt;
+    for (const part of fitted.parts) {
+      if (part.type !== 'away') {
+        for (let tick = nextRoundTime(at, step); tick < at + part.ms; tick = nextRoundTime(tick + 1, step)) {
+          found.push(candidate(tick, part.startMs + (tick - at), part.breaksBefore, 'mid'));
+        }
       }
+      at += part.ms;
     }
-    clock += part.ms;
+    return found;
+  };
+  // The smallest step that puts no more than `AXIS_TICKS` across the strip and has room for all its ticks, else the largest, thinned.
+  const fitting = AXIS_STEPS_MS.findIndex((each) => shownMs / each <= AXIS_TICKS);
+  const first = fitting === -1 ? AXIS_STEPS_MS.length - 1 : fitting;
+  let placed: Candidate[] = [];
+  for (let at = first; at < AXIS_STEPS_MS.length; at++) {
+    // One that crowds an end or a break is left out, as its label would sit on theirs; a wider step is for ticks that crowd each other.
+    const found = between(AXIS_STEPS_MS[at]!).filter((each) => fits(each, kept));
+    placed = [];
+    for (const each of found) if (fits(each, placed)) placed.push(each);
+    if (placed.length === found.length) break;
   }
-  return ticks.map(({ edge: _edge, ...tick }) => tick).sort((a, b) => a.breaksBefore - b.breaksBefore || a.startMs - b.startMs || a.atMs - b.atMs);
+  return [...kept, ...placed]
+    .map(({ from: _from, to: _to, ...tick }) => tick)
+    .sort((a, b) => a.breaksBefore - b.breaksBefore || a.startMs - b.startMs || a.atMs - b.atMs);
+}
+
+/** A clock time on the axis in Belgian time: the hour and minute, with the day too where it is not the strip's first. */
+function clockLabel(atMs: number, startedAt: number): string {
+  return belgianDay(atMs) === belgianDay(startedAt) ? formatClockMinutes(atMs) : `${formatDayMonth(atMs)} ${formatClockMinutes(atMs)}`;
 }
