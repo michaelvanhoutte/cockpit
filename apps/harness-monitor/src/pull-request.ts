@@ -1,7 +1,4 @@
 import type { CostQuery } from './costs';
-import { timelineMisfit, type CycleTimeline } from './cycle-time';
-import { storedPull } from './cycle-time-store';
-import type { CycleTimePull } from './cycle-time-store';
 import { requestFilter } from './export';
 import { CATEGORIES, requestPhaseSql, REVIEW_LEVELS, type Category } from './validate';
 
@@ -41,12 +38,6 @@ export interface SessionLine {
   agents: AgentLine[];
 }
 
-/** A pull request cycle time holds, with the timeline its strip is drawn from; `timeline` is null where none is stored or it does not fit the rounds stored, which reads "timeline not recorded". */
-export interface PullRequestTimeline {
-  pull: CycleTimePull;
-  timeline: CycleTimeline | null;
-}
-
 export interface PullRequestPage {
   query: CostQuery;
   number: number;
@@ -55,10 +46,7 @@ export interface PullRequestPage {
   mergedAt: string | null;
   issue: number | null;
   engineer: string | null;
-  /** The branches linked to it; none for a pull request only cycle time holds, which has no sessions linked. */
   branches: string[];
-  /** The pull request as cycle time holds it, or null where the Monitor holds none. */
-  timeline: PullRequestTimeline | null;
   /** Every category, in the page's order, zero where the filters keep none of it. */
   categories: CategoryLine[];
   sessions: SessionLine[];
@@ -76,29 +64,16 @@ interface LinkRow {
   engineer: string | null;
 }
 
-/** The stored timeline, parsed, where it fits the rounds stored for the pull request; a timeline that does not is as good as none, never drawn. */
-function fitting(pull: CycleTimePull, stored: string | undefined): CycleTimeline | null {
-  if (stored === undefined) return null;
-  try {
-    const timeline = JSON.parse(stored) as CycleTimeline;
-    return timelineMisfit(timeline, pull.rounds.length, 'it has') === null ? timeline : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * One pull request's page, in one batch: its cost from its request rows (the daily
- * totals do not know sessions), and the pull request cycle time holds with its
- * rounds, checks and timeline. A pull request GitHub linking has seen is found, and
- * so is one cycle time holds; a number neither has is null, shown as nothing found.
- * The period and category filters apply to the cost; an engineer filter does not,
- * since a pull request has one author.
+ * One pull request's cost, from its request rows: the daily totals do not know
+ * sessions. Only a pull request GitHub linking has seen is found; a number it
+ * has not is null, shown as nothing found. The period and category filters
+ * apply; an engineer filter does not, since a pull request has one author.
  */
 export async function pullRequestPage(db: D1Database, query: CostQuery, number: number, now = Date.now()): Promise<PullRequestPage | null> {
   const { where, binds } = requestFilter({ ...query, engineer: null }, number, now);
   const from = 'FROM usage_requests u JOIN branch_links l ON l.branch = u.branch';
-  const [links, byCategory, bySession, stored, rounds, checks, timelines] = await db.batch([
+  const [links, byCategory, bySession] = await db.batch([
     db.prepare('SELECT * FROM branch_links WHERE pr_number = ? ORDER BY pr_updated_at DESC, branch').bind(number),
     db.prepare(
       `SELECT ${requestPhaseSql('u.')} AS category, COALESCE(u.review_level, '') AS level, COUNT(*) AS requests,
@@ -112,15 +87,9 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
          SUM(COALESCE(u.cost_micros, 0)) AS costMicros, SUM(u.cost_micros IS NULL) AS unpriced
        ${from} ${where} GROUP BY u.session_id, u.ran_where, u.model, u.subagent, u.subagent_type, u.subagent_id`,
     ).bind(...binds),
-    db.prepare('SELECT * FROM cycle_time_pulls WHERE pull_number = ?').bind(number),
-    db.prepare('SELECT * FROM cycle_time_rounds WHERE pull_number = ? ORDER BY round_index').bind(number),
-    db.prepare('SELECT * FROM cycle_time_checks WHERE pull_number = ? ORDER BY round_index, position').bind(number),
-    db.prepare('SELECT timeline FROM cycle_time_timelines WHERE pull_number = ?').bind(number),
   ]);
   const link = (links!.results as unknown as LinkRow[])[0];
-  const held = storedPull({ pull: stored!.results, rounds: rounds!.results, checks: checks!.results });
-  if (!link && !held) return null;
-  const timeline = held ? { pull: held, timeline: fitting(held, (timelines!.results[0] as { timeline: string } | undefined)?.timeline) } : null;
+  if (!link) return null;
 
   const categories = CATEGORIES.map((category): CategoryLine => ({ category, requests: 0, costMicros: 0, unpricedRequests: 0, levels: [] }));
   for (const r of byCategory!.results as unknown as { category: Category; level: string; requests: number; costMicros: number; unpriced: number }[]) {
@@ -192,13 +161,12 @@ export async function pullRequestPage(db: D1Database, query: CostQuery, number: 
   return {
     query,
     number,
-    title: link?.title ?? held!.title,
-    state: link?.state ?? 'MERGED',
-    mergedAt: link ? link.merged_at : held!.mergedAt,
-    issue: link?.issue_number ?? null,
-    engineer: link?.engineer ?? null,
+    title: link.title,
+    state: link.state,
+    mergedAt: link.merged_at,
+    issue: link.issue_number,
+    engineer: link.engineer,
     branches: (links!.results as unknown as LinkRow[]).map((l) => l.branch),
-    timeline,
     categories,
     sessions: ordered,
     totalMicros: categories.reduce((sum, c) => sum + c.costMicros, 0),
