@@ -11,23 +11,21 @@ describe('parseArgs', () => {
     expect(parseArgs(['-h'])).toEqual({ help: true });
   });
 
-  it('sets json for --json', () => {
-    expect(parseArgs(['--json'])).toEqual({ json: true });
-  });
-
   it('sets checkConcepts for --check-concepts', () => {
     expect(parseArgs(['--check-concepts'])).toEqual({ checkConcepts: true });
   });
 
-  it('consumes the following argument as the value for --out and --repo', () => {
-    expect(parseArgs(['--out', 'out/model.json', '--repo', '/some/repo'])).toEqual({
-      out: 'out/model.json',
-      repo: '/some/repo',
-    });
+  it('consumes the following argument as the value for --repo', () => {
+    expect(parseArgs(['--repo', '/some/repo'])).toEqual({ repo: '/some/repo' });
   });
 
   it('combines multiple recognized flags', () => {
-    expect(parseArgs(['--json', '--out', 'x.json'])).toEqual({ json: true, out: 'x.json' });
+    expect(parseArgs(['--repo', '/some/repo', '--model', 'x.json'])).toEqual({ repo: '/some/repo', model: 'x.json' });
+  });
+
+  it('no longer knows the flags that chose a page', () => {
+    expect(parseArgs(['--json'])).toEqual({ unknown: '--json' });
+    expect(parseArgs(['--out', 'x.html'])).toEqual({ unknown: '--out' });
   });
 
   it.each([
@@ -36,13 +34,12 @@ describe('parseArgs', () => {
   ])('consumes the model file after $flag, and refuses $flag without one', ({ flag, parsed }) => {
     expect(parseArgs([flag, 'm.json'])).toEqual(parsed);
     expect(parseArgs([flag])).toEqual({ invalid: `${flag} needs a path to a model file` });
-    expect(parseArgs([flag, '--json'])).toEqual({ invalid: `${flag} needs a path to a model file` });
+    expect(parseArgs([flag, '--repo'])).toEqual({ invalid: `${flag} needs a path to a model file` });
   });
 
   it.each([
-    { argv: ['--json', '--model', 'm.json'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
-    { argv: ['--model', 'm.json', '--check-concepts'], invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' },
-    { argv: ['--send', 'm.json', '--json'], invalid: '--send reads a model and writes nothing, so it takes no option but --pull-request' },
+    { argv: ['--model', 'm.json', '--check-concepts'], invalid: '--model writes the model, so it does not combine with --check-concepts' },
+    { argv: ['--send', 'm.json', '--repo', '.'], invalid: '--send reads a model and writes nothing, so it takes no option but --pull-request' },
     { argv: ['--pull-request', '9001'], invalid: '--pull-request names whose tests --send sends, so it needs --send' },
   ])('refuses $argv, which would silently skip one of them', ({ argv, invalid }) => {
     expect(parseArgs(argv)).toEqual({ invalid });
@@ -59,6 +56,6 @@ describe('parseArgs', () => {
   });
 
   it('stops at the first unrecognized argument, ignoring anything after it', () => {
-    expect(parseArgs(['--json', '--nope', '--out', 'x.json'])).toEqual({ unknown: '--nope' });
+    expect(parseArgs(['--repo', '.', '--nope', '--model', 'x.json'])).toEqual({ unknown: '--nope' });
   });
 });

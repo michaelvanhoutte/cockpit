@@ -1,11 +1,11 @@
 /**
  * The whole pipeline, argv in and a real file on disk out — everything below
- * this level (fetching, the model, the page) is covered by its own unit and
- * integration tests; what only this level can show is that the three halves
+ * this level (fetching, the model) is covered by its own unit and
+ * integration tests; what only this level can show is that the halves
  * are wired to each other and that a failed fetch writes nothing.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -47,89 +47,41 @@ const pullData = (overrides = {}) => ({
 });
 
 describe('main', () => {
-  it('writes the page and exits 0', async () => {
+  it('writes the model and no page, and exits 0', async () => {
     collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
-    const out = path.join(tmp(), 'index.html');
-    const code = await main(['--out', out, '--repo', 'o/r']);
-    expect(code).toBe(0);
-    expect(existsSync(out)).toBe(true);
-    expect(readFileSync(out, 'utf8')).toContain('Is test selection working?');
-  });
-
-  it('writes the model instead, with --json', async () => {
-    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
-    const out = path.join(tmp(), 'model.json');
-    const code = await main(['--out', out, '--repo', 'o/r', '--json']);
+    const dir = tmp();
+    const out = path.join(dir, 'model.json');
+    const code = await main(['--model', out, '--repo', 'o/r']);
     expect(code).toBe(0);
     expect(JSON.parse(readFileSync(out, 'utf8'))).toMatchObject({ repo: 'o/r' });
+    expect(readdirSync(dir)).toEqual(['model.json']);
+    expect(readFileSync(out, 'utf8')).not.toContain('<html');
   });
 
   it('exits 1 and writes nothing when the fetch fails', async () => {
     collect.mockRejectedValue(new GitHubError("GitHub's rate limit is spent", { reason: 'rate-limit' }));
-    const out = path.join(tmp(), 'index.html');
-    const code = await main(['--out', out, '--repo', 'o/r']);
+    const out = path.join(tmp(), 'model.json');
+    const code = await main(['--model', out, '--repo', 'o/r']);
     expect(code).toBe(1);
     expect(existsSync(out)).toBe(false);
   });
 
-  it('writes both the page and the model with --model', async () => {
-    collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
-    const tmpDir = tmp();
-    const modelPath = path.join(tmpDir, 'model.json');
-    const pagePath = path.join(tmpDir, 'index.html');
-    const code = await main(['--out', pagePath, '--model', modelPath, '--repo', 'o/r']);
-    expect(code).toBe(0);
-    expect(existsSync(pagePath)).toBe(true);
-    expect(existsSync(modelPath)).toBe(true);
-    expect(readFileSync(pagePath, 'utf8')).toContain('Is test selection working?');
-    expect(JSON.parse(readFileSync(modelPath, 'utf8'))).toMatchObject({ repo: 'o/r' });
-  });
-
-  it('the model with --model equals the model from --json', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-03T12:00:00Z'));
-    try {
-      const pullDataWithFixedDate = {
-        pull: { number: 1, title: 'A pull request', url: 'https://github.com/o/r/pull/1', mergedAt: '2026-10-03T12:00:00Z' },
-        prRun: null,
-        mainRun: null,
-        files: ['docs/notes.md'],
-      };
-      collect.mockResolvedValue({ pulls: [pullDataWithFixedDate], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
-      const tmpDir = tmp();
-      const jsonOutput = path.join(tmpDir, 'a.json');
-      const modelOutput = path.join(tmpDir, 'b.json');
-
-      expect(await main(['--repo', 'o/r', '--json', '--out', jsonOutput])).toBe(0);
-      collect.mockResolvedValue({ pulls: [pullDataWithFixedDate], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
-      expect(await main(['--repo', 'o/r', '--out', path.join(tmpDir, 'page.html'), '--model', modelOutput])).toBe(0);
-
-      const jsonContent = readFileSync(jsonOutput, 'utf8');
-      const modelContent = readFileSync(modelOutput, 'utf8');
-      expect(jsonContent).toBe(modelContent);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('refuses when --model and --out resolve to the same path', async () => {
+  it('refuses the flags that used to choose a page', async () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const tmpDir = tmp();
-    const samePath = path.join(tmpDir, 'model.json');
     try {
-      expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+      expect(await main(['--repo', 'o/r', '--json'])).toBe(2);
+      expect(await main(['--repo', 'o/r', '--out', 'a/index.html'])).toBe(2);
       expect(collect).not.toHaveBeenCalled();
     } finally {
       stderr.mockRestore();
     }
-    expect(existsSync(samePath)).toBe(false);
   });
 
-  it('records the open alarm of a bar in the model, which is what the page links', async () => {
+  it('records the open alarm of a bar in the model, which the Monitor is sent beside the pull requests', async () => {
     collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
     listAlarmIssues.mockResolvedValue([{ number: 41, state: 'open', title: 'Selection: misses', body: '<!-- selection-alarm bar=misses first=2026-02-01 last=2026-02-02 -->', comments: [] }]);
     const out = path.join(tmp(), 'model.json');
-    expect(await main(['--out', out, '--repo', 'o/r', '--json'])).toBe(0);
+    expect(await main(['--model', out, '--repo', 'o/r'])).toBe(0);
     const bars = Object.fromEntries(JSON.parse(readFileSync(out, 'utf8')).bars.items.map((bar) => [bar.id, bar.alarmIssue]));
     expect(bars.misses).toBe(41);
     expect(bars['e2e-forced-full']).toBeNull();
@@ -169,9 +121,9 @@ describe('main', () => {
     it('sends only the pull requests merged since two days before the newest stored merge, with the bars, and still writes the page', async () => {
       const monitor = theMonitor();
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z'), merged(2, '2026-10-19T10:00:00Z'), merged(3, '2026-10-21T10:00:00Z')]));
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
 
-      const code = await main(['--send', '--out', out, '--repo', 'o/r']);
+      const code = await main(['--send', '--model', out, '--repo', 'o/r']);
 
       expect(code).toBe(0);
       expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-10-10T02:00:00Z'));
@@ -185,7 +137,7 @@ describe('main', () => {
       theMonitor({ newestMerge: '2026-10-01T08:00:00.000Z' });
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
 
-      expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r'])).toBe(0);
+      expect(await main(['--send', '--model', path.join(tmp(), 'model.json'), '--repo', 'o/r'])).toBe(0);
 
       expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-09-29T08:00:00Z'));
     });
@@ -194,7 +146,7 @@ describe('main', () => {
       const monitor = theMonitor({ newestMerge: null });
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
 
-      expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r', '--days', '5'])).toBe(0);
+      expect(await main(['--send', '--model', path.join(tmp(), 'model.json'), '--repo', 'o/r', '--days', '5'])).toBe(0);
 
       expect(collect.mock.calls[0][0].since).toEqual(new Date('2026-10-19T02:00:00Z'));
       expect(monitor.posts[0].pulls.map((pull) => pull.number)).toEqual([1]);
@@ -206,9 +158,9 @@ describe('main', () => {
       listAlarmIssues.mockResolvedValueOnce([{ number: 41, state: 'open', title: 'Selection: misses', body: '<!-- selection-alarm bar=misses first=2026-10-01 last=2026-10-02 -->', comments: [] }]);
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       try {
-        await main(['--send', '--out', path.join(tmp(), 'a.html'), '--repo', 'o/r']);
+        await main(['--send', '--model', path.join(tmp(), 'a.json'), '--repo', 'o/r']);
         listAlarmIssues.mockRejectedValueOnce(new Error('GitHub answered 502'));
-        await main(['--send', '--out', path.join(tmp(), 'b.html'), '--repo', 'o/r']);
+        await main(['--send', '--model', path.join(tmp(), 'b.json'), '--repo', 'o/r']);
       } finally {
         stderr.mockRestore();
       }
@@ -221,9 +173,9 @@ describe('main', () => {
       theMonitor({ refuses: true });
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
       try {
-        expect(await main(['--send', '--out', out, '--repo', 'o/r'])).toBe(1);
+        expect(await main(['--send', '--model', out, '--repo', 'o/r'])).toBe(1);
         expect(stderr.mock.calls.join('')).toContain('refused batch 1 of 1 (400: Pull request 0 (#1): has no title.)');
       } finally {
         stderr.mockRestore();
@@ -235,9 +187,9 @@ describe('main', () => {
       vi.stubGlobal('fetch', async () => ({ ok: false, status: 502 }));
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')]));
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
       try {
-        expect(await main(['--send', '--out', out, '--repo', 'o/r'])).toBe(1);
+        expect(await main(['--send', '--model', out, '--repo', 'o/r'])).toBe(1);
       } finally {
         stderr.mockRestore();
       }
@@ -249,7 +201,7 @@ describe('main', () => {
       collect.mockResolvedValue(read([merged(1, '2026-10-23T10:00:00Z')], { truncated: true, coveredSince: new Date('2026-10-22T00:00:00Z') }));
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       try {
-        expect(await main(['--send', '--out', path.join(tmp(), 'index.html'), '--repo', 'o/r'])).toBe(1);
+        expect(await main(['--send', '--model', path.join(tmp(), 'model.json'), '--repo', 'o/r'])).toBe(1);
         expect(stderr.mock.calls.join('')).toContain('the Selection backfill, --from 2026-10-20 --to 2026-10-22');
       } finally {
         stderr.mockRestore();
@@ -260,9 +212,9 @@ describe('main', () => {
     it('a window given by hand is the backfill: it sends that window and writes no page', async () => {
       const monitor = theMonitor();
       collect.mockResolvedValue(read([merged(1, '2026-09-03T10:00:00Z')]));
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
 
-      expect(await main(['--send', '--from', '2026-09-01', '--to', '2026-09-05', '--out', out, '--repo', 'o/r'])).toBe(0);
+      expect(await main(['--send', '--from', '2026-09-01', '--to', '2026-09-05', '--model', out, '--repo', 'o/r'])).toBe(0);
 
       expect(monitor.asked()).toBe(0);
       expect(collect.mock.calls[0][0]).toMatchObject({ since: new Date('2026-09-01T00:00:00Z'), until: new Date('2026-09-06T00:00:00Z') });
@@ -282,16 +234,16 @@ describe('main', () => {
     });
   });
 
-  it('writes the page without links when the alarm issues cannot be read, rather than losing the report', async () => {
+  it('writes the model without links when the alarm issues cannot be read, rather than losing it', async () => {
     collect.mockResolvedValue({ pulls: [pullData()], truncated: false, reachedWindowEdge: true, coveredSince: new Date('2026-02-01') });
     listAlarmIssues.mockRejectedValue(new Error('GitHub answered 502'));
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const out = path.join(tmp(), 'index.html');
+    const out = path.join(tmp(), 'model.json');
     try {
-      expect(await main(['--out', out, '--repo', 'o/r'])).toBe(0);
+      expect(await main(['--model', out, '--repo', 'o/r'])).toBe(0);
     } finally {
       stderr.mockRestore();
     }
-    expect(readFileSync(out, 'utf8')).toContain('Is test selection working?');
+    expect(JSON.parse(readFileSync(out, 'utf8'))).toMatchObject({ repo: 'o/r' });
   });
 });

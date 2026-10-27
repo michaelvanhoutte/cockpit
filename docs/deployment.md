@@ -95,15 +95,35 @@ Workers AI binding — which has no local simulator, so a local run that declare
 one would need a Cloudflare account to start at all ("Flag a captured note that
 says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the five reports from `main` — the test
-explorer at the root (`tools/test-explorer/README.md`), the CI stability page at
-`/stability/` (`tools/ci-stability/README.md`), the cycle-time page at
-`/cycle-time/` (`tools/cycle-time/README.md`), the test-selection page at
-`/selection/` (`tools/selection/README.md`) and the architecture page at
-`/architecture/` (`tools/architecture/README.md`). Every date and time on them is
-Belgian time in Belgian format, *22 Oct 2026, 15:05*, whoever reads them, written
-by one module (`scripts/lib/belgian-time.mjs`), except the architecture page's cron schedules, which
-stay UTC as Cloudflare runs them; the model files beside them stay ISO UTC.
+part of the app: it is where CI publishes the architecture page at `/architecture/`
+(`tools/architecture/README.md`), and a redirect at each address the harness reports
+had there. Those reports (cycle time, test selection, tests and CI stability) are
+pages of the Harness Monitor, drawn from the rows CI sends it ("The Harness Monitor"
+below). Every date on the architecture page is the Belgian day in Belgian
+format, *22 Oct 2026*, whoever reads it, written by one module
+(`scripts/lib/belgian-time.mjs`), except its cron schedules, which stay UTC as
+Cloudflare runs them; the model file beside it stays ISO UTC.
+
+**Publishing.** `publish.yml`, called from `ci.yml`'s `Publish` job on every merge and from
+`nightly.yml`'s own after the architecture page is drawn, deploys the newest
+architecture page and writes each redirect, built from the repository variable
+`HARNESS_MONITOR_URL` with the query and hash kept:
+
+| Old address | Redirects to |
+|---|---|
+| `/` | the Monitor's `/tests` |
+| `/cycle-time/` and `/lead-time/` | `/cycle-time` |
+| `/selection/` | `/selection` |
+| `/stability/` | `/stability` |
+
+A JSON file cannot redirect, so the old `model.json` addresses (`/cycle-time/`,
+`/lead-time/`, `/selection/` and `/stability/` each with `model.json`) answer 404.
+Whatever read one reads the Monitor's page at the same address with `?format=json`
+instead (`/cycle-time`, `/selection`, `/stability`). The shapes
+differ from the old models': `harness-cost-review` names the fields it reads. Only
+`/architecture/model.json` stays on Pages, where the next architecture run reads it
+for its *What changed* section. Without the variable no redirect is written and
+the run says so.
 
 **Both are reachable by anyone who knows the URL**, with Cockpit's own sign-in the
 only thing in the way — see "Secrets and access" for what that is worth today. The
@@ -1129,9 +1149,10 @@ Then, by hand (no API, or deliberately not automated):
      surfaces within a week of merging rather than before a pull request can
      merge.
 
-     The four CI jobs left out of the five are the reports and a sender: Test
-     Explorer and Stability deliberately do not gate; Tests snapshot, which sends
-     `main`'s tests to the Harness Monitor, and Publish *could not*
+     The four CI jobs left out of the five work out what the Harness Monitor draws,
+     send it, or publish the architecture page: Test Explorer and Stability
+     deliberately do not gate; Tests snapshot, which sends `main`'s tests to the
+     Monitor, and Publish *could not*
      gate anything if they were listed — their `if:` skips them on every pull
      request, and a skipped job reports as passing.
 
@@ -1254,17 +1275,13 @@ Then, by hand (no API, or deliberately not automated):
    It is a dashboard setting with no API to read it back from.
 
 4. **GitHub Pages**, at Settings → Pages → Source: **GitHub Actions**. `publish.yml`
-   deploys the five reports there from `main` — the test explorer
-   (`tools/test-explorer/README.md`), the CI stability page
-   (`tools/ci-stability/README.md`), the cycle-time page
-   (`tools/cycle-time/README.md`), the test-selection page
-   (`tools/selection/README.md`) and the architecture page
-   (`tools/architecture/README.md`) — called from both `ci.yml`'s `Publish` job on
-   every merge and `nightly.yml`'s own `Publish` job, so a nightly run goes
-   live the same night rather than waiting on the next merge ("Publish
-   nightly's reports the same night, and make a manual run go live too", issue
-   563). Until this is set, both callers fail, which puts `main` red on every
-   commit. Not automated: `configure-pages`'s `enablement` input refuses
+   deploys the architecture page (`tools/architecture/README.md`) and the redirects
+   from the old report addresses there from `main` — called from both `ci.yml`'s
+   `Publish` job on every merge and `nightly.yml`'s own `Publish` job, so a nightly
+   run goes live the same night rather than waiting on the next merge
+   ("Publish nightly's reports the same night, and make a manual run go live
+   too", issue 563). Until this is set, both callers fail, which puts `main` red
+   on every commit. Not automated: `configure-pages`'s `enablement` input refuses
    `GITHUB_TOKEN` and wants a stored personal access token, which buys one
    settings click at the price of a long-lived credential.
 

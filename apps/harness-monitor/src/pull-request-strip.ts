@@ -5,7 +5,7 @@
  *
  *   coding - round - fixing - round - wait - (merge)
  *
- * It is the layout of the static page's strip (tools/cycle-time/src/render/strips.js), ported
+ * It is the layout of the strip the static cycle-time page drew, ported
  * with one change: local work that overlaps is packed into rows as CI jobs are.
  *
  * The strip is drawn against one scale, the pull request's own up to four hours. Time away

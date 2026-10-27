@@ -24,6 +24,7 @@ const USAGE = `Usage: node src/cli.js [options]
   --json           write the model instead of the page (and the diagram pages)
   --model <path>   also write the model, as --json would, to this path
   --root <path>    the checkout to draw (default: the repository this tool is in)
+  --monitor <url>  the Harness Monitor's address, which the page links the harness reports at (default: no links)
   --previous <location>  the previous report's model, a file or an address; What changed compares with the commit it names
   --help
 `;
@@ -35,6 +36,8 @@ export function parseArgs(argv) {
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--json') args.json = true;
+    // An empty address is the repository variable unset: no links, not a complaint.
+    else if (arg === '--monitor') args.monitor = value() ?? '';
     else if (arg === '--out' || arg === '--root' || arg === '--model' || arg === '--previous') {
       const next = value();
       if (!next || next.startsWith('--')) args.invalid ??= `${arg} needs a path`;
@@ -77,7 +80,7 @@ export async function main(argv) {
     // Only the page shows the comparison, so only the page pays for the second drawing.
     const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
-    page = args.json ? modelJson(model) : renderHtml(model, { comparison });
+    page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
     if (!args.json) diagramPages = renderDiagramPages(model);
   } catch (error) {
     if (error instanceof ReadError) {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { main, output, parseArgs } from '../../src/cli.js';
 import { buildModel } from '../../src/model.js';
@@ -40,18 +40,9 @@ describe('Cycle time', () => {
       expect(parseArgs(['--model']).invalid).toContain('--model needs a path');
     });
 
-    it('refuses a model path that would overwrite the page, before fetching anything', async () => {
-      const fetch = vi.fn();
-      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      vi.stubGlobal('fetch', fetch);
-      try {
-        expect(await main(['--out', 'out/page.html', '--model', 'out/page.html'])).toBe(2);
-        expect(stderr.mock.calls.join('')).toContain('--model and --out cannot be the same path');
-        expect(fetch).not.toHaveBeenCalled();
-      } finally {
-        vi.unstubAllGlobals();
-        stderr.mockRestore();
-      }
+    it('no longer knows the flags that chose a page', () => {
+      expect(parseArgs(['--json']).unknown).toBe('--json');
+      expect(parseArgs(['--out', 'out/page.html']).unknown).toBe('--out');
     });
   });
 
@@ -73,27 +64,23 @@ describe('Cycle time', () => {
     });
   });
 
-  describe('the command writes the page, or with --json the model', () => {
+  describe('a run writes its model and draws no page', () => {
     const model = buildModel({ pulls: [], now: new Date('2026-09-21T12:00:00Z'), requestedDays: 14, coveredSince: new Date('2026-09-07T12:00:00Z'), repo: 'o/r' });
 
-    it('writes the page when told nothing', () => {
-      const { file, content } = output(parseArgs([]), model);
-      expect(file).toBe('index.html');
-      expect(content).toMatch(/^<!doctype html>/);
+    it.each([
+      { situation: 'told nothing', argv: [], file: /out[\\/]model\.json$/ },
+      { situation: 'given a path', argv: ['--model', 'somewhere/else.json'], file: /somewhere[\\/]else\.json$/ },
+    ])('writes the model as JSON to its file when $situation', ({ argv, file }) => {
+      const written = output(parseArgs(argv), model);
+      expect(written.file).toMatch(file);
+      expect(JSON.parse(written.content)).toMatchObject({ repo: 'o/r', coverage: { pulls: 0 } });
+      expect(written.content).not.toContain('<html');
     });
 
-    it('keeps the model file in ISO UTC times, though the page beside it reads Belgian time', () => {
+    it('keeps the model file in ISO UTC times', () => {
       const dated = buildModel({ pulls: [], now: new Date('2026-10-22T13:05:00Z'), requestedDays: 14, coveredSince: new Date('2026-10-08T13:05:00Z'), repo: 'o/r' });
-      const file = JSON.parse(output(parseArgs(['--json']), dated).content);
+      const file = JSON.parse(output(parseArgs([]), dated).content);
       expect([file.generatedAt, file.coverage.coveredSince, file.coverage.until]).toEqual(['2026-10-22T13:05:00.000Z', '2026-10-08T13:05:00.000Z', '2026-10-22T13:05:00.000Z']);
-      expect(output(parseArgs([]), dated).content).toContain('22 Oct 2026, 15:05');
-    });
-
-    it('writes the model rather than the page with --json', () => {
-      const { file, content } = output(parseArgs(['--json']), model);
-      expect(file).toBe('model.json');
-      expect(JSON.parse(content)).toMatchObject({ repo: 'o/r', coverage: { pulls: 0 } });
-      expect(content).not.toContain('<html');
     });
   });
 });

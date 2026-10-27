@@ -370,10 +370,7 @@ tools/test-explorer/
 │   │   ├── rules.js             walks tests/<level>/**, parses describe/it (§6.2)
 │   │   ├── coverage.js          merges coverage JSON if present, else reports "unknown"
 │   │   └── index.js             repo path in, Model out
-│   ├── render/
-│   │   ├── html.js              table + expand panel, one self-contained file
-│   │   ├── styles.css
-│   │   └── client.js
+│   ├── monitor.js               sends the model to the Harness Monitor, which draws it
 │   └── cli.js
 ├── concepts.json
 └── package.json
@@ -452,8 +449,7 @@ change to it too.
 
 ```bash
 tools/test-explorer/package.json
-  "generate":       "node src/cli.js"                    # writes out/index.html
-  "model":          "node src/cli.js --json"              # writes out/model.json instead
+  "generate":       "node src/cli.js"                    # writes out/model.json
   "check-concepts": "node src/cli.js --check-concepts"
 ```
 
@@ -469,9 +465,9 @@ independent of everything else — it needs no coverage, so it stays fast rather
 waiting on the suite. `Test Explorer` needs both `Checks` and `Test`: on a push to
 `main`, `Test` runs the suite instrumented (`test:coverage` in place of plain `test`) and
 uploads `coverage-final.json` from every package that has one as an artifact, which `Test
-Explorer` downloads before running the generator with `--model` and the uploads named under "Where
-the report is published" below. A pull request runs plain `test`, uploads nothing, and its
-report renders unknown coverage columns ("Stop instrumenting coverage on a pull request's
+Explorer` downloads before running the generator with `--model`, uploading the model for the
+jobs that send it. A pull request runs plain `test`, uploads nothing, and its
+model reads unknown coverage columns ("Stop instrumenting coverage on a pull request's
 test run", issue 508). The job and step themselves carry the reasoning; it is not repeated
 here.
 
@@ -491,31 +487,16 @@ rather than test it. Only the first two steps of that order have been taken.
 
 ### Where the report is published
 
-Two places, for two readers. Every run uploads `out/` as a downloadable artifact, which is
-how a pull request's own report is read and the fallback when a deploy fails. Runs on
-`main` additionally publish to **GitHub Pages**, at
-<https://michaelvanhoutte.github.io/cockpit/> — the tip of `main`, at a fixed URL, without
-signing in. `main`'s model, not the report, also goes to the Harness Monitor
-([tools/test-explorer/README.md](../tools/test-explorer/README.md)).
+On the Harness Monitor's Tests page, drawn from the model: `main`'s latest, and each open
+pull request's own, sent from CI ([tools/test-explorer/README.md](../tools/test-explorer/README.md)).
+The tool draws no page of its own, and the Monitor keeps no history of `main`'s tests. The
+old address on GitHub Pages redirects there (deployment.md, "The environments").
 
-This settles what this section left open until "Publish the test explorer at a URL, instead
-of a zip you have to download" (issue 224). A zipped artifact expiring after
-90 days is read by finding the run, downloading, unzipping and opening a local file, and
-from the GitHub mobile app not at all, since it has never downloaded an artifact in-app. A
-report regenerated on every merge and read approximately never is worth less than the page
-it takes one job to publish.
-
-GitHub Pages, not Cloudflare Pages: deployment.md, "One Worker serves the whole
-application", rejects Cloudflare Pages for serving the *application*, which this is not.
-Pages is free on a public repository, needs no secret, and the report is already one
-self-contained HTML file, so there is nothing to host and nothing to build. Serving it from
-the Worker was the other candidate and is worse on every count: assets are served before
-the Worker runs, so it could not be gated even if it should be, and it would tie the report
-to a deploy.
-
-Only `main` publishes, because CI also runs on every pull request and a branch's report must
-not replace the published one. Pages keeps one deployment live, so history stays in the
-per-run artifacts.
+The model is sent from CI, since the coverage it shows is the `Test` job's own
+instrumented run. Only `main`'s run sends `main`'s tests,
+because CI also runs on every pull request and a branch's model must not replace the shown
+one; a pull request's model is sent by `pr-tests.yml`, which holds the write key this job
+never does.
 
 ## 9. Build plan
 
@@ -546,8 +527,8 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
 ## 10. Explicitly out of scope
 
 - **Gating CI on report content**, per "CLI, scripts, CI" (§8).
-- ~~**A persistently published page.**~~ Built. Merges to `main` publish to GitHub Pages,
-  per "Where the report is published" (§8).
+- ~~**A persistently published page.**~~ Built, as the Harness Monitor's Tests page, per
+  "Where the report is published" (§8).
 - **The `describe.todo`/`it.todo` merge-guard.** Related, since todos live in the files
   this tool reads, but it is its own lint or CI rule rather than a rendering concern.
   Worth building next; not blocking this.

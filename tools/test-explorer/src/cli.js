@@ -1,13 +1,12 @@
 /**
- * The wiring, and the only place analyze/ and render/ meet.
+ * The wiring, and the only place analyze/ and the Harness Monitor meet.
  *
- *   analyze(repo) -> Model -> renderHtml(Model) -> a file
- *   a model file  -> sendSnapshot(Model)        -> the Harness Monitor, with --send
+ *   analyze(repo) -> Model -> a model file
+ *   a model file  -> sendSnapshot(Model) -> the Harness Monitor, with --send
  *
- * `--json` stops after the first arrow, so anything else can consume the
- * model: a different renderer, a CI check, a diff against the previous run.
- * `--send` reads a model an earlier run wrote rather than analyzing, so the job
- * holding the write key needs neither the repository's packages nor its tests.
+ * The Harness Monitor draws the Tests page from the model. `--send` reads a
+ * model an earlier run wrote rather than analyzing, so the job holding the
+ * write key needs neither the repository's packages nor its tests.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -46,26 +45,9 @@ async function main(argv) {
   const model = analyze(repo);
   for (const warning of model.warnings) process.stderr.write(`warning: ${warning}\n`);
 
-  if (args.json) {
-    const out = args.out ?? path.join(here, '../out/model.json');
-    write(out, JSON.stringify(model, null, 2));
-    process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
-    return 0;
-  }
-
-  const { renderHtml } = await import('./render/html.js');
-  const out = args.out ?? path.join(here, '../out/index.html');
-  // File links in the report (rule/gap file:line) need to know where the
-  // report itself will be opened from, to compute a relative href — a render
-  // concern (docs/test-explorer-spec.md §6.1's split keeps analyze/ ignorant
-  // of it), so it's built here rather than inside renderHtml or the Model.
-  const repoRelPrefix = path.relative(path.dirname(out), repo).split(path.sep).join('/');
-  write(out, renderHtml(model, { repoRelPrefix }));
+  const out = path.resolve(args.model ?? path.join(here, '../out/model.json'));
+  write(out, JSON.stringify(model));
   process.stderr.write(`wrote ${path.relative(repo, out)}\n`);
-  if (args.model) {
-    write(args.model, JSON.stringify(model));
-    process.stderr.write(`wrote ${path.relative(repo, path.resolve(args.model))}\n`);
-  }
   return 0;
 }
 
@@ -162,16 +144,14 @@ function write(file, contents) {
  * That's what makes this testable as plain logic.
  *
  * @param {string[]} argv
- * @returns {{ help?: boolean, json?: boolean, checkConcepts?: boolean, out?: string, repo?: string, model?: string, send?: string, pullRequest?: number, unknown?: string, invalid?: string }}
+ * @returns {{ help?: boolean, checkConcepts?: boolean, repo?: string, model?: string, send?: string, pullRequest?: number, unknown?: string, invalid?: string }}
  */
 export function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
-    else if (a === '--json') args.json = true;
     else if (a === '--check-concepts') args.checkConcepts = true;
-    else if (a === '--out') args.out = argv[++i];
     else if (a === '--repo') args.repo = argv[++i];
     else if (a === '--model' || a === '--send') {
       const value = argv[++i];
@@ -183,7 +163,7 @@ export function parseArgs(argv) {
       args.pullRequest = Number(value);
     } else return { unknown: a };
   }
-  if (args.model && (args.json || args.checkConcepts)) return { invalid: '--model writes the model beside the page, so it does not combine with --json or --check-concepts' };
+  if (args.model && args.checkConcepts) return { invalid: '--model writes the model, so it does not combine with --check-concepts' };
   if (args.pullRequest !== undefined && !args.send) return { invalid: '--pull-request names whose tests --send sends, so it needs --send' };
   if (args.send && Object.keys(args).some((name) => name !== 'send' && name !== 'pullRequest')) return { invalid: '--send reads a model and writes nothing, so it takes no option but --pull-request' };
   return args;
@@ -191,11 +171,9 @@ export function parseArgs(argv) {
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <file>       Where to write. Defaults to out/index.html, or out/model.json with --json.
+  --model <file>     Where to write the model. Defaults to out/model.json.
   --repo <dir>        Repository to analyze. Defaults to the repo this tool sits in.
-  --json               Emit the model instead of a page, for another consumer.
-  --model <file>     Also write the model beside the page, for --send.
-  --send <file>      Send the model a --json or --model run wrote to the Harness Monitor at
+  --send <file>      Send the model a run wrote to the Harness Monitor at
                        $HARNESS_MONITOR_URL with $HARNESS_WRITE_KEY, as main's tests, and write nothing.
   --pull-request <n> With --send: send them as pull request n's tests instead.
   --check-concepts   Fail if any test declares a feature area missing from concepts.json, or if

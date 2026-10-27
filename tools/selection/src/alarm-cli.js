@@ -3,9 +3,10 @@
  *
  *   model.json -> decideAlarms(model, the repository's alarm issues) -> the writes
  *
- * Runs after the report is written and uploaded, so a failure here makes the
- * job red and costs the page nothing. Every write is tried; a refused one is
- * named by its bar at the end rather than stopping the others.
+ * Runs after the model is written and sent, so a failure here makes the job
+ * red and costs the send nothing. Every write is tried; a refused one is
+ * named by its bar at the end rather than stopping the others. Each issue
+ * links the Harness Monitor's Test selection page, from $HARNESS_MONITOR_URL.
  */
 
 import { readFileSync } from 'node:fs';
@@ -49,14 +50,14 @@ export function summarise(action) {
  *
  * @returns {Promise<{ actions: object[], failures: { bar: string, message: string }[] }>}
  */
-export async function runAlarm({ model, repo, token, fetchImpl, dryRun = false, log = () => {} }) {
+export async function runAlarm({ model, repo, token, fetchImpl, monitor, dryRun = false, log = () => {} }) {
   const ctx = { repo, token, fetchImpl };
   const alarms = await listAlarmIssues(ctx);
   for (const alarm of alarms) {
     if (alarm.state === 'open') alarm.comments = await listComments({ ...ctx, number: alarm.number });
   }
 
-  const actions = decideAlarms({ model, alarms });
+  const actions = decideAlarms({ model, alarms, monitor });
   for (const action of actions) log(summarise(action));
   if (dryRun || actions.length === 0) return { actions, failures: [] };
 
@@ -118,7 +119,7 @@ export async function main(argv, { fetchImpl } = {}) {
   }
 
   const model = JSON.parse(readFileSync(args.model, 'utf8'));
-  const { actions, failures } = await runAlarm({ model, repo, token, fetchImpl, dryRun: args.dryRun, log: (line) => process.stderr.write(`${line}\n`) });
+  const { actions, failures } = await runAlarm({ model, repo, token, fetchImpl, monitor: process.env.HARNESS_MONITOR_URL, dryRun: args.dryRun, log: (line) => process.stderr.write(`${line}\n`) });
 
   if (failures.length > 0) {
     for (const failure of failures) process.stderr.write(`alarm for ${failure.bar} failed: ${failure.message}\n`);

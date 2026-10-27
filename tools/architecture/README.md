@@ -110,7 +110,7 @@ repository's disk undescribed or describes one that is gone.
   schedule's time, "called by" the workflows that call it) and the environment its Wrangler deploy
   names, if any.
 - **GitHub Pages**, read from the workflow that deploys it: each report it downloads, with the
-  artifact name and the address on the site it lands at (`/`, `/stability/`, `/architecture/`, ...).
+  artifact name and the address on the site it lands at (`/architecture/`).
   No Pages deploy, no box.
 
 Every page names the commit and the date of that commit it was drawn from.
@@ -124,9 +124,10 @@ both ways, with the report's styles and a link back. The page keeps each fit to 
 The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) builds it
 once a night, and by hand from the Actions tab when a night was missed. It uploads the page and
 `model.json` as the `architecture-report` artifact, and that same run's `Publish` job takes it live at
-**<https://michaelvanhoutte.github.io/cockpit/architecture/>**, beside the test explorer, the
-[CI stability page](../ci-stability/README.md), the [cycle-time page](../cycle-time/README.md) and the
-[test-selection page](../selection/README.md). A missing artifact costs this page and never the site.
+**<https://michaelvanhoutte.github.io/cockpit/architecture/>**, the one report that stays on GitHub
+Pages; the others are pages of the Harness Monitor, which the page links when given its address
+(`--monitor`, from the repository variable `HARNESS_MONITOR_URL`). A missing artifact costs this page
+and never the redirects beside it.
 
 The job installs this package's own dependencies (`yaml` and `jsonc-parser`, so neither file format is
 parsed by hand) and nothing else; it needs no token. It checks out the whole history, so the commit the live report
@@ -144,6 +145,7 @@ pnpm --filter @cockpit/architecture model  # the model instead, at out/model.jso
 cd tools/architecture
 node src/cli.js                            # the repository this tool is in
 node src/cli.js --model out/model.json     # writes the page and, beside it, the model
+node src/cli.js --monitor https://monitor.example   # links the harness reports at the Monitor's pages
 node src/cli.js --root ../other-checkout   # a different checkout
 node src/cli.js --previous https://michaelvanhoutte.github.io/cockpit/architecture/model.json   # What changed against the live report
 node src/cli.js --help

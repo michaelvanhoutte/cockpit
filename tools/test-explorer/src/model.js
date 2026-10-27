@@ -1,11 +1,9 @@
 /**
  * THE CONTRACT.
  *
- * The only file analyze/ and render/ both depend on. analyze/ produces a
- * Model and knows nothing about HTML; render/ consumes a Model and knows
- * nothing about TypeScript, pnpm or the repository layout. Neither imports
- * the other. See docs/test-explorer-spec.md §6.1 for why this split exists
- * and what it buys.
+ * The shape analyze/ produces and the Harness Monitor's Tests page reads.
+ * analyze/ knows nothing about HTML; the Monitor knows nothing about
+ * TypeScript, pnpm or the repository layout.
  *
  * This is deliberately NOT the poc/coverage-explorer model. That one held a
  * state (met/thin/gap/later/na) per node per level, inferred from branch
@@ -57,8 +55,8 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * `file` is always repo-relative, deliberately — turning that into a clickable
  * link needs to know where the generated report will be opened *from* (a
  * local relative link) or the repo's GitHub URL (a `blob` link), both of
- * which are render concerns (render/client.js), not something analyze/ can
- * know or should care about (docs/test-explorer-spec.md §6.1).
+ * which are concerns of whatever draws the model, not something analyze/ can
+ * know or should care about.
  *
  * @typedef {Object} ContextLine
  * @property {number} line  1-based.

@@ -1,19 +1,16 @@
 name: Publish
 
-# The five reports' one publish path, called from wherever a fresh one exists —
-# ci.yml after a merge (the test explorer, the stability report) and
-# nightly.yml after its own run (the cycle-time report, the test-selection
-# report, the architecture report) — so a report goes live as soon as
-# something built it, not only when the next unrelated merge happens to carry
-# it in ("Publish nightly's reports
-# the same night, and make a manual run go live too", issue 563).
+# GitHub Pages, called from ci.yml after a merge and from nightly.yml after its
+# own run. The site is the architecture page at /architecture/ and a redirect at
+# each address a harness report used to have, sent to that report's Harness
+# Monitor page. The reports themselves (cycle time, test selection, tests, CI
+# stability) are drawn by the Monitor from the rows CI sends it (docs/deployment.md,
+# "The Harness Monitor").
 #
-# Every report is fetched the same way regardless of which workflow called
-# this one: the newest artifact from an eligible run of either workflow on
-# `main`, never the newest *successful* run, so one report's failure never
-# costs another's page — the same tolerance "Run the lead-time report
-# nightly, and publish it beside the other two" (issue 515) established for
-# the cycle-time and test-selection reports, now true of all five.
+# The architecture page is fetched as the newest artifact from an eligible run of
+# nightly.yml on `main`, never the newest *successful* run, so a night where
+# another job failed still puts the page live. A missing artifact costs that page
+# and never the redirects.
 on:
   workflow_call:
 
@@ -32,7 +29,7 @@ jobs:
       contents: read
       pages: write
       id-token: write
-      # download-artifact and the `gh api` calls below read across runs through
+      # download-artifact and the `gh api` call below read across runs through
       # the Actions API, which the workflow-level block above withholds by default.
       actions: read
     environment:
@@ -41,32 +38,16 @@ jobs:
     steps:
       # A local composite action (`./.github/actions/find-artifact`, below)
       # only resolves once the tree it lives in is on the runner — nothing
-      # here otherwise touches the checkout, since every other step reads
-      # artifacts through the API rather than the tree.
+      # here otherwise touches the checkout, since the page is read through
+      # the API rather than the tree.
       - uses: actions/checkout@v4
 
-      # Trusts only a run of ci.yml or nightly.yml, on `main`, started by a
-      # push, a schedule, or a person with write access dispatching one by
-      # hand — never a pull request from a fork branched `main`, which could
-      # otherwise upload an artifact of any name whose `head_branch` reads
-      # `main` and have this job publish it on the site's own origin.
-      #
-      # One workflow at a time, its own scoped endpoint rather than one call
-      # across every workflow in the repository: `actions/runs` would compete
-      # for its fixed page against codeql.yml, deploy-staging.yml and every
-      # other push-triggered workflow, and could age a still-valid nightly run
-      # out of the window sooner than this repository merges. Both are
-      # continue-on-error, so a transient failure on one still lets the
-      # other's reports publish, rather than failing every report at once.
-      - name: List ci.yml's eligible runs on main
-        id: ci-runs
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&per_page=50" |
-            jq -c '[.workflow_runs[] | select((.event == "push" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
-          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+      # Trusts only a run of nightly.yml, on `main`, started by a schedule or a
+      # person with write access dispatching one by hand — never a pull request
+      # from a fork branched `main`, which could otherwise upload an artifact of
+      # any name whose `head_branch` reads `main` and have this job publish it
+      # on the site's own origin. Continue-on-error, so a transient failure
+      # still lets the redirects out.
       - name: List nightly.yml's eligible runs on main
         id: nightly-runs
         continue-on-error: true
@@ -76,110 +57,6 @@ jobs:
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&per_page=50" |
             jq -c '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_repository.full_name == env.GITHUB_REPOSITORY) | .id]')
           echo "runs=$runs" >> "$GITHUB_OUTPUT"
-      - name: Combine the eligible runs
-        id: runs
-        env:
-          CI_RUNS: ${{ steps.ci-runs.outputs.runs }}
-          NIGHTLY_RUNS: ${{ steps.nightly-runs.outputs.runs }}
-        run: |
-          runs=$(jq -sc 'add' <<< "${CI_RUNS:-[]}"$'\n'"${NIGHTLY_RUNS:-[]}")
-          echo "runs=$runs" >> "$GITHUB_OUTPUT"
-
-      # The site is five reports, assembled here rather than uploaded by
-      # whichever job finished last: the explorer at the root, the stability
-      # page one directory down at /stability/, the cycle-time page at
-      # /cycle-time/, the test-selection page at /selection/ and the architecture
-      # page at /architecture/. Each stays downloadable on its own as the
-      # artifact its own job uploaded.
-      - name: Find the test explorer's report
-        id: explorer
-        uses: ./.github/actions/find-artifact
-        with:
-          name: test-explorer-report
-          runs: ${{ steps.runs.outputs.runs }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Take the test explorer's report
-        # It is not allowed to be missing — it is the page — so this one is
-        # never continue-on-error the way the other four are.
-        uses: actions/download-artifact@v4
-        with:
-          name: test-explorer-report
-          path: site/
-          run-id: ${{ steps.explorer.outputs.run-id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find the stability report
-        id: stability
-        continue-on-error: true
-        uses: ./.github/actions/find-artifact
-        with:
-          name: ci-stability-report
-          runs: ${{ steps.runs.outputs.runs }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Take the stability report, if there is one
-        if: ${{ steps.stability.outputs.run-id != '' }}
-        # A page that cannot be fetched costs this page and never the site.
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: ci-stability-report
-          path: site/stability/
-          run-id: ${{ steps.stability.outputs.run-id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find the cycle-time page
-        id: cycle-time
-        continue-on-error: true
-        uses: ./.github/actions/find-artifact
-        with:
-          name: cycle-time-report
-          runs: ${{ steps.runs.outputs.runs }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Take the cycle-time page, if there is one
-        if: ${{ steps.cycle-time.outputs.run-id != '' }}
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: cycle-time-report
-          path: site/cycle-time/
-          run-id: ${{ steps.cycle-time.outputs.run-id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      # The report's old name, /lead-time/, still has links to it. Every publish
-      # rebuilds the site, so the redirect page and a copy of model.json (a
-      # JSON file cannot redirect) are written on every publish. With no
-      # cycle-time page taken the old address is no worse than the new one.
-      - name: Keep the old /lead-time/ address working
-        continue-on-error: true
-        run: |
-          mkdir -p site/lead-time
-          cat > site/lead-time/index.html <<'EOF'
-          <!doctype html>
-          <meta charset="utf-8">
-          <title>Moved to Cycle time</title>
-          <meta http-equiv="refresh" content="0; url=../cycle-time/">
-          <link rel="canonical" href="../cycle-time/">
-          <script>location.replace('../cycle-time/' + location.search + location.hash);</script>
-          <p>This report is now called <a href="../cycle-time/">Cycle time</a>.</p>
-          EOF
-          if [ -f site/cycle-time/model.json ]; then cp site/cycle-time/model.json site/lead-time/model.json; fi
-
-      - name: Find the test-selection page
-        id: selection
-        continue-on-error: true
-        uses: ./.github/actions/find-artifact
-        with:
-          name: test-selection-report
-          runs: ${{ steps.runs.outputs.runs }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Take the test-selection page, if there is one
-        if: ${{ steps.selection.outputs.run-id != '' }}
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: test-selection-report
-          path: site/selection/
-          run-id: ${{ steps.selection.outputs.run-id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find the architecture page
         id: architecture
@@ -187,7 +64,7 @@ jobs:
         uses: ./.github/actions/find-artifact
         with:
           name: architecture-report
-          runs: ${{ steps.runs.outputs.runs }}
+          runs: ${{ steps.nightly-runs.outputs.runs }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Take the architecture page, if there is one
         if: ${{ steps.architecture.outputs.run-id != '' }}
@@ -199,8 +76,47 @@ jobs:
           run-id: ${{ steps.architecture.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Every publish rebuilds the site, so the redirects are written on every
+      # publish. Each keeps the query and the hash it was opened with. A JSON file
+      # cannot redirect, so an old `model.json` address is a 404: its readers read
+      # the Monitor's page with `?format=json` instead (docs/deployment.md,
+      # "Publishing"). Without the repository variable the pages cannot point
+      # anywhere, so none is written and the run says so.
+      - name: Send each old report address to its Harness Monitor page
+        env:
+          HARNESS_MONITOR_URL: ${{ vars.HARNESS_MONITOR_URL }}
+        run: |
+          monitor="${HARNESS_MONITOR_URL%/}"
+          if ! printf '%s' "$monitor" | grep -Eq '^https://[^[:space:]"'"'"'<>\\]+$'; then
+            echo "::warning title=Old report addresses not redirected::The repository variable HARNESS_MONITOR_URL is not set to an https address, so the old report addresses were not written. See docs/deployment.md, \"The Harness Monitor\"."
+            exit 0
+          fi
+          redirect() {
+            file="site/$1"
+            target="$monitor/$2"
+            mkdir -p "$(dirname "$file")"
+            cat > "$file" <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Moved to the Harness Monitor</title>
+          <meta http-equiv="refresh" content="0; url=$target">
+          <link rel="canonical" href="$target">
+          <script>location.replace('$target' + location.search + location.hash);</script>
+          <p>This report moved to the <a href="$target">Harness Monitor</a>.</p>
+          EOF
+          }
+          redirect index.html tests
+          redirect cycle-time/index.html cycle-time
+          redirect selection/index.html selection
+          redirect stability/index.html stability
+          redirect lead-time/index.html cycle-time
+
+      # With neither the page nor the redirects there is nothing to deploy, and
+      # an upload of a missing site/ would fail the run: the live site stays as it is.
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ hashFiles('site/**') != '' }}
         with:
           path: site/
       - id: deploy
+        if: ${{ hashFiles('site/**') != '' }}
         uses: actions/deploy-pages@v4

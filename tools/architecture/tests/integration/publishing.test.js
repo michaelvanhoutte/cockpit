@@ -21,6 +21,7 @@ describe('The nightly job publishes the page and its model at /architecture/', (
   it('writes both the page and the model into one uploaded report', () => {
     const run = steps.find((step) => step.run?.includes('tools/architecture/src/cli.js')).run;
     expect(run).toContain('--out tools/architecture/out/index.html --model tools/architecture/out/model.json');
+    expect(run).toContain('--monitor "${{ vars.HARNESS_MONITOR_URL }}"');
     expect(steps.find((step) => step.uses?.startsWith('actions/upload-artifact'))).toMatchObject({ with: { name: 'architecture-report', path: 'tools/architecture/out/' } });
   });
 
