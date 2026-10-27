@@ -1,16 +1,17 @@
 /**
  * The wiring, and the only place github.js and model.js meet.
  *
- *   collect(repo) -> buildModel(...) -> renderHtml(model) -> a file
+ *   collect(repo) -> buildModel(...) -> a model file
  *                 -> monitorRows(...) -> sendPulls(...)   -> the Harness Monitor, with --send
  *                 -> monitorTimelines(...) -> sendTimelines(...), with --timelines-only instead
  *
- * `--json` stops after the second arrow, so anything else can consume the
- * model. `--send` reads once for both, back to whichever window starts earlier,
- * and sends after the page is written, so a Monitor that refuses costs the send
- * and never the page. Nothing is written until every request has come back: a page of partial
- * numbers looks exactly like a page of real ones, so a failed fetch leaves the
- * previous file in place rather than replacing it with a plausible lie.
+ * The Harness Monitor draws the page; the model file is for a person's own
+ * run. `--send` reads once for both, back to
+ * whichever window starts earlier, and sends after the model is written, so a
+ * Monitor that refuses costs the send and never the model. Nothing is written
+ * until every request has come back: a model of partial numbers looks exactly
+ * like a model of real ones, so a failed fetch leaves the previous file in
+ * place rather than replacing it with a plausible lie.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -21,16 +22,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collect, GitHubError } from './github.js';
 import { buildModel, monitorRows, monitorTimelines } from './model.js';
 import { MonitorError, newestStored, sendPulls, sendTimelines, sendWindow } from './monitor.js';
-import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>        where to write (default ../out/index.html, or model.json with --json)
-  --json              write the model instead of the page
-  --model <path>      also write the model, as --json would, to this path
+  --model <path>      where to write the model (default ../out/model.json)
   --days <n>          how far back to read (default: the widest window)
   --windows <a,b>     the windows to report, in days (default 7,14)
   --max-pulls <n>     stop after this many pull requests, and report the shorter period (default 120)
@@ -98,7 +96,6 @@ export function parseArgs(argv) {
     const arg = argv[i];
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
-    else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
     else if (arg === '--timelines-only') args.timelinesOnly = true;
     else if (arg === '--from') args.from = day(value(), '--from', args);
@@ -107,7 +104,6 @@ export function parseArgs(argv) {
       const last = day(value(), '--to', args);
       if (last) args.to = new Date(last.getTime() + DAY_MS);
     }
-    else if (arg === '--out') args.out = value();
     else if (arg === '--model') {
       const modelValue = value();
       if (!modelValue) {
@@ -139,24 +135,11 @@ export function parseArgs(argv) {
 }
 
 /**
- * What is written and its default name: the page, or with `--json` the model. Kept
- * apart from `main` so what a flag chooses can be read without a fetch.
+ * What a run writes: the model, and nothing else. Kept apart from `main` so
+ * what a run writes can be read without a fetch.
  */
 export function output(args, model) {
-  return args.json
-    ? { file: 'model.json', content: modelJson(model) }
-    : { file: 'index.html', content: renderHtml(model) };
-}
-
-/** The model as JSON, the same as output() returns for --json. */
-function modelJson(model) {
-  return JSON.stringify(model, null, 2);
-}
-
-/** The default output path for the page or --json model. */
-function defaultOut(args) {
-  const file = args.json ? 'model.json' : 'index.html';
-  return path.join(here, '../out', file);
+  return { file: path.resolve(args.model ?? path.join(here, '../out/model.json')), content: JSON.stringify(model, null, 2) };
 }
 
 export async function main(argv) {
@@ -172,14 +155,6 @@ export async function main(argv) {
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
-  }
-
-  if (args.model) {
-    const effectiveOut = args.out ?? defaultOut(args);
-    if (path.resolve(args.model) === path.resolve(effectiveOut)) {
-      process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
-      return 2;
-    }
   }
 
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? repoFromGitRemote();
@@ -200,7 +175,7 @@ export async function main(argv) {
   const since = new Date(now.getTime() - days * DAY_MS);
   const backfill = Boolean(args.from);
 
-  // A Monitor that cannot say where to start costs the send, never the page.
+  // A Monitor that cannot say where to start costs the send, never the model.
   let window = null;
   let unsent = null;
   if (monitor) {
@@ -215,7 +190,7 @@ export async function main(argv) {
 
   let collected;
   try {
-    // One read serves the page and the send: back to whichever starts earlier.
+    // One read serves the model and the send: back to whichever starts earlier.
     collected = await collect({
       repo,
       branch,
@@ -292,9 +267,9 @@ async function send(monitor, collected, window, { backfill, branch, timelinesOnl
   return cut || collected.failed.length > 0 || limited > 0 ? 1 : 0;
 }
 
-/** The page, or the model, over its own window, and the model beside it with --model. */
+/** The model, over its own window. */
 function writeReport(args, collected, { now, days, since, repo, branch }) {
-  // A send can read further back than the page shows; the page keeps to its window,
+  // A send can read further back than the model shows; the model keeps to its window,
   // and a read that went back past it read all of it, whatever stopped it after.
   const pulls = collected.pulls.filter((pull) => new Date(pull.mergedAt) >= since);
   const truncated = collected.truncated && collected.coveredSince > since;
@@ -311,19 +286,10 @@ function writeReport(args, collected, { now, days, since, repo, branch }) {
     windows: args.windows,
   });
 
-  const { content } = output(args, model);
-  const out = path.resolve(args.out ?? defaultOut(args));
-  mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, content, 'utf8');
-  const written = [out];
-
-  if (args.model) {
-    const modelOut = path.resolve(args.model);
-    mkdirSync(path.dirname(modelOut), { recursive: true });
-    writeFileSync(modelOut, modelJson(model), 'utf8');
-    written.push(modelOut);
-  }
-  return { written, actualDays: model.coverage.actualDays, truncated };
+  const { file, content } = output(args, model);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, content, 'utf8');
+  return { written: [file], actualDays: model.coverage.actualDays, truncated };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

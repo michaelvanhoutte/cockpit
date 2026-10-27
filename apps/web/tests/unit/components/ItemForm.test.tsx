@@ -185,7 +185,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
   whyNotDone: (await importOriginal<typeof import('../../../src/api/queries')>()).whyNotDone,
   useSendCommand: () => held.send,
   // What a filing is built on: the Panel as it stands now, which is what `held` holds.
-  useLatestSnapshot: () => async () => ({ filings: held.filings }),
+  useLatestSnapshot: () => async () => ({ filings: held.filings, items: held.items }),
   workspacesQuery: {
     queryKey: ['workspaces'],
     queryFn: async () => ({ workspaces: [{ id: 'ws-work', name: 'Work' }] }),

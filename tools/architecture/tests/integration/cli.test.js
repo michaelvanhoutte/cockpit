@@ -119,7 +119,7 @@ describe('This repository\'s own config and workflows draw without error', () =>
     expect(deploys['deploy-staging.yml']).toEqual(['staging']);
     expect(deploys['deploy-production.yml']).toEqual(['production']);
     expect(deployment.pages.workflow).toBe('publish.yml');
-    expect(deployment.pages.reports).toEqual(expect.arrayContaining([{ artifact: 'architecture-report', path: '/architecture/' }, { artifact: 'test-explorer-report', path: '/' }]));
+    expect(deployment.pages.reports).toEqual([{ artifact: 'architecture-report', path: '/architecture/' }]);
   });
 });
 

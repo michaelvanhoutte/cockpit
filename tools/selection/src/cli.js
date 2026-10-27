@@ -1,15 +1,16 @@
 /**
- * The wiring, and the only place github.js and render/ meet.
+ * The wiring, and the only place github.js and model.js meet.
  *
- *   collect(repo) -> buildModel(...) -> renderHtml(Model) -> a file
+ *   collect(repo) -> buildModel(...) -> a model file
  *                 -> monitorRows(...) -> sendPulls(...)   -> the Harness Monitor, with --send
  *
- * `--json` stops after the second arrow. Nothing is written until every
- * request has come back: a page of partial numbers looks exactly like a page
- * of real ones, so a failed fetch leaves the previous report in place rather
- * than replacing it with a plausible lie. `--send` reads once for both, back to
- * whichever window starts earlier, and sends after the page is written, so a
- * Monitor that refuses costs the send and never the page.
+ * The model file is what the nightly job's alarms read; the Harness Monitor
+ * draws the page. Nothing is written until every request has come back: a
+ * model of partial numbers looks exactly like a model of real ones, so a failed
+ * fetch leaves the previous file in place rather than replacing it with a
+ * plausible lie. `--send` reads once for both, back to whichever window starts
+ * earlier, and sends after the model is written, so a Monitor that refuses
+ * costs the send and never the model.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -21,16 +22,13 @@ import { collect, GitHubError } from './github.js';
 import { listAlarmIssues } from './issues.js';
 import { buildModel, monitorBars, monitorRows } from './model.js';
 import { MonitorError, newestStored, sendPulls, sendWindow } from './monitor.js';
-import { renderHtml } from './render/html.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DAY_MS = 86_400_000;
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>        where to write (default ../out/index.html, or model.json with --json)
-  --json              write the model instead of the page
-  --model <path>      also write the model, as --json would, to this path
+  --model <path>      where to write the model (default ../out/model.json)
   --days <n>          how far back to read (default 14)
   --windows <a,b>     the windows "Is selection working?" reports, in days (default 7,14)
   --max-pulls <n>     stop after this many merged pull requests (default 150)
@@ -75,7 +73,6 @@ export function parseArgs(argv) {
     const arg = argv[i];
     const value = () => argv[(i += 1)];
     if (arg === '--help' || arg === '-h') args.help = true;
-    else if (arg === '--json') args.json = true;
     else if (arg === '--send') args.send = true;
     else if (arg === '--from') args.from = day(value(), '--from', args);
     // The last day is inclusive, so the window ends at the start of the day after it.
@@ -83,7 +80,6 @@ export function parseArgs(argv) {
       const last = day(value(), '--to', args);
       if (last) args.to = new Date(last.getTime() + DAY_MS);
     }
-    else if (arg === '--out') args.out = value();
     else if (arg === '--model') {
       const modelValue = value();
       if (!modelValue) {
@@ -110,24 +106,9 @@ export function parseArgs(argv) {
   return args;
 }
 
-/**
- * What is written and its default name: the page, or with `--json` the model.
- */
+/** What a run writes: the model, and nothing else. */
 export function output(args, model) {
-  return args.json
-    ? { file: 'model.json', content: modelJson(model) }
-    : { file: 'index.html', content: renderHtml(model) };
-}
-
-/** The model as JSON, the same as output() returns for --json. */
-function modelJson(model) {
-  return JSON.stringify(model, null, 2);
-}
-
-/** The default output path for the page or --json model. */
-function defaultOut(args) {
-  const file = args.json ? 'model.json' : 'index.html';
-  return path.join(here, '../out', file);
+  return { file: path.resolve(args.model ?? path.join(here, '../out/model.json')), content: JSON.stringify(model, null, 2) };
 }
 
 export async function main(argv) {
@@ -143,14 +124,6 @@ export async function main(argv) {
   if (args.help) {
     process.stdout.write(USAGE);
     return 0;
-  }
-
-  if (args.model) {
-    const effectiveOut = args.out ?? defaultOut(args);
-    if (path.resolve(args.model) === path.resolve(effectiveOut)) {
-      process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
-      return 2;
-    }
   }
 
   const repo = args.repo ?? process.env.GITHUB_REPOSITORY ?? repoFromGitRemote();
@@ -172,7 +145,7 @@ export async function main(argv) {
   const token = resolveToken();
   const backfill = Boolean(args.from);
 
-  // A Monitor that cannot say where to start costs the send, never the page.
+  // A Monitor that cannot say where to start costs the send, never the model.
   let window = null;
   let unsent = null;
   if (monitor) {
@@ -187,7 +160,7 @@ export async function main(argv) {
 
   let collected;
   try {
-    // One read serves the page and the send: back to whichever starts earlier.
+    // One read serves the model and the send: back to whichever starts earlier.
     collected = await collect({
       repo,
       branch,
@@ -205,14 +178,14 @@ export async function main(argv) {
     throw error;
   }
 
-  // Each bar's alarm is linked from the page and sent with its threshold: a page without the links is
+  // Each bar's alarm is carried in the model and sent with its threshold: a model without the links is
   // still true, so unlike the pull requests above a failed read costs the links, and the Monitor keeps
   // the alarm issues it holds rather than being told there are none.
   let alarms = null;
   try {
     alarms = await listAlarmIssues({ repo, token });
   } catch (error) {
-    process.stderr.write(`could not read the alarm issues, so the page links none${monitor ? ' and the Harness Monitor keeps the ones it holds' : ''}: ${error.message}\n`);
+    process.stderr.write(`could not read the alarm issues, so the model links none${monitor ? ' and the Harness Monitor keeps the ones it holds' : ''}: ${error.message}\n`);
   }
 
   if (!backfill) {
@@ -258,9 +231,9 @@ async function send(monitor, collected, window, { alarms, backfill }) {
   return cut ? 1 : 0;
 }
 
-/** The page, or the model, over its own window, and the model beside it with --model. */
+/** The model, over its own window. */
 function writeReport(args, collected, { alarms, now, days, since, repo, branch }) {
-  // A send can read further back than the page shows; the page keeps to its window,
+  // A send can read further back than the model shows; the model keeps to its window,
   // and a read that went back past it read all of it, whatever stopped it after.
   const pulls = collected.pulls.filter((data) => new Date(data.pull.mergedAt) >= since);
   const model = buildModel({
@@ -276,19 +249,10 @@ function writeReport(args, collected, { alarms, now, days, since, repo, branch }
     windows: args.windows,
   });
 
-  const { content } = output(args, model);
-  const out = path.resolve(args.out ?? defaultOut(args));
-  mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, content, 'utf8');
-  const written = [out];
-
-  if (args.model) {
-    const modelOut = path.resolve(args.model);
-    mkdirSync(path.dirname(modelOut), { recursive: true });
-    writeFileSync(modelOut, modelJson(model), 'utf8');
-    written.push(modelOut);
-  }
-  return { written, pulls: pulls.length };
+  const { file, content } = output(args, model);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, content, 'utf8');
+  return { written: [file], pulls: pulls.length };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -1,39 +1,33 @@
 # CI Stability
 
 Answers, without opening the Actions tab and counting: **is `main` staying green, and
-which job is least reliable.** Reads the GitHub Actions API and writes one self-contained
-HTML page. Keeps no state — GitHub already stores this history, so every run re-derives it —
-and with `--send` hands the runs to the Harness Monitor, which keeps them past GitHub's 90 days.
+which job is least reliable.** Reads the GitHub Actions API and writes the model. Keeps no state —
+GitHub already stores this history, so every run re-derives it — and with `--send` hands the runs to
+the Harness Monitor, which keeps them past GitHub's 90 days and draws the page. This tool draws none.
 
 The options considered and rejected, and the measured baseline, are in
 [docs/ci-stability-options.md](../../docs/ci-stability-options.md).
 
 ## Reading it without running it
 
-Published on every merge to `main` at
-**<https://michaelvanhoutte.github.io/cockpit/stability/>** — no sign-in needed. The test
-explorer is at the root, the [cycle-time page](../cycle-time/README.md) at `/cycle-time/` and the
-[test-selection page](../selection/README.md) at `/selection/`; those four link to one another, and the
-[architecture page](../architecture/README.md) at `/architecture/` links to them.
-
-Every `main` run also uploads the page and model as the `ci-stability-report` artifact, from the
-`Stability` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The published
-site carries `model.json` beside the page.
+On the Harness Monitor, at `/stability` (`?format=json` answers the same view as JSON). The `Stability`
+job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) works the model out and sends it on
+every merge to `main`. [deployment.md](../../docs/deployment.md), "The environments", says where the Monitor
+is and what became of the old `/stability/` address on GitHub Pages and its `model.json`.
 
 ## Running it
 
 ```bash
-pnpm stability            # from the repo root — writes out/index.html
+pnpm stability            # from the repo root — writes out/model.json
 ```
 
 ```bash
 cd tools/ci-stability
-node src/cli.js                       # writes out/index.html
-node src/cli.js --json                # writes out/model.json instead
+node src/cli.js                       # writes out/model.json
 node src/cli.js --days 7              # a shorter window
 node src/cli.js --windows 1,7         # different columns
 node src/cli.js --repo owner/name     # a different repository
-node src/cli.js --model out/model.json   # writes the page and, beside it, the model
+node src/cli.js --model somewhere/model.json   # writes the model there instead
 node src/cli.js --help
 ```
 
@@ -58,12 +52,12 @@ failed step and names no test. Dependabot's runs, named for their update, are on
 earlier attempt, and a failed job with a record two more.
 
 ```bash
-node src/cli.js --branches --send                       # every other branch's attempts, no page
+node src/cli.js --branches --send                       # every other branch's attempts, no model
 node src/cli.js --branches --send --from 2026-10-01     # that window, whatever the Monitor holds
 ```
 
 `--branches` sends every attempt of every run on a branch other than `main`'s (a pull request's run,
-or a push to another branch) and nothing else: no page, no run. It is the `Branch attempts` job in
+or a push to another branch) and nothing else: no model, no run. It is the `Branch attempts` job in
 [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml), every night. It starts from the
 newest *branch* attempt the Monitor holds less two days (`GET /v1/ci-attempts?on=branches`), so
 `main`'s send never moves it, and goes a day at a time, oldest first: list the day's runs by their
@@ -92,8 +86,7 @@ records exist only from the day they began to name tests and expire after 30 day
 annotations and one more for the log of each such job, and a job that ran no tests, or whose log names none,
 keeps its failed step alone.
 
-`out/index.html` is a complete file — open it directly, no server needed, and it is
-gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
+`out/model.json` is gitignored. A token is taken from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`; without
 one the API allows 60 requests an hour, which is not enough for a full window.
 
 ## What the numbers mean
@@ -123,20 +116,20 @@ one the API allows 60 requests an hour, which is not enough for a full window.
   order of the step's median position across the runs that have it. Skipped and cancelled
   steps, steps with no start or end, and every step of a job that did not pass or fail are
   left out, so a step seen only in cancelled jobs has no row. A step with nothing counted
-  reads "no data", not 0. The model carries them; the page does not draw them yet.
+  reads "no data", not 0. The model carries them.
 - **A conclusion the model does not recognise is counted as neither pass nor fail**, and
   named on the page. Silently reading a new conclusion as success is the one way this
   report could mislead in the reassuring direction.
 
-## How a report gets built
+## How a run goes
 
 ```
-collect(repo)  →  buildModel(...)  →  renderHtml(Model)  →  out/index.html
-  (src/github.js)   (src/model.js)      (src/render/)
+collect(repo)  →  buildModel(...)  →  out/model.json
+  (src/github.js)   (src/model.js)     monitorRows(...)  →  the Harness Monitor, with --send
 ```
 
 `github.js` is the only file that does I/O and `model.js` the only one that computes;
-`render/` imports the model and never the fetcher. `--json` stops after the second arrow.
+`cli.js` wires them.
 
 **Request cost is what shapes `github.js`**, and its header comment is where that is worked
 out. It is also the reason for `--max-runs` and for the `Stability` job running on `main`

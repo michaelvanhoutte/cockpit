@@ -10,6 +10,7 @@ import {
   itemSchema,
   textsFromCapture,
   nextColor,
+  stillOpen,
   themeOf,
   type CommandPayload,
   type Dashboard,
@@ -58,8 +59,8 @@ export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayl
  *
  * **A filing is the order it carries, written over the Panel's.** An order is the
  * Panel's whole arrangement afterwards, so drawing it is replacing the Panel's
- * filings with it; what a move takes the Item off is the Panels it names, else
- * every one.
+ * filings with it, bar a finished Item's it leaves out, which the server keeps;
+ * what a move takes the Item off is the Panels it names, else every one.
  *
  * **A Dashboard change is drawn as the server will make it** ("Show a Dashboard
  * change the moment you make it", issue 1362): a new one at the end of the bar
@@ -454,9 +455,15 @@ function filedAhead(
   if (!item) return snapshot;
   const named = filing.panelId === null ? [] : (filing.fromPanelIds ?? []);
   const takenOff = (panelId: string) => how === 'move' && (named.length === 0 || named.includes(panelId));
+  // A finished Item the order leaves out keeps its place, as the server keeps one finished more than a day ago
+  // ("Open a Workspace without its finished Items", issue 1435): only a copy with the finished read merged in holds one.
+  const inTheOrder = new Set(filing.order);
+  const finished = new Set(snapshot.items.filter((one) => !stillOpen(one)).map((one) => one.id));
+  const keptOnTheTarget = (held: { itemId: string }) => !inTheOrder.has(held.itemId) && finished.has(held.itemId);
   const kept = snapshot.filings.filter(
     (held) =>
-      !(held.itemId === filing.itemId && takenOff(held.panelId)) && (filing.panelId === null || held.panelId !== filing.panelId),
+      !(held.itemId === filing.itemId && takenOff(held.panelId)) &&
+      (filing.panelId === null || held.panelId !== filing.panelId || keptOnTheTarget(held)),
   );
   const landed =
     filing.panelId === null

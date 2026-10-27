@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { decideAlarms } from '../../src/alarm.js';
-import { renderHtml } from '../../src/render/html.js';
 import { anAlarm, bothForcedFull, e2eForcedFull, MISSED_FILE, modelOf, quiet, tooFew, withAMiss } from '../support/model.js';
 
 const decide = (pulls, alarms = []) => decideAlarms({ model: modelOf(pulls), alarms });
@@ -24,8 +23,23 @@ describe('Test selection report', () => {
       expect(issue.body).toContain('Fix: place a file by what imports it');
       expect(issue.body).toContain('**First crossed** 2026-02-15');
       expect(issue.body).toContain('**Last updated** 2026-02-15 by the nightly Selection job');
-      expect(issue.body).toContain('https://o.github.io/r/selection/');
       expect(issue.body).toContain('It is a pointer, not a brief: scope it before building.');
+    });
+
+    it.each([
+      { situation: 'the Monitor’s address', monitor: 'https://monitor.test', link: '**Read it at** https://monitor.test/selection\n' },
+      { situation: 'the Monitor’s address with a trailing slash', monitor: 'https://monitor.test/', link: '**Read it at** https://monitor.test/selection\n' },
+    ])('an issue links the Monitor’s Test selection page from $situation', ({ monitor, link }) => {
+      const created = only(decideAlarms({ model: modelOf(e2eForcedFull()), alarms: [], monitor }));
+      expect(created.body).toContain(link);
+      expect(created.body).not.toContain('github.io');
+      const edited = only(decideAlarms({ model: modelOf(e2eForcedFull()), alarms: [anAlarm({ number: 4, bar: 'e2e-forced-full' })], monitor }));
+      expect(edited.kind).toBe('edit');
+      expect(edited.body).toContain(link);
+    });
+
+    it('an issue links no page where the repository has not set the Monitor’s address', () => {
+      expect(only(decide(e2eForcedFull())).body).not.toContain('Read it at');
     });
 
     it('a window that is only partly covered says how much of it was', () => {
@@ -164,10 +178,8 @@ describe('Test selection report', () => {
     });
   });
 
-  describe('the page links each crossed bar to the alarm that is open for it', () => {
-    const strip = (pulls, alarms) => renderHtml(modelOf(pulls, { alarms })).match(/<div class="verdict[^"]*">[\s\S]*?<\/div>\s*(?=<div class="note">)/)?.[0] ?? '';
-
-    it('the model carries the open alarm’s number, the newest where there are two, and no number for a closed one', () => {
+  describe('the model links each crossed bar to the alarm that is open for it', () => {
+    it('carries the open alarm’s number, the newest where there are two, and no number for a closed one', () => {
       const model = modelOf(e2eForcedFull(), {
         alarms: [
           anAlarm({ number: 5, bar: 'e2e-forced-full' }),
@@ -177,22 +189,6 @@ describe('Test selection report', () => {
       });
       const numbers = Object.fromEntries(model.bars.items.map((bar) => [bar.id, bar.alarmIssue]));
       expect(numbers).toEqual({ 'e2e-forced-full': 8, 'test-forced-full': null, misses: null });
-    });
-
-    it('the strip’s foot links the issue, and says nothing of one where none is open', () => {
-      const linked = strip(e2eForcedFull(), [anAlarm({ number: 8, bar: 'e2e-forced-full' })]);
-      expect(linked).toContain('Filed as <a href="https://github.com/o/r/issues/8">#8 E2E forced to run every spec</a>');
-      expect(linked).toContain('closed by a person');
-      expect(strip(e2eForcedFull(), [])).not.toContain('Filed as');
-    });
-
-    it('several linked alarms read as a list', () => {
-      const linked = strip(bothForcedFull(), [anAlarm({ number: 8, bar: 'e2e-forced-full' }), anAlarm({ number: 9, bar: 'test-forced-full' })]);
-      expect(linked).toMatch(/Filed as <a [^>]*>#8 E2E forced to run every spec<\/a> and <a [^>]*>#9 Test forced to run everything<\/a>\./);
-    });
-
-    it('an alarm still open for a bar that is within is not advertised as the cause of a crossed one', () => {
-      expect(strip(quiet(), [anAlarm({ number: 8, bar: 'e2e-forced-full' })])).not.toContain('Filed as');
     });
   });
 });

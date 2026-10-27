@@ -5,7 +5,7 @@
  * failed fetch leaves nothing behind.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -65,44 +65,43 @@ const rawJob = (overrides = {}) => ({
 });
 
 describe('the generator, end to end against a stubbed API', () => {
-  it('writes a page carrying the failing job, its step and a link back to the test explorer', async () => {
+  it('writes the model, carrying the failing job and its step, and draws no page', async () => {
     stubApi({ runs: [rawRun()], jobs: [rawJob()] });
-    const out = path.join(tmp(), 'stability', 'index.html');
+    const dir = path.join(tmp(), 'stability');
+    const out = path.join(dir, 'model.json');
 
-    expect(await main(['--repo', 'o/r', '--out', out])).toBe(0);
-
-    const html = readFileSync(out, 'utf8');
-    expect(html).toContain('<title>Cockpit CI Stability</title>');
-    expect(html).toContain('E2E (F3)');
-    expect(html).toContain('Run pnpm test:e2e');
-    expect(html).toContain('href="../"');
-    // The directory it was told to write to did not exist; a report that only
-    // works into an existing tree would fail on the first CI run of a fresh
-    // checkout.
-    expect(existsSync(out)).toBe(true);
-  });
-
-  it('writes the model instead of the page when asked for it, so something else can read the numbers', async () => {
-    stubApi({ runs: [rawRun({ conclusion: 'success' })], jobs: [rawJob({ conclusion: 'success' })] });
-    const out = path.join(tmp(), 'model.json');
-
-    expect(await main(['--repo', 'o/r', '--out', out, '--json'])).toBe(0);
+    expect(await main(['--repo', 'o/r', '--model', out])).toBe(0);
 
     const model = JSON.parse(readFileSync(out, 'utf8'));
     expect(model.repo).toBe('o/r');
+    expect(JSON.stringify(model)).toContain('E2E (F3)');
+    expect(JSON.stringify(model)).toContain('Run pnpm test:e2e');
+    // The directory it was told to write to did not exist; a run that only
+    // works into an existing tree would fail on the first CI run of a fresh
+    // checkout.
+    expect(readdirSync(dir)).toEqual(['model.json']);
+  });
+
+  it('carries the numbers something else can read', async () => {
+    stubApi({ runs: [rawRun({ conclusion: 'success' })], jobs: [rawJob({ conclusion: 'success' })] });
+    const out = path.join(tmp(), 'model.json');
+
+    expect(await main(['--repo', 'o/r', '--model', out])).toBe(0);
+
+    const model = JSON.parse(readFileSync(out, 'utf8'));
     expect(model.windows[0].workflows[0].jobs[0].tally.rate).toBe(1);
   });
 
-  it('writes no page at all when the API refuses, rather than one full of plausible zeroes', async () => {
+  it('writes no model at all when the API refuses, rather than one full of plausible zeroes', async () => {
     vi.stubGlobal('fetch', async () => ({
       ok: false,
       status: 403,
       headers: { get: (name) => (name === 'x-ratelimit-remaining' ? '0' : null) },
       json: async () => ({}),
     }));
-    const out = path.join(tmp(), 'index.html');
+    const out = path.join(tmp(), 'model.json');
 
-    expect(await main(['--repo', 'o/r', '--out', out])).toBe(1);
+    expect(await main(['--repo', 'o/r', '--model', out])).toBe(1);
     expect(existsSync(out)).toBe(false);
   });
 
@@ -126,44 +125,7 @@ describe('the generator, end to end against a stubbed API', () => {
     expect(fetched).toEqual([]);
   });
 
-  it('writes both the page and the model with --model', async () => {
-    stubApi({ runs: [rawRun()], jobs: [rawJob()] });
-    const tmpDir = tmp();
-    const modelPath = path.join(tmpDir, 'model.json');
-    const pagePath = path.join(tmpDir, 'index.html');
-
-    expect(await main(['--repo', 'o/r', '--out', pagePath, '--model', modelPath])).toBe(0);
-
-    expect(existsSync(pagePath)).toBe(true);
-    expect(existsSync(modelPath)).toBe(true);
-    expect(readFileSync(pagePath, 'utf8')).toContain('<title>Cockpit CI Stability</title>');
-    expect(JSON.parse(readFileSync(modelPath, 'utf8'))).toMatchObject({ repo: 'o/r' });
-  });
-
-  it('the model with --model equals the model from --json', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-03T12:00:00Z'));
-    try {
-      const run = rawRun({ created_at: new Date('2026-10-03T12:00:00Z').toISOString() });
-      const job = rawJob({ started_at: new Date('2026-10-03T12:00:00Z').toISOString(), completed_at: new Date('2026-10-03T12:00:15Z').toISOString() });
-      stubApi({ runs: [run], jobs: [job] });
-      const tmpDir = tmp();
-      const jsonOutput = path.join(tmpDir, 'a.json');
-      const modelOutput = path.join(tmpDir, 'b.json');
-
-      expect(await main(['--repo', 'o/r', '--json', '--out', jsonOutput])).toBe(0);
-      stubApi({ runs: [run], jobs: [job] });
-      expect(await main(['--repo', 'o/r', '--out', path.join(tmpDir, 'page.html'), '--model', modelOutput])).toBe(0);
-
-      const jsonContent = readFileSync(jsonOutput, 'utf8');
-      const modelContent = readFileSync(modelOutput, 'utf8');
-      expect(jsonContent).toBe(modelContent);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  describe('with --send, the runs reach the Harness Monitor after the page is written', () => {
+  describe('with --send, the runs reach the Harness Monitor after the model is written', () => {
     const NOW = new Date('2026-10-23T12:00:00Z');
 
     /**
@@ -226,7 +188,7 @@ describe('the generator, end to end against a stubbed API', () => {
       }
     };
 
-    it('a run budget that stops the read inside the send window fails, naming the backfill, and the page over its own window is whole', async () => {
+    it('a run budget that stops the read inside the send window fails, naming the backfill, and the model over its own window is whole', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       // The Monitor is weeks behind, so the send reads past the page's 30 days and the budget stops it on 21 Sep.
       const { posted } = stubBoth({
@@ -236,7 +198,7 @@ describe('the generator, end to end against a stubbed API', () => {
       const dir = tmp();
       const said = [];
       try {
-        const args = ['--repo', 'o/r', '--out', path.join(dir, 'index.html'), '--model', path.join(dir, 'model.json'), '--send', '--max-runs', '3'];
+        const args = ['--repo', 'o/r', '--model', path.join(dir, 'model.json'), '--send', '--max-runs', '3'];
         expect(await quietly(() => main(args), said)).toBe(1);
       } finally {
         vi.useRealTimers();
@@ -255,7 +217,7 @@ describe('the generator, end to end against a stubbed API', () => {
       });
       const said = [];
       try {
-        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send', '--max-runs', '3']), said)).toBe(0);
+        expect(await quietly(() => main(['--repo', 'o/r', '--model', path.join(tmp(), 'model.json'), '--send', '--max-runs', '3']), said)).toBe(0);
       } finally {
         vi.useRealTimers();
       }
@@ -263,12 +225,12 @@ describe('the generator, end to end against a stubbed API', () => {
       expect(said.join('')).not.toContain('stopped the read');
     });
 
-    it('sends from the newest stored run less two days, and writes the page over its own window', async () => {
+    it('sends from the newest stored run less two days, and writes the model over its own window', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       const { posted } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
       try {
-        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(0);
+        expect(await quietly(() => main(['--repo', 'o/r', '--model', out, '--send']))).toBe(0);
       } finally {
         vi.useRealTimers();
       }
@@ -280,19 +242,19 @@ describe('the generator, end to end against a stubbed API', () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       const { posted } = stubBoth();
       try {
-        expect(await quietly(() => main(['--repo', 'o/r', '--out', path.join(tmp(), 'index.html'), '--send']))).toBe(0);
+        expect(await quietly(() => main(['--repo', 'o/r', '--model', path.join(tmp(), 'model.json'), '--send']))).toBe(0);
       } finally {
         vi.useRealTimers();
       }
       expect(posted).toEqual([[1, 2]]);
     });
 
-    it('a refused send fails the run and keeps the page', async () => {
+    it('a refused send fails the run and keeps the model', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       const { posted } = stubBoth({ answer: { status: 400, body: { error: 'Run 0 (2): has no conclusion.' } } });
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
       try {
-        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send']))).toBe(1);
+        expect(await quietly(() => main(['--repo', 'o/r', '--model', out, '--send']))).toBe(1);
       } finally {
         vi.useRealTimers();
       }
@@ -303,9 +265,9 @@ describe('the generator, end to end against a stubbed API', () => {
     it('a window given by hand is read as a range, sent whatever is stored, and writes nothing', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: NOW });
       const { posted, asked } = stubBoth({ newestRun: '2026-10-22T08:00:00.000Z' });
-      const out = path.join(tmp(), 'index.html');
+      const out = path.join(tmp(), 'model.json');
       try {
-        expect(await quietly(() => main(['--repo', 'o/r', '--out', out, '--send', '--from', '2026-10-01', '--to', '2026-10-20']))).toBe(0);
+        expect(await quietly(() => main(['--repo', 'o/r', '--model', out, '--send', '--from', '2026-10-01', '--to', '2026-10-20']))).toBe(0);
       } finally {
         vi.useRealTimers();
       }
@@ -320,9 +282,9 @@ describe('the generator, end to end against a stubbed API', () => {
         vi.useFakeTimers({ toFake: ['Date'], now: NOW });
         const said = [];
         const stubbed = stubBoth(options);
-        const out = path.join(tmp(), 'index.html');
+        const out = path.join(tmp(), 'model.json');
         try {
-          const code = await quietly(() => main(['--repo', 'o/r', '--out', out, '--send', ...extraArgs]), said);
+          const code = await quietly(() => main(['--repo', 'o/r', '--model', out, '--send', ...extraArgs]), said);
           return { code, said: said.join(''), out, ...stubbed };
         } finally {
           vi.useRealTimers();
@@ -379,7 +341,7 @@ describe('the generator, end to end against a stubbed API', () => {
         expect(posted.map((batch) => batch.length)).toEqual([50, 50, 20]);
       });
 
-      it('a Monitor that cannot say where the attempts start costs the attempts alone: the runs are sent and the page written', async () => {
+      it('a Monitor that cannot say where the attempts start costs the attempts alone: the runs are sent and the model written', async () => {
         const { code, said, posted, postedAttempts, out } = await sending({ withoutAttempts: true });
 
         expect(code).toBe(1);
@@ -415,22 +377,20 @@ describe('the generator, end to end against a stubbed API', () => {
     });
   });
 
-  it('refuses when --model and --out resolve to the same path', async () => {
+  it('refuses the flags that used to choose a page, before fetching anything', async () => {
     const fetched = [];
     vi.stubGlobal('fetch', async (url) => {
       fetched.push(url);
-      return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ workflow_runs: [] }) };
+      return ok({ workflow_runs: [] });
     });
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const tmpDir = tmp();
-    const samePath = path.join(tmpDir, 'model.json');
     try {
-      expect(await main(['--repo', 'o/r', '--out', samePath, '--model', samePath])).toBe(2);
+      expect(await main(['--repo', 'o/r', '--json'])).toBe(2);
+      expect(await main(['--repo', 'o/r', '--out', 'a/index.html'])).toBe(2);
       expect(fetched).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
       stderr.mockRestore();
     }
-    expect(existsSync(samePath)).toBe(false);
   });
 });

@@ -25,6 +25,7 @@ import {
   uniqueTitle,
   workspaceTab,
 } from './support/app';
+import { arrange, giveAWorkspace, giveAnEmptyDashboard } from './support/arrange';
 
 /**
  * What is drawn on top at a point. A hit test cannot say: while a menu or a
@@ -341,6 +342,46 @@ test.describe('Dashboards', () => {
       await expect(rows).toHaveCount(51);
       await press(page.getByRole('button', { name: 'Show more' }), isMobile);
       await expect.poll(() => rows.count()).toBe(62);
+    });
+
+    /**
+     * F3, because only the whole app shows both halves at once: the Workspace
+     * opened without an Item finished days ago, and All items fetching it. Which
+     * Items opening brings is
+     * apps/api/tests/integration/http/workspace-read-finished.test.ts.
+     */
+    test('opens a Workspace without an Item finished days ago, which All items lists where it was filed', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      const workspace = await giveAWorkspace(page, uniqueTitle('Household'));
+      await page.reload();
+      await switchTo(page, workspace.name, isMobile);
+      const board = await giveAnEmptyDashboard(page, uniqueTitle('Bills'), [uniqueTitle('Rent')]);
+      const panel = board.panels[0]!;
+      // Captured, filed and finished days before now: the store judges a day by
+      // its own clock, and a change older than one it follows is not applied.
+      const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString(); // clock-ok: the store reads its own clock, which the walk cannot inject
+      const [paid, due] = [uniqueTitle('Paid the October rent'), uniqueTitle('Pay the November rent')];
+      const ids = [randomUUID(), randomUUID()];
+      for (const [at, message] of [paid, due].entries()) {
+        await arrange(page, 'capture_item', { itemId: ids[at], message, issuedAt: daysAgo(3) });
+        await arrange(page, 'add_item_to_panel', { itemId: ids[at], panelId: panel.id, order: ids.slice(0, at + 1), issuedAt: daysAgo(3) });
+      }
+      await arrange(page, 'set_done', { itemId: ids[0], done: true, issuedAt: daysAgo(2) });
+      await page.reload();
+
+      await openDashboard(page, board.name, isMobile);
+      const onThePanel = page.getByRole('region', { name: panel.name });
+      await expect(onThePanel.getByText(due)).toBeVisible();
+      await expect(onThePanel.getByText(paid)).toHaveCount(0);
+
+      await chooseTabAction(page, workspaceTab(page, workspace.name), 'Show All items tab', isMobile);
+      await press(dashboardBar(page).getByRole('link', { name: 'All items' }), isMobile);
+      const row = page.getByRole('row').filter({ hasText: paid });
+      await expect(row).toContainText('Done');
+      await expect(row).toContainText(panel.name);
     });
   });
 

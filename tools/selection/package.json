@@ -3,13 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Reads what every Test job selected and why (scripts/lib/test-record.mjs's artifact) across pull requests, and writes one HTML page: is selection working, what forces a full run, which tests are picked most often.",
+  "description": "Reads what every Test job selected and why (scripts/lib/test-record.mjs's artifact) across pull requests, and works out the model the Harness Monitor's Test selection page is drawn from: is selection working, what forces a full run, which tests are picked most often.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "generate": "node src/cli.js",
-    "model": "node src/cli.js --json",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

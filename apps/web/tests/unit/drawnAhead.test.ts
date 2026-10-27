@@ -287,6 +287,25 @@ describe('Panels', () => {
 
       expect(orderOn(drawn, FALCON)).toEqual([LISA, BART]);
     });
+
+    it('keeps a finished Item the order leaves out where it was, as the server keeps one finished more than a day ago', () => {
+      const OLD = '11111111-1111-7111-8111-000000000003';
+      const copy = filedWorkspace(
+        [anItem(BART), anItem(LISA), anItem(OLD, { completedAt: '2026-09-01T09:00:00.000Z' })],
+        [[FALCON, OLD], [FALCON, LISA]],
+      );
+
+      const drawn = drawnAhead(copy, move(FALCON, [BART, LISA]));
+
+      expect(drawn.filings.filter((filing) => filing.panelId === FALCON)).toEqual(
+        expect.arrayContaining([
+          { panelId: FALCON, itemId: OLD, position: 0 },
+          { panelId: FALCON, itemId: BART, position: 0 },
+          { panelId: FALCON, itemId: LISA, position: 1 },
+        ]),
+      );
+      expect(drawn.filings.filter((filing) => filing.panelId === FALCON)).toHaveLength(3);
+    });
   });
 });
 

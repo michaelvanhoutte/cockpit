@@ -346,6 +346,18 @@ export interface Env {
    */
   USAGE_RECORDING_URL?: string | undefined;
   /**
+   * A service binding to production's Worker, declared in staging's block
+   * alone (`wrangler.jsonc`), which is how staging's records reach it:
+   * Cloudflare refuses a same-account fetch of production's `workers.dev`
+   * address, so `gateway/send.ts` sends through this where it exists and over
+   * HTTPS to `USAGE_RECORDING_URL` where it does not ("Send staging's usage
+   * records to production through a service binding, since its workers.dev
+   * address refuses them", issue 1618). Absent in production, locally and in CI.
+   * Typed as the one method used rather than as `Fetcher`, whose platform types
+   * clash with the web app's, which type-checks this file too.
+   */
+  PRODUCTION?: { fetch(input: string, init?: RequestInit): Promise<Response> } | undefined;
+  /**
    * **Production's three recording tokens, one per environment that sends**,
    * each a separate secret so one leaked is revoked alone. Which one a request
    * carries is the only thing that says which environment its records are
