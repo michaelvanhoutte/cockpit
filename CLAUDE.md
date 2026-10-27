@@ -28,6 +28,8 @@ pnpm dev
 - **Parallel cases are a table or a list**, not prose walking through each one.
 - **Start at the point, and cut what the reader can see.** No "it is worth noting that"; no describing the code, diff or table that follows.
 
+**Put a design or architecture choice you stop to ask the engineer about in what they would see in the product, before any internal term.** Use a small concrete case ("your Rent Panel holds A, B and C, and you reopen B"), say what they would see under each option and why in a clause, then say which you would pick. Terms such as read, series, filing, position or snapshot come after, if at all, since the engineer decides from the product rather than the code: two choices behind "Open a Workspace without its finished Items" (pull request 1635) were agreed only once retold that way.
+
 **Four rules are checked rather than reviewed**, over every Markdown file outside `poc/`: an issue number with no title named for it, a `§N` or `rule N` citation resolving to nothing the file offers, an unbalanced `**`, and a paragraph appearing near-verbatim in two places. `pnpm test:scripts` runs them, as does CI's `Checks` job; `scripts/lib/writing-rules.mjs` holds each one's reach. The same run reports the counting words on the lines you touched — "three things", "both", "nine areas" — as a prompt to check the claim, not a failure.
 
 ## Starting an issue
