@@ -35,6 +35,7 @@ import {
 } from './domain/claude-send.js';
 import { claudeProposalsSchema } from './domain/claude-proposal.js';
 import { dueInDaysSchema } from './domain/source-account.js';
+import { emailLocalPartSchema } from './domain/email-address.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
   filterConditionSchema,
@@ -49,7 +50,7 @@ import {
 } from './domain/panel.js';
 import { hexColorSchema } from './domain/workspace-themes.js';
 
-/** What a change to the whole account names instead of a workspace: remembered sentences, the Item form's presentation, the Follow-ups number. */
+/** What a change to the whole account names instead of a workspace: remembered sentences, the Item form's presentation, the Follow-ups number, the Email to Cockpit address. */
 export const ACCOUNT_WIDE = 'account';
 
 /**
@@ -744,6 +745,18 @@ export const setFollowUpDaysSchema = commandEnvelopeSchema.extend({
   days: followUpDaysSchema,
 });
 export type SetFollowUpDaysCommand = z.infer<typeof setFollowUpDaysSchema>;
+
+/**
+ * set_email_address — the account's Email to Cockpit address ("Get an Email to
+ * Cockpit address, and receive mail at it", issue 1466): *Get an address* and
+ * *Make a new address…* name a new random part, made in the browser; *Turn
+ * off* names none. The address it replaces stops working. Account-scoped:
+ * `workspaceId` on the envelope is `ACCOUNT_WIDE`.
+ */
+export const setEmailAddressSchema = commandEnvelopeSchema.extend({
+  localPart: emailLocalPartSchema.nullable(),
+});
+export type SetEmailAddressCommand = z.infer<typeof setEmailAddressSchema>;
 /**
  * propose_item_texts — one command for both texts, sent by the enrichment job
  * rather than a client ("Clean up a captured note into a clear title and a
@@ -1069,6 +1082,7 @@ export const commandSchemas = {
   remove_attachment: removeAttachmentSchema,
   set_item_form_presentation: setItemFormPresentationSchema,
   set_follow_up_days: setFollowUpDaysSchema,
+  set_email_address: setEmailAddressSchema,
   propose_item_texts: proposeItemTextsSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,
@@ -1149,6 +1163,12 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * 1332). Absent when nothing was logged: a replay of a change already applied.
  * Optional so an answer from a Worker older than this field reads as before.
  *
+ * `addressLetGo` is present only for `set_email_address`, and only where it
+ * applied and the account held another address before: that address's random
+ * part, which the Worker then forgets from the register ("Get an Email to
+ * Cockpit address, and receive mail at it", issue 1466). Read off the same
+ * atomic call for the reason `settledRouting` is, and never sent to the browser.
+ *
  * All absent, not `false`, everywhere else - every other command answers
  * `applied` alone, exactly as before any of them existed.
  */
@@ -1158,6 +1178,7 @@ export const commandResultSchema = z.object({
   at: z.iso.datetime().optional(),
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
+  addressLetGo: z.string().optional(),
   fieldsSet: z
     .object({
       priority: prioritySchema.optional(),

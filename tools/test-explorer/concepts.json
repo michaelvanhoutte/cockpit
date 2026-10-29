@@ -401,6 +401,18 @@
       ]
     },
     {
+      "key": "Email to Cockpit",
+      "label": "Email to Cockpit",
+      "browserWalks": 3,
+      "parent": "Capture",
+      "sourcePatterns": [
+        "packages/shared/src/domain/email-address.ts",
+        "apps/api/src/email/register.ts",
+        "apps/api/src/email/receive.ts",
+        "apps/web/src/components/EmailToCockpit.tsx"
+      ]
+    },
+    {
       "key": "Suggestions",
       "label": "Suggestions",
       "parent": "Capture",

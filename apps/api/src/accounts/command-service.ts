@@ -5,6 +5,7 @@ import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../doma
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
+  accountEmailAddress,
   accountFollowUps,
   accountItemFormPresentation,
   agentRuns,
@@ -1083,6 +1084,8 @@ export function runCommand<N extends CommandName>(
   let recordedCorrection = false;
   // Set only by `propose_item_fields`, where it applied.
   let fieldsSet: FieldsSet | null = null;
+  // Set only by `set_email_address`, where it replaced or dropped an address.
+  let addressLetGo: string | null = null;
 
   switch (name) {
     case 'create_workspace': {
@@ -2097,6 +2100,34 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_email_address': {
+      const cmd = payload as CommandPayload<'set_email_address'>;
+      // Every Workspace's snapshot carries it, as the Follow-ups number above.
+      everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        const held = tx
+          .select({ localPart: accountEmailAddress.localPart })
+          .from(accountEmailAddress)
+          .where(eq(accountEmailAddress.tenantId, tenantId))
+          .get();
+        if (cmd.localPart === null) {
+          tx.delete(accountEmailAddress).where(eq(accountEmailAddress.tenantId, tenantId)).run();
+        } else {
+          tx.insert(accountEmailAddress)
+            .values({ tenantId, localPart: cmd.localPart, heldAt: commandRow.receivedAt })
+            .onConflictDoUpdate({
+              target: accountEmailAddress.tenantId,
+              set: { localPart: cmd.localPart, heldAt: commandRow.receivedAt },
+            })
+            .run();
+        }
+        // The one it held stops working: the HTTP layer forgets its register
+        // row, read off this same call (`addressLetGo`).
+        if (held && held.localPart !== cmd.localPart) addressLetGo = held.localPart;
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'connect_source_account': {
       const cmd = payload as CommandPayload<'connect_source_account'>;
       // The Workspace is what the connection belongs to, so one that has been
@@ -2882,5 +2913,6 @@ export function runCommand<N extends CommandName>(
     ...(settledRouting ? { settledRouting } : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
+    ...(addressLetGo ? { addressLetGo } : {}),
   };
 }

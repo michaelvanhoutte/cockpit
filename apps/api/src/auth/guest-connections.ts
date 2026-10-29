@@ -17,12 +17,16 @@ import type { GatedEnv } from './gate.js';
  * gives.
  */
 
-/** The addresses that connect, change, test or disconnect a source account. */
+/**
+ * The addresses that connect, change, test or disconnect a source account, and
+ * the one that gets, renews or turns off the Email to Cockpit address (issue
+ * 1466): an address in the shared account would be everybody's.
+ */
 export function isConnectionChange(path: string): boolean {
   return (
     /^\/v1\/workspaces\/[^/]+\/connections\//.test(path) ||
     /^\/v1\/connections\//.test(path) ||
-    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name|set_connection_due_in_days)$/.test(
+    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name|set_connection_due_in_days|set_email_address)$/.test(
       path,
     )
   );

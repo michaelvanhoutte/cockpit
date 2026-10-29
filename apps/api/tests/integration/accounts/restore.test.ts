@@ -488,7 +488,7 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0097-account-follow-ups` adds a table and no column; the guest's
+    // `0098-account-email-address` adds a table and no column; the guest's
     // demonstration adds rows only, and only to the guest.
   };
 

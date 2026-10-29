@@ -303,6 +303,8 @@ const commandSenders = {
     api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
   set_follow_up_days: (p: CommandPayload<'set_follow_up_days'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_follow_up_days.$post({ json: p }, o),
+  set_email_address: (p: CommandPayload<'set_email_address'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_email_address.$post({ json: p }, o),
 } as const;
 
 /**

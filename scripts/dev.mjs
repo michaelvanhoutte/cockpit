@@ -234,6 +234,14 @@ if (running.api) {
         // is untouched by it.
         '--var',
         'GUEST_SIGN_IN:true',
+        // Where this stack receives Email to Cockpit mail ("Get an Email to
+        // Cockpit address, and receive mail at it", issue 1466), so Settings >
+        // Connections offers *Get an address*. Nothing routes mail here; hand
+        // the email event one with
+        // POST /cdn-cgi/local/email?from=you@example.com&to=<address>
+        // on this Worker's port, the raw message as the body.
+        '--var',
+        'EMAIL_DOMAIN:mail.cockpit.localhost',
         // Where a sign-in comes back to: the address a person has open, which
         // is Vite's when both halves are running and this Worker's when it is
         // the only half there is (`pnpm dev:api`).

@@ -627,6 +627,7 @@ secret that leaks from one cannot sign anybody in to the other.
 | Binding | `PRODUCTION` | same, staging's block only: a service binding to production's Worker (`cockpit`), which staging's records go through, since Cloudflare refuses a same-account fetch of production's `workers.dev` address ("Send staging's usage records to production through a service binding, since its workers.dev address refuses them", issue 1618). Renaming production's Worker renames it here |
 | Variable | `USAGE_RECORDING_URL` | same, staging's block only: production's address, which names the route of each record (staging sends it through `PRODUCTION`). `pnpm dev` reads production's from `APP_ORIGIN` and hands it over, and `USAGE_RECORDING_URL` in the shell that starts it points a local Worker at another one |
 | Variable | `WEB_ANALYTICS_URL` | same, production's block only; empty until a person enables Cloudflare Web Analytics for the app and pastes its dashboard address, and an empty value shows no link in Usage |
+| Variable | `EMAIL_DOMAIN` | same, per environment, each its own subdomain; absent until the one-time setup in "Email to Cockpit" below is done, and absent means the environment receives no mail |
 | Secret | `GOOGLE_CLIENT_SECRET` | `wrangler secret put`, per environment |
 
 **`GUEST_SIGN_IN` is set on production and deliberately absent from staging**
@@ -817,6 +818,19 @@ wrangler secret put TWILIO_VERIFY_SERVICE_SID
 Cockpit never texts back, so nothing else is configured on the number. A text from a number nobody connected, and any request Twilio did not sign, is dropped; only the signature (`TWILIO_AUTH_TOKEN`) vouches for a request.
 
 **Rotating the auth token** replaces the key every text is checked with, so the order matters: **set the new `TWILIO_AUTH_TOKEN` secret first, then promote the new token in Twilio** (*Account* › *API keys & tokens*, *Auth tokens*: create the secondary token, set the secret to it, promote it). Promoted before the secret is set, every text fails its signature check with 403 in between, and a text arriving then is retried only if the override above works. The same token is Verify's credential for codes, so connecting a phone fails in the same window.
+
+### Email to Cockpit
+
+**Both environments, each on a subdomain of its own**, routed to its own Worker, so staging never receives production's mail ("Get an Email to Cockpit address, and receive mail at it", issue 1466). Both are on `workers.dev` today, which cannot receive mail, so this needs a domain on the Cloudflare account; which domain is the owner's call and changes no code. Done once, by the owner, before the address is offered anywhere:
+
+1. **Add the domain to the Cloudflare account** as a zone, its nameservers moved to Cloudflare, or use one already there.
+2. **Turn on Email Routing for it** (*Email* › *Email Routing*), and **add one subdomain per environment** under its *Settings* › *Subdomains*, for example `in.<domain>` for production and `in-staging.<domain>` for staging. Cloudflare adds the MX and SPF records each needs.
+3. **Route each subdomain's catch-all to its environment's Worker**: under *Routing rules*, *Catch-all address*, the action *Send to a Worker*, `cockpit` for production's subdomain and `cockpit-staging` for staging's. Every address on the subdomain then reaches the Worker's email event, which rejects any address no account holds. **Unchecked: that the catch-all reaches a subdomain added in step 2** rather than the zone's own name alone. If mail to an address got in Settings bounces with nothing in the Worker's log, that is the first thing to look at.
+4. **Set `EMAIL_DOMAIN`** to the subdomain in that environment's `vars` in `apps/api/wrangler.jsonc` (the table above), production's in the top-level block and staging's in `env.staging`, in a pull request that deploys as any other. From then on Settings › Connections draws *Your account* and *Get an address* there. Not a secret.
+
+**The authenticity spike**, on staging once steps 1 to 4 are done there, before capture is built ("Mail your Cockpit address to capture a note", issue 1468): get an address in Settings, then send it real mail from a Gmail and an Outlook account. Each arrives in the Worker's log as `mail to an Email to Cockpit address arrived and was dropped`, with the authentication results Email Routing handed over and the name of every header. Then `wrangler secret put EMAIL_EVENT_THROWS --env staging` with the value `true`, which makes the event throw after logging, send one more and record what reaches the sender (a bounce, a retry, nothing) and what Email Routing's own activity log says; then `wrangler secret delete EMAIL_EVENT_THROWS --env staging`. A secret rather than a variable, so a deploy in between does not drop it. Post both findings on "Email Cockpit to capture a note, and Cc or Bcc it to wait for a reply" (issue 1455).
+
+**Locally**, `pnpm dev` sets `EMAIL_DOMAIN` to `mail.cockpit.localhost`, which nothing routes to. Hand the email event a mail with `POST /cdn-cgi/local/email?from=<sender>&to=<address>` on the API's port, the raw message as the body.
 
 ### A Google Cloud project for Gmail
 
