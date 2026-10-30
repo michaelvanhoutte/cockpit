@@ -161,6 +161,7 @@ import {
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
+import { forgetAddressAfterLettingGo, holdAddress } from '../email/register.js';
 import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';
 import type { Env } from '../env.js';
 
@@ -1780,6 +1781,27 @@ const routes = app
   )
   .openapi(commandRoute('set_follow_up_days'), async (c) =>
     c.json(await change(c, 'set_follow_up_days', c.req.valid('json')), 200),
+  )
+  /**
+   * The account's Email to Cockpit address ("Get an Email to Cockpit address,
+   * and receive mail at it", issue 1466): the register's row for a new random
+   * part first, then the store, then the register forgets the one let go - the
+   * order `email/register.ts` says why. Refused for the guest at the gate
+   * (`auth/guest-connections.ts`), since everybody shares its account.
+   */
+  .openapi(
+    commandRoute('set_email_address', { conflict: 'The random part is another account’s' }),
+    async (c) => {
+      const payload = c.req.valid('json');
+      const accountName = c.get('visitor').accountName;
+      if (payload.localPart !== null) {
+        const held = await holdAddress(c.env, payload.localPart, accountName, new Date().toISOString());
+        if (held === 'taken') throw new ConflictInAccountError('That address could not be made. Try again.');
+      }
+      const { addressLetGo, ...result } = await change(c, 'set_email_address', payload);
+      if (addressLetGo) await forgetAddressAfterLettingGo(c.env, addressLetGo, accountName);
+      return c.json(result, 200);
+    },
   )
   // --- dictation ("Dictate in Write with Whisper", issue 1041): outside the
   // OpenAPI/JSON contract for the reason attachments are - the body is the

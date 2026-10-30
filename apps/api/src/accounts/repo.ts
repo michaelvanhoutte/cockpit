@@ -45,6 +45,7 @@ import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } fr
 import type { JudgeableItem, TextCorrectionEntry } from '../domain/text-corrections.js';
 import type { QueuedRewriteAttempt, RewriteHistoryEntryRow, RewriteOutcome } from '../domain/rewrite-history.js';
 import {
+  accountEmailAddress,
   accountFollowUps,
   accountItemFormPresentation,
   agentRunActivity,
@@ -1870,6 +1871,20 @@ export function getFollowUpDays(db: AccountDb, tenantId: string): number {
     .where(eq(accountFollowUps.tenantId, tenantId))
     .get();
   return row?.days ?? FOLLOW_UP_DAYS;
+}
+
+/**
+ * The random part of the account's Email to Cockpit address, or null where it
+ * holds none ("Get an Email to Cockpit address, and receive mail at it", issue
+ * 1466).
+ */
+export function getEmailLocalPart(db: AccountDb, tenantId: string): string | null {
+  const row = db
+    .select({ localPart: accountEmailAddress.localPart })
+    .from(accountEmailAddress)
+    .where(eq(accountEmailAddress.tenantId, tenantId))
+    .get();
+  return row?.localPart ?? null;
 }
 
 /**

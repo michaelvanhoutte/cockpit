@@ -199,14 +199,15 @@ export async function startFromEmpty(): Promise<void> {
     });
   }
   await abortAllDurableObjects();
-  // Children before parents: `sessions` points at `users` and
-  // `connector_directory` at `tenants`, which `users` also points at, and every
-  // one of those foreign keys is real.
+  // Children before parents: `sessions` points at `users`, and
+  // `connector_directory` and `email_addresses` at `tenants`, which `users` also
+  // points at, and every one of those foreign keys is real.
   await env.DB.prepare('DELETE FROM sign_ins').run();
   await env.DB.prepare('DELETE FROM provider_calls').run();
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
   await env.DB.prepare('DELETE FROM connector_directory').run();
+  await env.DB.prepare('DELETE FROM email_addresses').run();
   await env.DB.prepare('DELETE FROM tenants').run();
   // What the OAuth library keeps for connected apps, which lives as long as
   // the run otherwise and would carry one case's grants into the next.

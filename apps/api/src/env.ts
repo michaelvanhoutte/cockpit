@@ -209,6 +209,23 @@ export interface Env {
   TWILIO_VERIFY_SERVICE_SID?: string;
   TWILIO_NUMBER?: string;
   /**
+   * The subdomain this environment receives Email to Cockpit mail on, such as
+   * `in.example.com` ("Get an Email to Cockpit address, and receive mail at
+   * it", issue 1466): Email Routing's catch-all there sends every mail to this
+   * Worker (docs/deployment.md, "Email to Cockpit"). **Not a secret.** Unset,
+   * the environment receives no mail: Settings draws no *Your account* panel,
+   * and every mail that reaches it anyway is rejected.
+   */
+  EMAIL_DOMAIN?: string;
+  /**
+   * `'true'` makes the email event throw after logging a mail to a held
+   * address - set by hand on staging for the spike alone, to see what Email
+   * Routing does with a mail whose event threw, then taken off again
+   * (docs/deployment.md, "Email to Cockpit"). Compared to the literal, as
+   * `GUEST_SIGN_IN` below is.
+   */
+  EMAIL_EVENT_THROWS?: string;
+  /**
    * Where Twilio Verify is reached, in place of `https://verify.twilio.com`.
    * Unset everywhere but local development and the browser suite, which point
    * it at the stub issuer's stand-in (scripts/lib/stub-issuer.mjs), since no

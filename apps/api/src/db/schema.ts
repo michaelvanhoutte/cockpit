@@ -259,6 +259,44 @@ export const connectorDirectory = sqliteTable(
 );
 
 /**
+ * Which account an Email to Cockpit address belongs to ("Get an Email to
+ * Cockpit address, and receive mail at it", issue 1466): the random part
+ * before the `@`, and the account to ask.
+ *
+ * **In the register because a mail arrives naming only its address**, the
+ * question `connector_directory` above answers for a push: nothing else can
+ * say whose store to open.
+ *
+ * **A hint, never the authority.** The account's own store holds the address
+ * (`account_email_address`), and a row here it does not confirm is treated as
+ * an address nobody holds and swept (`email/register.ts`). So a row left by a
+ * renewal or a turning off stopped halfway rejects mail rather than reaching
+ * the account.
+ *
+ * **One row per random part, account-wide unique**, so two accounts can never
+ * share one: a collision is refused as any duplicate is. `held_at` names the
+ * row that was read, so a sweep never deletes one written since.
+ *
+ * **A register backup does not carry it**, as it carries no connection
+ * (`connector_directory` above): a restored account has to make a new address.
+ */
+export const emailAddresses = sqliteTable(
+  'email_addresses',
+  {
+    localPart: text('local_part').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => tenants.id),
+    heldAt: text('held_at').notNull(),
+  },
+  (table) => [
+    // What deleting somebody, and forgetting one account's address, reach by.
+    index('email_addresses_account').on(table.accountId),
+    check('email_addresses_held_at_is_timestamp', isTimestamp('held_at')),
+  ],
+);
+
+/**
  * A sign-in that is still current: the cookie's value, whose it is, and when it
  * stops being believed.
  *

@@ -33,6 +33,8 @@ const held = vi.hoisted(() => ({
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
+  /** What the Workspace's snapshot says of the account's Email to Cockpit address (issue 1466): none where the environment receives no mail. */
+  emailToCockpit: null as { domain: string; localPart: string | null } | null,
   /** Whether the list of connections itself fails to read. */
   listFails: false,
   /** What a connection's history read answers with, or that it fails (issue 1140). */
@@ -62,10 +64,11 @@ vi.mock('../../../src/itemForm', () => ({
 vi.mock('../../../src/api/queries', () => ({
   useCheckConnectionNow: vi.fn(),
   whyNotDone: () => 'That did not reach the server. Try again.',
-  // The Workspace's snapshot, of which the window reads only what each source is called.
+  useSendCommand: () => () => Promise.resolve({ ok: true, applied: true }),
+  // The Workspace's snapshot, of which the window reads what each source is called and the account's Email to Cockpit address.
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () => Promise.resolve({ sourceNames: held.sourceNames }),
+    queryFn: () => Promise.resolve({ sourceNames: held.sourceNames, emailToCockpit: held.emailToCockpit }),
   }),
 }));
 
@@ -209,6 +212,7 @@ beforeEach(() => {
   held.phone.sent = [];
   held.phone.unreachable = false;
   held.sourceNames = { teams: 'Microsoft Teams', gmail: 'Gmail' };
+  held.emailToCockpit = null;
   vi.restoreAllMocks();
 });
 
@@ -1156,6 +1160,29 @@ describe('Connector management', () => {
         expect(within(row).getByText(card.displayName)).toBeInTheDocument();
         expect(within(row).getByText(card.cardText)).toBeInTheDocument();
       }
+    });
+  });
+});
+
+/** "Get an Email to Cockpit address, and receive mail at it", issue 1466: what the panel itself does is EmailToCockpit.test.tsx's. */
+describe('Email to Cockpit', () => {
+  describe('the Your account panel heads Connections where the environment receives mail, and is absent where it receives none', () => {
+    it('draws Your account above the Workspace panel', async () => {
+      held.emailToCockpit = { domain: 'in.cockpit.example', localPart: null };
+      showWindow();
+
+      const account = await screen.findByRole('group', { name: 'Your account' });
+      const workspace = screen.getByRole('group', { name: 'Workspace' });
+      expect(within(account).getByRole('button', { name: 'Get an address' })).toBeVisible();
+      expect(account.compareDocumentPosition(workspace) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('draws no Your account panel where the environment receives no mail', async () => {
+      showWindow();
+
+      // Once the cards are drawn, the Workspace's copy has long been read.
+      await screen.findByRole('heading', { name: 'Add a connection' });
+      expect(screen.queryByRole('group', { name: 'Your account' })).toBeNull();
     });
   });
 });

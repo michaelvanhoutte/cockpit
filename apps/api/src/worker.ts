@@ -11,7 +11,8 @@
  * and nowhere near the change that caused it. The OAuth library behind `/mcp`
  * names the same module in its types, which is why it is wired here too.
  */
-import type { ExecutionContext } from '@cloudflare/workers-types';
+import type { ExecutionContext, ForwardableEmailMessage } from '@cloudflare/workers-types';
+import { receiveMail } from './email/receive.js';
 import application from './index.js';
 import type { Env } from './env.js';
 import { consent } from './mcp/consent.js';
@@ -67,4 +68,6 @@ export default {
   },
   scheduled: application.scheduled,
   queue: application.queue,
+  /** Mail to an Email to Cockpit address, from Email Routing's catch-all on this environment's subdomain (issue 1466). */
+  email: (message: ForwardableEmailMessage, env: Env) => receiveMail(message, env),
 };

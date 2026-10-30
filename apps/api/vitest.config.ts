@@ -176,6 +176,13 @@ export default defineConfig({
            * (tests/integration/http/sign-in.test.ts).
            */
           GUEST_SIGN_IN: 'true',
+          /**
+           * Where this Cockpit receives Email to Cockpit mail ("Get an Email
+           * to Cockpit address, and receive mail at it", issue 1466), set as an
+           * environment that receives mail sets it. The case about one that
+           * receives none takes it off `env` for itself.
+           */
+          EMAIL_DOMAIN: 'mail.cockpit.test',
           GOOGLE_CLIENT_ID: 'cockpit-test',
           GOOGLE_CLIENT_SECRET: 'a-secret-that-proves-nothing-here',
           /**
