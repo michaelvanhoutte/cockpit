@@ -68,7 +68,7 @@ async function listedTool(token: string): Promise<ListedTool> {
   const answer = await mcp(token, 'tools/list');
   expect(answer.status).toBe(200);
   const { tools } = ((await answer.json()) as { result: { tools: ListedTool[] } }).result;
-  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run']);
+  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run', 'find_items']);
   return tools[0]!;
 }
 
@@ -206,9 +206,11 @@ describe('MCP connections', () => {
       const { path } = await attempt(app);
       const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
       const page = await shown.text();
-      expect(page).toContain('Allow Claude to create items in your Cockpit?');
-      // What it will be able to see, said plainly: the names it is told.
+      expect(page).toContain('Allow Claude to create and read items in your Cockpit?');
+      // What it will be able to see, said plainly: the names it is told, and now the items themselves.
       expect(page).toContain('see the names of your workspaces and types');
+      expect(page).toContain('read your items in every workspace');
+      expect(page).not.toContain('cannot see your items');
       expect(page).not.toContain('cannot read');
 
       const allowed = await decide(path, await signInAs(USER_ID), 'allow');
@@ -275,7 +277,7 @@ describe('MCP connections', () => {
       const session = cookiesFrom(signedIn).find((c) => c.startsWith('cockpit_session='))!;
       const shown = await SELF.fetch(`${ORIGIN}${signedIn.headers.get('location')}`, { headers: { cookie: session } });
       expect(shown.status).toBe(200);
-      expect(await shown.text()).toContain('Allow Claude to create items in your Cockpit?');
+      expect(await shown.text()).toContain('Allow Claude to create and read items in your Cockpit?');
     });
 
     it('asks somebody not signed in to sign in first, where the request is too long to bring back', async () => {

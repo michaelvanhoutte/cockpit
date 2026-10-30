@@ -16,6 +16,7 @@ export * from './domain/filter-groups.js';
 export * from './domain/filters.js';
 export * from './domain/find-item.js';
 export * from './domain/item.js';
+export * from './domain/item-link.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';

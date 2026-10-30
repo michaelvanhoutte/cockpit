@@ -6,11 +6,13 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ACCOUNT_WIDE, textsFromCapture, uuidv7 } from '@cockpit/shared';
+import { ACCOUNT_WIDE, itemLink, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
+import { FIND_ITEMS, findItemsReply, findItemsTool, readFind, resolvePanels } from './find-items.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -26,7 +28,8 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Two tools, `create_item` and `report_run` (issue 1160), and no resources or prompts: the server declares
+ * Three tools - `create_item`, `report_run` (issue 1160) and the read-only
+ * `find_items` (issue 1240) - and no resources or prompts: the server declares
  * the tools capability alone, so a client never asks for the others.
  */
 
@@ -78,21 +81,24 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      return { tools: [createItemTool(await account.workspaces()), reportRunTool()] };
+      const workspaces = await account.workspaces();
+      return { tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces)] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN) {
+    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN && params.name !== FIND_ITEMS) {
       return toolError(`There is no tool called ${params.name}.`);
     }
     try {
       const said =
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
-          : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+          : params.name === FIND_ITEMS
+            ? await findItems(env, account, holder.accountName, app, params.arguments)
+            : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -186,9 +192,8 @@ async function capture(
   const where = read.decided
     ? `the ${workspaces.find((w) => w.id === read.workspaceId)?.name ?? ''} Inbox`
     : 'every Inbox, until a workspace is chosen for it';
-  const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
-  link.searchParams.set('item', itemId);
-  return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+  const link = itemLink(new URL(env.APP_ORIGIN).origin, read.workspaceId, itemId);
+  return { reply: `Captured "${title}" in ${where}. Open it: ${link}` };
 }
 
 /**
@@ -227,6 +232,64 @@ async function reportRun(
     throw error;
   }
   return { reply: 'Reported. Cockpit now shows this on the item.' };
+}
+
+/**
+ * One `find_items` call (issue 1240): admitted under its own counters, read
+ * against the account as it is now, answered from the account's Items - and
+ * only read: nothing is written, queued or noted.
+ *
+ * **Counted before anything is read**, refused ones included in what the
+ * caller sees but not in the count, so a caller that waits is let in again. A
+ * refused argument is a call counted all the same: it read the workspaces.
+ */
+async function findItems(
+  env: Env,
+  account: Account,
+  accountName: string,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  const admitted = await account.findItemsArrived(app.grantId, new Date().toISOString());
+  if (admitted === 'too-many-a-minute') {
+    return { refusal: 'Too many find_items calls in the last minute. Wait a minute and try again.' };
+  }
+  if (admitted === 'too-many-a-day') {
+    return { refusal: 'Too many find_items calls today. Try again tomorrow.' };
+  }
+
+  const workspaces = await account.workspaces();
+  const read = readFind(args, workspaces, new Date());
+  if (!read.ok) return { refusal: read.refusal };
+
+  let panelIds: string[] | null = null;
+  if (read.panel !== null) {
+    const resolved = resolvePanels(read.panel, await account.panelsToFind(read.ask.workspaceId));
+    if (!resolved.ok) return { refusal: resolved.refusal };
+    panelIds = resolved.panelIds;
+  }
+
+  const page = await account.findItems({ ...read.ask, panelIds });
+  const files = await fileLinks(env, accountName, page.found.flatMap((found) => found.attachments.map((file) => file.id)));
+  return { reply: findItemsReply(page, workspaces, { origin: new URL(env.APP_ORIGIN).origin, files }, read.workspace) };
+}
+
+/**
+ * The address that opens each of these attachments for an hour without a
+ * sign-in - the sealed link the hand-off to Cowork and Claude Code mints
+ * (`attachmentLinksRoute`, issue 573). **Names only where the environment has
+ * no sealing key**: the reply then carries no address at all rather than one
+ * that cannot work.
+ */
+async function fileLinks(env: Env, accountName: string, attachmentIds: readonly string[]): Promise<Record<string, string>> {
+  const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
+  if (!key) return {};
+  const now = new Date();
+  const links: Record<string, string> = {};
+  for (const attachmentId of attachmentIds) {
+    links[attachmentId] = await attachmentLinkAddress(key, { accountName, attachmentId }, now, env.APP_ORIGIN);
+  }
+  return links;
 }
 
 /**

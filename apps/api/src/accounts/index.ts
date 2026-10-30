@@ -29,6 +29,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer } from './answer.js';
+import type { FindItemsAsk, FoundPage, PanelToFind } from './find-items.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -333,6 +334,12 @@ export interface Account {
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
   /** An app connected to this account calling `create_item` or `report_run`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
+  /** An app connected to this account calling `find_items`, under one grant ("Find items in Cockpit from a connected app, over MCP", issue 1240): admitted, or refused for the minute's limit or the day's. */
+  findItemsArrived(grantId: string, at: string): Promise<'admitted' | 'too-many-a-minute' | 'too-many-a-day'>;
+  /** One page of the Items an app asked `find_items` for: newest change first, each with where it is filed and its files. */
+  findItems(ask: FindItemsAsk): Promise<FoundPage>;
+  /** The Panels of one Workspace, or of every one, by name - what `find_items`' `panel` is read against. */
+  panelsToFind(workspaceId: string | null): Promise<PanelToFind[]>;
   /** A recording sent to be transcribed, counted against the account's 20 a minute (issue 1043). */
   transcriptionArrived(at: string): Promise<'admitted' | 'too-many'>;
   /** An offer to remember a sentence asked for, or Remember pressed, counted against the account's minute (issue 1163). */
@@ -478,6 +485,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),
+    findItemsArrived: async (grantId, at) => store.findItemsArrived(grantId, at),
+    findItems: async (ask) => unwrap(await store.findItems(accountName, ask)),
+    panelsToFind: async (workspaceId) => unwrap(await store.panelsToFind(accountName, workspaceId)),
     transcriptionArrived: async (at) => store.transcriptionArrived(at),
     sentenceCallArrived: async (kind, at) => store.sentenceCallArrived(kind, at),
     textedCodeAsked: async (connectorId, limit, at) => store.textedCodeAsked(connectorId, limit, at),

@@ -62,6 +62,20 @@ export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAct
 }
 
 /**
+ * What a typed search looks for: trimmed and lowercased, and empty where
+ * nothing was typed. **Shared by Find item and the MCP `find_items` tool**, so
+ * an app asking "is this captured already?" finds what a person typing would.
+ */
+export function findNeedle(query: string): string {
+  return query.trim().toLowerCase();
+}
+
+/** Whether a search text (`searchTextOf`) holds what was typed (`findNeedle`). Nothing typed matches nothing. */
+export function textMatches(searchText: string, needle: string): boolean {
+  return needle !== '' && searchText.includes(needle);
+}
+
+/**
  * Every open Item of the Workspace with its search text and places, most
  * recently changed first. **Find never lists a finished Item**: it is on no
  * Dashboard, and *All items* is where one is found ("Fetch a Workspace's
@@ -130,12 +144,12 @@ export function findItems(
   dashboardId: string,
   limit = FIND_LIMIT,
 ): { rows: FoundItem[]; more: number } {
-  const needle = query.trim().toLowerCase();
+  const needle = findNeedle(query);
   if (needle === '') return { rows: [], more: 0 };
   const rows: FoundItem[] = [];
   let matched = 0;
   for (const entry of index) {
-    if (!entry.text.includes(needle)) continue;
+    if (!textMatches(entry.text, needle)) continue;
     const here = entry.places.filter((place) => place.dashboardId === dashboardId);
     const gatheredHere = entry.gatheredOn.filter((place) => place.dashboardId === dashboardId);
     if (scope === 1 && here.length + gatheredHere.length === 0) continue;
