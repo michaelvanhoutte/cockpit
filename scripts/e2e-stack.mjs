@@ -296,6 +296,11 @@ const api = start(
     // (apps/api/tests/integration/http/sign-in.test.ts).
     '--var',
     'GUEST_SIGN_IN:true',
+    // Where this stack receives Email to Cockpit mail, so Settings draws the
+    // *Your account* panel ("Get an Email to Cockpit address, and receive mail
+    // at it", issue 1466). No mail reaches it; the domain is only drawn.
+    '--var',
+    'EMAIL_DOMAIN:mail.cockpit.localhost',
     // The address the browser is on, which is Vite's: a sign-in has to come
     // back to the application under test rather than to the Worker behind it.
     '--var',

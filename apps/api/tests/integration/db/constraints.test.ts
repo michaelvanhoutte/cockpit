@@ -27,6 +27,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM sessions').run();
   await env.DB.prepare('DELETE FROM users').run();
   await env.DB.prepare('DELETE FROM connector_directory').run();
+  await env.DB.prepare('DELETE FROM email_addresses').run();
   await env.DB.prepare('DELETE FROM tenants').run();
 });
 

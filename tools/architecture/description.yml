@@ -135,6 +135,9 @@ layers:
       - path: apps/api/src/connectors
         name: 'connectors'
         description: 'The composition root where the core meets connectors, with the host connectors run against and the credential crypto.'
+      - path: apps/api/src/email
+        name: 'email'
+        description: 'Email to Cockpit: the register of addresses and the email event that rejects mail to an address nobody holds.'
       - path: apps/api/src/*
         name: 'env.ts, worker.ts'
         description: 'The Worker entry points (worker.ts, index.ts), its bindings type (env.ts) and the share target.'

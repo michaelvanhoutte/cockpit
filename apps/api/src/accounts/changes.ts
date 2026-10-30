@@ -183,6 +183,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     seriesMastersFromLatestCopy(accountId),
     ITEM_WAITING_SINCE,
     ACCOUNT_FOLLOW_UPS,
+    ACCOUNT_EMAIL_ADDRESS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1459,6 +1460,45 @@ const ACCOUNT_FOLLOW_UPS: Change = {
 	\`tenant_id\` text PRIMARY KEY NOT NULL,
 	\`days\` integer NOT NULL,
 	CONSTRAINT "account_follow_ups_days_is_in_range" CHECK(days BETWEEN 1 AND 365)
+) STRICT`,
+    },
+  ],
+};
+
+/**
+ * The account's Email to Cockpit address ("Get an Email to Cockpit address,
+ * and receive mail at it", issue 1466): one row per account, the shape
+ * `ACCOUNT_FOLLOW_UPS` is; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE TABLE`, and no statement that reads or writes a
+ *   row. It is the whole of the expand; there is no contract step.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that break the new rule:** none can; the table starts empty, since
+ *   no account has an address before this release.
+ * - **What is in each environment:** real data in staging and production, none
+ *   of it touched; nothing is written on deploy.
+ * - **Interruptible at:** an account opening mid-change, where the transaction
+ *   rolls back and the account answers as before.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so it draws no address and has no email event to receive mail with; an
+ *   address got is held again when the release goes forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ACCOUNT_EMAIL_ADDRESS: Change = {
+  name: '0098-account-email-address',
+  statements: [
+    {
+      sql: `CREATE TABLE \`account_email_address\` (
+	\`tenant_id\` text PRIMARY KEY NOT NULL,
+	\`local_part\` text NOT NULL,
+	\`held_at\` text NOT NULL,
+	CONSTRAINT "account_email_address_held_at_is_timestamp" CHECK(held_at IS NULL OR (datetime(held_at) IS NOT NULL AND substr(held_at, 11, 1) = 'T' AND substr(held_at, -1) = 'Z' AND length(held_at) >= 20 AND date(held_at) = substr(held_at, 1, 10)))
 ) STRICT`,
     },
   ],

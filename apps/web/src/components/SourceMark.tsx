@@ -1,3 +1,4 @@
+import email from './marks/email.svg?inline';
 import gmail from './marks/gmail.svg?inline';
 import neutral from './marks/neutral.svg?inline';
 import outlook from './marks/outlook.svg?inline';
@@ -16,9 +17,12 @@ import textMessages from './marks/text-messages.svg?inline';
  *
  * **Text messages takes a plain green chat bubble**, since Twilio is plumbing
  * the person never sees; a connector with no mark of its own takes a neutral
- * disc and is still named beside it.
+ * disc and is still named beside it. **Email to Cockpit takes an envelope**:
+ * it is Cockpit's own address rather than a connector, so `email` names no
+ * connector.
  */
 const MARKS: Record<string, string> = {
+  email,
   gmail,
   outlook,
   teams,

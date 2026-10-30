@@ -300,6 +300,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     connectorId: string,
     externalAccountKey: string,
   ): Awaitable<Answer<{ id: string } | null>>;
+  /** Whether the account holds the Email to Cockpit address with this random part (issue 1466). */
+  holdsEmailAddress(accountName: string, localPart: string): Awaitable<Answer<boolean>>;
   /**
    * The sealed credential of one connection, for the connector about to use it
    * (issue 486), with the key the source names the account by - what a

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
+import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
   FOLLOW_UP_DAYS,
   associationSchema,
@@ -81,6 +82,16 @@ export const workspaceSnapshotSchema = z.object({
    * is: a stored copy taken before this field existed starts on 3.
    */
   followUpDays: followUpDaysSchema.default(FOLLOW_UP_DAYS),
+  /**
+   * The account's Email to Cockpit address, and where this environment
+   * receives mail ("Get an Email to Cockpit address, and receive mail at it",
+   * issue 1466). Account-wide, carried here as `followUpDays` is, so the *Your
+   * account* panel draws it offline and *Get an address* causes no read of its
+   * own. Null where the environment receives no mail; optional rather than
+   * defaulted, as `sourceNames` below is, so a copy saved by a release that did
+   * not send it draws no panel until it is read again.
+   */
+  emailToCockpit: emailToCockpitSchema.nullable().optional(),
   /**
    * Which of the Items above say the same thing as which ("Flag a captured
    * note that says what another one already said", issue 407) - the pairs
