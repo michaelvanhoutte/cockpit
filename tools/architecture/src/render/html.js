@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { formatDate } from '../../../../scripts/lib/belgian-time.mjs';
 import { renderChanges } from './changes.js';
 import { renderContext } from './context.js';
+import { renderDatabase } from './database.js';
 import { renderDependencies, cycleSummary, orderNote } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
 import { renderModules } from './modules.js';
@@ -55,6 +56,19 @@ function modulesIntro(model) {
   </div>`;
 }
 
+const databaseLegend = `<div class="legend">
+    <span><i class="ln"></i>A column pointing at another table</span>
+    <span><i class="sw d-red"></i>Red and struck through: no longer used. Hover it for why.</span>
+  </div>`;
+
+const databaseSource = (model) => `as the API's tests read it from a real one into <code>${esc(model.database?.file ?? 'apps/api/database-schema.json')}</code>, once every migration and change has run. A table sits below the tables it points at.`;
+
+const registerIntro = (model) => `<p class="sectionnote"><b>One D1 database, shared by every account</b>: who has an account, their sessions and sign-ins, and the directory incoming messages are attributed through. Drawn ${databaseSource(model)}</p>
+  ${databaseLegend}`;
+
+const accountStoreIntro = (model) => `<p class="sectionnote"><b>One store per account, in that account's own Durable Object</b>: its Workspaces, Items, Panels and everything else it holds. Every account's store has these same tables. Drawn ${databaseSource(model)}</p>
+  ${databaseLegend}`;
+
 /**
  * The pages beside the report, one per diagram: the file each is written to,
  * the note and legend read with it on either page, and the diagram it holds.
@@ -67,6 +81,8 @@ export const DIAGRAM_PAGES = {
     render: renderContext,
   },
   modules: { file: 'modules.html', title: 'Modules', intro: modulesIntro, render: renderModules },
+  register: { file: 'register.html', title: 'Register (D1)', intro: registerIntro, render: (model) => renderDatabase(model, 'register') },
+  accountStore: { file: 'account-store.html', title: 'Account store (one per account)', intro: accountStoreIntro, render: (model) => renderDatabase(model, 'account-store') },
   deployment: {
     file: 'deployment.html',
     title: 'Deployment',
@@ -175,7 +191,7 @@ export function renderHtml(model, { monitor = '', comparison = { state: 'unavail
       <span>${plural(workflows.length, 'workflow')}</span>
       ${reportLinks}
     </div>
-    <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#deployment">Deployment</a></nav>
+    <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#database">Databases</a><a href="#deployment">Deployment</a></nav>
   </header>
 
   <section id="changes">
@@ -213,6 +229,23 @@ export function renderHtml(model, { monitor = '', comparison = { state: 'unavail
     ${renderDependencies(model)}
   </div>
   <p class="sectionnote">${cycleSummary(model.dependencies)}</p>
+  </section>
+
+  <section id="database">
+  <h2>Databases</h2>
+  <p class="sectionnote">Two kinds of database: the register, one for all of Cockpit, and a store of its own for each account.</p>
+
+  <h3>Register (D1), shared by every account ${openLink('register')}</h3>
+  ${DIAGRAM_PAGES.register.intro(model)}
+  <div class="diagram">
+    ${opener('register', DIAGRAM_PAGES.register.render(model))}
+  </div>
+
+  <h3>Account store, one per account ${openLink('accountStore')}</h3>
+  ${DIAGRAM_PAGES.accountStore.intro(model)}
+  <div class="diagram">
+    ${opener('accountStore', DIAGRAM_PAGES.accountStore.render(model))}
+  </div>
   </section>
 
   <section id="deployment">

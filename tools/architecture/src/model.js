@@ -16,6 +16,7 @@
 import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
 import { parseDocument } from 'yaml';
 
+import { buildDatabase } from './database.js';
 import { parseDescription } from './description.js';
 import { ReadError } from './errors.js';
 import { buildDependencies } from './dependencies.js';
@@ -248,7 +249,7 @@ function pagesOf(steps) {
 /**
  * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
  */
-export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], commit, date, repo = null }) {
+export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], schema = null, commit, date, repo = null }) {
   const description = parseDescription(descriptionFile.file, descriptionFile.text);
   const environments = environmentsOf(parseWranglerConfig(wrangler.file, wrangler.text));
   const declared = new Set(environments.map((each) => each.name));
@@ -274,6 +275,7 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
     context: buildContext(description),
     modules,
     dependencies: buildDependencies(description, candidates, modules),
+    database: buildDatabase(schema, candidates),
     deployment: {
       pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({
