@@ -64,11 +64,11 @@ export function authenticationOf(headers: Headers): Record<string, unknown> {
 }
 
 /**
- * `forgetUnconfirmed` once the mail is rejected, which never undoes the
+ * `forgetUnconfirmed` for a mail being rejected, which never stops the
  * rejection: a sweep that fails is logged, and the row is swept when mail next
  * arrives.
  */
-async function sweptAfterRejecting(env: Env, localPart: string, row: AddressAsRead, now: Date): Promise<boolean> {
+async function sweptWithoutThrowing(env: Env, localPart: string, row: AddressAsRead, now: Date): Promise<boolean> {
   try {
     return await forgetUnconfirmed(env, localPart, row, now);
   } catch (error) {
@@ -106,8 +106,8 @@ export async function receiveMail(message: MailArriving, env: Env, now: Date = n
       localPart !== null && row !== null && (await (await openAccount(env, row.accountName)).holdsEmailAddress(localPart));
 
     if (!held || row === null) {
+      const swept = localPart !== null && row !== null && (await sweptWithoutThrowing(env, localPart, row, now));
       message.setReject(REJECTED_BECAUSE);
-      const swept = localPart !== null && row !== null && (await sweptAfterRejecting(env, localPart, row, now));
       console.log(
         JSON.stringify({
           level: 'info',

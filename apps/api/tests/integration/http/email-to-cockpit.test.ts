@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest'
 import { SELF, applyD1Migrations, env } from 'cloudflare:test';
 import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import worker from '../../../src/worker.js';
+import { forgetUnconfirmed } from '../../../src/email/register.js';
 import {
   ACCOUNT_NAME,
   OTHER_ACCOUNT_NAME,
@@ -208,6 +209,50 @@ describe('Email to Cockpit', () => {
       expect(later.said).toEqual([expect.objectContaining({ account: ACCOUNT_NAME, swept: true })]);
       expect(await registered()).toEqual([{ local_part: SECOND, account_id: ACCOUNT_NAME }]);
       expect((await mailed(at(SECOND))).rejected).toBe(false);
+    });
+
+    it('a sweep that fails still rejects the mail, and leaves the row for the next one', async () => {
+      const firstGet = nextId();
+      await setAddress(FIRST, undefined, firstGet);
+      await setAddress(SECOND);
+      await setAddress(FIRST, undefined, firstGet);
+      const failingDeletes = new Proxy(env.DB, {
+        get: (db, name) =>
+          name === 'prepare'
+            ? (sql: string) => {
+                if (/^\s*delete/i.test(sql)) throw new Error('D1 is down');
+                return db.prepare(sql);
+              }
+            : Reflect.get(db, name, db),
+      });
+      const settings = new Proxy(env, { get: (all, name) => (name === 'DB' ? failingDeletes : Reflect.get(all, name)) });
+      const failed = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 2 * 60_000 }); // clock-ok: a minute on from the row just written
+
+      try {
+        const mail = await mailed(at(FIRST), settings);
+
+        expect(mail.rejected).toBe(true);
+        expect(mail.said).toEqual([expect.objectContaining({ account: ACCOUNT_NAME, swept: false })]);
+        expect(failed).toHaveBeenCalledOnce();
+      } finally {
+        failed.mockRestore();
+      }
+      expect(await registered()).toHaveLength(2);
+    });
+
+    it('a sweep of a row written again since it was read deletes nothing, and says so', async () => {
+      await setAddress(FIRST);
+
+      const swept = await forgetUnconfirmed(
+        env,
+        FIRST,
+        { accountName: ACCOUNT_NAME, heldAt: '2026-01-01T00:00:00.000Z' },
+        new Date(),
+      );
+
+      expect(swept).toBe(false);
+      expect(await registered()).toEqual([{ local_part: FIRST, account_id: ACCOUNT_NAME }]);
     });
   });
 
