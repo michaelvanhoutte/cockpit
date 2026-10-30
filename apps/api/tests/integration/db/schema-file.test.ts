@@ -7,9 +7,25 @@ import * as storeSchema from '../../../src/accounts/schema.js';
 import * as registerSchema from '../../../src/db/schema.js';
 import { inTheStore, seedRegister, startFromEmpty } from '../seed.js';
 
+/**
+ * Integration level, because the schema drawn has to be the one a real store
+ * and a real register end up with once every change and migration has run,
+ * not the one the TypeScript describes: the tables are created by hand-written
+ * SQL in changes.ts and migrations/, which nothing else compares.
+ *
+ * The file this writes is what the architecture page draws its Databases
+ * diagrams from (tools/architecture, "Databases"), and is checked in so the
+ * nightly run reads it without a Workers runtime. A change to the schema fails
+ * here until the file is written again:
+ *
+ *   pnpm --filter @cockpit/api exec vitest run tests/integration/db/schema-file.test.ts -u
+ */
+
+const SCHEMA_FILE = '../../../database-schema.json';
+
 type Row = Record<string, unknown>;
 type All = (query: string, ...params: unknown[]) => Promise<Row[]>;
-type Marks = Readonly<Record<string, string | Readonly<Record<string, string>>>>;
+type Marks = typeof storeSchema.NO_LONGER_USED;
 
 /** Each table a schema file defines, by its SQL name: the name it is exported as, and each column's property. */
 function definitions(schema: Record<string, unknown>) {
@@ -22,7 +38,12 @@ function definitions(schema: Record<string, unknown>) {
   return tables;
 }
 
-async function describeTables(all: All, names: readonly string[], schema: Record<string, unknown>, marks: Marks) {
+/**
+ * Every table in `names` as the database holds it: its columns, what each
+ * points at and its indexes (not the primary key's own, which the columns
+ * already say), with the names queries use and what `marks` writes down.
+ */
+async function readTables(all: All, names: readonly string[], schema: Record<string, unknown>, marks: Marks) {
   const defined = definitions(schema);
   const tables = [];
   for (const name of [...names].sort()) {
@@ -69,28 +90,49 @@ async function describeTables(all: All, names: readonly string[], schema: Record
   return tables;
 }
 
+async function readBoth() {
+  const store = await inTheStore((sql) => {
+    const all: All = async (query, ...params) => sql.exec(query, ...params).toArray() as Row[];
+    return readTables(all, accountTables(sql), storeSchema, storeSchema.NO_LONGER_USED);
+  });
+  const d1: All = async (query, ...params) => (await env.DB.prepare(query).bind(...params).all<Row>()).results;
+  // The register's own tables: not SQLite's, the runtime's (a leading underscore) or Wrangler's migration ledger.
+  const names = await d1(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_%' ESCAPE '\\' AND name <> 'd1_migrations'`,
+  );
+  const register = await readTables(d1, names.map((row) => String(row.name)), registerSchema, {});
+  return { store, register };
+}
+
 beforeEach(async () => {
   await applyD1Migrations(env.DB, inject('migrations'));
   await startFromEmpty();
   await seedRegister();
 });
 
-describe('probe', () => {
-  it('writes a file snapshot', async () => {
-    const store = await inTheStore((sql) => {
-      const all: All = async (query, ...params) => sql.exec(query, ...params).toArray() as Row[];
-      return describeTables(all, accountTables(sql), storeSchema, storeSchema.NO_LONGER_USED);
+describe('Accounts', () => {
+  describe('the schema the architecture page draws is the one the register and an account’s store end up with', () => {
+    it('matches the schema file, table for table, column for column and index for index', async () => {
+      const { store, register } = await readBoth();
+      const file = {
+        $comment: 'Written by apps/api/tests/integration/db/schema-file.test.ts from a real register and a real account store; never edited by hand.',
+        databases: [
+          { key: 'register', name: 'Register', kind: 'D1', oneFor: 'every account', definedIn: ['apps/api/migrations/', 'apps/api/src/db/schema.ts'], tables: register },
+          { key: 'account-store', name: 'Account store', kind: 'Durable Object', oneFor: 'each account', definedIn: ['apps/api/src/accounts/changes.ts', 'apps/api/src/accounts/schema.ts'], tables: store },
+        ],
+      };
+      await expect(JSON.stringify(file, null, 2) + '\n').toMatchFileSnapshot(SCHEMA_FILE);
     });
-    const d1: All = async (query, ...params) => (await env.DB.prepare(query).bind(...params).all<Row>()).results;
-    const registerNames = (await d1(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_%' ESCAPE '\\' AND name <> 'd1_migrations'`)).map((row) => String(row.name));
-    const register = await describeTables(d1, registerNames, registerSchema, {});
-    const file = {
-      $comment: 'Written by apps/api/tests/integration/db/schema-file.test.ts from a real store and a real register; regenerate with `pnpm --filter @cockpit/api exec vitest run tests/integration/db/schema-file.test.ts -u`.',
-      databases: [
-        { key: 'register', name: 'Register', kind: 'D1', oneFor: 'every account', definedIn: ['apps/api/migrations/', 'apps/api/src/db/schema.ts'], tables: register },
-        { key: 'account-store', name: 'Account store', kind: 'Durable Object', oneFor: 'each account', definedIn: ['apps/api/src/accounts/changes.ts', 'apps/api/src/accounts/schema.ts'], tables: store },
-      ],
-    };
-    await expect(JSON.stringify(file, null, 2) + '\n').toMatchFileSnapshot('../../../database-schema.json');
+  });
+
+  describe('what the schema writes down as no longer used is still in an account’s store', () => {
+    it('names only tables and columns the store has', async () => {
+      const { store } = await readBoth();
+      const held = new Set(store.flatMap((table) => [table.name, ...table.columns.map((column) => `${table.name}.${column.name}`)]));
+      const written = Object.entries(storeSchema.NO_LONGER_USED).flatMap(([table, mark]) =>
+        typeof mark === 'string' ? [table] : Object.keys(mark).map((column) => `${table}.${column}`),
+      );
+      expect(written.filter((name) => !held.has(name))).toEqual([]);
+    });
   });
 });

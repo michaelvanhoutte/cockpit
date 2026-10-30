@@ -105,13 +105,13 @@ export const DEAD_STATUS_VALUE = 'to_process';
  */
 export const NO_LONGER_USED: Readonly<Record<string, string | Readonly<Record<string, string>>>> = {
   items: {
-    status: 'Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere (issue 154).',
-    focus_horizon: 'Never written or read since status became a time (issue 154).',
-    snoozed_until: 'Never written or read since status became a time (issue 154).',
+    status: 'Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is `completed_at` now.',
+    focus_horizon: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
+    snoozed_until: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
   },
-  account_agent_settings: 'Created and never read: the built-in Agent it switched is gone.',
-  account_text_rules: 'Nothing reads or writes it since the learning settings screens went (issue 452).',
-  pinned_text_examples: 'Nothing reads or writes it since the learning settings screens went (issue 452).',
+  account_agent_settings: 'Created and never read: the built-in Agent it switched on and off no longer exists.',
+  account_text_rules: 'Nothing reads or writes it since the two learning settings screens were removed.',
+  pinned_text_examples: 'Nothing reads or writes it since the two learning settings screens were removed.',
 };
 
 /**

@@ -1,5 +1,5 @@
 {
-  "$comment": "Written by apps/api/tests/integration/db/schema-file.test.ts from a real store and a real register; regenerate with `pnpm --filter @cockpit/api exec vitest run tests/integration/db/schema-file.test.ts -u`.",
+  "$comment": "Written by apps/api/tests/integration/db/schema-file.test.ts from a real register and a real account store; never edited by hand.",
   "databases": [
     {
       "key": "register",
@@ -1148,7 +1148,7 @@
           "name": "account_agent_settings",
           "strict": true,
           "queriedAs": "accountAgentSettings",
-          "noLongerUsed": "Created and never read: the built-in Agent it switched is gone.",
+          "noLongerUsed": "Created and never read: the built-in Agent it switched on and off no longer exists.",
           "columns": [
             {
               "name": "tenant_id",
@@ -1262,7 +1262,7 @@
           "name": "account_text_rules",
           "strict": true,
           "queriedAs": "accountTextRules",
-          "noLongerUsed": "Nothing reads or writes it since the learning settings screens went (issue 452).",
+          "noLongerUsed": "Nothing reads or writes it since the two learning settings screens were removed.",
           "columns": [
             {
               "name": "tenant_id",
@@ -3123,7 +3123,7 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "status",
-              "noLongerUsed": "Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere (issue 154)."
+              "noLongerUsed": "Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is `completed_at` now."
             },
             {
               "name": "next_action",
@@ -3142,7 +3142,7 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "focusHorizon",
-              "noLongerUsed": "Never written or read since status became a time (issue 154)."
+              "noLongerUsed": "Never written or read since an Item stopped having a status, a snooze or a focus horizon."
             },
             {
               "name": "priority",
@@ -3170,7 +3170,7 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "snoozedUntil",
-              "noLongerUsed": "Never written or read since status became a time (issue 154)."
+              "noLongerUsed": "Never written or read since an Item stopped having a status, a snooze or a focus horizon."
             },
             {
               "name": "unseen",
@@ -3871,7 +3871,7 @@
           "name": "pinned_text_examples",
           "strict": true,
           "queriedAs": "pinnedTextExamples",
-          "noLongerUsed": "Nothing reads or writes it since the learning settings screens went (issue 452).",
+          "noLongerUsed": "Nothing reads or writes it since the two learning settings screens were removed.",
           "columns": [
             {
               "name": "id",
