@@ -9,7 +9,7 @@ import { EmailToCockpit } from '../../../src/components/EmailToCockpit';
  * Email to Cockpit address, and receive mail at it", issue 1466). That the
  * account holds one address and mail reaches only that one is L2
  * (`apps/api/tests/integration/http/email-to-cockpit.test.ts`); that a person
- * gets one in Settings is the browser walk in `tests/e2e/settings.test.ts`.
+ * gets one in Settings is the browser walk in `tests/e2e/email-to-cockpit.test.ts`.
  */
 const held = vi.hoisted(() => ({
   send: null as unknown as ReturnType<typeof vi.fn>,

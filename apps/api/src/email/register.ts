@@ -94,8 +94,8 @@ export async function forgetAddressAfterLettingGo(env: Env, localPart: string, a
 export const UNCONFIRMED_SWEPT_AFTER_MS = 60_000;
 
 /**
- * Sweeps a row the account's store does not confirm, answering whether it
- * did. **Never one younger than `UNCONFIRMED_SWEPT_AFTER_MS`**: its mail is
+ * Sweeps a row the account's store does not confirm, answering whether a row
+ * was deleted. **Never one younger than `UNCONFIRMED_SWEPT_AFTER_MS`**: its mail is
  * rejected all the same, but the row stays, so a *Get an address* whose store
  * write lands a moment later still has it. **Only the row that was read**, as
  * `forgetConnection` (`connectors/directory.ts`) does, which is what `heldAt`
@@ -108,7 +108,7 @@ export async function forgetUnconfirmed(
   now: Date,
 ): Promise<boolean> {
   if (now.getTime() - Date.parse(read.heldAt) < UNCONFIRMED_SWEPT_AFTER_MS) return false;
-  await createDb(env.DB)
+  const swept = await createDb(env.DB)
     .delete(emailAddresses)
     .where(
       and(
@@ -118,5 +118,5 @@ export async function forgetUnconfirmed(
       ),
     )
     .run();
-  return true;
+  return (swept.meta.changes ?? 0) > 0;
 }

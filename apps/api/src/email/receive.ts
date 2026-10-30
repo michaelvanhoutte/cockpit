@@ -1,7 +1,7 @@
 import { emailLocalPartSchema } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { openAccount } from '../accounts/index.js';
-import { forgetUnconfirmed, whoseAddress } from './register.js';
+import { type AddressAsRead, forgetUnconfirmed, whoseAddress } from './register.js';
 
 /**
  * Mail to an Email to Cockpit address, as the Worker's email event hands it
@@ -64,6 +64,27 @@ export function authenticationOf(headers: Headers): Record<string, unknown> {
 }
 
 /**
+ * `forgetUnconfirmed` once the mail is rejected, which never undoes the
+ * rejection: a sweep that fails is logged, and the row is swept when mail next
+ * arrives.
+ */
+async function sweptAfterRejecting(env: Env, localPart: string, row: AddressAsRead, now: Date): Promise<boolean> {
+  try {
+    return await forgetUnconfirmed(env, localPart, row, now);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        message: 'a register row its store does not confirm was not swept - its mail is rejected all the same',
+        account: row.accountName,
+        cause: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return false;
+  }
+}
+
+/**
  * One mail, decided in one pass:
  *
  * | The mail is to | What happens |
@@ -85,8 +106,8 @@ export async function receiveMail(message: MailArriving, env: Env, now: Date = n
       localPart !== null && row !== null && (await (await openAccount(env, row.accountName)).holdsEmailAddress(localPart));
 
     if (!held || row === null) {
-      const swept = localPart !== null && row !== null && (await forgetUnconfirmed(env, localPart, row, now));
       message.setReject(REJECTED_BECAUSE);
+      const swept = localPart !== null && row !== null && (await sweptAfterRejecting(env, localPart, row, now));
       console.log(
         JSON.stringify({
           level: 'info',

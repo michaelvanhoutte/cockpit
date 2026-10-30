@@ -747,7 +747,7 @@ export const setFollowUpDaysSchema = commandEnvelopeSchema.extend({
 export type SetFollowUpDaysCommand = z.infer<typeof setFollowUpDaysSchema>;
 
 /**
- * set_email_address — the account's Email to Cockpit address ("Get an Email to
+ * set_email_address - the account's Email to Cockpit address ("Get an Email to
  * Cockpit address, and receive mail at it", issue 1466): *Get an address* and
  * *Make a new address…* name a new random part, made in the browser; *Turn
  * off* names none. The address it replaces stops working. Account-scoped:
