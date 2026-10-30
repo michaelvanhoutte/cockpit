@@ -463,6 +463,8 @@ export async function endSignInsOf(env: Env, userId: string): Promise<void> {
  * rather than an old one: `connector_directory` holds `tenants` under a
  * foreign key too, so an account with a connected source account could not be
  * removed at all without this ("Save a Teams message to Cockpit", issue 486).
+ * So is its Email to Cockpit address (`email_addresses`, issue 1466), for the
+ * same reason.
  *
  * **So are the account's rows in D1's four old tables**, children first. An
  * account older than the stores can still have some (architecture, "D1 still
@@ -485,6 +487,7 @@ export async function removeFromRegister(
     env.DB.prepare('DELETE FROM commands WHERE tenant_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM workspaces WHERE tenant_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM connector_directory WHERE account_id = ?').bind(accountId),
+    env.DB.prepare('DELETE FROM email_addresses WHERE account_id = ?').bind(accountId),
     env.DB.prepare('DELETE FROM sign_ins WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),

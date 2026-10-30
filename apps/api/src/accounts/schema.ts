@@ -1521,6 +1521,25 @@ export const accountFollowUps = sqliteTable(
 );
 
 /**
+ * One row per account: its Email to Cockpit address's random part ("Get an
+ * Email to Cockpit address, and receive mail at it", issue 1466). **The
+ * authority**: the register's `email_addresses` only says which store to ask,
+ * and a mail reaches this account only where this row names its address.
+ * **The shape `accountFollowUps` above takes**: no row until the account gets
+ * one, and the row goes when it is turned off. Made from lower-case letters
+ * and digits, at least 16, the rule `emailLocalPartSchema` refuses outside.
+ */
+export const accountEmailAddress = sqliteTable(
+  'account_email_address',
+  {
+    tenantId: text('tenant_id').primaryKey(),
+    localPart: text('local_part').notNull(),
+    heldAt: text('held_at').notNull(),
+  },
+  (t) => [check('account_email_address_held_at_is_timestamp', isTimestamp('held_at'))],
+);
+
+/**
  * A worked example of a note and the title and message chosen for it, added
  * by hand rather than corrected after the fact ("Pin an example of how you
  * want a note written", issue 397). Nothing reads or writes it any more

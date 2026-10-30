@@ -128,6 +128,7 @@ import {
   getItem,
   getItemFormPresentation,
   getFollowUpDays,
+  getEmailLocalPart,
   getWorkspace,
   isItemFiled,
   claudeProposalContext,
@@ -285,6 +286,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         followUpDays: getFollowUpDays(db, accountName),
+        // Where this environment receives no mail, none: no panel is drawn.
+        emailToCockpit: this.env.EMAIL_DOMAIN
+          ? { domain: this.env.EMAIL_DOMAIN, localPart: getEmailLocalPart(db, accountName) }
+          : null,
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
       };
@@ -850,6 +855,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       accountName,
       (db) => connectionUnder(db, accountName, workspaceId, connectorId, externalAccountKey) ?? null,
     );
+  }
+
+  /**
+   * Whether this account holds the Email to Cockpit address with this random
+   * part ("Get an Email to Cockpit address, and receive mail at it", issue
+   * 1466): the store's confirmation of what the register's row only points at,
+   * asked of every mail before anything is done with it.
+   */
+  holdsEmailAddress(accountName: string, localPart: string): Answer<boolean> {
+    return this.#answer(accountName, (db) => getEmailLocalPart(db, accountName) === localPart);
   }
 
   /**

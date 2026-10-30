@@ -251,14 +251,15 @@ const snapshotsReadAfter = (args: CommandArgs): string => (everyWorkspaceCanSee(
 /**
  * The changes `afterChanging` answers itself, and that leave their Workspace's
  * snapshot as it was or are read for in their own way: a deleted Workspace's is
- * dropped, and the Item form's presentation and the Follow-ups number read every
- * snapshot. A connection change is sent from its window's own chunk
+ * dropped, and the Item form's presentation, the Follow-ups number and the Email
+ * to Cockpit address read every snapshot. A connection change is sent from its window's own chunk
  * (`api/sourceAccounts.ts`), never here.
  */
 const NOT_READ_BACK_WITH_THE_SNAPSHOT = new Set<ClientCommandName>([
   'delete_workspace',
   'set_item_form_presentation',
   'set_follow_up_days',
+  'set_email_address',
 ]);
 
 function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unknown> | void {
@@ -273,7 +274,11 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
     // And the list is read below, which is what ends drawing the delete.
   }
 
-  if (args.name === 'set_item_form_presentation' || args.name === 'set_follow_up_days') {
+  if (
+    args.name === 'set_item_form_presentation' ||
+    args.name === 'set_follow_up_days' ||
+    args.name === 'set_email_address'
+  ) {
     // Every workspace, reading `['snapshot']` unprefixed rather than by the
     // envelope's own `workspaceId` - which for this command is
     // `ACCOUNT_WIDE`, an id no snapshot is ever actually cached under (found in review: the generic

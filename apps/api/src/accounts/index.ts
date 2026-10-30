@@ -319,6 +319,12 @@ export interface Account {
     externalAccountKey: string,
   ): Promise<{ id: string } | null>;
   /**
+   * Whether the account holds the Email to Cockpit address with this random
+   * part - what confirms the register's row before a mail is taken ("Get an
+   * Email to Cockpit address, and receive mail at it", issue 1466).
+   */
+  holdsEmailAddress(localPart: string): Promise<boolean>;
+  /**
    * The sealed credential of one connection, opened by the Worker that holds
    * the key (issue 486) - read only for a push already matched to that one
    * connection.
@@ -475,6 +481,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     recurringItems: async (workspaceId) => unwrap(await store.recurringItems(accountName, workspaceId)),
     connectionUnder: async (workspaceId, connectorId, externalAccountKey) =>
       unwrap(await store.connectionUnder(accountName, workspaceId, connectorId, externalAccountKey)),
+    holdsEmailAddress: async (localPart) => unwrap(await store.holdsEmailAddress(accountName, localPart)),
     sealedCredential: async (sourceAccountId) =>
       unwrap(await store.sealedCredential(accountName, sourceAccountId)),
     appCaptureArrived: async (grantId, at) => store.appCaptureArrived(grantId, at),

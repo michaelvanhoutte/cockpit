@@ -127,6 +127,13 @@
       "when": 1789610000000,
       "tag": "0017_provider_call_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1789620000000,
+      "tag": "0018_email_addresses",
+      "breakpoints": true
     }
   ]
 }

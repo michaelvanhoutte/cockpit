@@ -583,6 +583,12 @@ const rowsFor: {
     sql: 'INSERT INTO account_follow_ups (tenant_id, days) VALUES (?, 5)',
     params: (name) => [name],
   },
+  {
+    // The table `0098-account-email-address` creates ("Get an Email to Cockpit address, and receive mail at it", issue 1466): an account's address, for the next update to meet.
+    table: 'account_email_address',
+    sql: "INSERT INTO account_email_address (tenant_id, local_part, held_at) VALUES (?, 'k7f3q9xwk7f3q9xwk7f3', ?)",
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -3750,9 +3756,11 @@ describe('Triage', () => {
 
       const after = await everyRowIn(name);
       expect(after.account_follow_ups).toEqual([]);
-      // Left out: the change ledger, and the Agent that every open converts to a
-      // remembered sentence whatever change it applies (`retire-agents.ts`).
-      const { account_follow_ups: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      // Left out: the change ledger, the Agent that every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`), and
+      // the table a later change adds empty on the same open
+      // (`0098-account-email-address`).
+      const { account_follow_ups: _added, account_email_address: _later, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
       expect(keptAfter).toEqual(keptBefore);
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);

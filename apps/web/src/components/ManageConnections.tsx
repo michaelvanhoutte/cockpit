@@ -19,6 +19,7 @@ import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type Con
 import { ConnectionHistory } from './ConnectionHistory';
 import { ConnectPhone, type PhoneConnector } from './ConnectPhone';
 import { DeleteQuestion } from './DeleteQuestion';
+import { EmailToCockpit } from './EmailToCockpit';
 import { LoadFailure } from './LoadFailure';
 import { CloseWindow, ManageWindow } from './ManageWindow';
 import { RowMenu } from './Menu';
@@ -266,6 +267,14 @@ export default function ManageConnections({
     staleTime: Infinity,
     select: (snapshot) => snapshot.sourceNames,
   });
+  // The account's Email to Cockpit address, from the same held copy: every
+  // Workspace's carries it, and none where the environment receives no mail.
+  const { data: mail } = useQuery({
+    ...snapshotQuery(workspaceId),
+    enabled: open,
+    staleTime: Infinity,
+    select: (snapshot) => snapshot.emailToCockpit ?? null,
+  });
   const registry = useQuery({
     queryKey: ['registeredConnectors'],
     queryFn: fetchRegisteredConnectors,
@@ -467,8 +476,10 @@ export default function ManageConnections({
       ) : (
         <>
           <p className="mt-1 text-sm text-ink-soft">Everything that brings items into Cockpit.</p>
+          {mail && <EmailToCockpit held={mail} guest={guest} />}
           <SettingsPanel
             name="Workspace"
+            className={mail ? 'mt-6' : 'mt-4'}
             flush
             header={
               <>

@@ -10,6 +10,7 @@ export * from './domain/remembered-sentence.js';
 export * from './domain/demo-address.js';
 export * from './domain/dashboard-filter.js';
 export * from './domain/duplicate.js';
+export * from './domain/email-address.js';
 export * from './domain/filing.js';
 export * from './domain/filter-groups.js';
 export * from './domain/filters.js';
