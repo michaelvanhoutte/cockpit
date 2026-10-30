@@ -11,10 +11,13 @@ import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Accoun
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
+import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
+import { attachmentLinkAddress, attachmentLinkKey } from '../auth/attachment-link.js';
+import type { FoundPage } from '../domain/item-search.js';
 
 /**
  * `/mcp`, once the OAuth library has accepted an access token made for it
@@ -26,8 +29,10 @@ import { MCP_PATH } from '../auth/mcp-paths.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Two tools, `create_item` and `report_run` (issue 1160), and no resources or prompts: the server declares
- * the tools capability alone, so a client never asks for the others.
+ * Three tools, `create_item`, `report_run` (issue 1160) and `find_items`
+ * (issue 1242, the only one that reads), and no resources or prompts: the
+ * server declares the tools capability alone, so a client never asks for the
+ * others.
  */
 
 /** What the library hands a protected handler, narrowed to what is read here. */
@@ -78,21 +83,24 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      return { tools: [createItemTool(await account.workspaces()), reportRunTool()] };
+      const workspaces = await account.workspaces();
+      return { tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces)] };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN) {
+    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN && params.name !== FIND_ITEMS) {
       return toolError(`There is no tool called ${params.name}.`);
     }
     try {
       const said =
         params.name === REPORT_RUN
           ? await reportRun(account, app, params.arguments)
-          : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+          : params.name === FIND_ITEMS
+            ? await find(env, account, holder.accountName, app, params.arguments)
+            : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -189,6 +197,64 @@ async function capture(
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
   return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+}
+
+/**
+ * One `find_items` call ("Find items in Cockpit by text and condition, over
+ * MCP", issue 1242): admitted at its own limits, apart from capture's, read
+ * against the workspaces as they are now, and answered from the account's
+ * Items - the account of the grant's person and no other.
+ *
+ * **The count is asked before anything is read**, and a call refused for being
+ * one too many reads nothing.
+ */
+async function find(
+  env: Env,
+  account: Account,
+  accountName: string,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  const now = new Date();
+  const admitted = await account.appFindArrived(app.grantId, now.toISOString());
+  if (admitted === 'too-many-this-minute') {
+    return { refusal: 'Too many searches in the last minute (10 a minute). Wait a minute and try again.' };
+  }
+  if (admitted === 'too-many-today') {
+    return { refusal: 'Too many searches today (500 a day). Try again tomorrow.' };
+  }
+
+  const workspaces = await account.workspaces();
+  const read = readFind(args, workspaces, now);
+  if (!read.ok) return { refusal: read.refusal };
+  const found = await account.findItems(read.search);
+  if ('noSuchPanel' in found) return { refusal: refusePanel(read.search, found, workspaces) };
+  return { reply: describeFound(found, workspaces, env.APP_ORIGIN, await linksToFilesOf(env, accountName, found, now)) };
+}
+
+/**
+ * The links that open the files of a page's Items for an hour without signing
+ * in ("Give attachment links with found items, over MCP", issue 1244): the same
+ * sealed links the send to Cowork or Claude Code mints (`auth/attachment-link.ts`),
+ * by file id. **None where the environment has no sealing key**, which leaves
+ * the reply naming files only. The files are those just read from this account
+ * for this page, so none needs checking again.
+ */
+async function linksToFilesOf(
+  env: Env,
+  accountName: string,
+  page: FoundPage,
+  now: Date,
+): Promise<Record<string, string>> {
+  const key = await attachmentLinkKey(env.CONNECTOR_CREDENTIAL_KEY);
+  if (!key) return {};
+  const links: Record<string, string> = {};
+  for (const { attachments } of page.items) {
+    for (const { id } of attachments) {
+      links[id] = await attachmentLinkAddress(key, { accountName, attachmentId: id }, now, env.APP_ORIGIN);
+    }
+  }
+  return links;
 }
 
 /**

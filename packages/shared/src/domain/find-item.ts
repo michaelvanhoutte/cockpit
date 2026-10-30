@@ -56,6 +56,15 @@ export type FoundItem = {
   panel: FoundPlace | null;
 };
 
+/**
+ * What is typed, as it is looked for in `searchTextOf`'s text: trimmed and
+ * lowercased. The one place that is said, for the screen's Find and for the
+ * Worker's `find_items`.
+ */
+export function needleOf(typed: string): string {
+  return typed.trim().toLowerCase();
+}
+
 /** The text a search runs over: what a person would type to find the Item. */
 export function searchTextOf(item: Pick<Item, 'title' | 'description' | 'nextAction' | 'sender'>): string {
   return [item.title, item.description ?? '', item.nextAction ?? '', item.sender ?? ''].join('\n').toLowerCase();
@@ -130,7 +139,7 @@ export function findItems(
   dashboardId: string,
   limit = FIND_LIMIT,
 ): { rows: FoundItem[]; more: number } {
-  const needle = query.trim().toLowerCase();
+  const needle = needleOf(query);
   if (needle === '') return { rows: [], more: 0 };
   const rows: FoundItem[] = [];
   let matched = 0;

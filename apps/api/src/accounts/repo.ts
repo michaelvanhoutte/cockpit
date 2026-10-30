@@ -800,6 +800,107 @@ export function listOpenItems(
 }
 
 /**
+ * The Items a connected app's `find_items` searches ("Find items in Cockpit by
+ * text and condition, over MCP", issue 1242): the account's, dismissed never,
+ * finished ones only where asked, and one Workspace's where it is named.
+ *
+ * **Reads every row of the account, whichever Workspace is named.** The
+ * Workspace condition is an `or` with the undecided Items, and no index holds
+ * `workspace_decided`, so SQLite can use `items_tenant_workspace_status` for
+ * the account alone (`EXPLAIN QUERY PLAN` says `tenant_id=?`). What a search
+ * costs in rows read is therefore every Item the account holds, finished and
+ * dismissed ones included, which is what `listOpenItems` costs a Workspace
+ * opening. The rest of what is asked - text, priority, due, status - is
+ * checked on the rows that come back (`domain/item-search.ts`).
+ *
+ * **A named Workspace also takes the Items belonging to none yet**, which sit
+ * in every Workspace's Inbox until somebody says (`listOpenItems`). **An Item
+ * of a deleted Workspace is on no screen**, so it is not found: deleting a
+ * Workspace tombstones it alone and leaves its Items (`command-service.ts`).
+ */
+export function listItemsToSearch(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string | null,
+  includeDone: boolean,
+): Item[] {
+  const liveWorkspaceIds = listWorkspaces(db, tenantId).map((workspace) => workspace.id);
+  const inScope =
+    workspaceId === null
+      ? or(
+          liveWorkspaceIds.length > 0 ? inArray(items.workspaceId, liveWorkspaceIds) : sql`0`,
+          eq(items.workspaceDecided, false),
+        )
+      : or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false));
+  return db
+    .select(itemColumns)
+    .from(items)
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        inScope,
+        isNull(items.deletedAt),
+        includeDone ? undefined : isNull(items.completedAt),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Where these Items are filed - their filings and the live Panels and
+ * Dashboards those name - for the one page of Items a `find_items` reply
+ * carries, and for nothing else ("Find items in Cockpit by text and condition,
+ * over MCP", issue 1242).
+ *
+ * **Read the way a Workspace's snapshot is** (`listFilingsInWorkspace`): a
+ * filing of a deleted Panel or Dashboard is left out, which puts an Item back
+ * in the Inbox, and a filing is read only on a Dashboard of the Item's own
+ * Workspace. Panels come in tab order then creation order, which is the order
+ * `placesFiledOn` names them in.
+ */
+export function placesOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { filings: Filing[]; panels: Panel[]; dashboards: Dashboard[] } {
+  if (itemIds.length === 0) return { filings: [], panels: [], dashboards: [] };
+  const filings = db
+    .select({ panelId: panelItems.panelId, itemId: panelItems.itemId, position: panelItems.position })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .innerJoin(items, eq(panelItems.itemId, items.id))
+    .where(
+      and(
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.itemId, [...itemIds]),
+        eq(items.workspaceId, dashboards.workspaceId),
+        isNull(panels.deletedAt),
+        isNull(dashboards.deletedAt),
+      ),
+    )
+    .orderBy(asc(panelItems.position))
+    .all();
+  const panelIds = [...new Set(filings.map((filing) => filing.panelId))];
+  if (panelIds.length === 0) return { filings, panels: [], dashboards: [] };
+  const filedPanels = db
+    .select(panelColumns)
+    .from(panels)
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(and(eq(panels.tenantId, tenantId), inArray(panels.id, panelIds)))
+    .orderBy(dashboards.position, dashboards.createdAt, panels.createdAt)
+    .all()
+    .map(panelAsRead);
+  const dashboardIds = [...new Set(filedPanels.map((panel) => panel.dashboardId))];
+  const filedDashboards = db
+    .select(dashboardColumns)
+    .from(dashboards)
+    .where(and(eq(dashboards.tenantId, tenantId), inArray(dashboards.id, dashboardIds)))
+    .all();
+  return { filings, panels: filedPanels, dashboards: filedDashboards };
+}
+
+/**
  * How many finished Items the Workspace's read leaves out (`listOpenItems`
  * with `finishedAfter`): those finished at or before that moment and not
  * dismissed, counted with the same `or`, so deleting the Workspace still names
@@ -1156,6 +1257,25 @@ const attachmentRowColumns = {
   contentType: attachments.contentType,
   createdAt: attachments.createdAt,
 };
+
+/**
+ * The files on these Items, oldest first on each, for the one page of Items a
+ * `find_items` reply carries and for nothing else ("Give attachment links with
+ * found items, over MCP", issue 1244). Names and ids only: no contents.
+ */
+export function attachmentsOfItems(
+  db: AccountDb,
+  tenantId: string,
+  itemIds: readonly string[],
+): { itemId: string; id: string; filename: string }[] {
+  if (itemIds.length === 0) return [];
+  return db
+    .select({ itemId: attachments.itemId, id: attachments.id, filename: attachments.filename })
+    .from(attachments)
+    .where(and(eq(attachments.tenantId, tenantId), inArray(attachments.itemId, [...itemIds])))
+    .orderBy(asc(attachments.createdAt), asc(attachments.id))
+    .all();
+}
 
 /**
  * One attachment by its id, whole - what `add_attachment` reads to tell a

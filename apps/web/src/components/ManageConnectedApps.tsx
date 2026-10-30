@@ -97,7 +97,8 @@ export default function ManageConnectedApps({
   return (
     <ManageWindow title="Connected apps" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
       <p className="mt-1 text-sm text-ink-soft">
-        Apps you allowed into your Cockpit: to capture items into it, or only to read your Panels.
+        Apps you allowed into your Cockpit: to capture items into it and read your items in every workspace, or
+        only to read your Panels.
       </p>
       <SettingsPanel name="Address" hint="Paste it into claude.ai to connect Claude.">
         <div className="flex items-center gap-3">
