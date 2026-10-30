@@ -16,6 +16,7 @@ import {
   ACCOUNT_WIDE,
   DEFAULT_ITEM_FORM_PRESENTATION,
   TITLE_LENGTH,
+  additionsOf,
   dayOf,
   daysOnFrom,
   itemHasOpenReadings,
@@ -36,7 +37,7 @@ import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
-import { dateTimeLabel } from '../dateFormat';
+import { addedLabel, dateTimeLabel } from '../dateFormat';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshotWithFinishedItems } from '../api/finishedItems';
@@ -456,6 +457,8 @@ function TheForm({
   /** This Item's own files, out of the workspace's whole list ("Attach a file to an item", issue 441). */
   const attachments: Attachment[] =
     data?.attachments.filter((attachment) => attachment.itemId === itemId) ?? [];
+  /** What was added to it after it was captured, oldest first, for its Details tab (issue 1640). */
+  const additions = additionsOf(data?.additions, itemId);
   /**
    * The notes this one may be saying again ("Flag a captured note that says
    * what another one already said", issue 407) - worked out from the same
@@ -2346,6 +2349,16 @@ function TheForm({
                           </dd>
                         </div>
                       )}
+                      {/* Each note added since, under the captured message and
+                          never in it (issue 1640): a record too, oldest first. */}
+                      {additions.map((addition) => (
+                        <div key={addition.id}>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                            Added {addedLabel(addition.createdAt, item.createdAt)}
+                          </dt>
+                          <dd className="mt-1 whitespace-pre-wrap text-ink-soft">{addition.message}</dd>
+                        </div>
+                      ))}
                       <div>
                         <dt className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
                           Source

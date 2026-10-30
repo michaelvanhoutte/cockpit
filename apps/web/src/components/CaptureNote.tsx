@@ -220,6 +220,14 @@ export function CaptureNote({
    * alone, so a reload has neither (issue 1104).
    */
   const [last, setLast] = useState<Captured | null>(null);
+  /**
+   * **Add to this** is pressed ("Capture append: add to the Item you just
+   * captured with an Add to this button", issue 1640): the next capture is a
+   * note added to the Item the line names rather than an Item of its own. For
+   * one capture only; pressed again for the one after, and pressed while lit to
+   * take it back. Like the line, in this form's memory alone.
+   */
+  const [adding, setAdding] = useState(false);
   /** Undo is working on it: pressed once, the line stops offering it. */
   const [undoing, setUndoing] = useState(false);
   const undone = useRef(new Set<string>());
@@ -444,6 +452,8 @@ export function CaptureNote({
     restore(back);
     if (unsure) setRefused(UNDO_MAYBE_SENT);
     setLast((was) => (was?.id === back.id ? null : was));
+    // Nothing is left on the line to add to.
+    setAdding(false);
     setUndoing(false);
   };
 
@@ -545,6 +555,11 @@ export function CaptureNote({
       return;
     }
 
+    if (adding && last) {
+      addToLast(last, trimmed);
+      return;
+    }
+
     // The workspace this is captured against, the same one `ask` is given
     // below - read once, so what the queued files upload against on success
     // is exactly what the note itself was captured against.
@@ -609,6 +624,7 @@ export function CaptureNote({
           for (const file of queuedAtSubmit) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
           emptied();
           setLast(captured(id));
+          setAdding(false);
           setRefused(null);
           saidNow.current.onKept?.();
         },
@@ -627,6 +643,7 @@ export function CaptureNote({
         asking: emptied,
         captured: (itemId) => {
           setLast(captured(itemId));
+          setAdding(false);
           // Said only once the files are on the Item too: a window that closed on
           // the note alone would take the line naming a refused file with it.
           void uploadQueued(queuedAtSubmit, itemId, targetWorkspace).then((allAttached) => {
@@ -644,6 +661,91 @@ export function CaptureNote({
       });
     }
   };
+
+  /**
+   * The note in the box, added to the Item the Captured line names rather than
+   * made an Item of its own (issue 1640): kept in the outbox like a capture,
+   * behind the capture it adds to if that has not landed, with the files on
+   * that Item and the priority and due date only where the strip picked them.
+   * The line then reads *Added to “…”* and offers **Add to this** again. Where
+   * the outbox cannot be written it is sent at once, as a capture is.
+   */
+  function addToLast(target: Captured, trimmed: string) {
+    if (keeping.current) return;
+    keeping.current = true;
+    const queuedAtSubmit = queued;
+    const priorityAtSubmit = priority;
+    const dueAtSubmit = due;
+    const additionId = uuidv7();
+    const what = {
+      message: trimmed,
+      workspaceId: target.workspaceId,
+      decided: target.where !== null,
+      ...(priorityAtSubmit ? { priority: priorityAtSubmit } : {}),
+      ...(dueAtSubmit ? { dueDate: dueAtSubmit } : {}),
+    };
+    const emptied = () => {
+      setMessage((was) => (was.trim() === trimmed ? '' : was));
+      setPriority((was) => (was === priorityAtSubmit ? null : was));
+      setDue((was) => (was === dueAtSubmit ? null : was));
+      setRefused(null);
+      setQueued((was) => was.filter((file) => !queuedAtSubmit.includes(file)));
+      setQueueError(null);
+    };
+    const added = () => {
+      setLast((was) => (was?.id === target.id ? { ...was, added: true } : was));
+      setAdding(false);
+    };
+    saidNow.current.onCaptured?.();
+    void outbox
+      .add({
+        ...what,
+        id: additionId,
+        appendTo: target.id,
+        files: queuedAtSubmit.map(({ id: fileId, file }) => ({ id: fileId, file })),
+      })
+      .then(
+        () => {
+          for (const file of queuedAtSubmit) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
+          emptied();
+          added();
+          saidNow.current.onKept?.();
+        },
+        () => {
+          emptied();
+          void send({
+            name: 'append_to_item',
+            payload: {
+              commandId: uuidv7(),
+              issuedAt: new Date().toISOString(),
+              workspaceId: target.workspaceId,
+              itemId: target.id,
+              additionId,
+              message: trimmed,
+              ...(priorityAtSubmit ? { priority: priorityAtSubmit } : {}),
+              ...(dueAtSubmit ? { dueDate: dueAtSubmit } : {}),
+            },
+          }).then(
+            () => {
+              added();
+              void uploadQueued(queuedAtSubmit, target.id, target.workspaceId).then((allAttached) => {
+                if (allAttached) saidNow.current.onKept?.();
+              });
+            },
+            (failure: unknown) => {
+              setMessage(trimmed);
+              setPriority((was) => was ?? priorityAtSubmit);
+              setDue((was) => was ?? dueAtSubmit);
+              setQueued((was) => [...queuedAtSubmit, ...was]);
+              setRefused(failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.');
+            },
+          );
+        },
+      )
+      .finally(() => {
+        keeping.current = false;
+      });
+  }
 
   /**
    * What the outbox still holds for you, one line each and only while there is
@@ -963,15 +1065,37 @@ export function CaptureNote({
             )}
             <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
               <span className="min-w-0 truncate">
-                Captured “{plainWords(last.message)}” → {last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}
+                {last.added
+                  ? `Added to “${plainWords(last.message)}”`
+                  : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`}
               </span>
+              {/* Undo of an addition takes back the addition alone, which a
+                  later change brings; until then the line offers none. */}
+              {!last.added && (
+                <button
+                  type="button"
+                  disabled={undoing}
+                  onClick={() => void undo()}
+                  className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                >
+                  Undo
+                </button>
+              )}
+              {/* Here rather than in the strip, so it is never easier to reach
+                  than a capture of its own (issue 1638). Lit while the next
+                  capture is to go on this Item. */}
               <button
                 type="button"
+                aria-pressed={adding}
                 disabled={undoing}
-                onClick={() => void undo()}
-                className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep disabled:opacity-50"
+                onClick={() => setAdding((was) => !was)}
+                className={`shrink-0 rounded-md border px-2 py-0.5 text-sm disabled:opacity-50 ${
+                  adding
+                    ? 'border-accent bg-accent-tint text-accent-deep'
+                    : 'border-shade/10 text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep'
+                }`}
               >
-                Undo
+                Add to this
               </button>
             </p>
           </div>
@@ -1236,6 +1360,8 @@ interface Captured {
   filed: FiledOn[];
   /** The files it was captured with, to queue again. */
   files: File[];
+  /** A note has since been added to it from this line (issue 1640): the line says so, and offers no Undo. */
+  added?: boolean;
 }
 
 /** A dropped, pasted, chosen or put-back file, as a chip in the box. */

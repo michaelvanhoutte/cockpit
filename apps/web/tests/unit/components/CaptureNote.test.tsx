@@ -907,6 +907,149 @@ describe('Capture', () => {
   });
 
   /**
+   * "Capture append: add to the Item you just captured with an Add to this
+   * button" (issue 1640). The button lives on the Captured line, so it is the
+   * form's own memory, as the line is; what the server does with an addition
+   * is apps/api/tests/integration/http/item-additions.test.ts, and when the
+   * outbox sends it is tests/unit/captureOutboxSender.test.tsx.
+   */
+  describe('Add to this is offered only on the Captured line, and the next capture goes on the Item it names', () => {
+    const additionsSent = () =>
+      vi
+        .mocked(sendCommand)
+        .mock.calls.filter(([name]) => name === 'append_to_item')
+        .map(([, payload]) => payload as Record<string, unknown>);
+    const addToThis = () => screen.getByRole('button', { name: 'Add to this' });
+    /** Captures `note` and waits for the line naming it. */
+    async function captureFirst(user: Awaited<ReturnType<typeof thePage>>, note: string) {
+      await user.type(box(), note);
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(captureLine()).toHaveTextContent(note));
+    }
+
+    it('is offered beside Undo once something is captured, and not before', async () => {
+      const user = await thePage();
+      expect(screen.queryByRole('button', { name: 'Add to this' })).toBeNull();
+
+      await captureFirst(user, 'Ring the plumber');
+
+      expect(addToThis()).toBeVisible();
+      expect(addToThis()).toHaveAttribute('aria-pressed', 'false');
+      expect(undoButton()).toBeVisible();
+    });
+
+    it('sends the next note as an addition to that Item rather than a new one, and the line says so', async () => {
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+      const itemId = (await captured()).payload.itemId;
+
+      await user.click(addToThis());
+      expect(addToThis()).toHaveAttribute('aria-pressed', 'true');
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(additionsSent()).toHaveLength(1));
+      expect(additionsSent()[0]).toMatchObject({ itemId, message: 'about the boiler' });
+      expect(capturedCalls()).toHaveLength(1);
+      await waitFor(() => expect(box()).toHaveValue(''));
+      expect(screen.getByText('Added to “Ring the plumber”')).toBeVisible();
+      // One addition per press: pressed again for the one after.
+      expect(addToThis()).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('can be pressed again for the one after, onto the same Item', async () => {
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+      const itemId = (await captured()).payload.itemId;
+      for (const note of ['about the boiler', 'and the tap']) {
+        await user.click(addToThis());
+        await user.type(box(), note);
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(box()).toHaveValue(''));
+      }
+
+      await waitFor(() => expect(additionsSent()).toHaveLength(2));
+      expect(additionsSent().map((one) => [one.itemId, one.message])).toEqual([
+        [itemId, 'about the boiler'],
+        [itemId, 'and the tap'],
+      ]);
+      expect(capturedCalls()).toHaveLength(1);
+    });
+
+    it('carries the priority picked in the strip for it, and puts its files on that Item', async () => {
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+      const itemId = (await captured()).payload.itemId;
+
+      await user.click(addToThis());
+      await user.click(chip('High priority'));
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(additionsSent()).toHaveLength(1));
+      expect(additionsSent()[0]).toMatchObject({ priority: 'high' });
+      expect(additionsSent()[0]).not.toHaveProperty('dueDate');
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ itemId, file: aPhotoFile })));
+    });
+
+    it('sends nothing for an empty note', async () => {
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+
+      await user.click(addToThis());
+      await user.click(chip('Capture'));
+      await settled();
+
+      expect(additionsSent()).toEqual([]);
+      expect(addToThis()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('is gone once the window is opened again', async () => {
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+
+      await reloaded(user);
+
+      expect(screen.queryByRole('button', { name: 'Add to this' })).toBeNull();
+    });
+
+    it('counts an addition that cannot be sent yet as waiting to send', async () => {
+      vi.mocked(sendCommand).mockImplementation((name) =>
+        name === 'append_to_item' ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve({ ok: true as const, applied: true }),
+      );
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+
+      await user.click(addToThis());
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByText('1 waiting to send')).toBeVisible();
+    });
+
+    it('shows one refused for good as not sent, and Put back fills the box with it', async () => {
+      const because = 'The item this was added to is gone or dismissed, so it was not added.';
+      vi.mocked(sendCommand).mockImplementation((name) =>
+        name === 'append_to_item' ? Promise.reject(new CommandRefused(404, because)) : Promise.resolve({ ok: true as const, applied: true }),
+      );
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+      await user.click(addToThis());
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByText('1 not sent')).toBeVisible();
+      expect(screen.getByText(because)).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Put back' }));
+
+      expect(box()).toHaveValue('about the boiler');
+      await waitFor(() => expect(screen.queryByText('1 not sent')).toBeNull());
+    });
+  });
+
+  /**
    * "Warn at Capture when the note just captured repeats another" (issue 1115):
    * the pairs arrive in the snapshot, and Capture reads them for the Item it
    * just made. Detection is the server's job, so a pair is put in the snapshot

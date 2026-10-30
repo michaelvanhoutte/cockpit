@@ -88,6 +88,15 @@ export const momentDateLabel = (instant: string | number | Date) => at('date', i
 /** The clock time of a moment in the device's zone. */
 export const timeOfDayLabel = (instant: string | number | Date) => at('time', instant);
 
+/**
+ * When a note was added to an Item, as its *Details* tab says it (*Added 14:32*,
+ * issue 1640): the clock time where it was added on the day the Item was
+ * captured, on the device's calendar, and the date with it on any other day.
+ */
+export function addedLabel(addedAt: string, capturedAt: string): string {
+  return momentDateLabel(addedAt) === momentDateLabel(capturedAt) ? timeOfDayLabel(addedAt) : dateTimeLabel(addedAt);
+}
+
 /** A day with no time attached (a due date), written in the region's order and never moved by the zone. */
 export const dayLabel = (day: string) => onTheDay('date', day);
 

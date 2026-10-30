@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
+  Addition,
   Attachment,
   Filing,
   Item,
@@ -18,6 +19,7 @@ import type {
 import { dayOf, daysOnFrom } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
+import { dateTimeLabel, timeOfDayLabel } from '../../../src/dateFormat';
 import { ItemForm, whatChanged } from '../../../src/components/ItemForm';
 import { DESCRIPTION_TEXT_CLASS } from '../../../src/description/textClass';
 import { DEADLINE_PILLS, dueDateLabel } from '../../../src/dueDate';
@@ -51,6 +53,7 @@ const held = vi.hoisted(() => ({
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
+  additions: [] as Addition[],
   series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
@@ -212,6 +215,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.dashboards,
       held.duplicates,
       held.attachments,
+      held.additions,
       held.series,
       held.itemFormPresentation,
     ],
@@ -225,6 +229,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         dashboards: held.dashboards,
         duplicates: held.duplicates,
         attachments: held.attachments,
+        additions: held.additions,
         series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
@@ -421,6 +426,7 @@ beforeEach(() => {
   held.dashboards = [];
   held.duplicates = [];
   held.attachments = [];
+  held.additions = [];
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
@@ -3063,6 +3069,71 @@ describe('Item editing', () => {
       await user.keyboard('{ArrowRight}{ArrowRight}');
 
       expect(screen.getByRole('tab', { name: 'Details', selected: true })).toHaveFocus();
+    });
+  });
+
+  /**
+   * "Capture append: add to the Item you just captured with an Add to this
+   * button" (issue 1640): the additions arrive in the Workspace's snapshot,
+   * which is what lets fifty be listed without a read of their own.
+   */
+  describe('the notes added to an Item are listed under its captured message, oldest first, with when each was added', () => {
+    /** A note added to `item-1`. */
+    const anAddition = (id: string, message: string, createdAt: string, itemId = 'item-1'): Addition => ({
+      id,
+      tenantId: 'tenant',
+      itemId,
+      message,
+      createdAt,
+    });
+
+    it('lists each note added to the Item under the captured message, oldest first, with when it was added', async () => {
+      held.additions = [
+        anAddition('addition-2', 'and the tap', '2026-09-18T12:40:00.000Z'),
+        anAddition('addition-other', 'not this one', '2026-09-18T12:35:00.000Z', 'item-2'),
+        anAddition('addition-1', 'about the boiler', '2026-09-18T12:32:00.000Z'),
+      ];
+      const user = await theForm(anItem({ createdAt: '2026-09-18T12:00:00.000Z' }), [anItem({ id: 'item-2' })]);
+
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+
+      const record = within(screen.getByRole('tabpanel', { name: 'Details' }));
+      expect(record.getAllByRole('term').map((term) => term.textContent).slice(0, 3)).toEqual([
+        'Captured message',
+        `Added ${timeOfDayLabel('2026-09-18T12:32:00.000Z')}`,
+        `Added ${timeOfDayLabel('2026-09-18T12:40:00.000Z')}`,
+      ]);
+      expect(record.getAllByRole('definition').map((one) => one.textContent).slice(0, 3)).toEqual([
+        'Ask Novy about part 11',
+        'about the boiler',
+        'and the tap',
+      ]);
+      expect(record.queryByText('not this one')).toBeNull();
+    });
+
+    it('says the day as well for a note added on another day than the Item was captured', async () => {
+      held.additions = [anAddition('addition-1', 'about the boiler', '2026-09-20T09:00:00.000Z')];
+      const user = await theForm(anItem({ createdAt: '2026-09-18T12:00:00.000Z' }));
+
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+
+      expect(screen.getByText(`Added ${dateTimeLabel('2026-09-20T09:00:00.000Z')}`)).toBeVisible();
+    });
+
+    it('lists all of fifty additions, newest last', async () => {
+      held.additions = Array.from({ length: 50 }, (_, at) =>
+        anAddition(`addition-${String(at).padStart(2, '0')}`, `note ${at + 1}`, `2026-09-18T13:${String(at).padStart(2, '0')}:00.000Z`),
+      );
+      const user = await theForm(anItem({ createdAt: '2026-09-18T12:00:00.000Z' }));
+
+      await user.click(screen.getByRole('tab', { name: 'Details' }));
+
+      const notes = within(screen.getByRole('tabpanel', { name: 'Details' }))
+        .getAllByRole('definition')
+        .map((one) => one.textContent)
+        .filter((text) => text?.startsWith('note '));
+      expect(notes).toHaveLength(50);
+      expect(notes.at(-1)).toBe('note 50');
     });
   });
 

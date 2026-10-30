@@ -1,6 +1,8 @@
 import {
   daysOnFrom,
   textsFromCapture,
+  type Addition,
+  type AppendToItemCommand,
   type AssociateCommand,
   type Association,
   type CaptureItemCommand,
@@ -555,6 +557,37 @@ export function applySetDescription(item: Item, cmd: SetDescriptionCommand): Ite
     ...settledBy(item, cmd.issuedAt),
     updatedAt: cmd.issuedAt,
   };
+}
+
+/**
+ * A note added to an Item after it was captured ("Capture append: add to the
+ * Item you just captured with an Add to this button", issue 1640): the
+ * addition's row, and the Item as it then stands.
+ *
+ * **The texts and the captured message are never touched.** The priority and
+ * the due date change only where the strip picked one for this addition, by the
+ * same rules `set_priority` and `set_due_date` follow, a pick older than the
+ * Item's last change included. The Item's update time moves to the addition's,
+ * never back.
+ */
+export function appendToItem(
+  item: Item,
+  cmd: AppendToItemCommand,
+  tenantId: string,
+): { addition: Addition; item: Item } {
+  const addition: Addition = {
+    id: cmd.additionId,
+    tenantId,
+    itemId: item.id,
+    message: cmd.message,
+    createdAt: cmd.issuedAt,
+  };
+  const envelope = { commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: item.id };
+  let after = item;
+  if (cmd.priority) after = applySetPriority(after, { ...envelope, priority: cmd.priority }) ?? after;
+  if (cmd.dueDate) after = applySetDueDate(after, { ...envelope, dueDate: cmd.dueDate }) ?? after;
+  const updatedAt = after.updatedAt > cmd.issuedAt ? after.updatedAt : cmd.issuedAt;
+  return { addition, item: { ...after, updatedAt } };
 }
 
 export function associationFromCommand(cmd: AssociateCommand, tenantId: string): Association {

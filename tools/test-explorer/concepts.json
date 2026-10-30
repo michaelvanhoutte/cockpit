@@ -123,7 +123,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",

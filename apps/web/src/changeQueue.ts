@@ -162,12 +162,30 @@ interface Entry {
   settle?: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void } | undefined;
 }
 
-type CaptureCommand = CommandPayload<'capture_item'>;
+/**
+ * What the outbox holds and the queue draws: a capture, or a note added to an
+ * Item ("Capture append: add to the Item you just captured with an Add to this
+ * button", issue 1640), told apart by the addition's own id.
+ */
+type CaptureCommand = CommandPayload<'capture_item'> | CommandPayload<'append_to_item'>;
 
 /** What `answeredAt` says of a capture that has not landed: no read can have begun after it. */
 const NOT_LANDED = Infinity;
 
 const capturedId = (entry: Entry) => (entry.change.name === 'capture_item' ? entry.change.payload.itemId : undefined);
+
+/** The outbox's entries the queue draws, by their own id: a capture's Item, an addition's own - never an addition the queue sends itself. */
+const keptId = (entry: Entry) =>
+  entry.change.name === 'capture_item'
+    ? entry.change.payload.itemId
+    : entry.change.name === 'append_to_item' && !entry.settle
+      ? entry.change.payload.additionId
+      : undefined;
+
+const idOf = (kept: CaptureCommand) => ('additionId' in kept ? kept.additionId : kept.itemId);
+
+const asDrawn = (kept: CaptureCommand): Drawn =>
+  'additionId' in kept ? { name: 'append_to_item', payload: kept } : { name: 'capture_item', payload: kept };
 
 /** How long a change may be out before the queue gives up on it and goes on to the next. */
 export const SEND_TIMEOUT_MS = 15_000;
@@ -365,14 +383,14 @@ export function createChangeQueue(options: {
       entries.filter((entry) => entry.answeredAt === NOT_LANDED).forEach(drop);
       // Behind the captures already drawn and ahead of every other change.
       entries.splice(
-        entries.filter((entry) => capturedId(entry) !== undefined).length,
+        entries.filter((entry) => keptId(entry) !== undefined).length,
         0,
-        ...shown.map((payload): Entry => ({ change: { name: 'capture_item', payload }, state: 'answered', answeredAt: NOT_LANDED, stamp: undefined })),
+        ...shown.map((payload): Entry => ({ change: asDrawn(payload), state: 'answered', answeredAt: NOT_LANDED, stamp: undefined })),
       );
       changed();
     },
     landed(capture, at) {
-      const drawn = entries.find((entry) => capturedId(entry) === capture.itemId);
+      const drawn = entries.find((entry) => keptId(entry) === idOf(capture));
       if (drawn?.answeredAt !== NOT_LANDED) return false;
       Object.assign(drawn, { answeredAt: ++tick, stamp: at });
       changed();

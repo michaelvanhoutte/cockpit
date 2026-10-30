@@ -187,6 +187,7 @@ function aKeptRecording(at: string, owner = 'user-michael'): KeptRecording {
 
 const NEVER_SENT: Sender = {
   capture: () => Promise.reject(new TypeError('Failed to fetch')),
+  append: () => Promise.reject(new TypeError('Failed to fetch')),
   upload: () => Promise.reject(new TypeError('Failed to fetch')),
   transcribe: () => Promise.reject(new TypeError('Failed to fetch')),
 };

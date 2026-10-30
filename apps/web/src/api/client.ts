@@ -256,6 +256,8 @@ const commandSenders = {
     api.v1.commands.set_panel_sort.$post({ json: p }, o),
   save_layout: (p: CommandPayload<'save_layout'>, o?: ClientRequestOptions) => api.v1.commands.save_layout.$post({ json: p }, o),
   capture_item: (p: CommandPayload<'capture_item'>, o?: ClientRequestOptions) => api.v1.commands.capture_item.$post({ json: p }, o),
+  append_to_item: (p: CommandPayload<'append_to_item'>, o?: ClientRequestOptions) =>
+    api.v1.commands.append_to_item.$post({ json: p }, o),
   move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.move_item_to_panel.$post({ json: p }, o),
   add_item_to_panel: (p: CommandPayload<'add_item_to_panel'>, o?: ClientRequestOptions) =>

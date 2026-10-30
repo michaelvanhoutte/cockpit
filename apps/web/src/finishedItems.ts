@@ -41,5 +41,9 @@ export function withFinishedItems(snapshot: WorkspaceSnapshot, finished: Finishe
       ...snapshot.attachments.filter((file) => !taken.has(file.itemId)),
       ...finished.attachments.filter((file) => taken.has(file.itemId)),
     ],
+    additions: [
+      ...(snapshot.additions ?? []).filter((addition) => !taken.has(addition.itemId)),
+      ...(finished.additions ?? []).filter((addition) => taken.has(addition.itemId)),
+    ],
   };
 }

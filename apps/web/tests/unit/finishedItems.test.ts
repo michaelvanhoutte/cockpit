@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Attachment, FinishedItems, Item, WorkspaceSnapshot } from '@cockpit/shared';
+import type { Addition, Attachment, FinishedItems, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { withFinishedItems } from '../../src/finishedItems';
 
 /**
@@ -85,6 +85,15 @@ describe('Dashboards', () => {
 
       expect(drawn.filings.map((filing) => filing.panelId)).toEqual(['moved-here']);
       expect(drawn.attachments.map((one) => one.id)).toEqual(['f-after']);
+    });
+
+    it('draws a finished Item’s added notes from the read its copy came from (issue 1640)', () => {
+      const added = (id: string, itemId: string) => ({ id, itemId }) as Addition;
+      const held = workspace({ items: [item('open')], additions: [added('a-open', 'open')] });
+
+      const drawn = withFinishedItems(held, finished({ items: [done('old')], additions: [added('a-old', 'old')] }));
+
+      expect(drawn.additions?.map((one) => one.id)).toEqual(['a-open', 'a-old']);
     });
 
     it('leaves the Workspace’s read untouched', () => {

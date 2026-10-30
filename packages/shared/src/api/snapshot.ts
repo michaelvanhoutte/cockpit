@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { additionSchema } from '../domain/addition.js';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
@@ -57,6 +58,15 @@ export const workspaceSnapshotSchema = z.object({
    * with nothing attached, not a broken one.
    */
   attachments: z.array(attachmentSchema).default([]),
+  /**
+   * Every note added to an Item above after it was captured ("Capture append:
+   * add to the Item you just captured with an Add to this button", issue
+   * 1640), carried here so an Item's *Details* tab lists them without a read of
+   * its own. The same Items' as `attachments` above. Optional rather than
+   * defaulted, as `sourceNames` below is: a copy saved by a release that did
+   * not send it has no additions to show, and reads as `[]`.
+   */
+  additions: z.array(additionSchema).optional(),
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,
@@ -149,6 +159,8 @@ export const finishedItemsSchema = z.object({
   items: z.array(itemSchema),
   filings: z.array(filingSchema),
   attachments: z.array(attachmentSchema),
+  /** Their additions, for the reason the snapshot carries its own (issue 1640); optional as there. */
+  additions: z.array(additionSchema).optional(),
   /** The newest change this read is built on, as the snapshot's `upTo` says it. */
   upTo: z.iso.datetime().optional(),
 });

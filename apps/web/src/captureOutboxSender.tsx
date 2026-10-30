@@ -8,12 +8,17 @@ import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
 import { currentStanding, onStandingChange } from './offline';
 import {
+  ADDITION_ENTRY_VERSION,
   ENTRY_VERSION,
   NOTHING_HEARD,
   RECORDED_ENTRY_VERSION,
   SEND_TIMEOUT_MS,
   TimedOut,
+  additionPayload,
   capturePayload,
+  isAddition,
+  itemOf,
+  keptPayload,
   landedWhole,
   needsWords,
   nextWait,
@@ -23,7 +28,9 @@ import {
   readEntry,
   shownTo,
   showsInTheInbox,
+  showsOnItsItem,
   toSend,
+  waitsBehind,
   type OutboxEntry,
   type WaitingFile,
 } from './captureOutbox';
@@ -70,6 +77,8 @@ export function browserOutboxStore(): OutboxStore {
  */
 export interface Sender {
   capture: (payload: ReturnType<typeof capturePayload>, signal: AbortSignal) => Promise<CommandResult | undefined>;
+  /** A note added to an Item (issue 1640). */
+  append: (payload: ReturnType<typeof additionPayload>, signal: AbortSignal) => Promise<CommandResult | undefined>;
   upload: (args: Parameters<typeof uploadAttachment>[0] & { signal: AbortSignal }) => Promise<unknown>;
   /** A spoken note's recording, as words. */
   transcribe: (recording: Blob, signal: AbortSignal) => Promise<string>;
@@ -80,6 +89,10 @@ export const serverSender: Sender = {
     // Into a Workspace just added, behind its add: sent first, the server would not know the Workspace yet.
     await changes.afterAdding(payload.workspaceId);
     return sendCommand('capture_item', payload, signal);
+  },
+  append: async (payload, signal) => {
+    await changes.afterAdding(payload.workspaceId);
+    return sendCommand('append_to_item', payload, signal);
   },
   upload: uploadAttachment,
   // Fetched when a recording is first sent, so none of it is in the first bundle.
@@ -130,6 +143,11 @@ export interface NewCapture {
   /** The Panels *File on* chose; the capture is filed on them as it lands. */
   panelIds?: readonly string[];
   files: { id: string; file: File }[];
+  /**
+   * The Item this note is added to, where **Add to this** was pressed (issue
+   * 1640): then `id` is the addition's, and the files go on that Item.
+   */
+  appendTo?: string;
 }
 
 /** A note spoken in the Car view, handed over as its recording in place of its words. */
@@ -311,8 +329,9 @@ export class CaptureOutbox {
       })),
     );
     const entry: OutboxEntry = {
-      v: ENTRY_VERSION,
+      v: capture.appendTo ? ADDITION_ENTRY_VERSION : ENTRY_VERSION,
       id: capture.id,
+      ...(capture.appendTo ? { appendTo: capture.appendTo } : {}),
       owner,
       commandId: uuidv7(),
       capturedAt: new Date().toISOString(),
@@ -321,7 +340,8 @@ export class CaptureOutbox {
       message: capture.message,
       ...(capture.priority ? { priority: capture.priority } : {}),
       ...(capture.dueDate ? { dueDate: capture.dueDate } : {}),
-      ...(capture.panelIds && capture.panelIds.length > 0 ? { panelIds: [...capture.panelIds] } : {}),
+      // An addition is filed nowhere: the Item it goes on already is where it is.
+      ...(!capture.appendTo && capture.panelIds && capture.panelIds.length > 0 ? { panelIds: [...capture.panelIds] } : {}),
       ...zoneNow(),
       files,
       landed: false,
@@ -479,8 +499,16 @@ export class CaptureOutbox {
       return 'waits';
     }
     let result: PassResult = 'clear';
+    let heldBack = false;
     for (const entry of due) {
       if (this.owner !== owner) return 'clear';
+      // An addition goes behind the capture it adds to (issue 1640): asked of
+      // what is stored now, so a capture that landed earlier in this pass lets
+      // it go at once, and one still waiting keeps it waiting with it.
+      if (waitsBehind(entry, this.entries)) {
+        heldBack = true;
+        continue;
+      }
       // Once one recording's words could not be had though the server answered
       // - the account at its limit, the model down - the others wait too,
       // rather than each spending a request the limit counts.
@@ -493,7 +521,7 @@ export class CaptureOutbox {
       // Its words could not be had, though the server answered: the captures behind it still go.
       if (sent === 'skipped') result = 'waits';
     }
-    return result;
+    return heldBack ? 'waits' : result;
   }
 
   private async sendOne(entry: OutboxEntry): Promise<EntryResult> {
@@ -532,10 +560,18 @@ export class CaptureOutbox {
     let at: string | undefined;
     if (!current.landed) {
       try {
-        const payload = capturePayload(current);
+        const kept = current;
         this.sending = current.id;
         try {
-          at = (await this.timed((signal) => this.deps.sender.capture(payload, signal), this.noteTimeout()))?.at;
+          at = (
+            await this.timed(
+              (signal) =>
+                isAddition(kept)
+                  ? this.deps.sender.append(additionPayload(kept), signal)
+                  : this.deps.sender.capture(capturePayload(kept), signal),
+              this.noteTimeout(),
+            )
+          )?.at;
         } finally {
           this.sending = null;
         }
@@ -556,7 +592,8 @@ export class CaptureOutbox {
       if (file.landed || file.refused !== null) continue;
       let change: Partial<WaitingFile>;
       try {
-        const itemId = current.id;
+        // An addition's files go on the Item it is added to.
+        const itemId = itemOf(current);
         const workspaceId = current.workspaceId;
         await this.timed(
           (signal) =>
@@ -727,7 +764,9 @@ export function useSendingCaptures(owner: string | null): void {
   // the Inbox the moment you make it", issue 1353); a change to it is drawn on
   // top (`changeQueue.ts`).
   useEffect(() => {
-    const draw = () => changes.captures(outbox.getShown().filter(showsInTheInbox).map(capturePayload));
+    // An addition is drawn on its Item's Details tab the same way (issue 1640).
+    const draw = () =>
+      changes.captures(outbox.getShown().filter((entry) => showsInTheInbox(entry) || showsOnItsItem(entry)).map(keptPayload));
     draw();
     const stop = outbox.subscribe(draw);
     return () => {
@@ -765,7 +804,7 @@ export function useSendingCaptures(owner: string | null): void {
     // of it is (`readForAnnouncement`): every workspace for one left undecided.
     // Told twice - the note, then the whole - it is read for the first time only.
     const landed = outbox.onLanding(({ entry, at }) => {
-      if (!changes.landed(capturePayload(entry), at)) return;
+      if (!changes.landed(keptPayload(entry), at)) return;
       readForAnnouncement(queryClient, {
         type: 'snapshot_invalidated',
         workspaceId: entry.decided ? entry.workspaceId : ACCOUNT_WIDE,

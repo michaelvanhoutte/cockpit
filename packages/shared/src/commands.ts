@@ -433,6 +433,31 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
 export type CaptureItemCommand = z.infer<typeof captureItemSchema>;
 
 /**
+ * append_to_item - a note added to an Item after it was captured, kept beside
+ * the captured message and never written into it ("Capture append: add to the
+ * Item you just captured with an Add to this button", issue 1640).
+ *
+ * **`itemId` is the Item added to, named by the tab** from the capture it just
+ * made, so the Item the Captured line names is the one changed; `additionId`
+ * is the addition's own, made by the tab so a resend under a lost command id
+ * still writes one row. `issuedAt` is when Capture was pressed, which is where
+ * the addition sits among the Item's others.
+ *
+ * **Refused for good where the Item is gone or dismissed.** A finished Item is
+ * neither, and takes one. The priority and due date change only where the
+ * strip picked one for this addition; the texts never change here.
+ */
+export const appendToItemSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  additionId: z.uuid(),
+  /** Capped where a capture's message is, on the way in only. */
+  message: z.string().trim().min(1).max(60_000),
+  priority: prioritySchema.optional(),
+  dueDate: z.iso.date().optional(),
+});
+export type AppendToItemCommand = z.infer<typeof appendToItemSchema>;
+
+/**
  * An order names each Item once. Shared by the two commands below that carry
  * one, because it is the same rule (architecture.md §4.4, "a whole order").
  */
@@ -1057,6 +1082,7 @@ export const commandSchemas = {
   set_panel_sort: setPanelSortSchema,
   save_layout: saveLayoutSchema,
   capture_item: captureItemSchema,
+  append_to_item: appendToItemSchema,
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
