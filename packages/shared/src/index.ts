@@ -1,4 +1,5 @@
 export * from './ids.js';
+export * from './domain/addition.js';
 export * from './domain/agent.js';
 export * from './domain/agent-run.js';
 export * from './domain/arrangement.js';

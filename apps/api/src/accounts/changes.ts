@@ -184,6 +184,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_WAITING_SINCE,
     ACCOUNT_FOLLOW_UPS,
     ACCOUNT_EMAIL_ADDRESS,
+    ITEM_ADDITIONS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1500,6 +1501,55 @@ const ACCOUNT_EMAIL_ADDRESS: Change = {
 	\`held_at\` text NOT NULL,
 	CONSTRAINT "account_email_address_held_at_is_timestamp" CHECK(held_at IS NULL OR (datetime(held_at) IS NOT NULL AND substr(held_at, 11, 1) = 'T' AND substr(held_at, -1) = 'Z' AND length(held_at) >= 20 AND date(held_at) = substr(held_at, 1, 10)))
 ) STRICT`,
+    },
+  ],
+};
+
+/**
+ * The notes added to an Item after it was captured ("Capture append: add to
+ * the Item you just captured with an Add to this button", issue 1640): a table
+ * of its own beside `items`, which is untouched; `schema.ts` says what each
+ * column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE TABLE` and its index, and no statement that
+ *   reads or writes a row. It is the whole of the expand; there is no contract
+ *   step. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. The statements commit with the record
+ *   that they ran in one `transactionSync` (store.ts), so a store has the table
+ *   and its index or neither, and the next request retries.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that break the new rule:** none can; the table starts empty, and an
+ *   Item with no additions reads as it always did.
+ * - **What is in each environment:** real Items in staging and production, none
+ *   of them touched; nothing is written on deploy.
+ * - **Interruptible at:** an account opening mid-change, where the transaction
+ *   rolls back and the account answers as before.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so its Details tab shows the captured message alone and its routes refuse
+ *   `append_to_item` as unknown; the rows stay, and show again when the release
+ *   goes forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_ADDITIONS: Change = {
+  name: '0099-item-additions',
+  statements: [
+    {
+      sql: `CREATE TABLE \`item_additions\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`message\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_additions_created_at_is_timestamp" CHECK(created_at IS NULL OR (datetime(created_at) IS NOT NULL AND substr(created_at, 11, 1) = 'T' AND substr(created_at, -1) = 'Z' AND length(created_at) >= 20 AND date(created_at) = substr(created_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `item_additions_tenant_item` ON `item_additions` (`tenant_id`,`item_id`)',
     },
   ],
 };

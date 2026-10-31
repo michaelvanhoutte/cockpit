@@ -175,6 +175,46 @@ test.describe('Capture', () => {
       await expect(itemRow(page, thought)).toHaveCount(1);
     });
 
+    test('adds the next note to the Item just captured with Add to this, listed under it on Details', async ({
+      page,
+      isMobile,
+    }) => {
+      // "Capture append: add to the Item you just captured with an Add to this
+      // button" (issue 1640). Only a browser carries the note through the
+      // outbox to the server and back into the Item's form; the F1 rules of the
+      // line and the list are CaptureNote.test.tsx's and ItemForm.test.tsx's.
+      await openInbox(page, isMobile);
+      await openCapture(page, isMobile);
+      const thought = uniqueTitle('Ring the plumber');
+      await captureBox(page).fill(thought);
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(capturedLine(page, thought)).toBeVisible();
+
+      const addToThis = page.getByRole('button', { name: 'Add to this' });
+      await expect(addToThis).toBeInViewport();
+      await expect(capturedLine(page, thought).getByRole('button', { name: 'Undo' })).toBeInViewport();
+      await expectNoSidewaysScroll(page);
+      await press(addToThis, isMobile);
+      const added = uniqueTitle('about the boiler');
+      await captureBox(page).fill(added);
+      const landed = page.waitForResponse((response) => response.url().endsWith('/v1/commands/append_to_item'));
+      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await expect(page.getByText(`Added to “${thought}”`)).toBeVisible();
+      expect((await landed).status()).toBe(200);
+      await closeCapture(page, isMobile);
+
+      await expect(itemRow(page, thought)).toHaveCount(1);
+      await expect(itemRow(page, added)).toHaveCount(0);
+      await press(itemRow(page, thought).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      const form = page.getByRole('dialog');
+      await press(form.getByRole('tab', { name: 'Details' }), isMobile);
+      const details = form.getByRole('tabpanel', { name: 'Details' });
+      await expect(details.getByText(thought, { exact: true })).toBeVisible();
+      await expect(details.getByText(added, { exact: true })).toBeVisible();
+      await expect(details.getByText(/^Added /)).toBeVisible();
+    });
+
     test('says when the note just captured repeats another, until the next capture', async ({
       page,
       isMobile,

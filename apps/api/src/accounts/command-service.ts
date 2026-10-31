@@ -17,6 +17,7 @@ import {
   dashboards,
   DEAD_STATUS_VALUE,
   decisionHistory,
+  itemAdditions,
   items,
   layoutRows,
   layouts,
@@ -139,6 +140,7 @@ import {
   applySetNextAction,
   applySetPriority,
   applySetTitle,
+  appendToItem,
   asStored,
   associationFromCommand,
   captureItem,
@@ -168,6 +170,20 @@ export class ItemNotFoundError extends Error {
   constructor(itemId: string) {
     super(`item ${itemId} not found`);
     this.name = 'ItemNotFoundError';
+  }
+}
+
+/**
+ * An addition to an Item that is gone or dismissed ("Capture append: add to
+ * the Item you just captured with an Add to this button", issue 1640). A
+ * missing Item like any other, so a 404, in words the *not sent* line can show
+ * as they are.
+ */
+export class AdditionRefusedError extends ItemNotFoundError {
+  constructor(itemId: string) {
+    super(itemId);
+    this.message = 'The item this was added to is gone or dismissed, so it was not added.';
+    this.name = 'AdditionRefusedError';
   }
 }
 
@@ -1736,6 +1752,27 @@ export function runCommand<N extends CommandName>(
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
         for (const decided of filings) writeFiling(tx, tenantId, item.id, asTheSourceFiles(decided, fromTheSource));
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'append_to_item': {
+      const cmd = payload as CommandPayload<'append_to_item'>;
+      // A dismissed Item is gone as far as adding to it goes; a finished one is not.
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing || existing.deletedAt) throw new AdditionRefusedError(cmd.itemId);
+      // Its additions are read wherever it is drawn (`listAdditionsInWorkspace`):
+      // every Workspace while it belongs to none, and its own where that is not
+      // the one it was captured in, which the envelope names.
+      if (!existing.workspaceDecided || existing.workspaceId !== cmd.workspaceId) everyWorkspaceSees(commandRow);
+      const { addition, item } = appendToItem(existing, cmd, tenantId);
+      db.transaction((tx) => {
+        // A resend whose command id was lost still writes one row.
+        tx.insert(itemAdditions).values(addition).onConflictDoNothing().run();
+        tx.update(items)
+          .set(asStored(item))
+          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+          .run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

@@ -59,13 +59,21 @@ export interface WaitingRecording {
 export interface OutboxEntry {
   /**
    * What this build can read: `ENTRY_VERSION` for a typed note, which every
-   * build since the outbox began sends unchanged, and `RECORDED_ENTRY_VERSION`
+   * build since the outbox began sends unchanged, `RECORDED_ENTRY_VERSION`
    * for a spoken one, which an older build leaves alone rather than sending
-   * its empty message. An entry with any other is left alone, never deleted.
+   * its empty message, and `ADDITION_ENTRY_VERSION` for a note added to an
+   * Item, which an older build leaves alone rather than capturing it as an
+   * Item of its own. An entry with any other is left alone, never deleted.
    */
-  v: typeof ENTRY_VERSION | typeof RECORDED_ENTRY_VERSION;
-  /** The Item's id, which is also the entry's. */
+  v: typeof ENTRY_VERSION | typeof RECORDED_ENTRY_VERSION | typeof ADDITION_ENTRY_VERSION;
+  /** The Item's id, which is also the entry's - or, for an addition, the addition's. */
   id: string;
+  /**
+   * The Item this note is added to, for an addition ("Capture append: add to
+   * the Item you just captured with an Add to this button", issue 1640);
+   * absent on a capture. Its files go on that Item.
+   */
+  appendTo?: string;
   /** Whoever captured it: it is sent and shown only while they are signed in. */
   owner: string;
   commandId: string;
@@ -101,16 +109,38 @@ export interface OutboxEntry {
 
 export const ENTRY_VERSION = 1;
 export const RECORDED_ENTRY_VERSION = 2;
+export const ADDITION_ENTRY_VERSION = 3;
 
 /** The entry, if this build can read it, or null for one it must leave alone. */
 export function readEntry(raw: unknown): OutboxEntry | null {
   if (!raw || typeof raw !== 'object') return null;
   const entry = raw as Partial<OutboxEntry>;
-  if (entry.v !== ENTRY_VERSION && entry.v !== RECORDED_ENTRY_VERSION) return null;
+  if (entry.v !== ENTRY_VERSION && entry.v !== RECORDED_ENTRY_VERSION && entry.v !== ADDITION_ENTRY_VERSION) return null;
   if (typeof entry.id !== 'string' || typeof entry.owner !== 'string') return null;
   if (typeof entry.capturedAt !== 'string' || !Array.isArray(entry.files)) return null;
   if (entry.v === RECORDED_ENTRY_VERSION && !readRecording(entry.recording)) return null;
+  if (entry.v === ADDITION_ENTRY_VERSION && typeof entry.appendTo !== 'string') return null;
   return entry as OutboxEntry;
+}
+
+/** Whether an entry is a note added to an Item rather than a capture of its own. */
+export function isAddition(entry: OutboxEntry): entry is OutboxEntry & { appendTo: string } {
+  return entry.v === ADDITION_ENTRY_VERSION && typeof entry.appendTo === 'string';
+}
+
+/** The Item an entry's files go on: its own, or the one it is added to. */
+export function itemOf(entry: OutboxEntry): string {
+  return isAddition(entry) ? entry.appendTo : entry.id;
+}
+
+/**
+ * Whether an addition must wait for the capture it adds to: that capture is
+ * still in the outbox with its note not yet on the server, and not refused. A
+ * refused one lets it go, to be refused in turn and put back.
+ */
+export function waitsBehind(entry: OutboxEntry, entries: readonly OutboxEntry[]): boolean {
+  if (!isAddition(entry)) return false;
+  return entries.some((one) => one.id === entry.appendTo && !one.landed && one.refused === null);
 }
 
 function readRecording(raw: unknown): WaitingRecording | null {
@@ -161,7 +191,12 @@ export function toSend(entries: readonly OutboxEntry[], owner: string | null): O
  * Inbox row once it lands - both arrive with the next read.
  */
 export function showsInTheInbox(entry: OutboxEntry): boolean {
-  return entry.refused === null && entry.message !== '' && !entry.panelIds?.length;
+  return entry.refused === null && entry.message !== '' && !entry.panelIds?.length && !isAddition(entry);
+}
+
+/** Whether the Item's form draws an entry as the addition it will be: one nobody has refused. */
+export function showsOnItsItem(entry: OutboxEntry): boolean {
+  return entry.refused === null && isAddition(entry);
 }
 
 /** What a row of Just captured says about an entry still in the outbox. */
@@ -281,4 +316,25 @@ export function capturePayload(entry: OutboxEntry): CommandPayload<'capture_item
     // Kept from when Capture was pressed, not read now (issue 1077).
     ...(entry.timeZone ? { timeZone: entry.timeZone } : {}),
   } as unknown as CommandPayload<'capture_item'>;
+}
+
+/** An addition, as sent - the same every time, for the reason a capture is. */
+export function additionPayload(entry: OutboxEntry & { appendTo: string }): CommandPayload<'append_to_item'> {
+  return {
+    commandId: entry.commandId,
+    issuedAt: entry.capturedAt,
+    workspaceId: entry.workspaceId,
+    itemId: entry.appendTo,
+    additionId: entry.id,
+    message: entry.message,
+    ...(entry.priority ? { priority: entry.priority } : {}),
+    ...(entry.dueDate ? { dueDate: entry.dueDate } : {}),
+  };
+}
+
+/** What the screen draws an entry as before it lands: the capture or the addition it is. */
+export function keptPayload(
+  entry: OutboxEntry,
+): CommandPayload<'capture_item'> | CommandPayload<'append_to_item'> {
+  return isAddition(entry) ? additionPayload(entry) : capturePayload(entry);
 }

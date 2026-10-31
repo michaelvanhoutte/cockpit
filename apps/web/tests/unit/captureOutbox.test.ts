@@ -4,14 +4,19 @@ import {
   NOTHING_HEARD,
   TimedOut,
   capturePayload,
+  itemOf,
+  keptPayload,
   needsWords,
   nextWait,
   outcomeOf,
   readEntry,
+  showsInTheInbox,
+  showsOnItsItem,
   stateOf,
   toSend,
   transcribeTimeoutMs,
   uploadTimeoutMs,
+  waitsBehind,
   whatGoesBack,
   type OutboxEntry,
   type WaitingFile,
@@ -51,6 +56,20 @@ function aSpokenEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
     recording: { type: 'audio/webm', bytes: new ArrayBuffer(5), seconds: 3, transcribed: false },
     ...over,
   });
+}
+
+/** A note added to `item-1` with **Add to this** (issue 1640). */
+function anAddition(over: Partial<OutboxEntry> = {}): OutboxEntry {
+  const { typeId: _none, ...typed } = anEntry({
+    v: 3,
+    id: 'addition-1',
+    appendTo: 'item-1',
+    commandId: 'command-2',
+    capturedAt: '2026-10-01T08:05:00.000Z',
+    message: 'about the boiler',
+    ...over,
+  });
+  return typed;
 }
 
 function aFile(over: Partial<WaitingFile> = {}): WaitingFile {
@@ -114,10 +133,11 @@ describe('Offline', () => {
 
   describe('a waiting capture this version cannot read is left alone', () => {
     it.each([
-      { situation: 'written by a later version', raw: { ...anEntry(), v: 3 } },
+      { situation: 'written by a later version', raw: { ...anEntry(), v: 4 } },
       { situation: 'missing whose it is', raw: { ...anEntry(), owner: undefined } },
       { situation: 'not a capture at all', raw: 'a string' },
       { situation: 'spoken, with its recording missing', raw: { ...anEntry(), v: 2, message: '' } },
+      { situation: 'added to an Item, without the Item it is added to', raw: { ...anEntry(), v: 3 } },
     ])('$situation', ({ raw }) => {
       expect(readEntry(raw)).toBeNull();
     });
@@ -125,6 +145,7 @@ describe('Offline', () => {
     it.each([
       { situation: 'typed', entry: anEntry() },
       { situation: 'spoken, waiting for its words', entry: aSpokenEntry() },
+      { situation: 'added to an Item', entry: anAddition() },
     ])('reads one written by this version: $situation', ({ entry }) => {
       expect(readEntry(entry)).toEqual(entry);
     });
@@ -245,6 +266,41 @@ describe('Offline', () => {
     });
   });
 
+  describe('a note added to an Item goes behind the capture it adds to, onto that Item, and is no row of its own', () => {
+    it.each([
+      { situation: 'its capture still waiting', capture: anEntry(), waits: true },
+      { situation: 'its capture landed, a file still to go', capture: anEntry({ landed: true, files: [aFile()] }), waits: false },
+      { situation: 'its capture refused, so it goes to be refused in turn', capture: anEntry({ refused: 'gone' }), waits: false },
+      { situation: 'its capture long gone from the outbox', capture: anEntry({ id: 'item-other' }), waits: false },
+    ])('$situation', ({ capture, waits }) => {
+      expect(waitsBehind(anAddition(), [capture, anAddition()])).toBe(waits);
+    });
+
+    it('never holds back a capture of its own', () => {
+      expect(waitsBehind(anEntry({ id: 'item-2' }), [anEntry(), anEntry({ id: 'item-2' })])).toBe(false);
+    });
+
+    it('is sent as an addition to its Item, with the time Capture was pressed and the same ids every time', () => {
+      const entry = anAddition({ priority: 'high' });
+      expect(keptPayload(entry)).toEqual({
+        commandId: 'command-2',
+        issuedAt: '2026-10-01T08:05:00.000Z',
+        workspaceId: 'ws-work',
+        itemId: 'item-1',
+        additionId: 'addition-1',
+        message: 'about the boiler',
+        priority: 'high',
+      });
+      expect(keptPayload(anAddition())).not.toHaveProperty('dueDate');
+      expect(itemOf(entry)).toBe('item-1');
+    });
+
+    it('is drawn on its Item, never as an Inbox row', () => {
+      expect([showsInTheInbox(anAddition()), showsOnItsItem(anAddition())]).toEqual([false, true]);
+      expect(showsOnItsItem(anAddition({ refused: 'gone' }))).toBe(false);
+    });
+  });
+
   describe('a waiting capture says where it stands, and what putting it back returns', () => {
     it.each([
       { situation: 'not landed yet', entry: anEntry(), reads: { waiting: true } },
@@ -293,6 +349,12 @@ describe('Offline', () => {
         entry: aSpokenEntry({ refused: NOTHING_HEARD }),
         message: null,
         files: [],
+      },
+      {
+        situation: 'a refused addition returns its note and its files',
+        entry: anAddition({ refused: 'gone', files: [aFile()] }),
+        message: 'about the boiler',
+        files: ['file-1'],
       },
       {
         situation: 'a spoken note refused once its words were kept returns the words, not the recording',

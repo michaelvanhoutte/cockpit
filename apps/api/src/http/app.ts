@@ -1717,6 +1717,17 @@ const routes = app
     }
     return c.json(result, 200);
   })
+  .openapi(commandRoute('append_to_item'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'append_to_item', payload);
+    // What the Item is about has grown, so what it repeats is read again
+    // ("Capture append", issue 1640), as `changeThatRewritesTheTexts` does for
+    // an edit - only where the addition was written, so a resend buys nothing.
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, c.get('visitor').accountName, payload.itemId));
+    }
+    return c.json(result, 200);
+  })
   .openapi(
     commandRoute('move_item_to_panel', {
       conflict: 'The order sent is not the order of that panel any more',

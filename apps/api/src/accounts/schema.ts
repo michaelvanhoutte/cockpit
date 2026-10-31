@@ -1655,6 +1655,38 @@ export const attachments = sqliteTable(
 );
 
 /**
+ * A note added to an Item after it was captured ("Capture append: add to the
+ * Item you just captured with an Add to this button", issue 1640), one row per
+ * addition, beside the captured message rather than in it: `items.captured_message`
+ * stays as first written, and each addition keeps its own text and time.
+ *
+ * - **`created_at` is when Capture was pressed** (the command's `issuedAt`), so
+ *   an addition kept offline sits in the order it was written, and two tabs
+ *   adding at once are listed in that order.
+ * - **Never rewritten.** Undo removes the row whole (a later unit's); nothing
+ *   edits one.
+ * - **No CHECK on `message`'s length**: the cap is a product number, held by
+ *   `appendToItemSchema` on the way in, as a capture's message is.
+ */
+export const itemAdditions = sqliteTable(
+  'item_additions',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    message: text('message').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    // What `listAdditionsInWorkspace` reads by (repo.ts), as `attachments_tenant_item` is for files.
+    index('item_additions_tenant_item').on(t.tenantId, t.itemId),
+    check('item_additions_created_at_is_timestamp', isTimestamp('created_at')),
+  ],
+);
+
+/**
  * A recurring item ("Repeat an Item on a schedule, so it comes back every
  * Monday or every quarter", issue 1405): one row per series, its rule and the
  * content each copy is made from, named by every Item that is one of its

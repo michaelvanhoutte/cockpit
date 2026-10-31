@@ -151,6 +151,7 @@ import {
   listAssociationsForWorkspace,
   attachmentsOfItems,
   listAttachmentsInWorkspace,
+  listAdditionsInWorkspace,
   listSeriesInWorkspace,
   listRunningSeries,
   listDuplicatesInWorkspace,
@@ -295,6 +296,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         filings: listFilingsInWorkspace(db, accountName, workspaceId, ofTheRead),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId, ofTheRead),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        additions: listAdditionsInWorkspace(db, accountName, workspaceId, ofTheRead),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         followUpDays: getFollowUpDays(db, accountName),
@@ -324,6 +326,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         items: listFinishedItems(db, accountName, workspaceId),
         filings: listFilingsInWorkspace(db, accountName, workspaceId, 'finished'),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, 'finished'),
+        additions: listAdditionsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
   }

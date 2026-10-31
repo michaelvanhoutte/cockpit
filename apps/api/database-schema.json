@@ -2775,6 +2775,72 @@
           ]
         },
         {
+          "name": "item_additions",
+          "strict": true,
+          "queriedAs": "itemAdditions",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "item_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "itemId"
+            },
+            {
+              "name": "message",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "message"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "item_additions_tenant_item",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "item_id"
+              ]
+            }
+          ]
+        },
+        {
           "name": "item_duplicates",
           "strict": true,
           "queriedAs": "itemDuplicates",

@@ -787,6 +787,41 @@ describe('Capture', () => {
       expect(titlesShown(queue.drawnOver(holding(false)))).toEqual([]);
     });
   });
+
+  describe('an addition sent from here, where the outbox could not keep it, stays drawn until a read that began after its answer has landed', () => {
+    const addition: CommandArgs = {
+      name: 'append_to_item',
+      payload: { commandId: 'c-append', issuedAt: AT, workspaceId: 'ws-work', itemId: BART, additionId: 'a-1', message: 'and the boiler' },
+    };
+    const addedShown = (copy: WorkspaceSnapshot) => (copy.additions ?? []).map((one) => one.message);
+
+    it('keeps drawing it once answered, under a read that began before the answer', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(addition);
+      await settle();
+      const early = queue.readStarted();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded('ws-work', early);
+
+      expect(addedShown(queue.drawnOver(holding(true)))).toEqual(['and the boiler']);
+    });
+
+    it('stops drawing it once a read that began after its answer has landed', async () => {
+      const server = aServer();
+      const queue = createChangeQueue({ send: server.send });
+      void queue.enqueue(addition);
+      await settle();
+      server.arrived[0]!.answer();
+      await settle();
+
+      queue.readLanded('ws-work', queue.readStarted());
+
+      expect(addedShown(queue.drawnOver(holding(true)))).toEqual([]);
+    });
+  });
 });
 
 describe('Item editing', () => {

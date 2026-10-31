@@ -11,6 +11,7 @@ import {
   panelTakesItems,
   panelSortFrom,
   themeOf,
+  type Addition,
   type AgentRun,
   type Association,
   type Attachment,
@@ -61,6 +62,7 @@ import {
   dashboards,
   decisionHistory,
   duplicateSettlements,
+  itemAdditions,
   itemDuplicates,
   itemMeanings,
   items,
@@ -1189,6 +1191,40 @@ export function listAttachmentsInWorkspace(
         itemsOfTheRead(of),
       ),
     )
+    .all();
+}
+
+/**
+ * Every note added to an Item of one Workspace ("Capture append: add to the
+ * Item you just captured with an Add to this button", issue 1640), oldest first
+ * - the Items `listAttachmentsInWorkspace` above reads files for, by the same
+ * join and for the same reasons, a dismissed Item's left out.
+ */
+export function listAdditionsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  of: ItemsOfTheRead = 'every',
+): Addition[] {
+  return db
+    .select({
+      id: itemAdditions.id,
+      tenantId: itemAdditions.tenantId,
+      itemId: itemAdditions.itemId,
+      message: itemAdditions.message,
+      createdAt: itemAdditions.createdAt,
+    })
+    .from(itemAdditions)
+    .innerJoin(items, eq(itemAdditions.itemId, items.id))
+    .where(
+      and(
+        eq(itemAdditions.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        itemsOfTheRead(of),
+      ),
+    )
+    .orderBy(asc(itemAdditions.createdAt), asc(itemAdditions.id))
     .all();
 }
 

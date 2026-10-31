@@ -92,6 +92,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
   switch (change.name) {
     case 'capture_item':
       return capturedAhead(snapshot, change.payload);
+    case 'append_to_item':
+      return appendedAhead(snapshot, change.payload);
     case 'add_attachment': {
       const { attachmentId: id, itemId, filename, size, contentType, issuedAt: createdAt, workspaceId } = change.payload;
       // Once, whether or not a read begun before the answer already holds it.
@@ -267,6 +269,33 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     updatedAt: note.issuedAt,
   } as Item;
   return { ...snapshot, items: [...snapshot.items, item] };
+}
+
+/**
+ * A note added to an Item ("Capture append: add to the Item you just captured
+ * with an Add to this button", issue 1640): one more addition on its *Details*
+ * tab, at the time Capture was pressed, with the priority and due date the strip
+ * picked for it, if any. **Wherever the Item is drawn**, and once, whether or not
+ * a read already holds it. It comes from the outbox, as a capture does, or from
+ * the queue where the outbox could not keep it.
+ */
+function appendedAhead(snapshot: WorkspaceSnapshot, added: CommandPayload<'append_to_item'>): WorkspaceSnapshot {
+  const held = snapshot.additions ?? [];
+  if (!snapshot.items.some((item) => item.id === added.itemId) || held.some((one) => one.id === added.additionId)) {
+    return snapshot;
+  }
+  const addition = {
+    id: added.additionId,
+    tenantId: snapshot.workspace.tenantId,
+    itemId: added.itemId,
+    message: added.message,
+    createdAt: added.issuedAt,
+  };
+  const picked = {
+    ...(added.priority ? { priority: added.priority } : {}),
+    ...(added.dueDate ? { dueDate: added.dueDate } : {}),
+  };
+  return withItem({ ...snapshot, additions: [...held, addition] }, added.itemId, picked);
 }
 
 /**
@@ -543,6 +572,8 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'add_item_to_panel',
   'remove_item_from_panel',
   'remove_attachment',
+  // An addition the outbox could not keep, sent by the queue instead (issue 1640).
+  'append_to_item',
   'set_done',
   'set_started',
   'wait_for_reply',

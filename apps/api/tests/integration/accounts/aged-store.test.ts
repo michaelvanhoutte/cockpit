@@ -589,6 +589,12 @@ const rowsFor: {
     sql: "INSERT INTO account_email_address (tenant_id, local_part, held_at) VALUES (?, 'k7f3q9xwk7f3q9xwk7f3', ?)",
     params: (name) => [name, AT],
   },
+  {
+    // The table `0099-item-additions` creates ("Capture append", issue 1640): a note added to an Item, for the next update to meet.
+    table: 'item_additions',
+    sql: "INSERT INTO item_additions (id, tenant_id, item_id, message, created_at) VALUES ('ad-before', ?, 'it-before', 'and the boiler', ?)",
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -3758,14 +3764,70 @@ describe('Triage', () => {
       expect(after.account_follow_ups).toEqual([]);
       // Left out: the change ledger, the Agent that every open converts to a
       // remembered sentence whatever change it applies (`retire-agents.ts`), and
-      // the table a later change adds empty on the same open
-      // (`0098-account-email-address`).
-      const { account_follow_ups: _added, account_email_address: _later, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      // the tables later changes add empty on the same open
+      // (`0098-account-email-address`, `0099-item-additions`).
+      const {
+        account_follow_ups: _added,
+        account_email_address: _later,
+        item_additions: _laterStill,
+        account_changes: changesAfter,
+        agents: _a,
+        remembered_sentences: _r,
+        ...keptAfter
+      } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
       expect(keptAfter).toEqual(keptBefore);
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "Capture append: add to the Item you just captured with an Add to this
+ * button" (issue 1640): an account from before it gains an empty table, every
+ * row it already held stays as it was, and its Items read with no additions.
+ */
+describe('Capture', () => {
+  describe('an account already in use reads its Items with nothing added to them, and keeps everything it held', () => {
+    const ADDITIONS = '0099-item-additions';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', ADDITIONS).one().n);
+
+    it('adds the table empty, reads no additions in its Workspace, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-additions';
+      await agedTo(name, justBefore(ADDITIONS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await everyRowIn(name);
+      expect(before).not.toHaveProperty('item_additions');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      expect(after.item_additions).toEqual([]);
+      // Left out: the change ledger, and the Agent every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`).
+      const { item_additions: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual(keptBefore);
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { additions: [] } });
 
       // Opened again, it is not applied a second time and nothing moves.
       await abortAllDurableObjects();

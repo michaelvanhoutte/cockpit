@@ -49,6 +49,12 @@ function aServer() {
     refuseCapture: null as { message: string; because: Error } | null,
     refuseFile: null as string | null,
     items: new Map<string, { itemId: string; message: string; issuedAt: string; timeZone?: string | undefined }>(),
+    /** Notes added to Items, by command id, as the server holds them. */
+    additions: new Map<string, { itemId: string; message: string }>(),
+    /** What the server answers an addition with, where it does not take it. */
+    refuseAddition: null as Error | null,
+    /** Every note that reached it, capture or addition, in the order it arrived. */
+    arrivals: [] as string[],
     attachments: new Map<string, { itemId: string; name: string; text: string }>(),
     captureOrder: [] as string[],
     captureCalls: 0,
@@ -84,6 +90,7 @@ function aServer() {
             timeZone: payload.timeZone,
           });
           server.captureOrder.push(payload.message);
+          server.arrivals.push(payload.message);
         }
         if (server.losesNextAnswer) {
           server.losesNextAnswer = false;
@@ -93,6 +100,17 @@ function aServer() {
       } finally {
         server.inFlight -= 1;
       }
+    },
+    append: async (payload) => {
+      await new Promise((resolve) => setImmediate(resolve));
+      if (!server.reachable) throw new TypeError('Failed to fetch');
+      if (server.refuseAddition) throw server.refuseAddition;
+      const applied = !server.additions.has(payload.commandId);
+      if (applied) {
+        server.additions.set(payload.commandId, { itemId: payload.itemId, message: payload.message });
+        server.arrivals.push(payload.message);
+      }
+      return { ok: true, applied };
     },
     upload: async ({ itemId, attachmentId, file }) => {
       if (!server.reachable || !server.uploadsReachable) throw new TypeError('Failed to fetch');
@@ -151,6 +169,21 @@ const capture = (message: string, files: File[] = []) => ({
   id: `item-${String((made += 1)).padStart(6, '0')}`,
   message,
   typeId: 'type-task',
+  workspaceId: 'ws-work',
+  decided: true,
+  files: files.map((file) => ({ id: crypto.randomUUID(), file })),
+});
+
+/**
+ * A note added to the Item `to` with **Add to this** (issue 1640). Its id sorts
+ * after the capture made before it, since two kept in the same millisecond are
+ * sent in id order; in the app a later Capture press keeps it a millisecond or
+ * more after.
+ */
+const addition = (to: string, message: string, files: File[] = []) => ({
+  id: `item-${String((made += 1)).padStart(6, '0')}-addition`,
+  appendTo: to,
+  message,
   workspaceId: 'ws-work',
   decided: true,
   files: files.map((file) => ({ id: crypto.randomUUID(), file })),
@@ -550,6 +583,96 @@ describe('Offline', () => {
       expect(outbox.getShown().map((entry: OutboxEntry) => [entry.message, stateOf(entry)])).toEqual([
         ['Into a deleted workspace', { waiting: false, notSent: 'workspace ws-work not found' }],
       ]);
+    });
+  });
+
+  describe('a note added to an Item waits with the captures, goes behind the one it adds to, and is told apart from them', () => {
+    it('goes after the capture it adds to, never before it, when both waited', async () => {
+      const server = aServer();
+      server.reachable = false;
+      const outbox = aTab(server);
+      const first = capture('Ring the plumber');
+      await outbox.add(first);
+      await outbox.add(addition(first.id, 'about the boiler'));
+      await settled();
+      expect(server.arrivals).toEqual([]);
+
+      server.reachable = true;
+      await outbox.send();
+      await settled();
+
+      expect(server.arrivals).toEqual(['Ring the plumber', 'about the boiler']);
+      expect([...server.additions.values()]).toEqual([{ itemId: first.id, message: 'about the boiler' }]);
+      expect(outbox.getShown()).toEqual([]);
+    });
+
+    it('stays waiting while the capture it adds to cannot be sent, however often it is tried', async () => {
+      const server = aServer();
+      const outbox = aTab(server);
+      const first = capture('Ring the plumber');
+      server.capturesReachable = false;
+      await outbox.add(first);
+      await outbox.add(addition(first.id, 'about the boiler'));
+      await outbox.send();
+      await settled();
+
+      expect(server.arrivals).toEqual([]);
+      expect(outbox.getShown().map((entry) => [entry.message, stateOf(entry)])).toEqual([
+        ['Ring the plumber', { waiting: true }],
+        ['about the boiler', { waiting: true }],
+      ]);
+      outbox.stop();
+    });
+
+    it('puts its files on the Item it is added to', async () => {
+      const server = aServer();
+      const outbox = aTab(server);
+      await outbox.add(addition('item-landed', 'the receipt', [photo('receipt.png', 'receipt-bytes')]));
+      await settled();
+
+      expect([...server.attachments.values()]).toEqual([{ itemId: 'item-landed', name: 'receipt.png', text: 'receipt-bytes' }]);
+    });
+
+    it.each([
+      {
+        situation: 'the server is failing',
+        outcome: 'it stays waiting',
+        answer: new CommandRefused(503, 'Try again later'),
+        state: { waiting: true },
+      },
+      {
+        situation: 'the Item it adds to is gone or dismissed',
+        outcome: 'it shows as not sent, saying why',
+        answer: new CommandRefused(404, 'The item this was added to is gone or dismissed, so it was not added.'),
+        state: { waiting: false, notSent: 'The item this was added to is gone or dismissed, so it was not added.' },
+      },
+    ])('when $situation, $outcome', async ({ answer, state }) => {
+      const server = aServer();
+      server.refuseAddition = answer;
+      const outbox = aTab(server);
+      await outbox.add(addition('item-landed', 'about the boiler'));
+      await outbox.send();
+      await settled();
+
+      expect(outbox.getShown().map(stateOf)).toEqual([state]);
+      outbox.stop();
+    });
+
+    it('is tried again once a failing server answers, and lands once', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      server.refuseAddition = new CommandRefused(503, 'Try again later');
+      const outbox = aTab(server);
+      await outbox.add(addition('item-landed', 'about the boiler'));
+      await settled();
+
+      server.refuseAddition = null;
+      await vi.advanceTimersByTimeAsync(30_000);
+      await settled();
+
+      expect([...server.additions.values()]).toEqual([{ itemId: 'item-landed', message: 'about the boiler' }]);
+      expect(outbox.getShown()).toEqual([]);
+      outbox.stop();
     });
   });
 
@@ -1083,6 +1206,41 @@ describe('Capture', () => {
       await act(async () => void (await outbox.takeBack(outbox.getShown()[0]!.id)));
 
       expect(inTheInbox()).toEqual([]);
+      outbox.stop();
+    });
+  });
+
+  describe('a note added to an Item is drawn on it at once, and makes no row of its own', () => {
+    const holding = {
+      ...read,
+      items: [{ id: 'item-landed', title: 'Ring the plumber', workspaceId: 'ws-work', workspaceDecided: true }],
+    } as unknown as WorkspaceSnapshot;
+
+    it('draws it under the Item while it waits to send, with no row added to the Inbox', async () => {
+      const server = aServer();
+      server.online = false;
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+
+      await outbox.add(addition('item-landed', 'about the boiler'));
+      await act(settled);
+
+      const drawn = changes.drawnOver(holding);
+      expect(drawn.items.map((item) => item.title)).toEqual(['Ring the plumber']);
+      expect(drawn.additions?.map((one) => [one.itemId, one.message])).toEqual([['item-landed', 'about the boiler']]);
+      outbox.stop();
+    });
+
+    it('stops drawing it once refused, as its note goes back in the box', async () => {
+      const server = aServer();
+      server.refuseAddition = new CommandRefused(404, 'gone');
+      const outbox = aTab(server);
+      anOpenApp(outbox);
+
+      await outbox.add(addition('item-landed', 'about the boiler'));
+      await act(settled);
+
+      expect(changes.drawnOver(holding).additions ?? []).toEqual([]);
       outbox.stop();
     });
   });
