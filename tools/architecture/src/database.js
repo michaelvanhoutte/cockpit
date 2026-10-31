@@ -8,9 +8,9 @@
  *
  * | Evidence | Said as |
  * |---|---|
- * | the schema file writes it down | its own reason |
+ * | the list in the store's schema (`NO_LONGER_USED`) writes it down | its own reason |
  * | the schema queries are written against does not define it | no query is written against it |
- * | no source file outside the schema's own files names it, by its SQL name or the name queries use | no code names it |
+ * | no source file outside either database's schema files names it, by its SQL name or the name queries use, comments aside | no code names it |
  * | an index covering a column that is no longer used | it covers that column |
  *
  * A column of a table that is no longer used is not marked again, and nor is
@@ -22,16 +22,22 @@ import { ReadError } from './errors.js';
 export const SCHEMA_FILE = 'apps/api/database-schema.json';
 
 const NO_QUERY = 'No query is written against it: the schema queries use does not define it.';
-const NO_CODE = 'No code outside the schema’s own files names it.';
+const NO_CODE = 'No code outside the databases’ schema files names it.';
 
-/** Every identifier in the source files outside the schema's own, as one set to look a name up in. */
-function namedInCode(candidates, definedIn) {
-  const ownFile = (file) => definedIn.some((each) => (each.endsWith('/') ? file.startsWith(each) : file === each));
+/**
+ * Every identifier in the source files outside any database's schema files, as
+ * one set to look a name up in. Block comments and whole-line comments are
+ * left out, since a comment naming a column is not a use of it; a `//` after
+ * code on the same line is kept, as it may be inside a string.
+ */
+function namedInCode(candidates, schemaFiles) {
+  const schemaFile = (file) => schemaFiles.some((each) => (each.endsWith('/') ? file.startsWith(each) : file === each));
   const names = new Set();
   for (const area of candidates) {
     for (const { file, text } of area.files) {
-      if (text === null || ownFile(file)) continue;
-      for (const word of text.match(/[A-Za-z_$][\w$]*/g) ?? []) names.add(word);
+      if (text === null || schemaFile(file)) continue;
+      const code = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+      for (const word of code.match(/[A-Za-z_$][\w$]*/g) ?? []) names.add(word);
     }
   }
   return names;
@@ -58,8 +64,9 @@ export function buildDatabase(schema, candidates) {
   }
   if (!Array.isArray(parsed?.databases)) throw new ReadError(schema.file, 'holds no `databases` list');
 
+  // One database's schema files name the other's columns too (`created_at`, `name`), so none of them counts as a use.
+  const named = namedInCode(candidates, parsed.databases.flatMap((database) => database.definedIn ?? []));
   const databases = parsed.databases.map((database) => {
-    const named = namedInCode(candidates, database.definedIn ?? []);
     const tables = database.tables.map((table) => {
       const unused = unusedBecause(table, named);
       const columns = table.columns.map((column) => ({ ...column, unused: unused ? null : unusedBecause(column, named) }));

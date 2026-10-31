@@ -47,10 +47,13 @@ describe('Databases', () => {
         of: ({ register }) => columnOf(register, 'tenants', 'legacy').unused,
         marked: /^No query is written against it/,
       },
-      { situation: 'a column no code names, by its SQL name or the name queries use: no code names it', of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: /^No code outside the schema’s own files names it\.$/ },
+      { situation: 'a column no code names, by its SQL name or the name queries use: no code names it', of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: /^No code outside the databases’ schema files names it\.$/ },
       { situation: 'a column code names only by its SQL name: not marked', code: source(['apps/api/src/uses.ts', 'items workspaces tenants forgotten_at']), of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: null },
       { situation: 'a column code names only by the name queries use: not marked', code: source(['apps/api/src/uses.ts', 'items workspaces tenants forgottenAt']), of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: null },
-      { situation: 'a table named only in the schema’s own files: no code names it', of: ({ store }) => tableOf(store, 'hidden_things').unused, marked: /^No code outside the schema’s own files names it\.$/ },
+      { situation: 'a table named only in the schema’s own files: no code names it', of: ({ store }) => tableOf(store, 'hidden_things').unused, marked: /^No code outside the databases’ schema files names it\.$/ },
+      { situation: 'a column named only in comments: no code names it', code: source(['apps/api/src/uses.ts', 'items workspaces tenants\n  // forgotten_at is gone\n/* forgottenAt,\n   too */']), of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: /^No code outside/ },
+      { situation: 'a column named after a `//` inside a string on its line: not marked', code: source(['apps/api/src/uses.ts', "items workspaces tenants\nconst at = 'https://x'; forgotten_at"]), of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: null },
+      { situation: 'a store column named only in the register’s schema files: no code names it', code: source(['apps/api/src/uses.ts', 'items workspaces tenants'], ['apps/api/src/db/schema.ts', 'forgotten_at forgottenAt']), of: ({ store }) => columnOf(store, 'items', 'forgotten_at').unused, marked: /^No code outside/ },
       { situation: 'a table named only in a folder of the schema’s own files: no code names it', code: source(['apps/api/migrations/0001.sql', 'tenants workspaces items']), of: ({ register }) => tableOf(register, 'tenants').unused, marked: /^No code outside/ },
       { situation: 'an index covering a column no longer used: it covers that column', of: ({ store }) => indexOf(store, 'items', 'items_workspace_status').unused, marked: /^Covers status, which is no longer used\.$/ },
       {
@@ -265,8 +268,8 @@ describe('Databases', () => {
       expect(tips).toEqual([
         'Covers status, which is no longer used.', // an index has a tooltip on each of its two lines
         'Covers status, which is no longer used.',
-        'No code outside the schema’s own files names it.',
-        'No code outside the schema’s own files names it.',
+        'No code outside the databases’ schema files names it.',
+        'No code outside the databases’ schema files names it.',
         'Nothing reads it.',
         'Written on every insert, read nowhere.',
       ]);

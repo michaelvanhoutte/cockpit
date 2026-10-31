@@ -105,9 +105,9 @@ no longer used is drawn red and struck through, with why as its tooltip:
 
 | Evidence | Said as |
 |---|---|
-| the schema file writes it down as no longer used, with a reason | that reason |
+| `NO_LONGER_USED` in the store's schema (below) writes it down, with a reason | that reason |
 | (register) no query is written against the table or column: the schema queries use does not define it | no query is written against it |
-| no source file outside the database's own schema files names it, by its SQL name or the name queries use | no code names it |
+| no source file outside either database's schema files names it, by its SQL name or the name queries use, comments aside | no code names it |
 | an index covers a column that is no longer used | it covers that column |
 
 A column of a table already marked is not marked again. The checks work on names: a column read only as part of a

@@ -121,7 +121,10 @@ describe('Accounts', () => {
           { key: 'account-store', name: 'Account store', kind: 'Durable Object', oneFor: 'each account', definedIn: ['apps/api/src/accounts/changes.ts', 'apps/api/src/accounts/schema.ts'], tables: store },
         ],
       };
-      await expect(JSON.stringify(file, null, 2) + '\n').toMatchFileSnapshot(SCHEMA_FILE);
+      await expect(JSON.stringify(file, null, 2) + '\n').toMatchFileSnapshot(
+        SCHEMA_FILE,
+        'The schema changed: write apps/api/database-schema.json again with `pnpm --filter @cockpit/api exec vitest run tests/integration/db/schema-file.test.ts -u` and commit it.',
+      );
     });
   });
 
