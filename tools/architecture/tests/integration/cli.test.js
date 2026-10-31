@@ -95,6 +95,7 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'there are no workflows', make: () => fixture({ workflows: {} }) },
     { situation: 'the schema file is missing', make: () => fixture({ schema: null }) },
     { situation: 'the schema file does not parse', make: () => fixture({ schema: '{ "databases": [' }) },
+    { situation: 'the schema file holds no list of databases', make: () => fixture({ schema: '{ "tables": [] }' }) },
     { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
   ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());

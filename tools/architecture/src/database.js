@@ -11,7 +11,10 @@
  * | the schema file writes it down | its own reason |
  * | the schema queries are written against does not define it | no query is written against it |
  * | no source file outside the schema's own files names it, by its SQL name or the name queries use | no code names it |
- * | an index on a column, or a table, that is no longer used | it covers that column |
+ * | an index covering a column that is no longer used | it covers that column |
+ *
+ * A column of a table that is no longer used is not marked again, and nor is
+ * an index of one.
  */
 
 import { ReadError } from './errors.js';
@@ -60,10 +63,10 @@ export function buildDatabase(schema, candidates) {
     const tables = database.tables.map((table) => {
       const unused = unusedBecause(table, named);
       const columns = table.columns.map((column) => ({ ...column, unused: unused ? null : unusedBecause(column, named) }));
-      const unusedColumns = new Map(columns.filter((each) => each.unused).map((each) => [each.name, each.unused]));
+      const unusedColumns = new Set(columns.filter((each) => each.unused).map((each) => each.name));
       const indexes = table.indexes.map((index) => {
         const covers = index.columns.map((each) => each.replace(/ DESC$/, '')).filter((each) => unusedColumns.has(each));
-        return { ...index, unused: unused ? null : covers.length ? `Covers ${covers.join(', ')}, which ${covers.length === 1 ? 'is' : 'are'} no longer used.` : null };
+        return { ...index, unused: covers.length ? `Covers ${covers.join(', ')}, which ${covers.length === 1 ? 'is' : 'are'} no longer used.` : null };
       });
       return { name: table.name, strict: table.strict, unused, columns, indexes };
     });

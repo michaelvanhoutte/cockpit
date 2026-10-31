@@ -98,7 +98,7 @@ export const DEAD_STATUS_VALUE = 'to_process';
  * What the store still holds and nothing uses, with why: a column name to its
  * reason, or a whole table's reason. The architecture page draws each struck
  * through, beside anything no code outside these schema files names (the
- * "Database" view, tools/architecture); this list is for what code still
+ * "Databases" section, tools/architecture); this list is for what code still
  * names, such as `status`, written on every insert. A name here the store no
  * longer has fails apps/api/tests/integration/db/schema-file.test.ts, so a
  * contract change dropping one takes it off.

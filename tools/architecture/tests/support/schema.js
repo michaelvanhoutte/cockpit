@@ -1,6 +1,6 @@
 /** A schema file in the real one's shape, small enough to read at a glance; a test overrides what it is about. */
 
-const column = (name, extra = {}) => ({ name, type: 'TEXT', required: false, default: null, primaryKey: null, references: null, queriedAs: name.replace(/_([a-z])/g, (_, c) => c.toUpperCase()), ...extra });
+export const column = (name, extra = {}) => ({ name, type: 'TEXT', required: false, default: null, primaryKey: null, references: null, queriedAs: name.replace(/_([a-z])/g, (_, c) => c.toUpperCase()), ...extra });
 
 export const schema = (overrides = {}) => ({
   databases: [

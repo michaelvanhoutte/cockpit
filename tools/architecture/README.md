@@ -2,7 +2,7 @@
 
 Answers, without reading the code: **how is Cockpit built.** Draws it from the checked-out repository
 alone — no secrets, and a network only for the previous report's model — as one HTML page and a model beside it. It draws **What changed**,
-**Context**, **Modules**, **Dependencies** and **Deployment** ("Draw Cockpit's architecture every night, logical and
+**Context**, **Modules**, **Dependencies**, **Databases** and **Deployment** ("Draw Cockpit's architecture every night, logical and
 physical", issue 869).
 
 **What changed** lists what the areas, marks, dependencies, environments, resources and workflows gained, lost or changed
@@ -29,8 +29,8 @@ is nothing to compare the section says which and lists nothing, and the run goes
 | no merge since | nothing changed |
 
 The earlier commit is checked out into a temporary `git worktree`, removed afterwards. A commit with no description
-file is drawn with the current one, and the section says so; one missing the Worker config or the workflows cannot be
-drawn.
+file is drawn with the current one, and the section says so; a commit with no schema file is drawn without its
+databases; one missing the Worker config or the workflows cannot be drawn.
 
 **Context** shows the people and outside services [`description.yml`](description.yml) declares, around Cockpit.
 
@@ -97,6 +97,36 @@ appears. A new area is described by adding it to a layer; a folder the generator
 `discover` entry. `pnpm --filter @cockpit/architecture test` fails if the file leaves an area on this
 repository's disk undescribed or describes one that is gone.
 
+**Databases** draws the two kinds of database apart. The register is one D1 database every account shares, in one blue
+frame; the account store is one Durable Object per account, drawn as a stack of frames. Each table is a box listing its
+columns (type, key, required) and its indexes (unique, condition); a line goes from a column to the table it points at,
+saying what happens on delete, and a table sits below the tables it points at. CHECK constraints are not drawn. What is
+no longer used is drawn red and struck through, with why as its tooltip:
+
+| Evidence | Said as |
+|---|---|
+| the schema file writes it down as no longer used, with a reason | that reason |
+| (register) no query is written against the table or column: the schema queries use does not define it | no query is written against it |
+| no source file outside the database's own schema files names it, by its SQL name or the name queries use | no code names it |
+| an index covers a column that is no longer used | it covers that column |
+
+A column of a table already marked is not marked again. The checks work on names: a column read only as part of a
+whole row is marked though it is used, and one named like a common word is never marked.
+
+**The schema comes from `apps/api/database-schema.json`**, which `apps/api/tests/integration/db/schema-file.test.ts`
+writes from a real register and a real account store once every migration and change has run, so it holds what the
+databases end up with and not what the TypeScript describes. The generator reads the file as it reads every other,
+since the nightly job has no Workers runtime. A change to either schema fails that test until the file is written
+again:
+
+```bash
+pnpm --filter @cockpit/api exec vitest run tests/integration/db/schema-file.test.ts -u
+```
+
+What the schema writes down as no longer used, with its reason, is `NO_LONGER_USED` in
+`apps/api/src/accounts/schema.ts`, for what code still names, such as a column written on every insert; the same test
+fails on a name in it that the store no longer has.
+
 **Deployment** shows:
 
 - **Every environment `apps/api/wrangler.jsonc` declares**, with each resource it binds under its own
@@ -115,8 +145,8 @@ repository's disk undescribed or describes one that is gone.
 
 Every page names the commit and the date of that commit it was drawn from.
 
-**Each diagram opens full size.** Clicking Context, Modules or Deployment opens `context.html`, `modules.html` or
-`deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
+**Each diagram opens full size.** Clicking Context, Modules, the register, the account store or Deployment opens
+`context.html`, `modules.html`, `register.html`, `account-store.html` or `deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
 both ways, with the report's styles and a link back. The page keeps each fit to the column and carries no script.
 
 ## Reading it without running it
@@ -152,7 +182,7 @@ node src/cli.js --help
 ```
 
 **A file it cannot read fails the run**: a Worker config that is not JSONC, a workflow or the description
-file that is not YAML (or is missing what it must hold), or a file that is missing exits non-zero and writes no page and no model, so the
+file that is not YAML (or is missing what it must hold), a schema file that is not JSON or holds no list of databases, or a file that is missing exits non-zero and writes no page and no model, so the
 previous report stays live. Nothing is written until all are built. `--json` writes the model alone.
 
 ## How a page gets built
@@ -168,6 +198,6 @@ is told; `render/` draws what it is handed.
 
 ## Tests
 
-`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules and Dependencies views and the page under `tests/unit/`,
+`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules, Dependencies and Databases views and the page under `tests/unit/`,
 and the CLI over a fixture repository and over this repository's own checkout, with the workflow wiring
 read from `nightly.yml` and `publish.yml` and the areas found by the file's rules, under `tests/integration/`.
