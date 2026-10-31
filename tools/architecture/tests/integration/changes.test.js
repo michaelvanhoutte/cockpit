@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { main } from '../../src/cli.js';
 import { descriptionFile } from '../support/description.js';
+import { schemaFile } from '../support/schema.js';
 
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 const CONFIG = '{ "name": "w", "kv_namespaces": [{ "binding": "CACHE", "id": "abc" }] }\n';
@@ -58,7 +59,8 @@ function repository(commits) {
   return { root, ids };
 }
 
-const base = { 'apps/api/wrangler.jsonc': CONFIG, '.github/workflows/tests.yml': WORKFLOW, 'tools/architecture/description.yml': DESCRIPTION, 'apps/api/src/http/app.ts': 'export const a = 1;\n' };
+const SCHEMA = 'apps/api/database-schema.json';
+const base = { 'apps/api/wrangler.jsonc': CONFIG, '.github/workflows/tests.yml': WORKFLOW, 'tools/architecture/description.yml': DESCRIPTION, [SCHEMA]: schemaFile().text, 'apps/api/src/http/app.ts': 'export const a = 1;\n' };
 
 /** The model file the live report would have published for a commit: only its commit matters, so the rest is deliberately as an older generator drew it. */
 const published = (commit) => {
@@ -121,6 +123,11 @@ describe('What changed', () => {
       const text = await whatChanged(root, published(ids[0]));
       expect(text).toContain('has no description file');
       expect(text).toContain('Nothing changed.');
+    });
+
+    it('draws a commit from before the schema file was written, rather than having nothing to compare', async () => {
+      const { ids, root } = repository([{ ...base, [SCHEMA]: null }, { [SCHEMA]: schemaFile().text }]);
+      expect(await whatChanged(root, published(ids[0]))).toContain('Nothing changed.');
     });
 
     it('leaves no checkout of the earlier commit behind', async () => {

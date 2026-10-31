@@ -95,6 +95,26 @@ type StoredSource = (typeof STORED_SOURCES)[number];
 export const DEAD_STATUS_VALUE = 'to_process';
 
 /**
+ * What the store still holds and nothing uses, with why: a column name to its
+ * reason, or a whole table's reason. The architecture page draws each struck
+ * through, beside anything no code outside these schema files names (the
+ * "Databases" section, tools/architecture); this list is for what code still
+ * names, such as `status`, written on every insert. A name here the store no
+ * longer has fails apps/api/tests/integration/db/schema-file.test.ts, so a
+ * contract change dropping one takes it off.
+ */
+export const NO_LONGER_USED: Readonly<Record<string, string | Readonly<Record<string, string>>>> = {
+  items: {
+    status: 'Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is completed_at now.',
+    focus_horizon: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
+    snoozed_until: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
+  },
+  account_agent_settings: 'Created and never read: the built-in Agent it switched on and off no longer exists.',
+  account_text_rules: 'Nothing reads or writes it since the two learning settings screens were removed.',
+  pinned_text_examples: 'Nothing reads or writes it since the two learning settings screens were removed.',
+};
+
+/**
  * The tables inside one account's store (architecture, "One store per account,
  * and `tenant_id` stays"): its workspaces, dashboards, panels, layouts, items,
  * associations and change log.

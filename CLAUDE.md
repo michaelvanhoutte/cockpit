@@ -41,7 +41,7 @@ pnpm dev
 **Run `scoping`, then `engineering-plan`, before writing code for any feature or fix.** Each is run by the person who owns it and neither calls the other: they share one ticket, which `scoping` files labelled `unsliced`, and `engineering-plan` adds to, then finishes or splits into children under it as parent. So product can stop after scoping. Starting the work triggers the first.
 
 - `scoping` decides whether the work has to be seen first and sharpens the requirements into the whole, unsliced piece of work.
-- `engineering-plan` first counts, for each user action the work adds or changes, the round trips the screen waits on and the reads a change causes. It answers "no design needed" unless one breaks its rule on a path no open issue is fixing, or the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes over the whole scope. It stops for the engineer to agree the design, and only then cuts vertical slices, names each unit's model, and produces the statement list.
+- `engineering-plan` first counts, for each user action the work adds or changes, the round trips the screen waits on and the reads a change causes. It answers "no design needed" unless one breaks its rule on a path no open issue is fixing, or the work stores data, crosses a sync or async boundary, adds an integration or job, or changes state it cannot put back; then it settles the placement and enumerates the failure modes over the whole scope. Either way it answers its seven lenses in one line each (growth and waiting, stored shape, boundaries and placement, state and consistency, failure and recovery, running it, trust), drawn as a diff to the architecture page where one moves, and states every change the work makes to a database's tables, columns and indexes, or "No schema change". It stops for the engineer to agree the design, and only then cuts vertical slices, names each unit's model, and produces the statement list.
 
 **Check the issue is still open and unclaimed at the moment you start it.** Several sessions work this repository at once, so it can be closed by work that merged before your branch point, or while you read it. Fetching `main` is not this check.
 
@@ -169,6 +169,7 @@ Anything it prints is a rule you are already working under and have not read.
 | `docs/architecture.md` | how it is built |
 | `docs/testing-strategy.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |
+| `tools/architecture/README.md` | the architecture page drawn nightly from the checkout: areas and their layers, what imports what, every table and index, and the deployment, which a design is a diff to |
 | `docs/ideas.md` | unscheduled ideas, deliberately not scheduled |
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.

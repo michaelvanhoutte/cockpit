@@ -63,9 +63,15 @@ gate of `scoping` or `engineering-plan` would refuse belongs there, not here.
 
 ## Technical design             <- engineering-plan (design)
 
-[The request-path rows, one per action, then the decisions, three lines each. "No design
-needed: <the trigger check in one line>" with the rows where it found nothing; omit the
-section only for a bug fix that is not about speed.]
+[The request-path rows, one per action, then engineering-plan's seven lens lines with a
+Mermaid drawing for each lens that moves, then the decisions, three lines each. "No design
+needed: <the trigger check in one line>" with the rows and the lens lines where it found
+nothing; omit the section only for a bug fix that is not about speed.]
+
+## Schema changes               <- engineering-plan (design)
+
+[engineering-plan's table, one row per table, column or index added, changed, dropped or left
+unused, per database; or "No schema change".]
 
 ## Failure modes                <- engineering-plan (design)
 

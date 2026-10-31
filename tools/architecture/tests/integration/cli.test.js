@@ -13,6 +13,7 @@ import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
 import { descriptionFile } from '../support/description.js';
+import { schemaFile } from '../support/schema.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const dirs = [];
@@ -29,11 +30,12 @@ afterEach(() => {
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A repository holding just what the generator reads, with the given text for each file. */
-function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text } = {}) {
+function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, schema = schemaFile().text } = {}) {
   const root = tmp();
   mkdirSync(path.join(root, 'apps/api'), { recursive: true });
   mkdirSync(path.join(root, 'tools/architecture'), { recursive: true });
   writeFileSync(path.join(root, 'tools/architecture/description.yml'), description);
+  if (schema !== null) writeFileSync(path.join(root, 'apps/api/database-schema.json'), schema);
   for (const [name, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
     writeFileSync(path.join(root, name), text);
@@ -73,9 +75,9 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
   });
 
-  it('writes the three diagram pages beside the report when every file reads, and none when asked for the model alone', async () => {
+  it('writes the five diagram pages beside the report when every file reads, and none when asked for the model alone', async () => {
     const run = await draw(fixture());
-    for (const name of ['context.html', 'modules.html', 'deployment.html']) {
+    for (const name of ['context.html', 'modules.html', 'register.html', 'account-store.html', 'deployment.html']) {
       expect(existsSync(path.join(path.dirname(run.out), name))).toBe(true);
     }
     const dir = tmp();
@@ -91,6 +93,9 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'the description file does not parse', make: () => fixture({ description: 'layers: [\n' }) },
     { situation: 'the description file leaves out what it must hold', make: () => fixture({ description: 'layers: []\n' }) },
     { situation: 'there are no workflows', make: () => fixture({ workflows: {} }) },
+    { situation: 'the schema file is missing', make: () => fixture({ schema: null }) },
+    { situation: 'the schema file does not parse', make: () => fixture({ schema: '{ "databases": [' }) },
+    { situation: 'the schema file holds no list of databases', make: () => fixture({ schema: '{ "tables": [] }' }) },
     { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
   ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());
@@ -230,5 +235,22 @@ describe('Dependencies', () => {
     expect(dependencies.order.method).toBe('exact');
     expect(dependencies.order.areas).toBeLessThanOrEqual(dependencies.order.limit);
     expect(dependencies.areas.at(-1).path).toBe('apps/api/src/*');
+  });
+});
+
+describe('Databases', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  it('draws this repository’s register and account store apart, with the Item’s dead status, and the index on it, as no longer used', () => {
+    expect(real.code).toBe(0);
+    const [register, store] = real.model.database.databases;
+    expect([register.key, register.oneFor, store.key, store.oneFor]).toEqual(['register', 'every account', 'account-store', 'each account']);
+    const items = store.tables.find((each) => each.name === 'items');
+    expect(items.columns.find((each) => each.name === 'status').unused).toMatch(/read nowhere/);
+    expect(items.columns.find((each) => each.name === 'title').unused).toBeNull();
+    expect(items.indexes.find((each) => each.name === 'items_tenant_workspace_status').unused).toMatch(/Covers status/);
+    expect(register.tables.find((each) => each.name === 'users').unused).toBeNull();
+    expect(real.page).toContain('<a class="open" href="account-store.html"');
+    expect(real.page).toContain('<a class="open" href="register.html"');
   });
 });
