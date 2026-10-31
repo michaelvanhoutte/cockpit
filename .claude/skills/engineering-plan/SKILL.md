@@ -196,4 +196,4 @@ Through [github-issue](../github-issue/SKILL.md), which holds the template and c
 
 ## Output
 
-"No design needed" with step 2's rows and their diagrams, and the trigger check in one line, or a **Technical design** section, the **Schema changes**, and the **Failure modes** where step 5 applied; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
+"No design needed" with step 2's rows and their diagrams and the trigger check in one line, or a **Technical design** section and the **Failure modes** where step 5 applied, with the **Schema changes** either way; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
