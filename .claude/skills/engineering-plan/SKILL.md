@@ -1,6 +1,6 @@
 ---
 name: engineering-plan
-description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture through seven lenses (growth and waiting, stored shape, boundaries and placement, state and consistency, failure and recovery, running it, trust), each answered in one line and drawn where it moves, as a diff to the data model and the component model, with every change to a database's tables, columns and indexes stated in full, then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
+description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture through seven lenses (growth and waiting, stored shape, boundaries and placement, state and consistency, failure and recovery, running it, trust), each answered in one line and drawn where it moves, as a diff to the architecture page's databases and modules, with every change to a database's tables, columns and indexes stated in full, then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
 ---
 
 # Planning the engineering
@@ -48,7 +48,7 @@ Code is read in step 1 only to learn what already exists, and is never quoted in
 
 ### 1. Read the inputs
 
-The ticket (its number is what you are given), [architecture.md](../../../docs/architecture.md) — especially "Architectural drivers", "Data layer", "Backend architecture" and "Performance budgets" — [deployment.md](../../../docs/deployment.md), and the two models every design here is a diff to: [data-model.md](../../../docs/data-model.md), the tables and indexes as they stand, and [component-model.md](../../../docs/component-model.md), the parts, what each owns, what may import what, and which entry points reach which capability. Look at the code only to learn which stores, queues and connectors already exist, and the path each action the ticket touches takes today, before proposing anything new.
+The ticket (its number is what you are given), [architecture.md](../../../docs/architecture.md) — especially "Architectural drivers", "Data layer", "Backend architecture" and "Performance budgets" — [deployment.md](../../../docs/deployment.md), and the two models every design here is a diff to, both on the architecture page (<https://michaelvanhoutte.github.io/cockpit/architecture/>, drawn nightly by `tools/architecture`): **Databases**, every table, column and index of the register and of an account store with what is no longer used struck through, drawn from `apps/api/database-schema.json`; and **Modules** with **Dependencies**, every area of the web app, the API and the packages in its layer, what imports what and in how many files, drawn from `tools/architecture/description.yml` and the imports on disk. Read those two files where the page is older than `main`. Look at the code only to learn which stores, queues and connectors already exist, and the path each action the ticket touches takes today, before proposing anything new.
 
 ### 2. Trace the request path, then decide whether a design is needed
 
@@ -106,7 +106,7 @@ Name which trigger fired. If none can be named, record "No design needed" with t
 
 **A column the work stops using is a row, marked unused**, and stays in the table until a contract step drops it, so nobody reads it later as live. Where the work changes no structure, the lens line reads "No schema change", having checked the migrations rather than assumed it.
 
-**Draw the delta, not the world.** Each diagram shows the slice the change touches and one hop around it; the whole lives in the two models. **Mark change in the label, not the colour**, since GitHub drops some Mermaid styling and a text reader sees none. **Every diagram is Mermaid**, because the design lives in the issue and nothing else renders there. **The lens prefixes each question in step 4** ("Stored shape: a Teams message arrives while the app is closed …"), so the engineer knows which judgment to bring without losing the scenario it is judged on.
+**Draw the delta, not the world.** Each diagram shows the slice the change touches and one hop around it; the whole is on the architecture page, and a drawing that repeats it is one nobody reads. **Mark change in the label, not the colour**, since GitHub drops some Mermaid styling and a text reader sees none. **Every diagram is Mermaid**, because the design lives in the issue and nothing else renders there. **The lens prefixes each question in step 4** ("Stored shape: a Teams message arrives while the app is closed …"), so the engineer knows which judgment to bring without losing the scenario it is judged on.
 
 ### 4. Walk the decisions the change forces
 
@@ -122,7 +122,7 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 
 One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, opened by step 2's rows and their diagrams, then step 3's seven lens lines with the drawings of the lenses that move, each trigger row as decided beside what was measured, with the **Schema changes** as their own section, and added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
 
-**A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause; **a drawing that changed a model goes to that model the same way**, in the pull request that builds it, so [data-model.md](../../../docs/data-model.md) and [component-model.md](../../../docs/component-model.md) stay what the next design is a diff to. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
+**A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause; **a drawing that changed a model reaches the model in the pull request that builds it**: a new area or a moved layer is described in `tools/architecture/description.yml`, and the schema file is rewritten by its test (`tools/architecture/README.md`, "Databases"), so the architecture page stays what the next design is a diff to. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
 **Do not slice in this phase.** Where a decision forces a seam (an expand-then-contract migration, a queue between two parts), say so in its entry.
 
@@ -152,7 +152,7 @@ Do not ask, and do not slice, if:
 - A read arrow names no bound.
 - A lens has no line, or a lens that moves has no drawing.
 - The ticket has no Schema changes, a filtered or sorted column in it names no index and no reason, or an index in it has no measured query plan.
-- A new dependency between parts is not in the component diagram, or crosses the direction the component model allows.
+- A new dependency between parts is not in the component diagram, or points up the order `scripts/import-rules.json` declares, which CI fails on.
 - A capability reachable from more than one entry point names no single command.
 - A trigger fired in step 2 and its decisions are not recorded.
 - A placement question (store, sync or async, service) is still open.
