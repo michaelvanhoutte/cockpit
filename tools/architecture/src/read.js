@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { SCHEMA_FILE } from './database.js';
 import { isCodeFile, isTestFile, parseDescription } from './description.js';
 import { ReadError } from './errors.js';
 
@@ -117,7 +118,10 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
   if (names.length === 0) throw new ReadError(WORKFLOWS_DIR, 'holds no workflows');
 
   const commit = named ?? (process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']));
+  // An earlier commit drawn for What changed may predate the file; this checkout's own must have it.
+  const schema = named && !existsSync(path.join(root, SCHEMA_FILE)) ? null : { file: SCHEMA_FILE, text: readText(root, SCHEMA_FILE) };
   return {
+    schema,
     wrangler: { file: WRANGLER_CONFIG, text: readText(root, WRANGLER_CONFIG) },
     description,
     candidates,

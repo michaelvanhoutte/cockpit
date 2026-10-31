@@ -148,3 +148,15 @@ table.changes th { font-weight: 600; color: var(--ink-3); font-size: 12px; lette
 .pill { display: inline-block; font: 600 11px var(--mono); padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
 .p-mech { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
 .p-hand { background: var(--red-soft); color: var(--red); }
+
+/* The Database diagram: a table's columns, their types and its indexes */
+.db-c { font: 400 11.5px var(--mono); fill: var(--ink-1); }
+.db-t { font: 400 11px var(--sans); fill: var(--ink-3); }
+.db-i { font: 400 11px var(--mono); fill: var(--ink-3); }
+.db-i.head { fill: var(--ink-2); font-weight: 600; }
+.db-sep { stroke: var(--line); }
+.gone { fill: var(--red); text-decoration: line-through; }
+.db-frame { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.db-frame.back { fill: var(--soft); }
+.db-frame.shared { stroke: var(--accent); stroke-width: 2; }
+h3 { font-size: 15px; margin: 24px 0 4px; }

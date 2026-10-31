@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Draws how Cockpit is built from the checked-out repository alone: the Context and Modules views from a description file kept in the repository and the folders on disk, and the Deployment view from the Worker config and the workflows.",
+  "description": "Draws how Cockpit is built from the checked-out repository alone: the Context and Modules views from a description file kept in the repository and the folders on disk, the Databases view from the schema file the API's tests write, and the Deployment view from the Worker config and the workflows.",
   "engines": {
     "node": ">=22"
   },

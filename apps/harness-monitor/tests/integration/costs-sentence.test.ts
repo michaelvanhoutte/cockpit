@@ -3,6 +3,8 @@ import { linked, pullRequest } from './github-support';
 import { costRows, emptyTheDatabase, send, spend, tableHeads, theBarePage, theSentence, withPrices } from './support';
 
 beforeEach(async () => {
+  // The rows below are dated 1 and 2 October and the page reads "the last 30 days" back from today, so today is fixed inside it.
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-25T12:00:00Z') });
   await emptyTheDatabase();
   await withPrices();
   await send([
@@ -15,7 +17,10 @@ beforeEach(async () => {
     pullRequest({ number: 11, title: 'One model', headRefName: 'b/11', author: { login: 'bob' } }),
   );
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 const page = (query: string) => theBarePage(`?${query}`);
 
