@@ -1228,23 +1228,6 @@ export function listAdditionsInWorkspace(
     .all();
 }
 
-/** One addition by its id, or null: what a resend under a lost command id finds already written. */
-export function getAddition(db: AccountDb, tenantId: string, additionId: string): Addition | null {
-  return (
-    db
-      .select({
-        id: itemAdditions.id,
-        tenantId: itemAdditions.tenantId,
-        itemId: itemAdditions.itemId,
-        message: itemAdditions.message,
-        createdAt: itemAdditions.createdAt,
-      })
-      .from(itemAdditions)
-      .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.id, additionId)))
-      .get() ?? null
-  );
-}
-
 /**
  * What the attachment download route reads (`apps/api/src/http/app.ts`): the
  * one attachment by its id, alongside `r2Key` (never sent to a client) and

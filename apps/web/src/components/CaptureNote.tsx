@@ -11,7 +11,7 @@ import {
 } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
 import { CommandRefused, uploadAttachment } from '../api/client';
-import { snapshotQuery, useSendCommand } from '../api/queries';
+import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useDrawnSelect } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
@@ -351,7 +351,9 @@ export function CaptureNote({
     putBackHere.current.add(entry.id);
     setPutBack((was) => new Set(was).add(entry.id));
     // Back in the box already: Undo on the same capture would put it there twice.
-    setLast((was) => (was?.id === entry.id ? null : was));
+    // An addition refused names its Item gone, so the line has nothing left to add to.
+    setLast((was) => (was?.id === entry.id || was?.id === entry.appendTo ? null : was));
+    if (entry.appendTo !== undefined && last?.id === entry.appendTo) setAdding(false);
     const back = whatGoesBack(entry);
     if (back.recording) {
       // A spoken note refused before its words came back: its recording is
@@ -737,7 +739,8 @@ export function CaptureNote({
               setPriority((was) => was ?? priorityAtSubmit);
               setDue((was) => was ?? dueAtSubmit);
               setQueued((was) => [...queuedAtSubmit, ...was]);
-              setRefused(failure instanceof CommandRefused ? failure.message : 'That did not reach the server. Try again.');
+              // Offline, the queue refuses it before sending, and says so.
+              setRefused(whyNotDone(failure));
             },
           );
         },

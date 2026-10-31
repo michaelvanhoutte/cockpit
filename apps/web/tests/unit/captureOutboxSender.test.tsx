@@ -174,9 +174,13 @@ const capture = (message: string, files: File[] = []) => ({
   files: files.map((file) => ({ id: crypto.randomUUID(), file })),
 });
 
-/** A note added to the Item `to` with **Add to this** (issue 1640). */
+/**
+ * A note added to the Item `to` with **Add to this** (issue 1640). Its id sorts
+ * after the capture made before it, as a uuidv7 does, since two kept in the same
+ * millisecond are sent in id order.
+ */
 const addition = (to: string, message: string, files: File[] = []) => ({
-  id: `addition-${String((made += 1)).padStart(6, '0')}`,
+  id: `item-${String((made += 1)).padStart(6, '0')}-addition`,
   appendTo: to,
   message,
   workspaceId: 'ws-work',

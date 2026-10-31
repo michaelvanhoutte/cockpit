@@ -571,6 +571,8 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'add_item_to_panel',
   'remove_item_from_panel',
   'remove_attachment',
+  // An addition the outbox could not keep, sent by the queue instead (issue 1640).
+  'append_to_item',
   'set_done',
   'set_started',
   'wait_for_reply',

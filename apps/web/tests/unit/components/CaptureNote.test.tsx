@@ -30,6 +30,7 @@ import {
   type RecordingStore,
 } from '../../../src/keptRecordings';
 import { forgetEverything } from '../../../src/session/forget';
+import { WorkingOffline } from '../../../src/offline';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
@@ -89,7 +90,9 @@ vi.mock('../../../src/itemForm', async (importOriginal) => ({
   useOpenItem: () => held.open,
 }));
 
-vi.mock('../../../src/api/queries', () => ({
+vi.mock('../../../src/api/queries', async (importOriginal) => ({
+  /** What a refusal from the queue reads as: the real words, offline included. */
+  whyNotDone: (await importOriginal<typeof import('../../../src/api/queries')>()).whyNotDone,
   useCommand: () => ({ mutate: held.mutate, isPending: held.pending }),
   /** What a Panel made from File on is sent with: the client, as the real one sends through it. */
   useSendCommand: () => (args: { name: string; payload: unknown }) => sendCommand(args.name as never, args.payload as never),
@@ -1046,6 +1049,23 @@ describe('Capture', () => {
 
       expect(box()).toHaveValue('about the boiler');
       await waitFor(() => expect(screen.queryByText('1 not sent')).toBeNull());
+      // The Item is gone, so the line no longer offers to add to it.
+      expect(screen.queryByText('Added to “Ring the plumber”')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add to this' })).toBeNull();
+    });
+
+    it('says the app is offline where nothing can be kept on this device and the queue refuses it for that', async () => {
+      const user = await thePage({ store: UNAVAILABLE });
+      await captureFirst(user, 'Ring the plumber');
+      // What the queue throws before sending while offline (`refuseWhileOffline`).
+      vi.mocked(sendCommand).mockRejectedValueOnce(new WorkingOffline());
+
+      await user.click(addToThis());
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("You're working offline");
+      expect(box()).toHaveValue('about the boiler');
     });
   });
 
