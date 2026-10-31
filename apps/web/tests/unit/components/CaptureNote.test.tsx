@@ -1054,6 +1054,24 @@ describe('Capture', () => {
       expect(screen.queryByRole('button', { name: 'Add to this' })).toBeNull();
     });
 
+    it('keeps the line offering Add to this where only the addition’s file was refused and is put back', async () => {
+      vi.mocked(uploadAttachment).mockRejectedValue(new CommandRefused(415, '"photo.png" is not a kind of file Cockpit accepts.'));
+      const user = await thePage();
+      await captureFirst(user, 'Ring the plumber');
+      await user.click(addToThis());
+      fireEvent.drop(box(), carrying(aPhoto()));
+      await screen.findByText('photo.png');
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      expect(await screen.findByText('1 not sent')).toBeVisible();
+      await user.click(screen.getByRole('button', { name: 'Put back' }));
+
+      await waitFor(() => expect(screen.queryByText('1 not sent')).toBeNull());
+      expect(screen.getByText('Added to “Ring the plumber”')).toBeVisible();
+      expect(addToThis()).toBeVisible();
+    });
+
     it('says the app is offline where nothing can be kept on this device and the queue refuses it for that', async () => {
       const user = await thePage({ store: UNAVAILABLE });
       await captureFirst(user, 'Ring the plumber');

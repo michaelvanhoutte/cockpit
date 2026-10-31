@@ -276,7 +276,8 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
  * with an Add to this button", issue 1640): one more addition on its *Details*
  * tab, at the time Capture was pressed, with the priority and due date the strip
  * picked for it, if any. **Wherever the Item is drawn**, and once, whether or not
- * a read already holds it. It comes from the outbox, as a capture does.
+ * a read already holds it. It comes from the outbox, as a capture does, or from
+ * the queue where the outbox could not keep it.
  */
 function appendedAhead(snapshot: WorkspaceSnapshot, added: CommandPayload<'append_to_item'>): WorkspaceSnapshot {
   const held = snapshot.additions ?? [];

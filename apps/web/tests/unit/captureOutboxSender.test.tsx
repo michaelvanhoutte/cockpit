@@ -176,8 +176,9 @@ const capture = (message: string, files: File[] = []) => ({
 
 /**
  * A note added to the Item `to` with **Add to this** (issue 1640). Its id sorts
- * after the capture made before it, as a uuidv7 does, since two kept in the same
- * millisecond are sent in id order.
+ * after the capture made before it, since two kept in the same millisecond are
+ * sent in id order; in the app a later Capture press keeps it a millisecond or
+ * more after.
  */
 const addition = (to: string, message: string, files: File[] = []) => ({
   id: `item-${String((made += 1)).padStart(6, '0')}-addition`,

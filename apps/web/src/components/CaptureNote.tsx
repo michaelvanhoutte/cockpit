@@ -351,9 +351,11 @@ export function CaptureNote({
     putBackHere.current.add(entry.id);
     setPutBack((was) => new Set(was).add(entry.id));
     // Back in the box already: Undo on the same capture would put it there twice.
-    // An addition refused names its Item gone, so the line has nothing left to add to.
-    setLast((was) => (was?.id === entry.id || was?.id === entry.appendTo ? null : was));
-    if (entry.appendTo !== undefined && last?.id === entry.appendTo) setAdding(false);
+    // An addition whose note was refused names its Item gone, so the line has
+    // nothing left to add to; one whose file alone was refused still has.
+    const itemGone = entry.appendTo !== undefined && !entry.landed;
+    setLast((was) => (was?.id === entry.id || (itemGone && was?.id === entry.appendTo) ? null : was));
+    if (itemGone && last?.id === entry.appendTo) setAdding(false);
     const back = whatGoesBack(entry);
     if (back.recording) {
       // A spoken note refused before its words came back: its recording is
