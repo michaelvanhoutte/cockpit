@@ -1,6 +1,6 @@
 ---
 name: engineering-plan
-description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture (how many round trips each user action waits on and how many reads a change causes, which store owns the data, sync or async, which service or Worker, what it costs to run and support, the failure modes of anything that changes state it cannot put back), then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
+description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture (how many round trips each user action waits on and how many reads a change causes, which store owns the data, every change to a database's tables, columns and indexes, sync or async, which service or Worker, what it costs to run and support, the failure modes of anything that changes state it cannot put back), then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
 ---
 
 # Planning the engineering
@@ -27,14 +27,14 @@ Design stops at what an engineer would draw on a whiteboard to explain the chang
 
 **A decision belongs here when it fits on that whiteboard and an engineer who never opens the code can challenge it**: a store, a boundary, a service, a request path (the round trips an action waits on, and what each sends and reads back), a lifecycle (what state a part is in and what moves it on), who owns a piece of data, or a guarantee (what is consistent, how fresh, what survives an outage). **Name frameworks, platform APIs and protocols freely** (the service worker lifecycle, a Workbox strategy, SSE, D1, a queue): they are the shared vocabulary. Two levels fail:
 
-- **Too low** names this repository's own classes, functions, files, columns, endpoint shapes or the order of build steps. Leave it to the builder, even when asked a code-adjacent question.
+- **Too low** names this repository's own classes, functions, files, endpoint shapes or the order of build steps. Leave it to the builder, even when asked a code-adjacent question. **A database's tables, columns and indexes are the exception**: step 4 states every change to them in full, because the structure outlives the issue and is the hardest part to put back.
 - **Too high** asks what the person sees, how long they accept waiting, or what a message says. Those are `scoping`'s: take the ticket's answer as a constraint, and where it leaves one open, name it and send it back rather than asking it here. How many round trips that wait is spent on is decided here.
 
 | Here | Not here |
 |---|---|
 | "Removing an Item from a Panel draws at once, waits on no round trip, and causes one Workspace read after it" | which hook draws it |
 | "Sync invoices to the ledger through a queue, not inline" | which handler enqueues it |
-| "The activity feed lives in D1, not a new store" | the columns and indexes |
+| "The activity feed lives in D1, not a new store" | the query that reads it |
 | "Teams messages arrive by webhook, with a cron sweep for gaps" | the parsing code |
 | "A stale feed is acceptable for a minute; a lost message is not" | the retry loop |
 | "A new service worker installs and waits; open pages keep the old one until told to activate" | the module that sends the message |
@@ -79,7 +79,7 @@ The ticket (its number is what you are given), [architecture.md](../../../docs/a
 - a request-path row whose verdict is a trigger
 - state it cannot put back (step 5)
 
-Name which trigger fired. If none can be named, record "No design needed" with the rows and their diagrams and go to step 6.
+Name which trigger fired. If none can be named, record "No design needed" with the rows and their diagrams, and the Schema changes step 4 asks for, and go to step 6.
 
 ### 3. Walk the decisions the change forces
 
@@ -102,6 +102,14 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 ### 4. Record the decisions
 
 One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, opened by step 2's rows and their diagrams, each trigger row as decided beside what was measured, and added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
+
+**State every change the work makes to a database's structure, one row per change, under the ticket's Schema changes**, for each database it touches: an account's store, the shared register, the Harness Monitor's. A reviewer and the next builder read the structure from here rather than from a migration buried in the diff.
+
+| Database | Table | Change | Serves | Measured |
+|---|---|---|---|---|
+| which one | which table | a table, column or index added, changed, dropped, or a column left in place but no longer used | the reads or writes that use it | for an index, the query plan and rows read before and after |
+
+**A column the work stops using is a row, marked unused**, and stays in the table until a contract step drops it, so nobody reads it later as live. Where the work changes no structure, write "No schema change" in one line, having checked the migrations rather than assumed it.
 
 **A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
@@ -133,6 +141,7 @@ Do not ask, and do not slice, if:
 - A trigger fired in step 2 and its decisions are not recorded.
 - A placement question (store, sync or async, service) is still open.
 - The work changes state it cannot put back and its failure modes are not written down.
+- The ticket has no Schema changes, or an index in it has no measured query plan.
 - A new store, queue or service is proposed without naming what the existing mechanism cannot do.
 
 ## Slicing
@@ -187,4 +196,4 @@ Through [github-issue](../github-issue/SKILL.md), which holds the template and c
 
 ## Output
 
-"No design needed" with step 2's rows and their diagrams, and the trigger check in one line, or a **Technical design** section and the **Failure modes** where step 5 applied; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
+"No design needed" with step 2's rows and their diagrams, and the trigger check in one line, or a **Technical design** section, the **Schema changes**, and the **Failure modes** where step 5 applied; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
