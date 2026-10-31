@@ -3123,7 +3123,7 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "status",
-              "noLongerUsed": "Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is `completed_at` now."
+              "noLongerUsed": "Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is completed_at now."
             },
             {
               "name": "next_action",

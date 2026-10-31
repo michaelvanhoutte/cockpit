@@ -105,7 +105,7 @@ export const DEAD_STATUS_VALUE = 'to_process';
  */
 export const NO_LONGER_USED: Readonly<Record<string, string | Readonly<Record<string, string>>>> = {
   items: {
-    status: 'Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is `completed_at` now.',
+    status: 'Written on every insert to satisfy NOT NULL and its CHECK, and read nowhere: whether an Item is finished is completed_at now.',
     focus_horizon: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
     snoozed_until: 'Never written or read since an Item stopped having a status, a snooze or a focus horizon.',
   },
