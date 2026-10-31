@@ -180,6 +180,8 @@ export const itemSchema = z.object({
   dueDateChosenAt: z.iso.datetime().nullable(),
   /** The series this Item is an occurrence of, and null for one that has never repeated ("Repeat an Item on a schedule", issue 1405). The rule is the series', in the Workspace snapshot's `series`; a stopped series is still named. */
   seriesId: z.uuid().nullable().default(null),
+  /** The Item this one was split off from, a part of its description made an Item of its own, and null for every other Item. A link and nothing more: no hierarchy, no roll-up. A default, so a saved read from before it still draws. */
+  splitFromItemId: z.uuid().nullable().default(null),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),

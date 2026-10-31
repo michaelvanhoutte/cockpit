@@ -64,6 +64,17 @@
   text-decoration: underline;
 }
 
+/* The status after a link to an Item: drawn beside the text, never part of it. */
+.description-prose .link-status {
+  margin-left: 0.4em;
+  padding: 0 0.4em;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: var(--color-ink-faint);
+  background: color-mix(in srgb, var(--color-shade) 6%, transparent);
+  user-select: none;
+}
+
 .description-prose ul,
 .description-prose ol {
   padding-left: 1.5em;

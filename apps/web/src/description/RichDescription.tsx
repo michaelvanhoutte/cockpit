@@ -21,12 +21,24 @@ import { history } from '@milkdown/plugin-history';
 import { $prose, callCommand } from '@milkdown/utils';
 import { keymap } from '@milkdown/prose/keymap';
 import { Plugin, PluginKey } from '@milkdown/prose/state';
-import type { EditorView } from '@milkdown/prose/view';
+import { Decoration, DecorationSet, type EditorView } from '@milkdown/prose/view';
+import type { Node as ProseNode } from '@milkdown/prose/model';
+import type { EditorState } from '@milkdown/prose/state';
+import type { Ctx } from '@milkdown/ctx';
 import { SHOWN, imagesFromTheDevice, putImages, type UploadImage } from './images';
 import { safeHref } from './safeHref';
 import { descriptionSyntax } from './syntax';
 import { DESCRIPTION_TEXT_CLASS } from './textClass';
 import './description.css';
+
+/** The link a split leaves where the selected text was (`splitOff.ts`). */
+export interface SplitLink {
+  href: string;
+  text: string;
+}
+
+/** Asked again of every link when the statuses beside them may have changed, without the document changing. */
+const linkStatuses = new PluginKey<DecorationSet>('cockpit-description-link-statuses');
 
 /** Where a request for a link's address is parked while it is being typed. */
 interface Asking {
@@ -104,6 +116,20 @@ export interface RichDescriptionProps {
   reading?: boolean;
   /** Puts the cursor in the text as soon as the editor is built, for a tap that asked to write there. */
   focusWhenReady?: boolean;
+  /**
+   * What *Split this off* does with the selected text, as Markdown: makes it an
+   * Item of its own and answers the link to leave in its place, or null where
+   * nothing was made. Offered on a right-click over a selection (a long press
+   * on Android) while the text is editable, and not at all where this is left
+   * out.
+   */
+  onSplitOff?: ((markdown: string) => SplitLink | null) | undefined;
+  /**
+   * The status drawn after a link, for a link to an Item, and null for any
+   * other. A new function is what redraws them, so a caller keeps it the same
+   * until the statuses it answers from change.
+   */
+  statusOfLink?: ((href: string) => string | null) | undefined;
 }
 
 /**
@@ -135,6 +161,8 @@ export default function RichDescription({
   endOfToolbar,
   reading = false,
   focusWhenReady = false,
+  onSplitOff,
+  statusOfLink,
 }: RichDescriptionProps) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Editor | null>(null);
@@ -146,6 +174,15 @@ export default function RichDescription({
   // controls that quietly do nothing for as long as the build takes.
   const [ready, setReady] = useState(false);
   const [asking, setAsking] = useState<Asking | null>(null);
+  /** Where *Split this off* is offered, while it is. */
+  const [splitMenu, setSplitMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const splitting = useRef(onSplitOff);
+  splitting.current = onSplitOff;
+  const writable = useRef(editable && !reading);
+  writable.current = editable && !reading;
+  const statusOf = useRef(statusOfLink);
+  statusOf.current = statusOfLink;
 
   /**
    * The current handlers, reached from an editor that is built once. Rebuilding
@@ -233,6 +270,34 @@ export default function RichDescription({
           }),
         ),
       )
+      .use(
+        $prose(
+          (ctx) =>
+            new Plugin<DecorationSet>({
+              key: linkStatuses,
+              state: {
+                init: (_, state) => statusMarks(ctx, state.doc, statusOf.current),
+                apply: (tr, was) =>
+                  tr.docChanged || tr.getMeta(linkStatuses)
+                    ? statusMarks(ctx, tr.doc, statusOf.current)
+                    : was.map(tr.mapping, tr.doc),
+              },
+              props: {
+                decorations: (state) => linkStatuses.getState(state),
+                handleDOMEvents: {
+                  // A right-click over selected text, or a long press on
+                  // Android, which fires the same event. iOS fires none.
+                  contextmenu: (view, event) => {
+                    if (!splitting.current || !writable.current || view.state.selection.empty) return false;
+                    event.preventDefault();
+                    setSplitMenu({ x: event.clientX, y: event.clientY });
+                    return true;
+                  },
+                },
+              },
+            }),
+        ),
+      )
       .use($prose(() => imagesFromTheDevice))
       // A file pasted or dropped into the text, where this editor takes images
       // at all. A clipboard holding the file beside the HTML a browser copied
@@ -308,6 +373,53 @@ export default function RichDescription({
     // worth reading at that moment.
     if (!editable) setAsking(null);
   }, [editable, ready]);
+
+  // The statuses beside the links are read again whenever what answers them changes.
+  useEffect(() => {
+    editor.current?.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta(linkStatuses, true));
+    });
+  }, [statusOfLink, ready]);
+
+  // The menu goes on Escape, a press anywhere else, or a scroll that would leave it behind.
+  useEffect(() => {
+    if (!splitMenu) return;
+    const close = (event: Event) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key !== 'Escape') return;
+        // Before the dialog's own Escape, for the reason the address's is (below).
+        event.stopPropagation();
+      } else if (event.target instanceof Node && menuRef.current?.contains(event.target)) {
+        return;
+      }
+      setSplitMenu(null);
+    };
+    window.addEventListener('keydown', close, true);
+    window.addEventListener('pointerdown', close, true);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('keydown', close, true);
+      window.removeEventListener('pointerdown', close, true);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [splitMenu]);
+
+  const splitOff = () => {
+    setSplitMenu(null);
+    editor.current?.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const { state } = view;
+      if (state.selection.empty || !writable.current) return;
+      const markdown = selectedMarkdown(ctx, state);
+      if (!markdown) return;
+      const link = splitting.current?.(markdown);
+      if (!link) return;
+      const mark = linkSchema.type(ctx).create({ href: link.href });
+      view.dispatch(state.tr.replaceSelectionWith(state.schema.text(link.text, [mark]), false).scrollIntoView());
+      view.focus();
+    });
+  };
 
   useEffect(() => {
     if (ready && focusWhenReady) focusTheEditor(editor.current);
@@ -474,6 +586,26 @@ export default function RichDescription({
         </div>
       )}
 
+      {splitMenu && (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="Selected text"
+          style={{ left: splitMenu.x, top: splitMenu.y }}
+          className="fixed z-50 rounded-md border border-shade/10 bg-field py-1 shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            autoFocus
+            onClick={splitOff}
+            className="block w-full px-3 py-1.5 text-left text-sm font-normal normal-case tracking-normal text-ink hover:bg-accent-tint hover:text-accent-deep"
+          >
+            Split this off
+          </button>
+        </div>
+      )}
+
       <div
         ref={host}
         className={
@@ -496,6 +628,54 @@ function modifierName(): string {
 
 function focusTheEditor(made: Editor | null) {
   made?.action((ctx) => ctx.get(editorViewCtx).focus());
+}
+
+/** The selection as Markdown, the way the whole description is written, trimmed. */
+function selectedMarkdown(ctx: Ctx, state: EditorState): string {
+  const { content } = state.selection.content();
+  const { schema } = state;
+  // A selection inside one paragraph comes out as that paragraph, cut; a bare
+  // run of text, should one ever come out, is put in a paragraph to be a document.
+  const doc =
+    schema.topNodeType.createAndFill(null, content) ??
+    schema.topNodeType.createAndFill(null, schema.nodes.paragraph?.create(null, content));
+  return doc ? ctx.get(serializerCtx)(doc).trim() : '';
+}
+
+/** A status after each link `statusOf` names one for, drawn at the end of the link's text and never part of it. */
+function statusMarks(ctx: Ctx, doc: ProseNode, statusOf: ((href: string) => string | null) | undefined): DecorationSet {
+  if (!statusOf) return DecorationSet.empty;
+  const link = linkSchema.type(ctx);
+  const ends: { href: string; at: number }[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    const mark = node.marks.find(({ type }) => type === link);
+    if (!mark) return;
+    const href = String(mark.attrs.href ?? '');
+    const last = ends.at(-1);
+    // A link split across text nodes by bold or italic is still one link.
+    if (last && last.href === href && last.at === pos) last.at = pos + node.nodeSize;
+    else ends.push({ href, at: pos + node.nodeSize });
+  });
+  const marks = ends.flatMap(({ href, at }) => {
+    const status = statusOf(href);
+    if (!status) return [];
+    return [
+      Decoration.widget(
+        at,
+        () => {
+          const span = document.createElement('span');
+          span.className = 'link-status';
+          span.contentEditable = 'false';
+          span.dataset.linkStatus = status;
+          span.textContent = status;
+          return span;
+        },
+        { side: 1, key: `${href}:${status}`, ignoreSelection: true },
+      ),
+    ];
+  });
+  return DecorationSet.create(doc, marks);
 }
 
 /** The address already on the selection, so editing a link starts from it. */

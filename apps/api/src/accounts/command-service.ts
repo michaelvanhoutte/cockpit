@@ -1723,7 +1723,13 @@ export function runCommand<N extends CommandName>(
         if (!panel || !getDashboard(db, tenantId, cmd.workspaceId, panel.dashboardId)) return [];
         return [{ id: panel.id, name: panel.name, kind: panel.kind, held: listFilingsOnPanel(db, tenantId, panel.id) }];
       });
-      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets);
+      // The Item this was split off from, kept only where it is there and in
+      // the same Workspace: a link to nothing would fail the foreign key, and
+      // the split is never a reason to refuse the capture.
+      const splitFrom = cmd.splitFromItemId ? getItem(db, tenantId, cmd.splitFromItemId) : null;
+      const keepsLink = splitFrom !== null && splitFrom.workspaceId === cmd.workspaceId;
+      const captured = keepsLink ? cmd : { ...cmd, splitFromItemId: undefined };
+      const { item, filings } = decideCaptureFiling(captureItem(captured, tenantId), cmd, targets);
       // An item belonging to no workspace shows in every workspace's Inbox, so
       // every workspace's snapshot is now stale - not only the one it was
       // captured from ("Capture something before you know which workspace it

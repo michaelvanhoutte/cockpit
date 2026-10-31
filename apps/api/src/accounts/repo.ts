@@ -733,6 +733,7 @@ const itemColumns = {
   dueDateSetAt: items.dueDateSetAt,
   dueDateChosenAt: items.dueDateChosenAt,
   seriesId: items.seriesId,
+  splitFromItemId: items.splitFromItemId,
   unseen: items.unseen,
   deletedAt: items.deletedAt,
   createdAt: items.createdAt,

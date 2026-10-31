@@ -424,6 +424,15 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
    */
   timeZone: captureTimeZoneSchema.optional(),
   /**
+   * The Item whose description this was split off from: the Item form's
+   * *Split this off*, which sends the selected text as `message` and its first
+   * line as `title`. The two texts are the person's own, so they are settled
+   * at once and Cockpit never rewrites them. **Never a reason to refuse**: an
+   * Item that is not there, or is in another Workspace, is dropped and the
+   * capture lands without the link.
+   */
+  splitFromItemId: z.uuid().optional(),
+  /**
    * Never given: a capture carries no Type ("Capture without a Type, at every
    * front door", issue 1067). Named only so a client still sending one is
    * refused - an unknown key is dropped, which would accept it in silence.

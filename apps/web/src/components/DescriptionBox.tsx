@@ -5,6 +5,7 @@ import {
   WhateverTheEditorDoes,
 } from '../description/lazyEditor';
 import { safeHref } from '../description/safeHref';
+import type { RichDescriptionProps } from '../description/RichDescription';
 
 /**
  * The description on the Item's form: a formatted editor over Markdown, with
@@ -58,6 +59,10 @@ export interface DescriptionBoxProps {
   onReadingTap?: () => void;
   /** Puts the cursor in the editor as soon as it is built. */
   focusWhenReady?: boolean;
+  /** *Split this off*, on a right-click over selected text (`RichDescription`). */
+  onSplitOff?: RichDescriptionProps['onSplitOff'];
+  /** The status drawn after a link to an Item (`RichDescription`). */
+  statusOfLink?: RichDescriptionProps['statusOfLink'];
 }
 
 export function DescriptionBox({
@@ -70,6 +75,8 @@ export function DescriptionBox({
   reading = false,
   onReadingTap,
   focusWhenReady = false,
+  onSplitOff,
+  statusOfLink,
 }: DescriptionBoxProps) {
   const [view, setView] = useState<View>('formatted');
   const [failed, setFailed] = useState(false);
@@ -195,6 +202,8 @@ export function DescriptionBox({
                 uploadImage={uploadImage}
                 endOfToolbar={onAPage ? toggle : undefined}
                 focusWhenReady={focusWhenReady}
+                onSplitOff={onSplitOff}
+                statusOfLink={statusOfLink}
                 reading={reading}
                 fill
               />

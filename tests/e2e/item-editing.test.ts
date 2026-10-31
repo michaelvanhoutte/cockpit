@@ -491,6 +491,56 @@ test.describe('Item editing', () => {
   });
 
   /**
+   * F3, because the menu answers a right-click over a real selection, and the
+   * link and the line on each form only mean anything once the new Item has
+   * landed and been read back. The title, the link's text and the guards are
+   * apps/web/tests/unit/splitOff.test.ts and RichDescription.test.tsx; that the
+   * link is kept is apps/api/tests/integration/http/split-off.test.ts.
+   */
+  test.describe('text split off a description becomes an item of its own, linked both ways', () => {
+    test('leaves a link with the new item’s status, and each form names the other', async ({ page, isMobile }) => {
+      const party = uniqueTitle('Plan the party');
+      const cake = uniqueTitle('Order the cake');
+      await openFirstWorkspace(page, isMobile);
+      await arrange(page, 'capture_item', { itemId: randomUUID(), title: party, message: `Book the hall\n\n${cake}` });
+      await page.reload();
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      await openItem(page, party, isMobile);
+      await theEditorIsThere(page);
+
+      // The second paragraph selected, as a drag across it would.
+      const second = descriptionBox(page).locator('p').nth(1);
+      await second.evaluate((paragraph) => {
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+      });
+      // A right-click at a desk; on a phone the long press Android turns into the same event.
+      if (isMobile) await second.dispatchEvent('contextmenu');
+      else await second.click({ button: 'right' });
+      await press(page.getByRole('menuitem', { name: 'Split this off' }), isMobile);
+
+      const link = descriptionBox(page).getByRole('link', { name: `Split off to: ${cake}` });
+      await expect(link).toBeVisible();
+      await expect(descriptionBox(page)).toContainText('To do');
+      await expect(descriptionBox(page)).not.toContainText(`Book the hall${cake}`);
+
+      // The original names what was split off it, with its status, and the name opens it.
+      const offLine = form(page).getByText('Split off to', { exact: false }).filter({ hasText: '· To do' });
+      await expect(offLine).toBeVisible();
+      await press(offLine.getByRole('button', { name: `${cake} ›` }), isMobile);
+      // Only the new item names one it was split off from, so this line is that form.
+      await expect(form(page).getByText('Split off from')).toContainText(`Split off from ${party} ›`);
+
+      // And back on the original, the link is what it holds: the text left it when it was split.
+      await press(form(page).getByRole('button', { name: `${party} ›` }), isMobile);
+      await expect(form(page).getByRole('link', { name: `Split off to: ${cake}` })).toBeVisible();
+      await expect(form(page).getByText(cake, { exact: true })).toHaveCount(0);
+    });
+  });
+
+  /**
    * F3, because only a real browser sets the time zone and the languages
    * together ("Show every date the app shows in your own time zone and region",
    * issue 1427). The formatter's choices over both, and every screen's wiring to

@@ -205,6 +205,7 @@ export function occurrenceOf(
     dueDateSetAt: dueDate === null ? null : asked.at,
     dueDateChosenAt: dueDate === null ? null : asked.at,
     seriesId: master.id,
+    splitFromItemId: null,
     unseen: false,
     deletedAt: null,
     createdAt,

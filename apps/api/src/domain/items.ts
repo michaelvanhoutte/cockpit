@@ -103,7 +103,9 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // Nobody has taken these two over, so Cockpit may still replace them once
     // it has read the note ("Clean up a captured note into a clear title and a
     // fuller message", issue 296). Editing either is what settles both.
-    textsSettledAt: null,
+    // Text split off another Item's description is the person's own words,
+    // settled at once so Cockpit never rewrites it.
+    textsSettledAt: cmd.splitFromItemId ? cmd.issuedAt : null,
     // Nothing has been proposed yet either - this is the mechanical write
     // capture makes, not a proposal ("Learn how you write from the titles you
     // correct", issue 394; `docs/text-learning.md`).
@@ -121,6 +123,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     claudeProposals: null,
     // Nothing repeats until a person says so ("Repeat an Item on a schedule", issue 1405).
     seriesId: null,
+    splitFromItemId: cmd.splitFromItemId ?? null,
     sourceResolvedAt: null,
     nextAction: cmd.nextAction ?? null,
     completedAt: null,

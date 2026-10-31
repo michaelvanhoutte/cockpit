@@ -68,6 +68,7 @@ function anItem(id: string, holding: { priority?: Priority | null; dueDate?: str
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    splitFromItemId: null,
     sourceResolvedAt: null,
     nextAction: null,
     completedAt: null,

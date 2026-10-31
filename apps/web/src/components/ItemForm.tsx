@@ -72,7 +72,9 @@ import {
 import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
-import { copyItemLinkAndSay } from '../itemLink';
+import { copyItemLinkAndSay, itemLink } from '../itemLink';
+import { linkedItemId, linkedItemStatus, splitOffLinkText, splitOffTitle, splitRelations } from '../splitOff';
+import { SplitLines } from './SplitLines';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 import {
@@ -1167,6 +1169,65 @@ function TheForm({
   };
   const writeField = (...args: Parameters<typeof startField>) => startField(...args).settled;
 
+  /**
+   * *Split this off*: the selected text captured as an Item of its own, in this
+   * Item's Workspace and on the Panels it is on, naming this Item as the one it
+   * was split off from (`splitOff.ts`). Answers the link the editor leaves where
+   * the text was.
+   *
+   * **The description is written once the new Item has landed, docked or not**,
+   * so the text leaves this Item only when it is somewhere else. A capture the
+   * server refuses puts the text back. Refused offline, where neither write
+   * could be sent.
+   */
+  const splitOff = (markdown: string) => {
+    if (!item) return null;
+    try {
+      refuseWhileOffline();
+    } catch (offline) {
+      setRefusal(whyNotDone(offline));
+      return null;
+    }
+    const before = editingRef.current?.now.description;
+    const newItemId = uuidv7();
+    const title = splitOffTitle(markdown);
+    const captured = send({
+      name: 'capture_item',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: item.workspaceId,
+        workspaceDecided: item.workspaceDecided,
+        itemId: newItemId,
+        message: markdown.slice(0, DESCRIPTION_LIMIT),
+        title,
+        panelIds: onPanels.shown.map((panel) => panel.panelId),
+        splitFromItemId: item.id,
+        ...(deviceTimeZone() ? { timeZone: deviceTimeZone()! } : {}),
+      },
+    });
+    captured.then(
+      () => void commitFields(['description']),
+      (failure: unknown) => {
+        if (before !== undefined) {
+          changeEditing((now) => (now ? { ...now, now: { ...now.now, description: before } } : now));
+          setReadingPicked((was) => was + 1);
+        }
+        setRefusal(`The text was not split off. ${whyNotDone(failure)}`);
+      },
+    );
+    return { href: itemLink(window.location.origin, item.workspaceId, newItemId), text: splitOffLinkText(title) };
+  };
+  /** The status after each link to an Item in the description, asked again only when the Items change. */
+  const items = data?.items;
+  const statusOfLink = useCallback(
+    (href: string) => {
+      const linked = linkedItemId(href, window.location.origin);
+      return linked && items ? linkedItemStatus(items, linked) : null;
+    },
+    [items],
+  );
+
   const save = async () => {
     if (!item || !editing || tooLong) return;
     const changed = changing;
@@ -1855,6 +1916,9 @@ function TheForm({
                 {/* Which recurring item this is a copy of, and the way to it ("Point a copy at its master, and retire the Repeats chip", issue 1450). */}
                 <RecurringOriginLine origin={recurringOriginOf(item, data?.series)} workspaceId={workspaceId} onClose={onClose} />
 
+                {/* The Item this was split off from, and those split off it. */}
+                <SplitLines relations={splitRelations(item, data?.items ?? [])} onOpen={openItem} />
+
                 {/* Where this came from, and - where the source gave a link -
                     the way back to it ("Open an Item at its source", issue
                     487): the same test the row and its menu apply. Above the
@@ -2181,6 +2245,8 @@ function TheForm({
                           uploadImage={uploadImage}
                           editable={!saving}
                           onAPage={onAPage}
+                          onSplitOff={splitOff}
+                          statusOfLink={statusOfLink}
                         />
                       </div>
 

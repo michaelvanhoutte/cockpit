@@ -1,4 +1,5 @@
 import {
+  type AnySQLiteColumn,
   check,
   index,
   integer,
@@ -1079,6 +1080,17 @@ export const items = sqliteTable(
      * the reason `proposed_panel_id` has none.
      */
     seriesId: text('series_id').references(() => series.id, { onDelete: 'restrict' }),
+    /**
+     * The Item this one was split off from - part of that Item's description
+     * made an Item of its own - and NULL for every other Item. One column
+     * rather than a table: an Item is split off from at most one other, and
+     * the other direction is read by asking which Items name it. Nullable with
+     * a REFERENCES clause, for the reason `series_id` is; an Item is
+     * tombstoned rather than deleted, so the restrict never bites.
+     */
+    splitFromItemId: text('split_from_item_id').references((): AnySQLiteColumn => items.id, {
+      onDelete: 'restrict',
+    }),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 

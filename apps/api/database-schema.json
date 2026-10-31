@@ -3399,6 +3399,19 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "waitingSince"
+            },
+            {
+              "name": "split_from_item_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "splitFromItemId"
             }
           ],
           "indexes": [

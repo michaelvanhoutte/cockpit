@@ -116,6 +116,7 @@ function anItem(title: string, completedAt: string | null = null): Item {
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    splitFromItemId: null,
     waitingSince: null,
     sourceResolvedAt: null,
     nextAction: null,

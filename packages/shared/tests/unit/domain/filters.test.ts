@@ -72,6 +72,7 @@ function anItem(
     proposedPanelFit: null,
     claudeProposals: null,
     seriesId: null,
+    splitFromItemId: null,
     waitingSince: holding.waitingSince ?? null,
     sourceResolvedAt: null,
     nextAction: null,

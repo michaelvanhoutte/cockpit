@@ -184,6 +184,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_WAITING_SINCE,
     ACCOUNT_FOLLOW_UPS,
     ACCOUNT_EMAIL_ADDRESS,
+    ITEM_SPLIT_FROM,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1500,6 +1501,37 @@ const ACCOUNT_EMAIL_ADDRESS: Change = {
 	\`held_at\` text NOT NULL,
 	CONSTRAINT "account_email_address_held_at_is_timestamp" CHECK(held_at IS NULL OR (datetime(held_at) IS NOT NULL AND substr(held_at, 11, 1) = 'T' AND substr(held_at, -1) = 'Z' AND length(held_at) >= 20 AND date(held_at) = substr(held_at, 1, 10)))
 ) STRICT`,
+    },
+  ],
+};
+
+/**
+ * Which Item an Item was split off from, when part of a description is made
+ * an Item of its own: one nullable column, `schema.ts` saying what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ALTER TABLE ... ADD COLUMN`, and no statement that
+ *   reads or writes a row. It is the whole of the expand; there is no
+ *   contract step.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that break the new rule:** none can; every existing Item reads
+ *   NULL, which is split off from nothing. Nothing is backfilled.
+ * - **What is in each environment:** real Items in staging and production,
+ *   each gaining a NULL; nothing is written on deploy.
+ * - **Rolled back after it has run:** an older release never names the
+ *   column, so a split-off Item reads as any other and loses only the link.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_SPLIT_FROM: Change = {
+  name: '0099-item-split-from',
+  statements: [
+    {
+      sql: 'ALTER TABLE `items` ADD COLUMN `split_from_item_id` text REFERENCES `items`(`id`) ON UPDATE no action ON DELETE restrict',
     },
   ],
 };

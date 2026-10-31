@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import RichDescription from '../../../src/description/RichDescription';
@@ -345,6 +345,72 @@ describe('Item editing', () => {
     });
   });
 
+  describe('selected text can be split off into an item of its own, leaving a link in its place', () => {
+    const LINK = 'https://cockpit.example/w/w1?item=new';
+
+    it('offers Split this off on a right-click over the selection, and puts the link where the text was', async () => {
+      const changes: string[] = [];
+      const handed: string[] = [];
+      render(
+        <RichDescription
+          initial={'Plan the party\n\nOrder the **cake** today'}
+          onChange={(md) => changes.push(md)}
+          onSplitOff={(markdown) => {
+            handed.push(markdown);
+            return { href: LINK, text: 'Split off to: Order the cake' };
+          }}
+          editable
+        />,
+      );
+      const box = await screen.findByLabelText('Description');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'bold' })).toBeEnabled());
+      const user = userEvent.setup();
+      await selectIn(user, box, 1);
+
+      fireEvent.contextMenu(box.querySelectorAll('p')[1]!);
+      await user.click(screen.getByRole('menuitem', { name: 'Split this off' }));
+
+      expect(handed).toEqual(['Order the **cake** today']);
+      expect(changes.at(-1)).toBe(`Plan the party\n\n[Split off to: Order the cake](${LINK})\n`);
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it.each([
+      { situation: 'with nothing selected', select: false, editable: true },
+      { situation: 'while it is being saved', select: true, editable: false },
+    ])('keeps the browser’s own menu $situation', async ({ select, editable }) => {
+      render(
+        <RichDescription initial="Order the cake" onChange={() => {}} onSplitOff={() => null} editable={editable} />,
+      );
+      const box = await screen.findByLabelText('Description');
+      await waitFor(() => expect(box).toHaveAttribute('contenteditable', String(editable)));
+      const user = userEvent.setup();
+      if (select) await selectIn(user, box, 0);
+
+      const shown = fireEvent.contextMenu(box.querySelector('p')!);
+
+      expect(shown).toBe(true);
+      expect(screen.queryByRole('menuitem', { name: 'Split this off' })).toBeNull();
+    });
+
+    it('shows the status of the item a link points at, beside the link and not in the text', async () => {
+      const changes: string[] = [];
+      render(
+        <RichDescription
+          initial={`Plan the party [Split off to: Order the cake](${LINK}) and [a site](https://example.com)`}
+          onChange={(md) => changes.push(md)}
+          statusOfLink={(href) => (href === LINK ? 'In progress' : null)}
+          editable
+        />,
+      );
+      const box = await screen.findByLabelText('Description');
+
+      await waitFor(() => expect(within(box).getByText('In progress')).toBeInTheDocument());
+      expect(box.querySelectorAll('[data-link-status]')).toHaveLength(1);
+      expect(changes).toEqual([]);
+    });
+  });
+
   describe('only an item’s description offers images', () => {
     it('offers no image button, and takes no pasted image, in a panel’s text', async () => {
       const changes: string[] = [];
@@ -422,6 +488,19 @@ async function caretIn(user: User, box: HTMLElement, line: number, offset: numbe
   window.getSelection()!.collapse(text, offset);
   document.dispatchEvent(new Event('selectionchange'));
   // ProseMirror reads a moved selection on a timer of its own.
+  await new Promise((resolve) => setTimeout(resolve, 30));
+}
+
+/** Selects the whole of a paragraph's text, across the bold and plain runs in it. */
+async function selectIn(user: User, box: HTMLElement, line: number) {
+  await user.click(box);
+  const paragraph = box.querySelectorAll('p')[line]!;
+  const selection = window.getSelection()!;
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  document.dispatchEvent(new Event('selectionchange'));
   await new Promise((resolve) => setTimeout(resolve, 30));
 }
 
