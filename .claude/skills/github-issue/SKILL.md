@@ -67,6 +67,11 @@ gate of `scoping` or `engineering-plan` would refuse belongs there, not here.
 needed: <the trigger check in one line>" with the rows where it found nothing; omit the
 section only for a bug fix that is not about speed.]
 
+## Schema changes               <- engineering-plan (design)
+
+[engineering-plan's table, one row per table, column or index added, changed, dropped or left
+unused, per database; or "No schema change".]
+
 ## Failure modes                <- engineering-plan (design)
 
 [One line per question from engineering-plan's "Enumerate the failure modes when state cannot
