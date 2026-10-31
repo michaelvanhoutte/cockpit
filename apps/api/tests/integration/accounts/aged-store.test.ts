@@ -78,6 +78,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     claude_proposals: _claudeProposals,
     series_id: _seriesId,
     waiting_since: _waitingSince,
+    split_from_item_id: _splitFromItemId,
     ...rest
   } = row;
   return rest;
@@ -3727,6 +3728,41 @@ describe('Triage', () => {
 });
 
 /**
+ * Splitting part of a description off into an Item of its own: an account from
+ * before it gains a column on its Items, and every Item it already had reads as
+ * split off from nothing.
+ */
+describe('Item editing', () => {
+  describe('every Item an account already had was split off from nothing once text can be split off', () => {
+    const SPLIT_FROM = '0099-item-split-from';
+    const itemsIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+
+    it('adds the column, leaves every Item as it was, and reads each as split off from nothing', async () => {
+      const name = 'aged-store-before-split-from';
+      await agedTo(name, justBefore(SPLIT_FROM));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await itemsIn(name);
+      expect(before.length).toBeGreaterThan(0);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await itemsIn(name);
+      expect(after.map((row) => row.split_from_item_id)).toEqual(before.map(() => null));
+      expect(after.map(withoutLaterColumns)).toEqual(before.map(withoutLaterColumns));
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      const read = snapshot.status === 'ok' ? snapshot.value.items : [];
+      expect(read.length).toBeGreaterThan(0);
+      expect(read.map((item) => item.splitFromItemId)).toEqual(read.map(() => null));
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await itemsIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
  * "Choose in Settings how many days to wait for a reply" (issue 1465): an
  * account from before it gains an empty table, every row it already held stays
  * as it was, and it waits 3 days until it chooses.
@@ -3759,10 +3795,14 @@ describe('Triage', () => {
       // Left out: the change ledger, the Agent that every open converts to a
       // remembered sentence whatever change it applies (`retire-agents.ts`), and
       // the table a later change adds empty on the same open
-      // (`0098-account-email-address`).
+      // (`0098-account-email-address`), and the column a later one adds to
+      // every Item holding NULL (`0099-item-split-from`).
       const { account_follow_ups: _added, account_email_address: _later, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect({ ...keptAfter, items: keptAfter.items!.map(withoutLaterColumns) }).toEqual({
+        ...keptBefore,
+        items: keptBefore.items!.map(withoutLaterColumns),
+      });
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });

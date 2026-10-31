@@ -220,6 +220,34 @@ describe('Backup', () => {
       });
     });
 
+    it('replaces an account holding an item split off another, even when the backup lists that item first', async () => {
+      await captureInto(USER_ID, 'Plan the party');
+      const original = (await backUp(ACCOUNT_NAME)).tables.items!.find((row) => row.captured_message === 'Plan the party')!;
+      const workspaces = await useAccount(USER_ID);
+      const split = await asUser('http://cockpit.test/v1/commands/capture_item', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: nextId(),
+          issuedAt: AT,
+          itemId: nextId(),
+          workspaceId: workspaces[0]!.id,
+          message: 'Order the cake',
+          splitFromItemId: original.id,
+        }),
+      });
+      expect(split.status).toBe(200);
+      const taken = await backUp(ACCOUNT_NAME);
+      // Split-off Items first, so the one that names another comes before it.
+      taken.tables.items!.sort((a, b) => Number(b.split_from_item_id != null) - Number(a.split_from_item_id != null));
+      expect(taken.tables.items![0]!.split_from_item_id).toBe(original.id);
+
+      // Over the store still holding the two, which a replace has to empty first.
+      expect((await restore(ACCOUNT_NAME, taken, { force: true })).status).toBe(200);
+      const back = (await backUp(ACCOUNT_NAME)).tables.items!;
+      expect(back.find((row) => row.captured_message === 'Order the cake')?.split_from_item_id).toBe(original.id);
+    });
+
     it('puts back more rows than one statement can carry', async () => {
       for (let n = 0; n < 12; n += 1) await captureInto(USER_ID, `item ${n}`);
       const taken = await backUp(ACCOUNT_NAME);
@@ -488,8 +516,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0098-account-email-address` adds a table and no column; the guest's
+    // `0099-item-split-from` adds one column to every Item; the guest's
     // demonstration adds rows only, and only to the guest.
+    items: ['split_from_item_id'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

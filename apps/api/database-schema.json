@@ -3409,7 +3409,7 @@
               "references": {
                 "table": "items",
                 "column": "id",
-                "onDelete": "RESTRICT"
+                "onDelete": "NO ACTION"
               },
               "queriedAs": "splitFromItemId"
             }

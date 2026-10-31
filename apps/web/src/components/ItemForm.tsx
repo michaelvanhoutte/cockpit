@@ -75,6 +75,7 @@ import { useUndo } from '../undo';
 import { copyItemLinkAndSay, itemLink } from '../itemLink';
 import { linkedItemId, linkedItemStatus, splitOffLinkText, splitOffTitle, splitRelations } from '../splitOff';
 import { SplitLines } from './SplitLines';
+import { panelsFiledOn } from '../itemPanels';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
 import {
@@ -1201,7 +1202,8 @@ function TheForm({
         itemId: newItemId,
         message: markdown.slice(0, DESCRIPTION_LIMIT),
         title,
-        panelIds: onPanels.shown.map((panel) => panel.panelId),
+        // The Panels it is saved on, not ones added on this form and not yet saved.
+        panelIds: panelsFiledOn(item.id, data?.filings ?? [], data?.panels ?? []).map((panel) => panel.panelId),
         splitFromItemId: item.id,
         ...(deviceTimeZone() ? { timeZone: deviceTimeZone()! } : {}),
       },

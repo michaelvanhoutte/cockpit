@@ -1085,12 +1085,16 @@ export const items = sqliteTable(
      * made an Item of its own - and NULL for every other Item. One column
      * rather than a table: an Item is split off from at most one other, and
      * the other direction is read by asking which Items name it. Nullable with
-     * a REFERENCES clause, for the reason `series_id` is; an Item is
-     * tombstoned rather than deleted, so the restrict never bites.
+     * a REFERENCES clause, for the reason `series_id` is.
+     *
+     * **NO ACTION, not the RESTRICT every other reference here carries.** SQLite
+     * checks RESTRICT as each row goes, so a table pointing at itself could
+     * then never be emptied or dropped in one statement - a restore's
+     * replace and the guest's nightly reset both do exactly that. NO ACTION is
+     * checked as the statement ends, and an Item is tombstoned, never deleted
+     * alone, so it guards the same thing.
      */
-    splitFromItemId: text('split_from_item_id').references((): AnySQLiteColumn => items.id, {
-      onDelete: 'restrict',
-    }),
+    splitFromItemId: text('split_from_item_id').references((): AnySQLiteColumn => items.id),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 

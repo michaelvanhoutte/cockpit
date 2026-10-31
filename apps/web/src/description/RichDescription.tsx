@@ -177,6 +177,7 @@ export default function RichDescription({
   /** Where *Split this off* is offered, while it is. */
   const [splitMenu, setSplitMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const outer = useRef<HTMLDivElement>(null);
   const splitting = useRef(onSplitOff);
   splitting.current = onSplitOff;
   const writable = useRef(editable && !reading);
@@ -290,7 +291,11 @@ export default function RichDescription({
                   contextmenu: (view, event) => {
                     if (!splitting.current || !writable.current || view.state.selection.empty) return false;
                     event.preventDefault();
-                    setSplitMenu({ x: event.clientX, y: event.clientY });
+                    // Placed within this editor's own box rather than the
+                    // window: the centered form is translated, which makes it
+                    // what a `fixed` menu is placed against.
+                    const box = outer.current?.getBoundingClientRect();
+                    setSplitMenu({ x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) });
                     return true;
                   },
                 },
@@ -481,10 +486,11 @@ export default function RichDescription({
 
   return (
     <div
+      ref={outer}
       className={
         fill
-          ? 'flex min-h-0 flex-1 flex-col'
-          : 'mt-1 rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
+          ? 'relative flex min-h-0 flex-1 flex-col'
+          : 'relative mt-1 rounded-md border border-shade/10 bg-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40'
       }
     >
       {toolbar && !reading && (
@@ -592,7 +598,7 @@ export default function RichDescription({
           role="menu"
           aria-label="Selected text"
           style={{ left: splitMenu.x, top: splitMenu.y }}
-          className="fixed z-50 rounded-md border border-shade/10 bg-field py-1 shadow-lg"
+          className="absolute z-50 rounded-md border border-shade/10 bg-field py-1 shadow-lg"
         >
           <button
             type="button"

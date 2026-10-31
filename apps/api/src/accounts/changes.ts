@@ -1531,7 +1531,8 @@ const ITEM_SPLIT_FROM: Change = {
   name: '0099-item-split-from',
   statements: [
     {
-      sql: 'ALTER TABLE `items` ADD COLUMN `split_from_item_id` text REFERENCES `items`(`id`) ON UPDATE no action ON DELETE restrict',
+      // NO ACTION rather than RESTRICT, so `items` can still be emptied in one statement (`schema.ts`).
+      sql: 'ALTER TABLE `items` ADD COLUMN `split_from_item_id` text REFERENCES `items`(`id`) ON UPDATE no action ON DELETE no action',
     },
   ],
 };

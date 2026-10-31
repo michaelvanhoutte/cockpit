@@ -518,7 +518,14 @@ test.describe('Item editing', () => {
       });
       // A right-click at a desk; on a phone the long press Android turns into the same event.
       if (isMobile) await second.dispatchEvent('contextmenu');
-      else await second.click({ button: 'right' });
+      else {
+        await second.click({ button: 'right' });
+        // Opened where the pointer is, which is the middle of what was right-clicked.
+        const clicked = (await second.boundingBox())!;
+        const menu = (await page.getByRole('menu', { name: 'Selected text' }).boundingBox())!;
+        expect(Math.abs(menu.x - (clicked.x + clicked.width / 2))).toBeLessThan(2);
+        expect(Math.abs(menu.y - (clicked.y + clicked.height / 2))).toBeLessThan(2);
+      }
       await press(page.getByRole('menuitem', { name: 'Split this off' }), isMobile);
 
       const link = descriptionBox(page).getByRole('link', { name: `Split off to: ${cake}` });

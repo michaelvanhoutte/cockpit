@@ -102,6 +102,42 @@ export function deleteAllRows(sql: SqlStorage, parentsFirst: readonly string[]):
 }
 
 /**
+ * A table's rows with each one after any row of the same table it points at -
+ * an Item after the Item it was split off from (`items.split_from_item_id`).
+ * Needed because rows are written a few to a statement and a foreign key is
+ * checked as each statement ends, so the backup's own order is not enough.
+ * A row pointing at nothing in the backup, or rows in a circle, are left in
+ * the order given for the foreign key to refuse.
+ */
+function rowsParentsFirst(sql: SqlStorage, table: string, rows: readonly Row[]): readonly Row[] {
+  const links = sql
+    .exec<{ table: string; from: string; to: string }>(`PRAGMA foreign_key_list("${quoted(table)}")`)
+    .toArray()
+    .filter((link) => link.table === table);
+  if (links.length === 0 || rows.length < 2) return rows;
+  const present = links.map((link) => new Set(rows.map((row) => row[link.to])));
+  const written = links.map(() => new Set<unknown>());
+  const ordered: Row[] = [];
+  let pending = [...rows];
+  while (pending.length > 0) {
+    const ready = pending.filter((row) =>
+      links.every((link, at) => {
+        const parent = row[link.from];
+        return parent == null || !present[at]!.has(parent) || written[at]!.has(parent);
+      }),
+    );
+    if (ready.length === 0) return [...ordered, ...pending];
+    for (const row of ready) {
+      ordered.push(row);
+      links.forEach((link, at) => written[at]!.add(row[link.to]));
+    }
+    const done = new Set(ready);
+    pending = pending.filter((row) => !done.has(row));
+  }
+  return ordered;
+}
+
+/**
  * Writes a backup's rows into the store, in an order the foreign keys accept.
  *
  * **Every insert is batched.** A store's SQLite binds at most 100 values per
@@ -120,7 +156,7 @@ export function writeRows(
   let tablesWritten = 0;
   let rowsWritten = 0;
   for (const table of order) {
-    const rows = backup.tables[table] ?? [];
+    const rows = rowsParentsFirst(sql, table, backup.tables[table] ?? []);
     if (rows.length === 0) continue;
     const columns = Object.keys(rows[0]!);
     // Checked before anything is skipped for having no columns, because a row
