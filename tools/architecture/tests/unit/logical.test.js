@@ -353,6 +353,12 @@ describe('A deviation\'s prompt holds everything a fresh session needs to scope 
     expect(prompt).not.toContain('https://');
   });
 
+  it('ends the rule it breaks in one full stop, whether or not the design wrote one, and names the dialog by its heading', () => {
+    const page = renderLogicalPage({ logical: code({ 'apps/api/src/http': { 'a.ts': 'env.DB.q();' } }, { design: { breaks: { 'api>data': 'Reaches the store directly.' } } }), drawnFrom });
+    expect(Object.values(devsOf(page))[0].prompt).toContain('Reaches the store directly.\nThe design lets');
+    expect(page).toContain('<dialog id="dev" aria-labelledby="dev-h"><h3 id="dev-h">');
+  });
+
   it('carries the data so that no markup in it can close the script', () => {
     const page = renderLogicalPage({ logical: code({ 'apps/api/src/http': { 'a.ts': 'env.DB.q();' } }, { design: { breaks: { 'api>data': 'a </script> b' } } }), drawnFrom });
     expect(page.match(/<\/script>/g)).toHaveLength(2);
