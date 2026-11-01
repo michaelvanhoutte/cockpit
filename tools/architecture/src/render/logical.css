@@ -42,7 +42,7 @@ g.node a:hover .nc, g.node a:hover .nc-st, g.node a:hover .nc-cl, g.node a:hover
 a.nl-a { cursor: pointer; }
 a.nl-a:hover .nl-bad { stroke-width: 3.4; }
 .nl-acc { stroke: var(--ink-3); stroke-width: 1.6; opacity: .8; }
-.nm-acc, .nl-num-acc { fill: var(--ink-3); }
+.nm-acc, .nl-num.nl-num-acc { fill: var(--ink-3); }
 .num.num-acc { background: var(--ink-3); }
 button.copy { font: 600 12px var(--sans); color: var(--accent); background: var(--card); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
 button.copy:hover { background: var(--soft); }
