@@ -728,10 +728,20 @@ export function parseTrendQuery(params: URLSearchParams): CostQuery {
 }
 
 /** The Harness trend page's canonical address, so the edge cache keys one page one way. */
-export const trendQueryString = (q: CostQuery) => queryString(q, { group: DEFAULT_GROUP, split: 'phase', day: null, sort: 'default', page: 1 });
+export function trendQueryString(q: CostQuery, lines: TrendLines = 'phase'): string {
+  const base = queryString(q, { group: DEFAULT_GROUP, split: 'phase', day: null, sort: 'default', page: 1 });
+  if (lines !== 'total') return base;
+  return base === '' ? '?lines=total' : `${base}&lines=total`;
+}
+
+/** What "Cost per 1,000 lines changed" draws: a line per phase beside the total, or the total alone. Anything but `total` in an address is by phase. */
+export type TrendLines = 'phase' | 'total';
+
+export const parseTrendLines = (params: URLSearchParams): TrendLines => (params.get('lines') === 'total' ? 'total' : 'phase');
 
 export interface TrendPage {
   query: CostQuery;
+  lines: TrendLines;
   engineers: string[];
   /** Every model with dollars on record, for the Model filter. */
   models: string[];
@@ -739,7 +749,7 @@ export interface TrendPage {
 }
 
 /** Reads the trend charts' figures and the two lists the "Only" filters offer in one batch: no cost rows, link state or job status. */
-export async function trendPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<TrendPage> {
+export async function trendPage(db: D1Database, query: CostQuery, now = Date.now(), lines: TrendLines = 'phase'): Promise<TrendPage> {
   const [sessionRows, pullRequestRows, engineers, models] = await db.batch([
     ...trendReads(db, query, firstDay(query.period, now), narrowingOf(query)),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
@@ -747,6 +757,7 @@ export async function trendPage(db: D1Database, query: CostQuery, now = Date.now
   ]);
   return {
     query,
+    lines,
     engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
     models: (models!.results as { model: string }[]).map((m) => m.model),
     trends: trends(sessionRows!.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]), query.period, now),

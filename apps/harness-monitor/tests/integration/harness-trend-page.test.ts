@@ -86,6 +86,92 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('Cost per 1,000 lines changed switches between the total alone and a line per phase', () => {
+    beforeEach(async () => {
+      await send([spend('a', 2, { time: '2026-10-06T11:00:00Z', branch: 'b/1' })]);
+      await merged(1, '2026-10-07T10:00:00Z', 1_000);
+      // A second week, so each line is a drawn segment rather than a lone dot.
+      await send([spend('b', 3, { time: '2026-10-13T11:00:00Z', branch: 'b/2' })]);
+      await merged(2, '2026-10-14T10:00:00Z', 1_000);
+    });
+
+    const section = (html: string, id: string) => new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
+    const lines = (html: string, id: string) => [...section(html, id).matchAll(/<g data-line="([^"]*)">(.*?)<\/g>/gs)].map(([, key, body]) => ({ key: key!, dashed: body!.includes('stroke-dasharray') }));
+    const switchOf = (html: string) => /<span class="lines-switch"[^>]*>(.*?)<\/span>/s.exec(html)?.[1];
+    const links = (html: string) => [...switchOf(html)!.matchAll(/<a href="([^"]*)"( aria-current="true")?>([^<]*)<\/a>/g)].map(([, href, current, text]) => ({ text, href, current: current !== undefined }));
+
+    it('Total draws the All phases line alone, solid, with no legend', async () => {
+      const html = await theTrendPage('?period=all&lines=total');
+
+      expect(lines(html, 'cost-per-line')).toEqual([{ key: 'total', dashed: false }]);
+      expect(section(html, 'cost-per-line')).toContain('<polyline');
+      expect(section(html, 'cost-per-line')).not.toContain('class="legend"');
+    });
+
+    it('By phase, by default, draws the dashed total beside each phase line', async () => {
+      const drawn = lines(await theTrendPage('?period=all'), 'cost-per-line');
+
+      expect(drawn.map((l) => l.key)).toEqual(expect.arrayContaining(['total', 'building']));
+      expect(drawn.filter((l) => l.dashed).map((l) => l.key)).toEqual(['total']);
+    });
+
+    it('Total leaves Starting context and Pull request size as they were', async () => {
+      const plain = await theTrendPage('?period=all');
+      const total = await theTrendPage('?period=all&lines=total');
+
+      for (const id of ['starting-context', 'pull-request-size']) expect(section(total, id)).toBe(section(plain, id));
+    });
+
+    it('an unknown lines value draws by phase, as an unknown filter value falls back', async () => {
+      const html = await theTrendPage('?period=all&lines=everything');
+
+      expect(lines(html, 'cost-per-line').length).toBeGreaterThan(1);
+      expect(links(html).find((l) => l.current)!.text).toBe('By phase');
+    });
+
+    it('the switch sits in the chart heading with the current view marked', async () => {
+      const heading = /<div class="heading"><h3 id="cost-per-line">(.*?)<div class="chart">/s.exec(await theTrendPage('?period=all'))![1]!;
+
+      expect(heading).toContain('class="lines-switch"');
+      expect(links(await theTrendPage('?period=all')).map((l) => [l.text, l.current])).toEqual([['Total', false], ['By phase', true]]);
+      expect(links(await theTrendPage('?period=all&lines=total')).map((l) => [l.text, l.current])).toEqual([['Total', true], ['By phase', false]]);
+    });
+
+    it('the Total link keeps the period and every filter and adds lines; the By phase link keeps them and drops it', async () => {
+      const html = await theTrendPage('?period=90d&engineer=alice&model=claude-opus-4-8&who=main&lines=total');
+      const [total, byPhase] = links(html);
+
+      expect(new URL(total!.href!, 'https://monitor.test').searchParams.toString()).toBe('period=90d&engineer=alice&model=claude-opus-4-8&who=main&lines=total');
+      expect(new URL(byPhase!.href!, 'https://monitor.test').searchParams.toString()).toBe('period=90d&engineer=alice&model=claude-opus-4-8&who=main');
+    });
+
+    it('the Total link on the default period is just lines=total', async () => {
+      expect(links(await theTrendPage()).map((l) => l.href)).toEqual(['/harness-trend?lines=total', '/harness-trend']);
+    });
+
+    it('changing the period or a filter while on Total keeps Total, and by phase carries nothing extra', async () => {
+      const total = await theTrendPage('?lines=total');
+      const plain = await theTrendPage();
+
+      expect(/<form class="sentence-form".*?<\/form>/s.exec(total)![0]).toContain('<input type="hidden" name="lines" value="total">');
+      expect(/<form class="sentence-form".*?<\/form>/s.exec(plain)![0]).not.toContain('name="lines"');
+    });
+
+    it('with one phase chosen there is no switch, even with lines=total in the address, and the chart is drawn as ever', async () => {
+      const html = await theTrendPage('?period=all&category=building&lines=total');
+
+      expect(switchOf(html)).toBeUndefined();
+      expect(lines(html, 'cost-per-line').map((l) => l.key)).toContain('building');
+    });
+
+    it('its explanation names Total and By phase', async () => {
+      const explanation = /<div id="x-cost-per-line" popover="manual" class="explain-pop">.*?<\/div>/s.exec(await theTrendPage())![0];
+
+      expect(explanation).toContain('Total');
+      expect(explanation).toContain('By phase');
+    });
+  });
+
   describe('each Harness trend address is cached at the edge as the other pages are', () => {
     it('the same address twice within the cache time is answered from the cache, whatever was reported since; spellings share one entry', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
@@ -102,6 +188,19 @@ describe('Harness Monitor', () => {
       expect(first.headers.get('cache-control')).toBe('public, max-age=300');
       expect(await again.text()).toBe(before);
       expect(await (await viewWith('?period=30d')).text()).not.toBe(before);
+    });
+
+    it('By phase then Total for the same period and filters is not answered from the first entry', async () => {
+      await send([spend('a', 1, { time: '2026-10-13T10:00:00Z', branch: 'b/1' })]);
+      await merged(1, '2026-10-13T12:00:00Z', 500);
+      const cached = { PAGE_CACHE_SECONDS: '300' };
+      const byPhase = await (await viewWith('?period=90d', cached)).text();
+
+      const total = await (await viewWith('?period=90d&lines=total', cached)).text();
+
+      expect(byPhase).toContain('data-line="building"');
+      expect(total).not.toContain('data-line="building"');
+      expect(await (await viewWith('?period=90d&lines=total&junk=1', cached)).text()).toBe(total);
     });
   });
 });

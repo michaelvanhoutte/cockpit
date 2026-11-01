@@ -347,13 +347,15 @@ interface TrendDrawing {
   peak?: number;
   /** The chart and its key alone, for a panel whose band already names it. */
   bare?: boolean;
+  /** Markup at the right of the heading, beside the title and its explanation; a bare chart has no heading to hold it. */
+  aside?: string;
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
 export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
+  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}${d.aside ?? ''}</div>`;
   if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
   const peak = d.peak ?? Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
