@@ -12,6 +12,7 @@ import { parseDocument } from 'yaml';
 
 import { parseDesign, parseServices } from './design.js';
 import { ReadError } from './errors.js';
+import { parseDeployments, parseServiceMap } from './services.js';
 
 export const ROLES = ['core', 'connector', 'other'];
 const DISCOVERIES = ['one', 'folders', 'packages'];
@@ -111,6 +112,15 @@ export function parseDescription(file, text) {
   const reaches = (from, target, visited = new Set()) => (below.get(from) ?? []).some((next) => next === target || (!visited.has(next) && visited.add(next) && reaches(next, target, visited)));
   for (const pin of pins) if (reaches(pin.below, pin.above)) fail(`pins put ${pin.above} above ${pin.below} and ${pin.below} above ${pin.above}, in a chain`);
 
+  const helpers = { fail, object, array, string };
+  const design = parseDesign(value.design, helpers);
+  const otherServices = parseServices(value.otherServices, helpers);
+  const known = ['cockpit', ...otherServices.map((each) => each.id)];
+  const serviceMap = parseServiceMap(value.serviceMap, helpers, known);
+  for (const [index, call] of (serviceMap?.calls ?? []).entries()) {
+    if (call.foundBy !== null && !(design?.callers ?? []).some((each) => each.from === call.foundBy)) fail(`serviceMap.calls[${index}].foundBy names ${call.foundBy}, which is no caller of the design`);
+  }
+
   return {
     pins,
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
@@ -126,7 +136,9 @@ export function parseDescription(file, text) {
       services: named(context.services, 'context.services'),
     },
     layers,
-    design: parseDesign(value.design, { fail, object, array, string }),
-    otherServices: parseServices(value.otherServices, { fail, object, array, string }),
+    design,
+    otherServices,
+    deployments: parseDeployments(value.deployments, helpers, known),
+    serviceMap,
   };
 }

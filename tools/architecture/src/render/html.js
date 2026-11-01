@@ -96,7 +96,7 @@ const opener = (key, svg) => `<a class="open" href="${DIAGRAM_PAGES[key].file}" 
 const openLink = (key) => `<a class="openfull" href="${DIAGRAM_PAGES[key].file}" target="_blank" rel="noopener">Open full size &rarr;</a>`;
 
 /** The drawing at the size it was drawn: the width and height its own viewBox gives. */
-function atNaturalSize(svg) {
+export function atNaturalSize(svg) {
   const match = svg.match(/^<svg viewBox="0 0 ([\d.]+) ([\d.]+)" style="[^"]*"/);
   if (!match) throw new Error('a diagram did not start with a sized <svg>');
   return svg.replace(match[0], `<svg viewBox="0 0 ${match[1]} ${match[2]}" style="width:${match[1]}px;height:${match[2]}px"`);
@@ -189,6 +189,7 @@ export function renderHtml(model, { monitor = '', comparison = { state: 'unavail
       <span>${plural(counts.areas, 'area')}</span>
       <span>${plural(environments.length, 'environment')}</span>
       <span>${plural(workflows.length, 'workflow')}</span>
+      ${model.serviceMap ? '<span><a href="services.html"><b>Services &rarr;</b></a></span>' : ''}
       ${reportLinks}
     </div>
     <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#database">Databases</a><a href="#deployment">Deployment</a></nav>

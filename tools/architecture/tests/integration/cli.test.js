@@ -70,7 +70,9 @@ const drawReal = () => (drawing ??= draw(checkout).then((run) => {
   const logicalFile = path.join(path.dirname(run.out), 'service-cockpit.html');
   const monitorFile = path.join(path.dirname(run.out), 'service-harness-monitor.html');
   const widgetFile = path.join(path.dirname(run.out), 'service-android-widget.html');
-  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
+  const dir = path.dirname(run.out);
+  const pages = Object.fromEntries(readdirSync(dir).filter((name) => name.endsWith('.html')).map((name) => [name, readFileSync(path.join(dir, name), 'utf8')]));
+  real = { pages, code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
 
@@ -339,6 +341,58 @@ describe('Logical', () => {
   });
 });
 
+describe('Services', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  it('writes the services page, each service\'s two tabs, the layer pages and the database pages beside the report, all of which the nightly upload takes', () => {
+    expect(Object.keys(real.pages)).toEqual(expect.arrayContaining([
+      'services.html',
+      ...['cockpit', 'harness-monitor', 'android-widget'].flatMap((id) => [`service-${id}.html`, `service-${id}-deployment.html`]),
+      ...['api', 'logic', 'connectors'].flatMap((layer) => [`cockpit-layer-${layer}.html`, `cockpit-layer-${layer}-dependencies.html`]),
+      'cockpit-layer-data.html',
+      ...['register', 'account-store', 'harness-monitor'].map((key) => `db-${key}.html`),
+    ]));
+    expect(real.page).toContain('<a href="services.html"><b>Services &rarr;</b></a>');
+  });
+
+  it('says that no file imports another service\'s code and no store is used by two services, as this repository stands', () => {
+    expect(real.model.serviceMap.cross).toEqual({ imports: [], shared: [] });
+    expect(real.pages['services.html']).toContain('<span class="ok">No file imports another service\'s code.</span>');
+    expect(real.pages['services.html']).toContain('<span class="ok">No store is used by two services.</span>');
+  });
+
+  it('puts a badge on each service of as many lines as are red on its own page, linking to them', () => {
+    const [monitor, cockpit] = real.model.serviceMap.boxes;
+    expect(cockpit.off).toBe(real.model.logical.bad.length);
+    expect(monitor.off).toBe(real.model.services.find((each) => each.id === 'harness-monitor').logical.bad.length);
+    expect(real.pages['services.html']).toContain(`<a href="service-cockpit.html#off"><rect class="nb-badge"`);
+    expect(real.pages['service-cockpit.html']).toContain('<h2 id="off">');
+  });
+
+  it('draws a column for each environment this repository\'s configs declare, and names no secret\'s value', () => {
+    const [cockpit, monitor, widget] = real.model.deployments;
+    expect(cockpit.environments.map((each) => each.name)).toEqual(['production', 'staging', 'local']);
+    expect(monitor.environments.map((each) => each.name)).toEqual(['production']);
+    expect(widget.environments.map((each) => each.name)).toEqual(['production', 'staging']);
+    expect(monitor.environments[0].secrets).toEqual(expect.arrayContaining(['HARNESS_WRITE_KEY', 'GITHUB_TOKEN']));
+    expect(widget.environments[0].shippedBy).toEqual([{ file: 'widget-release.yml', starts: 'a tag push' }]);
+    expect(real.pages['service-android-widget-deployment.html']).toContain('<span class="chip s">WIDGET_KEYSTORE_BASE64</span>');
+  });
+
+  it('shows Cockpit\'s environments as the report\'s own deployment reads them, which credits the Monitor\'s workflow with deploying production', () => {
+    const production = real.model.deployments[0].environments[0];
+    expect(production.shippedBy.map((each) => each.file)).toEqual(real.model.deployment.environments[0].deployedBy);
+  });
+
+  it('gives each layer a page with only its own folders, and every link in the view lands on a page that was written', () => {
+    const logic = real.pages['cockpit-layer-logic.html'];
+    expect([...logic.matchAll(/data-area="([^"]+)"/g)].map((each) => each[1])).toHaveLength(8);
+    expect(logic).not.toContain('apps/api/src/http');
+    for (const [name, html] of Object.entries(real.pages)) {
+      for (const [, href] of html.matchAll(/<a href="([a-z0-9.-]+\.html)(?:#[^"]*)?"/g)) expect(real.pages, `${name} links ${href}`).toHaveProperty([href]);
+    }
+  });
+});
 describe('Databases', () => {
   beforeAll(drawReal, REAL_DRAW_TIMEOUT);
 

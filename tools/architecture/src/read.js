@@ -192,6 +192,12 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
   }
   if (names.length === 0) throw new ReadError(WORKFLOWS_DIR, 'holds no workflows');
 
+  // The config and the bindings file of every Worker the description names: an earlier commit may predate one, this checkout's own must have it.
+  const deploymentFiles = {};
+  for (const file of parsed.deployments.flatMap((each) => [each.config, each.bindings]).filter(Boolean)) {
+    deploymentFiles[file] = named && !existsSync(path.join(root, file)) ? null : readText(root, file);
+  }
+
   const commit = named ?? (process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']));
   // An earlier commit drawn for What changed may predate the file; this checkout's own must have it.
   const schema = named && !existsSync(path.join(root, SCHEMA_FILE)) ? null : { file: SCHEMA_FILE, text: readText(root, SCHEMA_FILE) };
@@ -206,6 +212,7 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
     candidates,
     callerCode,
     designFiles,
+    deploymentFiles,
     workflows: names.map((name) => ({ file: name, text: readText(root, `${WORKFLOWS_DIR}/${name}`) })),
     commit,
     date: commit ? git(root, ['show', '-s', '--format=%cI', '--end-of-options', commit]) : null,

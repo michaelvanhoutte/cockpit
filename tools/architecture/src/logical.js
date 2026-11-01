@@ -213,5 +213,9 @@ export function buildLogical({ design, scan, candidates, callerCode = {}, design
   // A component of file-name patterns carries the files they matched, for its link to the first and its tooltip.
   const layers = design.layers.map((layer) => ({ ...layer, items: layer.items.map((row) => row.map((chip) => (chip.files.length > 0 ? { ...chip, matched: [...matched].filter(([, by]) => by.includes(chip.id)).map(([file]) => file).sort() } : chip))) }));
 
-  return { layers, findLines: design.findLines, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers };
+  // Who uses each component, whatever the design says of the line: what a store's card on the Data page lists.
+  const usedBy = {};
+  for (const edge of edges.values()) usedBy[edge.to] = [...(usedBy[edge.to] ?? []), edge.from];
+
+  return { layers, findLines: design.findLines, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers, usedBy };
 }
