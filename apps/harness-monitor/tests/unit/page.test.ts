@@ -72,7 +72,6 @@ function pageFor(address: string, rows: TotalRow[], now = NOW): string {
     lastLinkSuccessAt: null,
     creditedThrough: null,
     jobs: [],
-    trends: null,
   };
   return renderPage(page, { unpriced: [], repository: 'acme/app' }, now);
 }

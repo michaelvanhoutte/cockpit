@@ -88,7 +88,7 @@ describe('Harness Monitor', () => {
       const html = await thePage();
 
       expect(html).toMatch(/<a href="\/cycle-time" title="[^"]*" aria-current="page">Cycle time<\/a>/);
-      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Test coverage</a>', '>CI stability</a>']);
+      expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual(['>Claude Code costs</a>', '>Harness trend</a>', '>Cockpit&rsquo;s Claude calls</a>', '>Cycle time</a>', '>Test selection</a>', '>Test coverage</a>', '>CI stability</a>']);
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
     });
 
@@ -872,6 +872,7 @@ describe('Harness Monitor', () => {
   describe('each top tab names the question its page answers on pointing', () => {
     it.each([
       { tab: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+      { tab: 'Harness trend', question: 'Is the harness getting more expensive?' },
       { tab: 'Cockpit’s Claude calls', question: 'What do the app’s own AI features cost to run?' },
       { tab: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
       { tab: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
@@ -882,7 +883,7 @@ describe('Harness Monitor', () => {
       const tabs = [...bar.matchAll(/<a [^>]*title="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[2]!.replace(/&rsquo;/g, '’'), m[1]!.replace(/&rsquo;/g, '’')]);
 
       expect(tabs).toContainEqual([tab, question]);
-      expect(tabs).toHaveLength(6);
+      expect(tabs).toHaveLength(7);
     });
   });
 
