@@ -96,6 +96,14 @@ const SEED = {
   ],
 };
 
+/** A page's intro text runs to the edge of the panel below it, less only the inset it keeps for itself on each side. */
+const endsWithPanel = async (page: Page, lead: Locator, below: Locator, inset: number) => {
+  const [l, b] = await Promise.all([lead.boundingBox(), below.boundingBox()]);
+  const width = `at ${page.viewportSize()!.width}px`;
+  expect(Math.abs(l!.x - b!.x - inset), `left ${width}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(b!.x + b!.width - (l!.x + l!.width) - inset), `right ${width}`).toBeLessThanOrEqual(2);
+};
+
 test.describe('Harness Monitor', () => {
   /** A word of the band's sentence, or one of the filters under "Only", by what a screen reader calls it. */
   const choice = (page: Page, name: string) => page.getByRole('combobox', { name, exact: true });
@@ -433,12 +441,14 @@ test.describe('Harness Monitor', () => {
     expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
   }
 
-  test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
+  test("the sentence stays on screen as the page scrolls, and the page's intro ends where the panels below it end, on a desk and on a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
     await page.goto(`${monitor}/`);
+    // Every page opens with the same intro; its paragraph keeps the lead's 2px padding.
+    await endsWithPanel(page, page.locator('.lead-more'), page.locator('section.panel').first(), 2);
 
     // Scrolled to the table, the band is still the first thing on screen.
     await page.getByRole('region', { name: 'Cost by day' }).scrollIntoViewIfNeeded();
@@ -1695,6 +1705,8 @@ test.describe('Harness Monitor', () => {
     await expect(drill).toHaveCount(0);
     const misses = page.getByRole('region', { name: 'Tests that were skipped, then failed on main' });
     await expect(misses.getByRole('row')).toHaveCount(3);
+    // The view's lead runs to the table's edge, less its own 10px margin.
+    await endsWithPanel(page, misses.locator('.view-lead'), misses.locator('.view-lead + .well.table'), 10);
     const flaky = misses.getByRole('row').filter({ hasText: 'flaky.test.ts' });
     const capture = misses.getByRole('row').filter({ hasText: 'capture.test.ts' });
     await expect(flaky).toContainText('#9101 Add a filter panel');
