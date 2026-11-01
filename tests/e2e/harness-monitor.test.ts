@@ -1963,7 +1963,7 @@ test.describe('Harness Monitor', () => {
     await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
   });
 
-  test('pointing at or focusing the key of a line on a per-day chart keeps that line at full strength and fades the others, and the total never fades', async ({ page, request: api }) => {
+  test('pointing at or focusing a line of a per-day chart, or its key, keeps that line at full strength and fades the others, and the total never fades', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
@@ -1994,9 +1994,11 @@ test.describe('Harness Monitor', () => {
     await moveOff();
     await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
 
-    // A line's points sit under their day's strip, which opens the day, so a point no longer picks its line out: the key does.
+    // On a desk the line itself picks too, by its point on the day it cost something (every line sits on the baseline the days before).
     if (!onAPhone) {
-      await line('ci-reviews').locator('circle').last().hover({ force: true });
+      await line('ci-reviews').locator('circle').last().hover();
+      await expect.poll(opacities).toEqual([FADED, FADED, '1', '1']);
+      await moveOff();
       await expect.poll(opacities).toEqual(['1', '1', '1', '1']);
     }
 

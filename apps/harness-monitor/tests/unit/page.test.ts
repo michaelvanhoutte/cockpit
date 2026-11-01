@@ -105,6 +105,16 @@ describe('Harness Monitor', () => {
       expect(found[1]!.says.at(-1)).toBe('Click to see this day');
     });
 
+    it('each point of a line links to its day, under the strips so pointing at a line still picks it out', () => {
+      const html = overDays('period=all&split=model');
+      const chart = new RegExp('aria-labelledby="perday">.*?</section>', 's').exec(html)![0];
+      const points = [...chart.matchAll(/<a href="([^"]*)"><circle /g)].map((m) => m[1]!.replace(/&#38;/g, '&'));
+
+      // The chart's total has a point on the day, and so does the one phase that spent.
+      expect(points.filter((h) => h === '/?period=all&day=2026-10-24&group=pr&split=model')).toHaveLength(2);
+      expect(chart.indexOf('class="day-strips"')).toBeLessThan(chart.indexOf('class="lines"'));
+    });
+
     it('a "By day" row\'s date links to the address its strip does', () => {
       const html = overDays('period=7d&split=where&category=building');
       const dates = [...html.matchAll(/<td class="first"><a href="([^"]*)">([^<]*)<\/a><\/td>/g)].map((m) => [m[2]!, m[1]!.replace(/&amp;/g, '&')]);
@@ -163,6 +173,19 @@ describe('Harness Monitor', () => {
       const html = pageFor('period=7d&day=2026-10-24&group=pr', [totalRow({ branch: 'b/1', prNumber: 1, title: 'P1', issue: 5, engineer: 'alice' })]);
 
       expect(/<a href="(\/pr\/1[^"]*)">Sessions/.exec(html)![1]).toBe('/pr/1?period=7d');
+    });
+  });
+
+  describe('the order a form carries is only one that was asked for', () => {
+    const hidden = (address: string) => /<input type="hidden" name="sort" value="([^"]*)">/.exec(pageFor(address, pullRequests(2)))?.[1] ?? null;
+
+    it.each([
+      { situation: 'a day at its default, dearest first', address: 'period=7d&day=2026-10-24&group=pr', carried: null },
+      { situation: "a day where the rows' own order was asked for", address: 'period=7d&day=2026-10-24&group=pr&sort=default', carried: 'default' },
+      { situation: 'a period sorted by total', address: 'period=7d&group=pr&sort=total', carried: 'total' },
+      { situation: 'a period at its default', address: 'period=7d&group=pr', carried: null },
+    ])('$situation carries $carried', ({ address, carried }) => {
+      expect(hidden(address)).toBe(carried);
     });
   });
 

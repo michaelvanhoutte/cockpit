@@ -291,14 +291,18 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
   const drawn = lines
     .map((l) => {
       const points = l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      // A point opens its day too, as its strip does.
       const dots = l.values
-        .map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`)
+        .map((v, i) => {
+          const dot = `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`;
+          return href === undefined ? dot : `<a href="${esc(href(chart.days[i]!))}">${dot}</a>`;
+        })
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
     .join('');
   const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  // Given an address for a day, a full-height strip per day opens it (a dot alone is too small to hit, above all on a phone); its tooltip lists the day's total and each line.
+  // Given an address for a day, a full-height strip per day opens it (a dot alone is too small to hit, above all on a phone); its tooltip lists the day's total and each line. The strips sit under the lines, so pointing at a line still picks it out.
   const step = chart.days.length === 1 ? width - left - right : (width - left - right) / (chart.days.length - 1);
   const strips =
     href === undefined
@@ -309,7 +313,7 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
             return `<a href="${esc(href(d))}"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
           })
           .join('')}</g>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g>${strips}</svg></div>
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g></svg></div>
 </section>`;
 }
 
