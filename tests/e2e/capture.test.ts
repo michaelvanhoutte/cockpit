@@ -150,7 +150,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -166,7 +166,7 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const thought = uniqueTitle('Buy oat milk');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
 
       // Undo takes it back into the box, and nothing of it stays in the Inbox;
@@ -174,7 +174,7 @@ test.describe('Capture', () => {
       await press(capturedLine(page, thought).getByRole('button', { name: 'Undo' }), isMobile);
       await expect(captureBox(page)).toHaveValue(thought);
       await expect(capturedLine(page, thought)).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -193,7 +193,7 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const thought = uniqueTitle('Ring the plumber');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
 
       const addToThis = page.getByRole('button', { name: 'Add to this' });
@@ -204,7 +204,7 @@ test.describe('Capture', () => {
       const added = uniqueTitle('about the boiler');
       await captureBox(page).fill(added);
       const landed = page.waitForResponse((response) => response.url().endsWith('/v1/commands/append_to_item'));
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByText(`Added to “${thought}”`)).toBeVisible();
       expect((await landed).status()).toBe(200);
       await closeCapture(page, isMobile);
@@ -238,14 +238,14 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const repeated = uniqueTitle(words);
       await captureBox(page).fill(repeated);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, repeated)).toBeVisible();
       const warning = page.getByRole('status').filter({ hasText: /^Looks like “/ });
       await expect(warning).toBeVisible({ timeout: 20_000 });
       await expect(warning.getByRole('button', { name: 'Open it' })).toBeVisible();
       await expect(capturedLine(page, repeated).getByRole('button', { name: 'Undo' })).toBeVisible();
       await captureBox(page).fill(uniqueTitle('Shopping list'));
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(warning).toHaveCount(0);
     });
 
@@ -295,7 +295,7 @@ test.describe('Capture', () => {
       await expect(captureBox(page)).toHaveValue(`${typed} ${STAND_IN_WORDS}`);
       await expect(mic).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByText('Transcribing…')).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, typed)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -518,7 +518,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -537,7 +537,7 @@ test.describe('Capture', () => {
       await page.keyboard.type(bolded);
       await captureBox(page).press('ControlOrMeta+a');
       await press(toolbar.getByRole('button', { name: 'bold' }), isMobile);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, bolded)).toBeVisible();
       // Emptied, and still formatted for the next note.
       await expect(captureBox(page)).toHaveText('');
