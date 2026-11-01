@@ -289,10 +289,11 @@ test.describe('Harness Monitor', () => {
     expect(csv).toHaveLength(1 + SEED.rows.length);
   });
 
-  test('a drag across days of the per-day chart zooms the whole page into them, a click still opens a day, and a period or "Pick a day…" zooms out', async ({ page, request: api }) => {
+  test('a drag across days of the per-day chart zooms the whole page into them, on a phone only after a hold so a swipe still scrolls it, a click still opens a day, and a period or "Pick a day…" zooms out', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
-    test.skip((page.viewportSize()?.width ?? 0) <= 640, 'a mouse drag is a desk gesture; the phone tap on a day is the walk above, and a touch drag is the issue\'s Real device line');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    // On a phone the gesture is a touch, a walk of its own below; on a desk it is a mouse drag.
+    if ((page.viewportSize()?.width ?? 0) <= 640) return zoomByTouch(page);
     const navigations: string[] = [];
     page.on('request', (r) => r.isNavigationRequest() && navigations.push(r.url()));
 
@@ -394,11 +395,8 @@ test.describe('Harness Monitor', () => {
     expect(params().get('to')).toBeNull();
   });
 
-  test('on a phone a swipe over the per-day chart does not select, and a press held a moment then dragged zooms into the days', async ({ page, request: api }) => {
-    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
-    test.skip((page.viewportSize()?.width ?? 0) > 640, 'the hold is a touch gesture; a mouse drag is the walk above');
-    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
-
+  /** On a phone a swipe over the per-day chart does not select, and a press held a moment then dragged zooms into the days. */
+  async function zoomByTouch(page: Page) {
     await page.goto(`${monitor}/?period=7d`);
     const chart = page.getByRole('img', { name: /^Cost per day/ });
     await chart.scrollIntoViewIfNeeded();
@@ -433,7 +431,7 @@ test.describe('Harness Monitor', () => {
     await touch('touchEnd');
     await expect(page).toHaveURL(/[?&]from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}(&|$)/);
     expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
-  });
+  }
 
   test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
