@@ -158,22 +158,30 @@ export const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '
  * Everything below follows them. A colouring that would repeat the rows is
  * offered but disabled.
  */
-function controls({ query, engineers, models }: CostsPage, now: number): string {
+/** The "Only" filters, engineer, phase, model and requests, shared by the costs and Harness trend pages; one that would repeat the rows is left out. */
+export function onlyFilters({ query, engineers, models }: { query: CostQuery; engineers: string[]; models: string[] }): string[] {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
   const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
   // A named model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
+  return [
+    query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', ''),
+    query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', ''),
+    inline('model', 'Model', modelOptions, query.model ?? '', ''),
+    inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all'),
+  ];
+}
+
+function controls(page: CostsPage, now: number): string {
+  const { query } = page;
   return `<form class="sentence-form" method="get" action="/">
 <p class="sentence">Show cost for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
 coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
 over ${periodPicker(query, now)}</p>
 <div class="only"><span>Only</span>
-${query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
-${query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
-${inline('model', 'Model', modelOptions, query.model ?? '', '')}
-${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
+${onlyFilters(page).join('\n')}
 <a class="button" href="/export.csv${exportQuery(query)}" download>Export CSV</a></div>
 ${hiddenSort(query)}
 <noscript><button type="submit">Apply</button></noscript>

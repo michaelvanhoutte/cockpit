@@ -1,29 +1,15 @@
-import { categoryName, PERIODS, UNATTRIBUTED, WHOS, type Period, type TrendPage } from './costs';
+import { PERIODS, type Period, type TrendPage } from './costs';
 import { LEAD_MORE, WHAT } from './costs-explain';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
 import { band, inline, questionOf, sentenceForm, shell } from './look';
 import { VIOLET } from './palette';
-import { compact, COLOURS, dollars, number, PERIOD_WORDS, trendChart, WHO_LABELS } from './page';
-import { CATEGORIES, type Category } from './validate';
+import { compact, COLOURS, dollars, number, onlyFilters, PERIOD_WORDS, trendChart } from './page';
+import { type Category } from './validate';
 
 /** The Harness trend page's controls: the period, then the costs page's "Only" filters, each narrowing the charts as it does there. */
-function controls({ query, engineers, models }: TrendPage): string {
-  const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
-  // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
-  if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
-  const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
-  if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
+function controls(page: TrendPage): string {
   const periods = (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]);
-  return sentenceForm(
-    '/harness-trend',
-    `Show the trend over ${inline('period', 'Period', periods, query.period)}`,
-    [
-      inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', ''),
-      inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', ''),
-      inline('model', 'Model', modelOptions, query.model ?? '', ''),
-      inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all'),
-    ],
-  );
+  return sentenceForm('/harness-trend', `Show the trend over ${inline('period', 'Period', periods, page.query.period)}`, onlyFilters(page));
 }
 
 /** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
