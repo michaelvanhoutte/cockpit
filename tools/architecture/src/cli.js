@@ -15,7 +15,7 @@ import { compareWithPrevious } from './compare.js';
 import { buildModel, ReadError } from './model.js';
 import { readCheckout } from './read.js';
 import { renderDiagramPages, renderHtml } from './render/html.js';
-import { LOGICAL_FILE, renderLogicalPage } from './render/logical.js';
+import { renderLogicalPage, servicesOf } from './render/logical.js';
 import { renderTablePages } from './render/tables.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -83,7 +83,7 @@ export async function main(argv) {
     const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
     page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
-    if (!args.json) diagramPages = { ...renderDiagramPages(model), ...renderTablePages(model), ...(model.logical ? { [LOGICAL_FILE]: renderLogicalPage(model) } : {}), ...Object.fromEntries(model.services.map((service) => [service.file, renderLogicalPage(model, service)])) };
+    if (!args.json) diagramPages = { ...renderDiagramPages(model), ...renderTablePages(model), ...Object.fromEntries(servicesOf(model).map((service) => [service.file, renderLogicalPage(model, service)])) };
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);

@@ -20,6 +20,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const LOGICAL_FILE = 'service-cockpit.html';
 
+/** Every service with a page, Cockpit first, each in one shape: `{ id, name, intro, file, logical }`. */
+export const servicesOf = (model) => [...(model.logical ? [{ id: 'cockpit', name: 'Cockpit', intro: '', file: LOGICAL_FILE, logical: model.logical }] : []), ...model.services];
+
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /** A component opens its code on GitHub: its folder. It is marked ↗ and its name stays dark, since a blue name means a page one level down. */
@@ -304,7 +307,7 @@ export function renderLogicalPage(model, service = {}) {
   const standfirst = `${service.intro ? `${esc(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
   // Cockpit's page always shows the sections for acceptances and callers; another service's shows them once it has something to say.
   const designFile = 'tools/architecture/description.yml';
-  const own = service.logical !== undefined;
+  const own = service.logical !== undefined && service.id !== 'cockpit';
   const acceptances = !own || logical.accepted.length > 0 || logical.stale.length > 0
     ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, beside the design.</p>${accTable(logical, spec, links)}`
     : '';
