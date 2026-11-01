@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { accTable, devData, dialog } from './deviations.js';
 import { linksFor, commitLineOf } from './links.js';
 import { esc, wrap } from './svg.js';
 
@@ -161,7 +162,7 @@ export function renderNested(spec, links) {
     drawn.push({ ...p, d, start, mid });
   }
 
-  const parts = [`<defs>${['ok', 'bad', 'decl', 'miss'].map((c) => `<marker id="n-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="nm-${c}"/></marker>`).join('')}</defs>`];
+  const parts = [`<defs>${['ok', 'bad', 'acc', 'decl', 'miss'].map((c) => `<marker id="n-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="nm-${c}"/></marker>`).join('')}</defs>`];
   // The boxes, behind everything.
   for (const [id, R] of rect) {
     if (!R.isBox) continue;
@@ -172,14 +173,14 @@ export function renderNested(spec, links) {
   // Declared callers' labels sit under the caller, one line per line it draws.
   const declBy = new Map();
   for (const p of drawn) if (p.l.declared && p.l.label && p.type !== 'same' && p.type !== 'horiz') (declBy.get(p.l.from) ?? declBy.set(p.l.from, []).get(p.l.from)).push(p);
-  const order = { ok: 0, miss: 1, decl: 2, bad: 3 };
+  const order = { ok: 0, miss: 1, decl: 2, acc: 3, bad: 4 };
   for (const p of [...drawn].sort((a, b) => order[a.l.kind] - order[b.l.kind])) {
     const { l } = p;
     const cls = `nl nl-${l.kind} f-${l.from} t-${l.to} fb-${p.A.box} tb-${p.B.box}`;
     const line = `<path class="${cls}" d="${p.d}" marker-end="url(#n-${l.kind})"><title>${esc(l.title ?? '')}</title></path>`;
-    if (l.kind === 'bad') {
-      // A deviation's circle opens its row below.
-      parts.push(`<a href="${l.href}" class="nl-a"><path class="nl-hit" d="${p.d}"/>${line}<circle class="nl-num nl-num-${l.kind} f-${l.from} t-${l.to}" cx="${p.start[0]}" cy="${p.start[1]}" r="8"/><text class="nl-num-t f-${l.from} t-${l.to}" x="${p.start[0]}" y="${p.start[1] + 3.5}" text-anchor="middle">${l.n}</text><title>${esc(l.title ?? '')}</title></a>`);
+    if (l.kind === 'bad' || l.kind === 'acc') {
+      // A deviation's circle opens it: what it breaks, its files, and a prompt to scope the fix.
+      parts.push(`<a href="${l.href}" data-dev="${l.id}" class="nl-a"><path class="nl-hit" d="${p.d}"/>${line}<circle class="nl-num nl-num-${l.kind} f-${l.from} t-${l.to}" cx="${p.start[0]}" cy="${p.start[1]}" r="8"/><text class="nl-num-t f-${l.from} t-${l.to}" x="${p.start[0]}" y="${p.start[1] + 3.5}" text-anchor="middle">${l.n}</text><title>${esc(l.title ?? '')}</title></a>`);
     } else parts.push(line);
     if (l.label && p.mid && !(l.declared && declBy.has(l.from))) {
       const anchor = p.type === 'chan' ? 'start' : 'middle';
@@ -211,7 +212,7 @@ export function renderNested(spec, links) {
 // ---- the page, from the model
 
 /** The design's rows of boxes, the column beside them, and every line to draw, from the model's logical section. */
-function specOf(logical) {
+function specOf(logical, links) {
   const boxId = (layerId) => `L-${layerId}`;
   const layerById = new Map(logical.layers.map((layer) => [layer.id, layer]));
   const chipById = new Map(logical.layers.flatMap((layer) => layer.items.flat().map((chip) => [chip.id, { ...chip, layer: layer.id }])));
@@ -231,17 +232,19 @@ function specOf(logical) {
     ...logical.miss.map(({ a, b }) => ({ from: boxId(a), to: boxId(b), kind: 'miss', label: 'in the design, not in the code', title: `${layerById.get(a).title} → ${layerById.get(b).title}: the design draws it; no file does it` })),
     ...logical.callers.map((c) => ({ from: c.from, to: c.to, declared: true, kind: c.status === 'notFound' ? 'miss' : 'decl', label: c.how, toName: nameOf(c.to), title: `${c.from} → ${c.to}: ${c.how}${c.status === 'notFound' ? ' (not found in the code)' : ''}` })),
     ...logical.within.map((w) => ({ from: w.from, to: w.to, kind: 'ok', route: 'within', title: `${nameOf(w.from)} → ${nameOf(w.to)}: imports, ${plural(w.files.length, 'file')}` })),
-    ...logical.bad.map((e) => ({ from: e.from, to: e.to, kind: 'bad', n: e.n, href: `#${e.id}`, title: `${e.n}. ${e.why}\n${files(e.files)}\nClick for its row below` })),
+    ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${e.accepted.reason}\n${files(e.files)}` })),
+    ...logical.bad.map((e) => ({ from: e.from, to: e.to, kind: 'bad', n: e.n, id: e.id, href: `#${e.id}`, title: `${e.n}. ${e.why}${e.partly ? `\nAccepted for ${e.partly.files.join(', ')}; new: ${e.newFiles.join(', ')}` : ''}\n${files(e.files)}\nClick to copy a /scoping prompt` })),
   ];
-  return { rows, side: sideLayer ? boxOf(sideLayer) : undefined, sideRow, lines, nameOf, layerById, chipById };
+  return { rows, side: sideLayer ? boxOf(sideLayer) : undefined, sideRow, lines, nameOf, layerById, chipById, logical, links };
 }
 
 const NLEGEND = `<div class="legend">
 <span><i class="ln" style="border-top-width:2px"></i>In the design and in the code: one line per pair of layers</span>
 <span><i class="ln up"></i>In the code, not in the design: numbered, drawn around what it skips</span>
+<span><i class="ln" style="border-top-color:var(--ink-3)"></i>Off the design, but accepted with a reason: marked ✓</span>
 <span><i class="ln" style="border-top-style:dotted"></i>In the design, not in the code</span>
 <span><i class="ln" style="border-top-color:var(--accent);border-top-style:dashed"></i>How a caller talks to it: declared</span>
-</div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red circle for its row below, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
+</div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red or ✓ circle for its files and a prompt to scope it, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
 
 /** The design itself, as text: what each layer holds and what it may call. */
 function designTable(logical, { layerById }) {
@@ -251,9 +254,9 @@ function designTable(logical, { layerById }) {
 }
 
 function offTable(logical, { nameOf, layerById }, links) {
-  if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws.</p>';
+  if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws, or one accepted with a reason.</p>';
   const cell = (id, layerId) => `${esc(nameOf(id))}<br><span class="dim">${esc(layerById.get(layerId).title)}</span>`;
-  return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>What it breaks</th><th>Files</th></tr>${logical.bad.map((e) => `<tr class="bad" id="${e.id}"><td><span class="num">${e.n}</span></td><td>${cell(e.from, e.a)}</td><td>${cell(e.to, e.b)}</td><td>${esc(e.why)}${e.kind === 'store' || e.how.length ? ` <span class="dim">(${esc(e.how.join(', ') || 'imports it')})</span>` : ''}</td><td>${links.files(e.files, e.at)}</td></tr>`).join('')}</table></div>`;
+  return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>What it breaks</th><th>Files</th><th></th></tr>${logical.bad.map((e) => `<tr class="bad" id="${e.id}"><td><span class="num">${e.n}</span></td><td>${cell(e.from, e.a)}</td><td>${cell(e.to, e.b)}</td><td>${esc(e.why)}${e.kind === 'store' || e.how.length ? ` <span class="dim">(${esc(e.how.join(', ') || 'imports it')})</span>` : ''}${e.partly ? `<br><span class="dim">Accepted for ${esc(e.partly.files.map((file) => file.split('/').pop()).join(', '))}, not for ${esc(e.newFiles.map((file) => file.split('/').pop()).join(', '))}, which ${e.newFiles.length === 1 ? 'is' : 'are'} new.</span>` : ''}</td><td>${links.files(e.files, e.at)}</td><td><button class="copy" data-dev="${e.id}">Scope a fix</button></td></tr>`).join('')}</table></div>`;
 }
 
 function missTable(logical, { nameOf, layerById }) {
@@ -284,7 +287,7 @@ function placementProblems(logical) {
 export function renderLogicalPage(model) {
   const { logical, drawnFrom } = model;
   const links = linksFor(drawnFrom);
-  const spec = specOf(logical);
+  const spec = specOf(logical, links);
   const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}${readFileSync(path.join(here, 'logical.css'), 'utf8')}`;
   const drawing = renderNested({ label: 'Cockpit: the design, with the code laid over it', rows: spec.rows, side: spec.side, sideRow: spec.sideRow, lines: spec.lines, laneStart: 34 }, links);
 
@@ -311,10 +314,12 @@ export function renderLogicalPage(model) {
 <header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › Cockpit</p><h1>Cockpit</h1><p class="standfirst">${standfirst}</p>
 <div class="runmeta">${commitLine}</div></header>
 ${placementProblems(logical)}${NLEGEND}<div class="diagram">${drawing.svg}</div>
-<h2 id="off">In the code, not in the design</h2><p class="sectionnote">The numbers match the red lines.</p>${offTable(logical, spec, links)}
+<h2 id="off">In the code, not in the design</h2><p class="sectionnote">The numbers match the red lines. Click a red circle, or Scope a fix, for a prompt to paste into Claude Code.</p>${offTable(logical, spec, links)}
+<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, beside the design.</p>${accTable(logical, spec, links)}
 <h2>In the design, not in the code</h2>${missTable(logical, spec)}
 <h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}
 <h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}. A line inside one layer is always allowed.</p>${designTable(logical, spec)}
+${dialog(devData({ ...spec, commit: drawnFrom.commit }))}
 </div>
 </body>
 </html>

@@ -1,7 +1,8 @@
 /**
  * The `design` section of the description file, read: the layers Cockpit is meant to have, the components
  * in them and the folders each is made of, which layer may call which, what in code means "reaching" a
- * store or an outside service, and how each caller is looked for in its own code.
+ * store or an outside service, how each caller is looked for in its own code, and the deviations accepted with
+ * a reason, each for the files it names.
  *
  * Pure: it is handed the section's parsed value and the checks description.js reads the rest of the file
  * with, so a malformed section fails the run the same way a malformed layer does.
@@ -108,5 +109,18 @@ export function parseDesign(value, { fail, object, array, string }) {
     return { folder: string(each.folder, `${where}.folder`).replace(/\/+$/, ''), name: string(each.name, `${where}.name`), note: each.note === undefined ? '' : string(each.note, `${where}.note`), readByEveryone: each.readByEveryone === true };
   });
 
-  return { layers, mayCall, breaks, callers, noLine };
+  const accepted = [];
+  (value.accepted === undefined ? [] : array(value.accepted, 'design.accepted')).forEach((each, index) => {
+    const where = `design.accepted[${index}]`;
+    object(each, where);
+    const from = string(each.from, `${where}.from`);
+    const to = string(each.to, `${where}.to`);
+    for (const [id, name] of [[from, 'from'], [to, 'to']]) if (!chipIds.has(id)) fail(`${where}.${name} names ${id}, which is not a design component`);
+    const files = array(each.files, `${where}.files`).map((file, at) => string(file, `${where}.files[${at}]`));
+    if (files.length === 0) fail(`${where}.files must name at least one file`);
+    if (accepted.some((other) => other.from === from && other.to === to)) fail(`${where} accepts ${from} to ${to}, which an earlier entry already accepts`);
+    accepted.push({ from, to, files, reason: string(each.reason, `${where}.reason`) });
+  });
+
+  return { layers, mayCall, breaks, callers, noLine, accepted };
 }

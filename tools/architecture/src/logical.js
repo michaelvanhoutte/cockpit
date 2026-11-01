@@ -9,7 +9,8 @@
  *
  *   same layer                      counted on the layer, never drawn and never wrong
  *   a pair of layers the design allows   one line per pair of layers, with its files
- *   any other pair                  a numbered deviation, chip to chip
+ *   any other pair                  a numbered deviation, chip to chip, unless the design accepts it with a reason
+ *                                   for every file that makes it (a file it does not name stays red, as new)
  *   a pair of layers the design allows that no file uses   in the design, not in the code
  *
  * Placement is checked here too: every folder the code has is in exactly one component, or is listed as
@@ -110,7 +111,20 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
       bad.push({ ...edge, a, b, why: design.breaks[`${a}>${b}`] ?? `${layerById.get(a).title} → ${layerById.get(b).title}: not a line the design draws` });
     }
   }
-  bad.forEach((each, at) => Object.assign(each, { n: at + 1, id: `off-${at + 1}` }));
+  // An acceptance covers the files it names: a line is accepted when every file making it is named, and a
+  // line from a file it does not name stays red, listing that file as new.
+  const accepted = [];
+  const red = [];
+  const accepts = design.accepted ?? [];
+  for (const edge of bad) {
+    const known = accepts.find((each) => each.from === edge.from && each.to === edge.to);
+    if (known && edge.files.every((file) => known.files.includes(file))) accepted.push({ ...edge, accepted: known });
+    else red.push(known ? { ...edge, partly: known, newFiles: edge.files.filter((file) => !known.files.includes(file)) } : edge);
+  }
+  red.forEach((each, at) => Object.assign(each, { n: at + 1, id: `off-${at + 1}` }));
+  accepted.forEach((each, at) => Object.assign(each, { id: `acc-${at + 1}` }));
+  // An acceptance nothing needs any more: no deviation on its pair is made by a file it names.
+  const stale = accepts.filter((each) => !bad.some((edge) => edge.from === each.from && edge.to === each.to && edge.files.some((file) => each.files.includes(file))));
 
   const callers = design.callers.map((caller) => {
     if (caller.code === null) return { from: caller.from, to: caller.to, how: caller.how, status: 'elsewhere', files: [], at: {} };
@@ -129,5 +143,5 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
 
   const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
 
-  return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad, miss, callers };
+  return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers };
 }

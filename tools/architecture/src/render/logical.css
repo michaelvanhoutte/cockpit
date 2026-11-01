@@ -41,6 +41,20 @@ g.node a:hover .nc, g.node a:hover .nc-st, g.node a:hover .nc-cl, g.node a:hover
 .nl-hit { fill: none; stroke: transparent; stroke-width: 12; }
 a.nl-a { cursor: pointer; }
 a.nl-a:hover .nl-bad { stroke-width: 3.4; }
+.nl-acc { stroke: var(--ink-3); stroke-width: 1.6; opacity: .8; }
+.nm-acc, .nl-num-acc { fill: var(--ink-3); }
+.num.num-acc { background: var(--ink-3); }
+button.copy { font: 600 12px var(--sans); color: var(--accent); background: var(--card); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+button.copy:hover { background: var(--soft); }
+dialog#dev { max-width: 760px; width: calc(100% - 32px); background: var(--card); color: var(--ink-1); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+dialog#dev::backdrop { background: rgb(0 0 0 / .45); }
+dialog#dev h3 { margin: 0 0 6px; font-size: 16px; }
+dialog#dev .why { margin: 0 0 8px; color: var(--ink-2); }
+dialog#dev .files a { display: block; }
+dialog#dev textarea { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--mono); background: var(--bg); color: var(--ink-1); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
+.dlg-b { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.dlg-b button { font: 600 13px var(--sans); padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--ink-1); cursor: pointer; }
+.dlg-b button.primary { background: var(--accent); border-color: var(--accent); color: var(--card); }
 .nm-ok, .nm-miss { fill: var(--neutral); }
 .nm-bad { fill: var(--red); }
 .nm-decl { fill: var(--accent); }

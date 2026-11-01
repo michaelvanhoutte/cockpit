@@ -232,3 +232,154 @@ describe('Every GitHub link opens the code at the commit the page was drawn from
     expect(LOGICAL_FILE).toBe('service-cockpit.html');
   });
 });
+
+describe('A deviation is accepted only for the files its acceptance names', () => {
+  const bare = { commit: null, repo: null };
+  const accept = (files, extra = {}) => ({ accepted: [{ from: 'http', to: 'd1', files, reason: 'Reads straight from the store.', ...extra }] });
+  const http = (names) => ({ 'apps/api/src/http': Object.fromEntries(names.map((name, at) => [name, `${'\n'.repeat(at)}env.DB.q();`])) });
+  const run = (names, files) => code(http(names), { design: accept(files) });
+
+  it('is grey with a tick and the reason, not numbered and not in the red count, when it names every file that makes the line', () => {
+    const logical = run(['a.ts', 'b.ts'], ['apps/api/src/http/a.ts', 'apps/api/src/http/b.ts']);
+    expect(logical.bad).toEqual([]);
+    expect(logical.accepted.map((each) => [each.id, each.from, each.to, each.accepted.reason])).toEqual([['acc-1', 'http', 'd1', 'Reads straight from the store.']]);
+    const page = renderLogicalPage({ logical, drawnFrom: bare });
+    expect(page).toContain('class="nl nl-acc f-http t-d1');
+    expect(page).toContain('<span class="num num-acc">✓</span>');
+    expect(page).toContain('<b class="bad">0 lines</b>');
+    expect(page).not.toContain('<tr class="bad"');
+  });
+
+  it('stays red, naming the file it does not cover as new, when it names only one of two files', () => {
+    const logical = run(['a.ts', 'b.ts'], ['apps/api/src/http/a.ts']);
+    expect(logical.accepted).toEqual([]);
+    expect(logical.bad.map((each) => [each.n, each.newFiles, each.partly.files])).toEqual([[1, ['apps/api/src/http/b.ts'], ['apps/api/src/http/a.ts']]]);
+    expect(renderLogicalPage({ logical, drawnFrom: bare })).toContain('Accepted for a.ts, not for b.ts, which is new.');
+  });
+
+  it('is judged by files alone, whatever else makes the pair of components red', () => {
+    const logical = code({ 'apps/api/src/http': { 'a.ts': "env.DB.q();\nconst u = 'https://accounts.google.com';" } }, { design: accept(['apps/api/src/http/a.ts']) });
+    expect(logical.accepted.map((each) => `${each.from}>${each.to}`)).toEqual(['http>d1']);
+    expect(logical.bad.map((each) => `${each.from}>${each.to}`)).toEqual(['http>google']);
+  });
+
+  it('is not needed when the design itself now allows the line', () => {
+    const logical = code(http(['a.ts']), { design: { ...accept(['apps/api/src/http/a.ts']), mayCall: { clients: ['api'], api: ['logic', 'data'] } } });
+    expect(logical.accepted).toEqual([]);
+    expect(logical.stale.map((each) => each.to)).toEqual(['d1']);
+  });
+});
+
+describe('An acceptance the code no longer needs is listed as no longer needed, and fails nothing', () => {
+  const bare = { commit: null, repo: null };
+  const accept = { accepted: [{ from: 'http', to: 'd1', files: ['apps/api/src/http/old.ts'], reason: 'It was the old way in.' }] };
+
+  it('lists the acceptance with its reason when the line it accepts no longer exists', () => {
+    const logical = code({}, { design: accept });
+    expect(logical.stale).toHaveLength(1);
+    const page = renderLogicalPage({ logical, drawnFrom: bare });
+    expect(page).toContain('<span class="bad">No longer needed:</span>');
+    expect(page).toContain('It was the old way in.');
+    expect(page).not.toContain('class="nl nl-acc');
+  });
+
+  it('makes the line red naming the renamed file, and flags the acceptance, when a file it names was renamed', () => {
+    const logical = code({ 'apps/api/src/http': { 'new.ts': 'env.DB.q();' } }, { design: accept });
+    expect(logical.bad.map((each) => [each.newFiles, each.partly.files])).toEqual([[['apps/api/src/http/new.ts'], ['apps/api/src/http/old.ts']]]);
+    expect(logical.stale).toHaveLength(1);
+  });
+
+  it('lists nothing as accepted or no longer needed when the design accepts nothing, and the table says None', () => {
+    const logical = code();
+    expect(logical.accepted).toEqual([]);
+    expect(logical.stale).toEqual([]);
+    expect(renderLogicalPage({ logical, drawnFrom: bare })).toMatch(/Accepted, with a reason<\/h2>.*?<p class="dim">None\.<\/p>/s);
+  });
+});
+
+describe('An acceptance is checked as the rest of the description file is', () => {
+  const read = (accepted) => parseDescription('d.yml', descriptionFile({ design: design({ accepted }) }).text);
+  const entry = { from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' };
+
+  it('reads a valid acceptance', () => {
+    expect(read([entry]).design.accepted).toEqual([entry]);
+  });
+
+  it.each([
+    { situation: 'it names a component the design does not have', accepted: [{ ...entry, to: 'ghost' }], message: 'ghost' },
+    { situation: 'it has no reason', accepted: [{ ...entry, reason: undefined }], message: 'design.accepted[0].reason' },
+    { situation: 'its reason is blank', accepted: [{ ...entry, reason: '  ' }], message: 'design.accepted[0].reason' },
+    { situation: 'it covers no file', accepted: [{ ...entry, files: [] }], message: 'at least one file' },
+    { situation: 'the pair is accepted twice', accepted: [entry, entry], message: 'already accepts' },
+  ])('fails the run, naming the entry, when $situation', ({ accepted, message }) => {
+    expect(() => read(accepted)).toThrow(ReadError);
+    expect(() => read(accepted)).toThrow(message);
+  });
+});
+
+describe('A deviation\'s prompt holds everything a fresh session needs to scope it', () => {
+  const drawnFrom = { commit: 'abc1234def5678', repo: 'o/r' };
+  const accept = (files) => ({ accepted: [{ from: 'http', to: 'd1', files, reason: 'Reads straight from the store.' }] });
+  const files = { 'apps/api/src/http': { 'a.ts': 'const x = 1;\nenv.DB.q();', 'b.ts': 'env.DB.r();' } };
+  const devsOf = (page) => JSON.parse(page.match(/<script type="application\/json" id="devs">(.*?)<\/script>/s)[1]);
+  const pageOf = (design) => renderLogicalPage({ logical: code(files, { design }), drawnFrom });
+
+  it('starts a red deviation with /scoping, names both components and layers, what the first layer may call, each file at its line with its link at the commit, and ends on the choice', () => {
+    const [prompt] = Object.values(devsOf(pageOf({}))).map((each) => each.prompt);
+    expect(prompt.startsWith('/scoping Fix an architecture deviation in Cockpit.')).toBe(true);
+    expect(prompt).toContain('http (API layer) reaches d1 (Data).');
+    expect(prompt).toContain('The design lets API layer call only: Business logic.');
+    expect(prompt).toContain('Where the code does it, at commit abc1234:');
+    expect(prompt).toContain('- apps/api/src/http/a.ts:2 (https://github.com/o/r/blob/abc1234def5678/apps/api/src/http/a.ts#L2)');
+    expect(prompt).toContain('- apps/api/src/http/b.ts:1 (https://github.com/o/r/blob/abc1234def5678/apps/api/src/http/b.ts#L1)');
+    expect(prompt.endsWith('accept the deviation with a written reason.')).toBe(true);
+  });
+
+  it('also names the files accepted, the reason and the new files, when a red deviation is partly accepted', () => {
+    const prompt = devsOf(pageOf(accept(['apps/api/src/http/a.ts'])))['off-1'].prompt;
+    expect(prompt).toContain('An earlier acceptance covers apps/api/src/http/a.ts ("Reads straight from the store."); apps/api/src/http/b.ts is new.');
+  });
+
+  it('is a Reconsider prompt carrying the reason, for an accepted deviation', () => {
+    const data = devsOf(pageOf(accept(['apps/api/src/http/a.ts', 'apps/api/src/http/b.ts'])))['acc-1'];
+    expect(data.title).toBe('Accepted: http → d1');
+    expect(data.prompt.startsWith('/scoping Reconsider an accepted architecture deviation in Cockpit.\n\nIt is accepted today because: Reads straight from the store.')).toBe(true);
+  });
+
+  it('leaves out a link, and the commit, when the page does not know them', () => {
+    const page = renderLogicalPage({ logical: code(files), drawnFrom: { commit: null, repo: null } });
+    const prompt = devsOf(page)['off-1'].prompt;
+    expect(prompt).toContain('Where the code does it:\n- apps/api/src/http/a.ts:2\n');
+    expect(prompt).not.toContain('https://');
+  });
+
+  it('carries the data so that no markup in it can close the script', () => {
+    const page = renderLogicalPage({ logical: code({ 'apps/api/src/http': { 'a.ts': 'env.DB.q();' } }, { design: { breaks: { 'api>data': 'a </script> b' } } }), drawnFrom });
+    expect(page.match(/<\/script>/g)).toHaveLength(2);
+    expect(Object.values(devsOf(page))[0].why).toBe('a </script> b');
+  });
+});
+
+describe('Every red and tick circle, and every row\'s button, opens its own deviation', () => {
+  const drawnFrom = { commit: null, repo: null };
+  const idsIn = (page, pattern) => [...page.matchAll(pattern)].map((each) => each[1]);
+
+  it('names an entry in the page\'s data from each circle and button, and every entry is named', () => {
+    const logical = code({ 'apps/api/src/http': { 'a.ts': 'env.DB.q();' }, 'apps/api/src/auth': { 'a.ts': 'env.DB.q();' } }, { design: { accepted: [{ from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' }] } });
+    const page = renderLogicalPage({ logical, drawnFrom });
+    const data = Object.keys(JSON.parse(page.match(/id="devs">(.*?)<\/script>/s)[1])).sort();
+    expect(data).toEqual(['acc-1', 'off-1']);
+    expect(idsIn(page, /<a href="#[^"]*" data-dev="([^"]+)" class="nl-a"/g).sort()).toEqual(['acc-1', 'off-1']);
+    expect(idsIn(page, /<button class="copy" data-dev="([^"]+)">/g).sort()).toEqual(['acc-1', 'off-1']);
+    expect(page).toContain('>Scope a fix</button>');
+    expect(page).toContain('>Reconsider</button>');
+  });
+
+  it('carries no dialog and no script, and the tables say None, when the page has no deviation', () => {
+    const page = renderLogicalPage({ logical: code(), drawnFrom });
+    expect(page).not.toContain('<dialog');
+    expect(page).not.toContain('<script');
+    expect(page).toContain('None: every line in the code is one the design draws, or one accepted with a reason.');
+    expect(page).toContain('<p class="dim">None.</p>');
+  });
+});
