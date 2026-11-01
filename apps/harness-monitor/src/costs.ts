@@ -69,10 +69,10 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   // A day that is no real date is ignored, and "each day" has no day to narrow to: both show the period.
   const dayParam = params.get('day');
   const day = dayParam !== null && group_ !== 'day' && isDay(dayParam) ? dayParam : null;
-  // A range needs two real days, the first before the last; anything else shows the period.
+  // A range needs two real days, the first before the last and at most MAX_RANGE_DAYS apart, so an address cannot ask the public page to draw centuries; anything else shows the period.
   const from = params.get('from') ?? '';
   const to = params.get('to') ?? '';
-  const range = isDay(from) && isDay(to) && from < to ? { from, to } : null;
+  const range = isDay(from) && isDay(to) && from < to && daysIn({ from, to }) <= MAX_RANGE_DAYS ? { from, to } : null;
   const sortParam = params.get('sort');
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
@@ -133,6 +133,12 @@ export interface DayWindow {
 
 /** How many days a window spans, both ends included. */
 export const daysIn = (w: DayWindow) => Math.round((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000) + 1;
+
+/** The longest range an address may ask for: ten years, far past the days on record, yet bounded. */
+export const MAX_RANGE_DAYS = 3660;
+
+/** The last day a chart over a range draws: its own last day, or today where that is still to come. */
+export const rangeEnd = (range: DayWindow, now: number) => (range.to < belgianDay(now) ? range.to : belgianDay(now));
 
 /** The period's window and the one before it, of the same length; null for all time, which has no before. The Claude calls page compares them. */
 export function windowsOf(period: Period, now: number): { current: DayWindow; previous: DayWindow } | null {
@@ -440,9 +446,10 @@ export type DayGroup = Pick<CostGroup, 'key' | 'bySeries' | 'totalMicros'> & Par
 
 /**
  * Cost or tokens per day as lines: one per series of the split that has any,
- * and the total. The range runs from the period's first day (the earliest day
- * with any request, priced or not, for all time) to today, so a day with none
- * is a zero, not a gap.
+ * and the total. The days run from the period's first day (the earliest day
+ * with any request, priced or not, for all time) to today, or from a range's
+ * first day to `last`, its last, ending today where that is still to come; a
+ * day with none is a zero, not a gap.
  */
 export function dayChart(groups: DayGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost', last: string | null = null): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
@@ -452,8 +459,7 @@ export function dayChart(groups: DayGroup[], series: Series[], first: string | n
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
   const today = belgianDay(now);
-  // A range ends on its last day, or today where that is still to come.
-  const end = last !== null ? (last < today ? last : today) : today > keys.at(-1)! ? today : keys.at(-1)!;
+  const end = last !== null ? rangeEnd({ from: start, to: last }, now) : today > keys.at(-1)! ? today : keys.at(-1)!;
   const days: string[] = [];
   for (let day = start; day <= end; day = addDays(day, 1)) days.push(day);
   const lines = series
@@ -549,8 +555,7 @@ export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest
   const weekly = isWeekly(period, range);
   const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
   const span = weekly ? 7 : 1;
-  // A range ends on its last day, or today where that is still to come.
-  const today = range !== null && range.to < belgianDay(now) ? range.to : belgianDay(now);
+  const today = range !== null ? rangeEnd(range, now) : belgianDay(now);
   const earliest = [...sessions.map((s) => s.day), ...pullRequests.map((p) => p.day)].sort()[0];
   const first = range?.from ?? firstDay(period, now) ?? earliest;
   const buckets: string[] = [];

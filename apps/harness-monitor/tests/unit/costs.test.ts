@@ -93,6 +93,7 @@ describe('Harness Monitor', () => {
         { situation: 'a to that is not on the calendar', params: 'from=2026-09-15&to=2026-13-01' },
         { situation: 'only from', params: 'from=2026-09-15' },
         { situation: 'only to', params: 'to=2026-10-04' },
+        { situation: 'a range longer than ten years', params: 'from=1900-01-01&to=2026-10-04' },
       ])('$situation is ignored, and the period shows', ({ params }) => {
         const query = parseQuery(new URLSearchParams(`period=7d&${params}`));
 

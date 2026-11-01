@@ -190,9 +190,9 @@ function hiddenSort(query: CostQuery): string {
   return query.sort === carried && query.group !== 'engineer' ? `<input type="hidden" name="sort" value="${carried}">` : '';
 }
 
-/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; a period leaves the day and the range; the range leaves the day. */
+/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; a period leaves the day and the range; the range leaves the day for the zoomed page, each day. */
 const CHOOSE_PERIOD =
-  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');if(v!=='range'){f.querySelectorAll('.range-field').forEach(function(e){e.remove()});f.elements.period.value=v}f.submit()";
+  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');if(v==='range')f.elements.group.value='day';else{f.querySelectorAll('.range-field').forEach(function(e){e.remove()});f.elements.period.value=v}f.submit()";
 /** A date from the picker: the input takes its name only now, it replaces any range, and "each day" has no day to show, so its rows become each pull request. */
 const CHOOSE_DAY = "if(!this.value)return;this.name='day';this.form.querySelectorAll('.range-field').forEach(function(e){e.remove()});var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
 

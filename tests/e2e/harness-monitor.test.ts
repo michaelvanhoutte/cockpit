@@ -379,6 +379,14 @@ test.describe('Harness Monitor', () => {
     expect(params().get('from')).toBeNull();
     expect(params().get('to')).toBeNull();
 
+    // On a day opened from a range, choosing the range from the select returns to the zoomed page, each day with its charts.
+    await page.goto(`${monitor}/?period=7d&day=${today}&from=${daysBefore(2)}&to=${today}&group=pr`);
+    await choice(page, 'Period').selectOption('range');
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}(&|$)`));
+    expect(params().get('day')).toBeNull();
+    expect(params().get('group')).toBe('day');
+    await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+
     // "Pick a day…" on a range opens that day with no range.
     await page.goto(`${monitor}/?period=7d&from=${daysBefore(2)}&to=${today}`);
     await page.locator('.day-pick').fill(today);
