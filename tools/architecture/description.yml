@@ -190,7 +190,7 @@ design:
       row: 0
       items:
         - - { id: web, name: Web app, sub: 'React PWA, in the browser', folders: [apps/web/src] }
-          - { id: widget, name: Android widget, sub: on the home screen, kind: client }
+          - { id: widget, name: Android widget, sub: on the home screen, kind: client, href: service-android-widget.html, tip: Open the widget's own diagram }
           - { id: agents, name: MCP clients, sub: 'Claude.ai, Claude Code', kind: client }
           - { id: msteams, name: Microsoft Teams, sub: a message action, kind: client }
           - { id: mail, name: Mail senders, sub: Email Routing, kind: client }
@@ -379,3 +379,56 @@ otherServices:
         - { from: ci, to: entry, how: 'POST /v1/* results · write key' }
         - { from: readers, to: entry, how: 'GET pages, edge-cached' }
         - { from: cron, to: entry, how: scheduled() }
+
+  # The Android widget: its box in Cockpit's diagram, opened to show its parts. A `service` layer is that box, a
+  # `context` layer the dotted box of what it talks to (its components are drawn for their links to the code and are
+  # placed by nothing). `extensions` are the source files the patterns match, and `findLines: names` finds the lines
+  # between the parts by name: a part uses another when one of its files names a class or function the other defines.
+  - id: android-widget
+    name: Android widget
+    intro: "The widget box from Cockpit's diagram, opened: its parts and how they use each other, found in the Kotlin. Its one line out goes where it goes on Cockpit's diagram, to the OAuth, MCP and apps API, never the Application API the web app uses. In apps/android-widget."
+    design:
+      extensions: ['.kt']
+      findLines: names
+      layers:
+        - id: widget
+          title: Android widget
+          kind: service
+          row: 0
+          drawInside: true
+          subGap: 44
+          chipW: 190
+          items:
+            - - { id: ui, name: Home-screen widget, sub: "draws a Panel's rows", in: &widget apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, files: [PanelWidgetProvider.kt, RowsService.kt, Renderer.kt, Drawing.kt, Insets.kt] }
+              - { id: screens, name: Screens, sub: 'pick a Panel, sign in', in: *widget, files: [MainActivity.kt, PickerActivity.kt, CockpitApp.kt] }
+              - { id: refresh, name: Refresh, sub: every 10 minutes at most, in: *widget, files: [Background.kt, Refresher.kt] }
+            - - { id: storage, name: Storage, sub: what it keeps, in: *widget, files: [Storage.kt] }
+              - { id: prefs, name: SharedPreferences, sub: 'session, bindings, rows', kind: store, marker: getSharedPreferences, how: reads and writes }
+            - - { id: client, name: Cockpit client, sub: a token that renews, in: *widget, files: [CockpitClient.kt, Wire.kt] }
+              - { id: signin, name: Sign-in, sub: OAuth with PKCE, in: *widget, files: [SignIn.kt] }
+
+        - id: cockpit
+          title: "Cockpit: API layer"
+          kind: context
+          href: service-cockpit.html
+          row: 1
+          items:
+            - - { id: ctx-http, name: Application API, sub: 'REST /v1, live updates', folders: [apps/api/src/http] }
+              - { id: ctx-auth, name: 'Sign-in & gate', sub: 'sessions, the gate', folders: [apps/api/src/auth] }
+              - { id: ctx-mcp, name: 'OAuth, MCP, apps API', sub: '/oauth, /mcp, /apps/v1', folders: [apps/api/src/mcp] }
+              - { id: ctx-email, name: Email in, sub: the email handler, folders: [apps/api/src/email] }
+              - { id: ctx-jobs, name: Jobs, sub: 'queue consumer, cron', folders: [apps/api/src/jobs] }
+
+        - id: phone
+          title: On the phone
+          kind: outside
+          alignedWith: widget
+          items:
+            - - { id: browser, name: "The phone's browser", sub: "Cockpit's consent page", kind: outside }
+
+      mayCall:
+        widget: [cockpit, phone]
+
+      callers:
+        - { from: client, to: ctx-mcp, how: Bearer, code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, extensions: ['.kt'], only: [CockpitClient.kt], addresses: '"\$root(/[a-z0-9/]+)"' } }
+        - { from: signin, to: browser, how: '/oauth/authorize, PKCE' }

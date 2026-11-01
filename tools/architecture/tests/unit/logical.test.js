@@ -135,7 +135,7 @@ describe('A declared caller is looked for in its own code where this repository 
   const run = (declared, callerCode) => code({}, { design: { callers: declared }, callerCode }).callers;
 
   it('is found, with each file at its line, when the files contain its marker', () => {
-    expect(run(callers({ folder: 'apps/web/src', marker: '/v1/' }), webFiles)).toEqual([{ from: 'web', to: 'http', how: 'REST /v1', status: 'found', files: ['apps/web/src/api.ts'], at: { 'apps/web/src/api.ts': 2 } }]);
+    expect(run(callers({ folder: 'apps/web/src', marker: '/v1/' }), webFiles)).toEqual([{ from: 'web', to: 'http', how: 'REST /v1', status: 'found', files: ['apps/web/src/api.ts'], at: { 'apps/web/src/api.ts': 2 }, addresses: [] }]);
   });
 
   it('is not found, and drawn dotted, when no file of the caller contains its marker', () => {
@@ -148,7 +148,7 @@ describe('A declared caller is looked for in its own code where this repository 
 
   it('says its code is not in this repository, and still draws the dashed line, when it declares no code', () => {
     const logical = code({}, { design: { callers: callers(undefined) } });
-    expect(logical.callers).toEqual([{ from: 'web', to: 'http', how: 'REST /v1', status: 'elsewhere', files: [], at: {} }]);
+    expect(logical.callers).toEqual([{ from: 'web', to: 'http', how: 'REST /v1', status: 'elsewhere', files: [], at: {}, addresses: [] }]);
     const page = renderLogicalPage({ logical, drawnFrom: { commit: null, repo: null } });
     expect(page).toContain('its code is not in this repository');
     expect(page).toContain('class="nl nl-decl f-web t-http');
@@ -548,5 +548,191 @@ describe('A design of file-name patterns is checked as the rest of the descripti
     const service = (id) => ({ id, name: id, design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {} } });
     expect(parseDescription('d.yml', descriptionFile({ otherServices: [service('harness-monitor')] }).text).otherServices.map((each) => each.file)).toEqual(['service-harness-monitor.html']);
     expect(() => parseDescription('d.yml', descriptionFile({ otherServices: [service('a'), service('a')] }).text)).toThrow('is used twice');
+  });
+});
+
+describe('A widget part uses another when one of its files names a class or function the other defines', () => {
+  const SRC = 'apps/app/src/widget';
+  const part = (id, files) => chip(id, { in: SRC, files });
+  const widget = (overrides = {}) => ({
+    extensions: ['.kt'],
+    findLines: 'names',
+    layers: [
+      { id: 'widget', title: 'App', kind: 'service', row: 0, drawInside: true, subGap: 44, chipW: 190, items: [[part('refresh', ['Refresher.kt']), part('storage', ['Storage.kt']), part('client', ['Client.kt'])], [chip('prefs', { kind: 'store', marker: 'getSharedPreferences', how: 'reads and writes' })]] },
+      { id: 'cockpit', title: 'Cockpit: API layer', kind: 'context', href: 'service-cockpit.html', row: 1, items: [[chip('ctx-mcp', { name: 'OAuth, MCP, apps API', folders: ['apps/api/src/mcp'] })]] },
+      { id: 'phone', title: 'On the phone', kind: 'outside', alignedWith: 'widget', items: [[chip('browser', { kind: 'outside' })]] },
+    ],
+    mayCall: { widget: ['cockpit', 'phone'] },
+    callers: [],
+    noLine: [],
+    ...overrides,
+  });
+  const kotlin = (files) => Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text }));
+  const normal = { 'Refresher.kt': 'class Refresher {}', 'Storage.kt': 'class WidgetStore {\n  val p = context.getSharedPreferences("a", 0)\n}', 'Client.kt': 'class Client {}' };
+  const run = (files = normal, design = widget()) =>
+    buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: kotlin(files) } });
+  const lines = (logical) => logical.within.filter((each) => each.kind === 'import').map((each) => [each.from, each.to, each.at]);
+
+  it('draws a line, Refresh to Storage, at the line that names the class Storage defines', () => {
+    const logical = run({ ...normal, 'Refresher.kt': 'class Refresher {\n  val s = WidgetStore()\n}' });
+    expect(lines(logical)).toEqual([['refresh', 'storage', { [`${SRC}/Refresher.kt`]: 2 }]]);
+  });
+
+  it('draws no line when the name appears only in a comment', () => {
+    expect(lines(run({ ...normal, 'Refresher.kt': 'class Refresher {\n  // uses WidgetStore\n  /* WidgetStore\n     again */\n}' }))).toEqual([]);
+  });
+
+  it('draws no line when a part names its own class', () => {
+    expect(lines(run({ ...normal, 'Storage.kt': 'class WidgetStore {\n  val me = WidgetStore()\n}' }))).toEqual([]);
+  });
+
+  it('matches whole words, and a function counts as a name', () => {
+    const logical = run({ ...normal, 'Refresher.kt': 'class Refresher {\n  val a = WidgetStoreful()\n  val b = pick()\n}', 'Client.kt': 'fun pick() = 1\nclass Client {}' });
+    expect(lines(logical)).toEqual([['refresh', 'client', { [`${SRC}/Refresher.kt`]: 3 }]]);
+  });
+
+  it('takes the name of an extension function, never its receiver, and a suspend or inline one counts', () => {
+    const logical = run({ ...normal, 'Client.kt': 'fun View.keepClear() {}\nsuspend fun <T> List<T>.fetch() {}\nclass Client {}', 'Refresher.kt': 'class Refresher {\n  val v = View.GONE\n  val f = fetch()\n}' });
+    expect(lines(logical)).toEqual([['refresh', 'client', { [`${SRC}/Refresher.kt`]: 3 }]]);
+  });
+
+  it.each([
+    { situation: 'a receiver with a generic inside a generic', declaration: 'fun Map<String, List<Int>>.tally() {}', name: 'tally', receiver: 'Map' },
+    { situation: 'a generic with a bound before the receiver', declaration: 'fun <T : Comparable<T>> List<T>.tally() {}', name: 'tally', receiver: 'List' },
+    { situation: 'a nullable receiver', declaration: 'fun String?.tally() {}', name: 'tally', receiver: 'String' },
+    { situation: 'an annotation on the same line', declaration: '@Composable fun Tally() {}', name: 'Tally', receiver: 'Composable' },
+    { situation: 'a type alias', declaration: 'typealias Tally = Map<String, Int>', name: 'Tally', receiver: 'Map' },
+    { situation: 'a function interface', declaration: 'public fun interface Tally { fun run() }', name: 'Tally', receiver: 'run' },
+  ])('defines $name and not $receiver for $situation', ({ declaration, name, receiver }) => {
+    const use = (word) => run({ ...normal, 'Client.kt': `${declaration}\nclass Client {}`, 'Refresher.kt': `class Refresher {\n  val a = ${word}\n}` });
+    expect(lines(use(name)).map(([from, to]) => `${from}>${to}`)).toEqual(['refresh>client']);
+    expect(lines(use(receiver))).toEqual([]);
+  });
+
+  it('leaves a private declaration out of the names other files can use', () => {
+    expect(lines(run({ ...normal, 'Client.kt': 'private fun hidden() {}\nclass Client {}', 'Refresher.kt': 'class Refresher {\n  val a = hidden()\n}' }))).toEqual([]);
+  });
+
+  it('draws the store a part reaches by its marker as a line to it', () => {
+    const [line] = run().within;
+    expect([line.from, line.to, line.kind, line.how]).toEqual(['storage', 'prefs', 'store', ['reads and writes']]);
+  });
+
+  it('names a Kotlin file no part names, and a pattern matching no file', () => {
+    expect(run({ ...normal, 'New.kt': 'class New' }).placement).toEqual({ unplaced: [`${SRC}/New.kt`], gone: [], doubled: [] });
+    const { 'Client.kt': _gone, ...without } = normal;
+    expect(run(without).placement.gone).toEqual([{ folder: `${SRC}/Client.kt`, components: ['client'] }]);
+  });
+
+  it('places the context box\'s components by nothing, and records one whose folder is gone', () => {
+    expect(run().placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    const gone = widget({ layers: widget().layers.map((layer) => (layer.id === 'cockpit' ? { ...layer, items: [[chip('ctx-mcp', { folders: ['apps/api/src/nowhere'] })]] } : layer)) });
+    expect(run(normal, gone).placement.gone).toEqual([{ folder: 'apps/api/src/nowhere', components: ['ctx-mcp'] }]);
+  });
+});
+
+describe('The widget\'s line out carries the addresses its client calls', () => {
+  const SRC = 'apps/app/src/widget';
+  const design = {
+    extensions: ['.kt'],
+    layers: [
+      { id: 'widget', title: 'App', kind: 'service', row: 0, items: [[chip('client', { in: SRC, files: ['Client.kt'] }), chip('signin', { in: SRC, files: ['SignIn.kt'] })]] },
+      { id: 'cockpit', title: 'Cockpit: API layer', kind: 'context', row: 1, items: [[chip('ctx-mcp', { name: 'OAuth, MCP, apps API', folders: ['apps/api/src/mcp'] })]] },
+      { id: 'phone', title: 'On the phone', kind: 'outside', alignedWith: 'widget', items: [[chip('browser', { kind: 'outside' })]] },
+    ],
+    mayCall: { widget: ['cockpit', 'phone'] },
+    callers: [
+      { from: 'client', to: 'ctx-mcp', how: 'Bearer', code: { folder: SRC, only: ['Client.kt'], extensions: ['.kt'], addresses: '"\\$root(/[a-z0-9/]+)"' } },
+      { from: 'signin', to: 'browser', how: '/oauth/authorize, PKCE' },
+    ],
+    noLine: [],
+  };
+  const render = (client, other = '') => {
+    const files = [{ file: `${SRC}/Client.kt`, text: client }, { file: `${SRC}/SignIn.kt`, text: other }];
+    const logical = buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files }, callerCode: { [SRC]: files } });
+    return { logical, page: renderLogicalPage({ logical, drawnFrom: { commit: 'abc1234def5678', repo: 'o/r' } }, { name: 'Widget', id: 'widget', logical, intro: 'The box, opened.' }) };
+  };
+
+  it('labels the line to the OAuth, MCP and apps API with every address, once each, then how', () => {
+    const { logical, page } = render('get("$root/apps/v1/panels")\npost("$root/oauth/token")\npost("$root/oauth/token")', 'val x = "$root/apps"');
+    expect(logical.callers[0]).toMatchObject({ status: 'found', addresses: ['/apps/v1/panels', '/oauth/token'], files: [`${SRC}/Client.kt`] });
+    expect(page).toContain('/apps/v1/panels, /oauth/token · Bearer');
+    expect(page).toContain('class="nl nl-decl f-client t-ctx-mcp');
+  });
+
+  it('leaves out an address that only a comment holds', () => {
+    expect(render('// get("$root/never")\nget("$root/oauth/token")').logical.callers[0].addresses).toEqual(['/oauth/token']);
+  });
+
+  it('is dotted, as not found, when the client calls nothing that matches', () => {
+    const { logical, page } = render('val x = 1');
+    expect(logical.callers[0]).toMatchObject({ status: 'notFound', addresses: [], files: [] });
+    expect(page).toContain('class="nl nl-miss f-client t-ctx-mcp');
+    expect(page).toContain('not found in the code');
+  });
+
+  it('draws the second declared line to the phone\'s browser, with no code to look in', () => {
+    const { logical, page } = render('get("$root/oauth/token")');
+    expect(logical.callers[1]).toMatchObject({ from: 'signin', to: 'browser', status: 'elsewhere' });
+    expect(page).toContain('class="nl nl-decl f-signin t-browser');
+  });
+});
+
+describe('The widget\'s page opens its box, lays Cockpit\'s API layer beneath it and says how its lines are found', () => {
+  const SRC = 'apps/app/src/widget';
+  const files = [{ file: `${SRC}/Client.kt`, text: 'class Client { val s = Store() }' }, { file: `${SRC}/Store.kt`, text: 'class Store' }];
+  const design = {
+    findLines: 'names',
+    extensions: ['.kt'],
+    layers: [
+      { id: 'widget', title: 'App', kind: 'service', row: 0, drawInside: true, items: [[chip('client', { in: SRC, files: ['Client.kt'] }), chip('store', { in: SRC, files: ['Store.kt'] })]] },
+      { id: 'cockpit', title: 'Cockpit: API layer', kind: 'context', href: 'service-cockpit.html', row: 1, items: [[chip('ctx-mcp', { name: 'OAuth, MCP, apps API', folders: ['apps/api/src/mcp'] })]] },
+    ],
+    mayCall: { widget: ['cockpit'] },
+    callers: [],
+    noLine: [],
+  };
+  const logical = buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files } });
+  const page = renderLogicalPage({ logical, drawnFrom: { commit: 'abc1234def5678', repo: 'o/r' } }, { name: 'Widget', id: 'widget', logical, intro: 'The box, opened.' });
+  const node = (id) => page.match(new RegExp(`<g class="node n-${id}">(.*?)</g>`, 's'))[1];
+
+  it('draws the context box dotted, its title linking to Cockpit, and its components with a link to their folder and none to a page', () => {
+    expect(page).toContain('nb nb-context');
+    expect(page).toContain('<a href="service-cockpit.html"><text class="nb-t link"');
+    expect(node('ctx-mcp')).toContain('href="https://github.com/o/r/tree/abc1234def5678/apps/api/src/mcp"');
+    expect(node('ctx-mcp')).not.toContain('<a href="service-');
+  });
+
+  it('draws a line between the parts, and lists it with each file linked at its line', () => {
+    expect(page).toContain('class="nl nl-ok f-client t-store');
+    expect(page).toContain('href="https://github.com/o/r/blob/abc1234def5678/apps/app/src/widget/Client.kt#L1"');
+  });
+
+  it('says its lines are found by name, and that a common word can draw a false one', () => {
+    expect(page).toContain('found by name');
+    expect(page).toContain('A common word used as a name can draw a line that is not there');
+  });
+
+  it('carries no deviation tables, dialog or script', () => {
+    expect(page).not.toContain('In the code, not in the design');
+    expect(page).not.toContain('<dialog');
+  });
+});
+
+describe('A design of a widget is checked as the rest of the description file is', () => {
+  const read = (design) => parseDescription('d.yml', descriptionFile({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {}, callers: [], noLine: [], ...design } }).text).design;
+
+  it('reads how the lines are found and the extensions', () => {
+    const value = read({ findLines: 'names', extensions: ['.kt'] });
+    expect([value.findLines, value.extensions]).toEqual(['names', ['.kt']]);
+  });
+
+  it.each([
+    { situation: 'lines are found a way it does not know', design: { findLines: 'guess' }, message: 'findLines must be one of' },
+    { situation: 'a layer\'s spacing is not a number', design: { layers: [{ id: 'd', title: 'D', row: 0, subGap: 'wide', items: [[chip('c', { in: 'a', files: ['x*'] })]] }] }, message: 'subGap must be a number' },
+    { situation: 'a caller reads no addresses and names no marker', design: { callers: [{ from: 'c', to: 'c', how: 'x', code: { folder: 'a' } }] }, message: 'code.marker is missing' },
+  ])('fails the run when $situation', ({ design, message }) => {
+    expect(() => read(design)).toThrow(ReadError);
+    expect(() => read(design)).toThrow(message);
   });
 });
