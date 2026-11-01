@@ -26,6 +26,11 @@ const ATTACHMENT_TYPES = [
   'video/webm',
   'video/quicktime',
   'application/pdf',
+  'text/markdown',
+  'text/plain',
+  '.md',
+  '.markdown',
+  '.txt',
 ];
 
 // Kept out of vite.config.ts so a test can read what the build will emit.

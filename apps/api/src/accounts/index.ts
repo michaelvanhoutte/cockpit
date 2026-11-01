@@ -797,7 +797,11 @@ export async function serveAttachment(env: Env, attachment: AttachmentForDownloa
       // The stored, allowlisted type - never a passthrough of whatever the
       // upload claimed (issue 441's own download test case), even though
       // `add_attachment`'s own write already made the two agree.
-      'Content-Type': attachment.contentType,
+      // A text file is served as plain text whatever it was stored as: a browser
+      // downloads `text/markdown` rather than showing it ("Attachments refuse
+      // Markdown and plain text files", issue 1659). Never sniffed.
+      'Content-Type': attachment.contentType.startsWith('text/') ? 'text/plain; charset=utf-8' : attachment.contentType,
+      'X-Content-Type-Options': 'nosniff',
       'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
     },
   });

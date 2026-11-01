@@ -2731,6 +2731,18 @@ describe('Item editing', () => {
       );
     });
 
+    it('uploads a Markdown file the device reports no type for, as Markdown', async () => {
+      const user = await theForm(anItem({ id: 'item-1' }));
+      const notes = new File(['# Notes'], 'notes.md', { type: '' });
+
+      await user.upload(screen.getByLabelText('Files to attach'), notes);
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(1));
+      const sent = vi.mocked(uploadAttachment).mock.calls[0]![0].file;
+      expect([sent.name, sent.type, await sent.text()]).toEqual(['notes.md', 'text/markdown', '# Notes']);
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     /**
      * A bug caught in review: an earlier version cleared the refusal the
      * moment the *next* file in the same drop succeeded, which a case
@@ -2739,7 +2751,7 @@ describe('Item editing', () => {
     it('keeps the refusal visible when another file in the same drop succeeds', async () => {
       const user = await theForm(anItem({ id: 'item-1' }));
       const input = screen.getByLabelText('Files to attach');
-      const rejected = new File(['just words'], 'notes.txt', { type: 'text/plain' });
+      const rejected = new File(['just words'], 'notes.zip', { type: 'application/zip' });
       const accepted = new File(['bytes'], 'receipt.png', { type: 'image/png' });
 
       await user.upload(input, [rejected, accepted]);
@@ -2748,7 +2760,7 @@ describe('Item editing', () => {
         expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ file: accepted })),
       );
       expect(screen.getByRole('alert')).toHaveTextContent(
-        '"notes.txt" is not a kind of file Cockpit accepts.',
+        '"notes.zip" is not a kind of file Cockpit accepts.',
       );
       expect(uploadAttachment).toHaveBeenCalledTimes(1);
     });
@@ -2858,7 +2870,7 @@ describe('Item editing', () => {
 
   describe('a file attaches the same way from any tab, and a refusal names why where the person is looking', () => {
     const carrying = (file: File) => ({ dataTransfer: { types: ['Files'], files: [file] } });
-    const aNote = () => new File(['just words'], 'notes.txt', { type: 'text/plain' });
+    const aNote = () => new File(['just words'], 'notes.zip', { type: 'application/zip' });
 
     it('+ Attach on the desk line opens the file picker', async () => {
       const user = await theForm();
@@ -2907,7 +2919,7 @@ describe('Item editing', () => {
 
     it('a kind of file Cockpit does not accept is refused under the Item tab’s line and under the tab’s list', async () => {
       const user = await theForm(anItem({ id: 'item-1' }));
-      const reason = '"notes.txt" is not a kind of file Cockpit accepts.';
+      const reason = '"notes.zip" is not a kind of file Cockpit accepts.';
 
       fireEvent.drop(screen.getByRole('dialog'), carrying(aNote()));
 
