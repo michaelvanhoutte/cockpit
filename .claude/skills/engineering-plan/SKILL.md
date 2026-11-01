@@ -1,6 +1,6 @@
 ---
 name: engineering-plan
-description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture through seven lenses (growth and waiting, stored shape, boundaries and placement, state and consistency, failure and recovery, running it, trust), each answered in one line and drawn where it moves, as a diff to the architecture page's databases and modules, with every change to a database's tables, columns and indexes stated in full, then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
+description: Cockpit's process for turning a scoped ticket into something buildable - first settling the architecture through seven lenses (growth and waiting, stored shape, boundaries and placement, state and consistency, failure and recovery, running it, trust), opened by a plain description of how it works, each answered in one line and drawn where it moves, as a diff to the architecture page's databases and modules, with every change to a database's tables, columns and indexes stated in full, then, once the engineer has agreed the design, cutting the work into vertical slices with a model and a statement list of test cases per unit. Run by the engineer after `scoping`, in two phases with a stop between them; finishes the ticket or splits it into child tickets under it as parent. Use whenever a ticket labelled `unsliced` is about to be built. Never a code-level discussion.
 ---
 
 # Planning the engineering
@@ -62,9 +62,11 @@ The ticket (its number is what you are given), [architecture.md](../../../docs/a
 
 **Draw each row as two Mermaid sequence diagrams: before, the path today's code takes, and after, the path proposed.** For a new action, before is the nearest existing path it builds on. A row's numbers are easy to agree with and hard to challenge, and the diagram shows where they come from, so an engineer who never opens the code can point at the arrow that is wrong.
 
-- **Use only the lanes the action touches, named for what they do**: UI, Local cache (what the device saves), Change announcements (the stream that tells open tabs something changed), API, Account store (the account's own database), Shared register (D1: accounts, sessions, and the directory an incoming message is attributed through), Queue, Files, and an outside sender or source by its own name.
+- **Group the lanes in a Mermaid `box` per boundary, so the reader sees what runs where and which arrows are calls across a boundary.** The boxes, outermost first: *On the device* (the browser tab or installed app), *Cockpit Worker* (the API and the stream that announces changes), *Cloudflare storage* (the account store, the shared register in D1, files, queues), and *Outside* (a sender or source, by its own name). An arrow between boxes names the call it is ("GET the Workspace snapshot", "POST capture"), so a call to the API cannot be mistaken for a read on the device.
+- **Use only the lanes the action touches, and name each by the architecture page's own term**, never a generic word: where the device holds data, the lane is the tab's held copy of the Workspace, the saved reads, the change queue or the capture outbox (`architecture.md`, "The read model"), not "Local cache". **Under each diagram, one line per lane says what it is** ("Held copy: this tab's memory, what the screen draws from; saved on the device for offline"), since a lane the reader has to guess is an arrow they cannot challenge.
 - **Label every arrow with what it carries, how much, and what bounds it**: "the Items now on the Workspace, every status", "the last 50", "this week", "1 row", "3 queries". An arrow that says only "read" hides what a slow path is made of, and an arrow bounded by nothing is one that grows with the account's history.
 - **End each diagram with one note giving the count**: the round trips the screen waits on, and the reads the change causes after it. That count is the row's, so a count over the rule makes the row a trigger.
+- **Keep semicolons out of every label**, and write `id` rather than `<id>`: Mermaid ends a statement at a semicolon, so the rest of the note fails to parse and the whole diagram shows as source.
 - **Draw the path, and a branch only where it changes the count**, such as an announcement landing while a read is still in flight, since a diagram carrying every condition is too dense to challenge.
 - **Name parts and the platform, never this repository's code**, as everywhere in the design.
 
@@ -92,8 +94,8 @@ Name which trigger fired. If none can be named, record "No design needed" with t
 |---|---|---|
 | Growth and waiting | What grows with accounts, items or time, what bounds each read, and how many round trips does each action wait on? | step 2's rows and diagrams |
 | Stored shape | What is stored, which queries read it, which index each filter or sort uses, and which store owns it? | an entity diagram of the touched tables and one hop around them, added or changed columns marked "(new)", and the Schema changes table below; an index cell left empty for a filtered column is the finding |
-| Boundaries and placement | Which part learns about which other part, where does this logic live, which entry points reach it, and what is sync or queued? | a component diagram of the touched parts, grouped by app or package, dependency arrows with new ones marked "new", and one row per capability naming the command and the entry points that reach it |
-| State and consistency | Which states can each part be in, what moves it on, which interleavings break it, and how stale is acceptable? | a state diagram, then a table of scenario (two tabs, a deploy mid-session, a reconnect), what each party sees, and how stale that is allowed to be |
+| Boundaries and placement | Which part learns about which other part, where does this logic live, which entry points reach it, and what is sync or queued? | one row per capability naming the command and the entry points that reach it; a component diagram only where a dependency between two areas is added or moved, drawn with the architecture page's own area names and layers, new arrows marked "new" |
+| State and consistency | Which states can each part be in, what moves it on, which interleavings break it, and how stale is acceptable? | a table of state, what the person sees there and what moves it on, then a table of scenario (two tabs, a deploy mid-session, a reconnect), what each party sees, and how stale that is allowed to be; a state diagram only where a part has paths that branch and rejoin |
 | Failure and recovery | What still works when a part is down, what does the person see, and what cannot be put back if it stops halfway or runs twice? | a table of part down, what still works, what the person sees; and step 6's lines where state cannot be put back |
 | Running it | What does it cost per account or per day, which platform limit does it approach, and how does someone find out it broke? | a table of cost driver, per account or per day, the limit it approaches, headroom, and how it is noticed |
 | Trust | Does it add a trust boundary, a secret or a new caller, and who may call it? | one line, or a table of new caller, what it may do, how it is authenticated; a sequence diagram only for a new sign-in flow |
@@ -106,7 +108,7 @@ Name which trigger fired. If none can be named, record "No design needed" with t
 
 **A column the work stops using is a row, marked unused**, and stays in the table until a contract step drops it, so nobody reads it later as live. Where the work changes no structure, the lens line reads "No schema change", having checked the migrations rather than assumed it.
 
-**Draw the delta, not the world.** Each diagram shows the slice the change touches and one hop around it; the whole is on the architecture page, and a drawing that repeats it is one nobody reads. **Mark change in the label, not the colour**, since GitHub drops some Mermaid styling and a text reader sees none. **Every diagram is Mermaid**, because the design lives in the issue and nothing else renders there. **The lens prefixes each question in step 4** ("Stored shape: a Teams message arrives while the app is closed …"), so the engineer knows which judgment to bring without losing the scenario it is judged on.
+**Draw the delta, not the world.** Each diagram shows the slice the change touches and one hop around it; the whole is on the architecture page, and a drawing that repeats it is one nobody reads. **Every drawing opens with one sentence saying what to read from it**, and uses only terms the architecture page or `docs/product/glossary.md` defines, with no container invented for it beyond step 2's boundary boxes; a drawing whose point the sentence cannot state is cut. **Mark change in the label, not the colour**, since GitHub drops some Mermaid styling and a text reader sees none. **Every diagram is Mermaid**, because the design lives in the issue and nothing else renders there. **The lens prefixes each question in step 4** ("Stored shape: a Teams message arrives while the app is closed …"), so the engineer knows which judgment to bring without losing the scenario it is judged on.
 
 ### 4. Walk the decisions the change forces
 
@@ -120,7 +122,13 @@ Settle the placement questions explicitly: which store owns each piece of data, 
 
 ### 5. Record the decisions
 
-One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, opened by step 2's rows and their diagrams, then step 3's seven lens lines with the drawings of the lenses that move, each trigger row as decided beside what was measured, with the **Schema changes** as their own section, and added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched.
+One entry per decision, four lines at most: the decision as an arrangement of parts, the option rejected and why in a clause, what it costs or limits in the system, and the risk it leaves open. A remaining risk goes in its entry, not in a closing note. These become the ticket's **Technical design** section, in this order, added through [github-issue](../github-issue/SKILL.md) with the rest of the body untouched:
+
+1. **How it works**: a short plain description that ties the rest together, written last and read first. It follows one concrete case from what the person does to what is on screen, says which part does each step and in which boundary (on the device, the Worker, storage), what is reused and what is new, and ends on the decisions below and the lens that moves. Five to ten sentences, in product terms before internal ones, with no diagram in it; a reader who stops here knows what is being built and what to challenge.
+2. Step 2's rows and their diagrams, each trigger row as decided beside what was measured.
+3. Step 3's seven lens lines, with the drawings of the lenses that move.
+4. The decisions.
+5. The **Schema changes**, as their own section.
 
 **A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause; **a drawing that changed a model reaches the model in the pull request that builds it**: a new area or a moved layer is described in `tools/architecture/description.yml`, and the schema file is rewritten by its test (`tools/architecture/README.md`, "Databases"), so the architecture page stays what the next design is a diff to. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
@@ -151,6 +159,8 @@ Do not ask, and do not slice, if:
 - An action the ticket adds or changes has no row or no before and after diagram in step 2, or a trigger row was never measured.
 - A read arrow names no bound.
 - A lens has no line, or a lens that moves has no drawing.
+- There is no **How it works** description, or it names a part or term no later section explains.
+- A diagram has a lane with no line saying what it is, a lane outside a boundary box, or an arrow between boxes that does not name the call.
 - The ticket has no Schema changes, a filtered or sorted column in it names no index and no reason, or an index in it has no measured query plan.
 - A new dependency between parts is not in the component diagram, or points up the order `scripts/import-rules.json` declares, which CI fails on.
 - A capability reachable from more than one entry point names no single command.
@@ -211,4 +221,4 @@ Through [github-issue](../github-issue/SKILL.md), which holds the template and c
 
 ## Output
 
-"No design needed" with step 2's rows and their diagrams, the trigger check in one line and step 3's seven lens lines, or a **Technical design** section carrying the rows, the lens lines, the drawings of the lenses that move and the decisions, and the **Failure modes** where step 6 applied, with the **Schema changes** either way; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
+"No design needed" with the **How it works** description, step 2's rows and their diagrams, the trigger check in one line and step 3's seven lens lines, or a **Technical design** section carrying the description, the rows, the lens lines, the drawings of the lenses that move and the decisions, and the **Failure modes** where step 6 applied, with the **Schema changes** either way; then, once the design is agreed, the ticket finished, or a parent with its children. Build each by number with `/build`.
