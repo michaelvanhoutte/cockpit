@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { linksFor } from '../../src/render/links.js';
@@ -42,7 +41,8 @@ describe('Table diagram', () => {
     });
 
     it('keeps the lines that skip a column from catching the pointer', () => {
-      expect(readFileSync(new URL('../../src/render/tables.css', import.meta.url), 'utf8')).toMatch(/\.rl\.far \{[^}]*pointer-events: none/);
+      const pages = renderTablePages({ drawnFrom: { commit: 'abc1234def5678', date: null, repo: 'o/r' }, tables: buildTables(null, monitorSchemaFile(), []) });
+      expect(pages[tableFiles('harness-monitor').relations]).toMatch(/\.rl\.far \{[^}]*pointer-events: none/);
     });
 
     it('writes “→ table.column” on every pointing row', () => {
