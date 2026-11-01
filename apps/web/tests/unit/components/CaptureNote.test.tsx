@@ -1308,13 +1308,31 @@ describe('Capture', () => {
       expect(screen.getByText('doc.pdf')).toBeVisible();
     });
 
+    it('queues a Markdown file the device reports no type for, as a chip', async () => {
+      const user = await thePage();
+      const notes = aFile('notes.md', '');
+
+      await user.upload(screen.getByLabelText('Files to attach'), notes);
+
+      expect(await screen.findByText('notes.md')).toBeVisible();
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('queues a plain text file dropped on the form', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aFile('log.txt', 'text/plain')));
+
+      expect(await screen.findByText('log.txt')).toBeVisible();
+    });
+
     it('refuses a disallowed file chosen through the picker, the same as a dropped one', async () => {
       const user = await thePage();
 
-      await user.upload(screen.getByLabelText('Files to attach'), aFile('notes.txt', 'text/plain'));
+      await user.upload(screen.getByLabelText('Files to attach'), aFile('notes.zip', 'application/zip'));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
   });
 
@@ -1331,19 +1349,19 @@ describe('Capture', () => {
     it('refuses a disallowed type by name, and does not queue it', async () => {
       await thePage();
 
-      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain')));
+      fireEvent.drop(box(), carrying(aFile('notes.zip', 'application/zip')));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
 
     it('queues the valid files in a multi-file drop even where one is refused', async () => {
       await thePage();
 
-      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain'), aPhoto()));
+      fireEvent.drop(box(), carrying(aFile('notes.zip', 'application/zip'), aPhoto()));
 
       expect(await screen.findByText('photo.png')).toBeVisible();
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
     });
   });
 
@@ -2783,12 +2801,12 @@ describe('Capture', () => {
     });
 
     it('refuses a shared file the Attachment rules refuse as it refuses a dropped one, and queues the rest', async () => {
-      const notes = { ...aSharedPhoto('notes.txt'), type: 'text/plain' };
+      const notes = { ...aSharedPhoto('notes.zip'), type: 'application/zip' };
       await thePage({ arrived: whatArrived([aShare({ files: [notes, aSharedPhoto()] })]) });
 
       expect(await screen.findByText('photo.png')).toBeVisible();
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
   });
 });

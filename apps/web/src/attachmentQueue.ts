@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENT_SIZE, attachmentContentTypeSchema } from '@cockpit/shared';
+import { MAX_ATTACHMENT_SIZE, attachmentContentTypeSchema, resolveAttachmentType } from '@cockpit/shared';
 
 /**
  * The drop/paste validation `ItemForm.tsx` already had, pulled out so
@@ -42,10 +42,15 @@ export function checkAttachmentFiles(files: Iterable<File>): {
   for (const file of files) {
     if (file.size > MAX_ATTACHMENT_SIZE) {
       rejections.push(`"${file.name}" is over the ${formatFileSize(MAX_ATTACHMENT_SIZE)} limit.`);
-    } else if (!attachmentContentTypeSchema.safeParse(file.type).success) {
+      continue;
+    }
+    // A text file's type is worked out from its name where the device gave none
+    // that helps, and the file carries the result on, so the upload sends it.
+    const type = resolveAttachmentType(file.name, file.type);
+    if (!attachmentContentTypeSchema.safeParse(type).success) {
       rejections.push(`"${file.name}" is not a kind of file Cockpit accepts.`);
     } else {
-      accepted.push(file);
+      accepted.push(type === file.type ? file : new File([file], file.name, { type, lastModified: file.lastModified }));
     }
   }
   return { accepted, rejections };

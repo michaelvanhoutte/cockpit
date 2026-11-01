@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ATTACHMENT_CONTENT_TYPES,
   MAX_ATTACHMENT_SIZE,
+  resolveAttachmentType,
   SHARE_FAILED_ADDRESS,
   SHARE_HOLDING_DATABASE,
   SHARE_HOLDING_STORE,
@@ -37,6 +38,7 @@ const script = (
       DATABASE: string;
       STORE: string;
       ALLOWED_TYPES: string[];
+      typeOf: (file: { name: string; type: string }) => string;
       MAX_FILE_SIZE: number;
       isAShare: (method: string, url: string, origin: string) => boolean;
       fromAnotherSite: (referrer: string, origin: string) => boolean;
@@ -116,7 +118,8 @@ describe('Capture', () => {
     });
 
     it.each([
-      { situation: 'a type Attachments refuse', file: aFile('notes.txt', 'text/plain', 'secret') },
+      { situation: 'a type Attachments refuse', file: aFile('notes.zip', 'application/zip', 'secret') },
+      { situation: 'a Markdown name with a specific other type', file: aFile('page.md', 'text/html', 'secret') },
       { situation: 'a file over the cap', file: aBigFile('huge.png', 'image/png', MAX_ATTACHMENT_SIZE + 1) },
     ])('keeps $situation by name, type and size and no bytes, for Capture to refuse', async ({ file }) => {
       const area = holding();
@@ -128,6 +131,29 @@ describe('Capture', () => {
         [file.name, file.size, true],
         ['photo.png', 5, false],
       ]);
+    });
+
+    it.each([
+      { situation: 'a .md reported as no type', file: aFile('notes.md', '', '# Notes'), kept: 'text/markdown' },
+      { situation: 'a .markdown reported as text/x-markdown', file: aFile('notes.markdown', 'text/x-markdown', '# Notes'), kept: 'text/markdown' },
+      { situation: 'a .txt reported as a generic type', file: aFile('log.txt', 'application/octet-stream', '# Notes'), kept: 'text/plain' },
+    ])('keeps $situation with its bytes as $kept, for Capture', async ({ file, kept }) => {
+      const area = holding();
+
+      expect(await share(area, { files: [file] })).toBe('/capture');
+
+      expect(area.held[0]!.files.map((f) => [f.name, f.type, text(f.bytes)])).toEqual([[file.name, kept, '# Notes']]);
+    });
+
+    it.each([
+      { name: 'notes.md', reported: '', taken: 'text/markdown' },
+      { name: 'NOTES.MD', reported: 'text/plain', taken: 'text/markdown' },
+      { name: 'log.txt', reported: '', taken: 'text/plain' },
+      { name: 'page.md', reported: 'text/html', taken: 'text/html' },
+      { name: 'notes', reported: '', taken: '' },
+    ])('takes $name reported as "$reported" as "$taken", as the shared rule does', ({ name, reported, taken }) => {
+      expect(script.typeOf({ name, type: reported })).toBe(taken);
+      expect(script.typeOf({ name, type: reported })).toBe(resolveAttachmentType(name, reported));
     });
 
     it('opens Capture with the "couldn\'t receive" signal where what waits would pass the cap', async () => {
