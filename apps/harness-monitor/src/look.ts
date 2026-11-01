@@ -29,6 +29,7 @@ const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="
  */
 export const PAGES = [
   { name: 'costs', href: '/', label: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+  { name: 'harness-trend', href: '/harness-trend', label: 'Harness trend', question: 'Is the harness getting more expensive?' },
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls', question: 'What do the app&rsquo;s own AI features cost to run?' },
   { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
   { name: 'selection', href: '/selection', label: 'Test selection', question: 'Does CI run only the tests a change can affect?' },

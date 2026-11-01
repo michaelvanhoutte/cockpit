@@ -108,7 +108,6 @@ function costsOf(split: Split, onRecord: { engineers?: string[]; models?: string
     lastLinkSuccessAt: null,
     creditedThrough: null,
     jobs: [],
-    trends: null,
   };
 }
 

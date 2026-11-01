@@ -87,7 +87,6 @@ describe('Harness Monitor', () => {
           ['cost per day', 'id="perday"'],
           ['tokens per day', 'id="tokensperday"'],
           ['the table', '<table class="costs">'],
-          ['the trends', 'id="trends"'],
         ] as const
       )
         .map(([name, marker]) => [name, html.indexOf(marker)] as const)
@@ -95,15 +94,15 @@ describe('Harness Monitor', () => {
         .sort((a, b) => a[1] - b[1])
         .map(([name]) => name);
 
-    it('each day: where it went, Cost per day, Tokens per day, the table, then the trends, whose band says what they follow', async () => {
+    it('each day: where it went, Cost per day, Tokens per day, then the table, and no trends', async () => {
       const html = await page('');
 
-      expect(order(html)).toEqual(['where it went', 'cost per day', 'tokens per day', 'the table', 'the trends']);
+      expect(order(html)).toEqual(['where it went', 'cost per day', 'tokens per day', 'the table']);
       expect(/<h2 id="where">Where the period&rsquo;s \$6\.00 went, by phase<\/h2>/.test(html)).toBe(true);
-      expect(/<h2 id="trends">Is the harness getting more expensive\?<\/h2>(?:(?!<\/section>).)*?<span class="aside">Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters\.<\/span>/s.test(html)).toBe(true);
+      expect(html.replace(/<nav class="pages".*?<\/nav>/s, '')).not.toContain('Is the harness getting more expensive?');
     });
 
-    it('each pull request: where it went, then the table, with no per-day charts and no trends', async () => {
+    it('each pull request: where it went, then the table, with no per-day charts', async () => {
       const html = await page('group=pr');
 
       expect(order(html)).toEqual(['where it went', 'the table']);

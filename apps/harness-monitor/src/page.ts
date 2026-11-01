@@ -158,22 +158,30 @@ export const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '
  * Everything below follows them. A colouring that would repeat the rows is
  * offered but disabled.
  */
-function controls({ query, engineers, models }: CostsPage, now: number): string {
+/** The "Only" filters, engineer, phase, model and requests, shared by the costs and Harness trend pages; one that would repeat the rows is left out. */
+export function onlyFilters({ query, engineers, models }: { query: CostQuery; engineers: string[]; models: string[] }): string[] {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
   const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
   // A named model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
+  return [
+    query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', ''),
+    query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', ''),
+    inline('model', 'Model', modelOptions, query.model ?? '', ''),
+    inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all'),
+  ];
+}
+
+function controls(page: CostsPage, now: number): string {
+  const { query } = page;
   return `<form class="sentence-form" method="get" action="/">
 <p class="sentence">Show cost for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
 coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
 over ${periodPicker(query, now)}</p>
 <div class="only"><span>Only</span>
-${query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
-${query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
-${inline('model', 'Model', modelOptions, query.model ?? '', '')}
-${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
+${onlyFilters(page).join('\n')}
 <a class="button" href="/export.csv${exportQuery(query)}" download>Export CSV</a></div>
 ${hiddenSort(query)}
 <noscript><button type="submit">Apply</button></noscript>
@@ -324,7 +332,7 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
 const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) => lines.map((l) => lineKey(esc(l.label), l.dash ? null : l.colour)).join('');
 
 /** A count as an axis reads it: 120,000 is "120k". */
-const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
+export const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
 
 interface TrendDrawing {
   id: string;
@@ -342,7 +350,7 @@ interface TrendDrawing {
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
-function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
+export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
   const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
@@ -372,41 +380,6 @@ function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): str
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
   return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g></svg></div>${legend}</section>`;
-}
-
-/** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
-function harnessTrends(page: CostsPage): string {
-  const t = page.trends;
-  if (t === null) return '';
-  const ink = VIOLET;
-  const charts = [
-    trendChart(t, {
-      id: 'starting-context',
-      title: 'Starting context',
-      what: WHAT.startingContext,
-      lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
-      value: (n) => `${number(n)} tokens`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'pull-request-size',
-      title: 'Pull request size',
-      what: WHAT.prSize,
-      lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
-      value: (n) => `${number(n)} lines`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'cost-per-line',
-      title: 'Cost per 1,000 lines changed',
-      what: WHAT.costPerLine,
-      lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
-      value: dollars,
-      axis: dollars,
-    }),
-  ];
-  const info = explain('trends', 'Is the harness getting more expensive?', WHAT.trends);
-  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends', info.both)}<div class="well pad">${charts.join('\n')}</div></section>`;
 }
 
 const shareText = (n: number) => `${Math.round(n)}%`;
@@ -519,7 +492,7 @@ export function renderPage(
 ): string {
   const page = foldedPage(unfolded);
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
-  // The question its tab names opens the page, on every grouping; then what the sentence changes, in reading order; the trends, which only the filters change, come last.
+  // The question its tab names opens the page, on every grouping; then what the sentence changes, in reading order.
   const body = [
     '<h1 class="sr-only">Claude Code costs</h1>',
     costsLead(),
@@ -529,7 +502,6 @@ export function renderPage(
     page.query.group === 'day' ? overTime(page, now, 'tokens') : '',
     page.query.group === 'day' ? shareOverTime(page, now) : '',
     table(page, repository),
-    harnessTrends(page),
     jobLines(page.jobs),
     EXPLAIN_SCRIPT,
   ].join('\n');
