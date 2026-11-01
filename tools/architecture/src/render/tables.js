@@ -119,7 +119,7 @@ export function renderErd(database, { keysOnly, columnsHref, links }) {
       const bend = Math.max(50, (x1 - x2) / 2);
       const d = `M${x1},${y1} C${x1 - bend},${y1} ${x2 + bend},${y2} ${x2},${y2}`;
       const title = `${table.name}.${column.name} points at ${column.references.table}.${target(column)}${column.references.inferred ? ' (inferred from the column name)' : ''}${column.references.onDelete ? ` (on delete ${column.references.onDelete.toLowerCase()})` : ''}`;
-      const skips = depth.get(table.name) - depth.get(into.t.name) > 1;
+      const skips = Math.abs(depth.get(table.name) - depth.get(into.t.name)) > 1;
       (skips ? far : near).push(`<path class="rl lf-${css(table.name)} lt-${css(into.t.name)}${skips ? ' far' : ''}" d="${d}" marker-end="url(#erd-a)" marker-start="url(#erd-o)"><title>${esc(title)}</title></path>`);
     }
   }
@@ -179,8 +179,8 @@ function sourceOf(database, links) {
   if (database.key === 'register') return `One database every account shares. Read from ${file}.`;
   if (database.key === 'account-store') return `One database inside each account's Durable Object, all alike. Read from ${file}.`;
   const example = database.tables.flatMap((table) => table.columns.filter((column) => column.references?.inferred).map((column) => `<code>${esc(table.name)}.${esc(column.name)}</code> and <code>${esc(column.references.table)}</code>`))[0];
-  const declared = database.tables.reduce((n, table) => n + table.columns.filter((column) => column.references && !column.references.inferred).length, 0);
-  const inferredWord = `${plural(database.inferred, 'pointer')} here ${database.inferred === 1 ? 'is' : 'are'} inferred: a column named like the key of another table of the same family, such as ${example}.`;
+  const declared = database.tables.reduce((n, table) => n + table.columns.filter((column) => column.references && !column.references.inferred && column.references.table !== table.name && database.tables.some((other) => other.name === column.references.table)).length, 0);
+  const inferredWord = !database.inferred ? '' : `${plural(database.inferred, 'pointer')} here ${database.inferred === 1 ? 'is' : 'are'} inferred: a column named like the key of another table of the same family, such as ${example}.`;
   const pointers = declared
     ? `its SQL declares ${plural(declared, 'foreign key')}${database.inferred ? `, and the ${inferredWord}` : '.'}`
     : database.inferred
