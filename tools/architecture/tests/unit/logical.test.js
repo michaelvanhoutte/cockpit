@@ -97,6 +97,11 @@ describe('Code the design does not allow is a numbered red line between the two 
     expect(logical.bad).toEqual([]);
   });
 
+  it('reports a line at its place in the file when a block comment above it spans several lines', () => {
+    const logical = code({ 'apps/api/src/http': { 'a.ts': '/*\n env.DB\n*/\nexport {};\nenv.DB.x();' } });
+    expect(only(logical)).toEqual([[1, 'http', 'd1', ['apps/api/src/http/a.ts'], { 'apps/api/src/http/a.ts': 5 }]]);
+  });
+
   it('numbers the lines in the order the design lists their components', () => {
     const logical = code({ 'apps/api/src/http': { 'a.ts': 'env.DB;' }, 'apps/api/src/auth': { 'a.ts': 'env.DB;' } });
     expect(logical.bad.map((each) => [each.n, each.id, each.from])).toEqual([[1, 'off-1', 'http'], [2, 'off-2', 'auth']]);
@@ -188,6 +193,7 @@ describe('The design section is checked as the rest of the description file is',
     { situation: 'a layer is described twice', overrides: { layers: [...design().layers, design().layers[0]] }, message: 'is used twice' },
     { situation: 'a marker is not a regular expression', overrides: { layers: [{ id: 'd', title: 'D', items: [[chip('s', { kind: 'store', marker: '(' })]] }] }, message: 'is not a regular expression' },
     { situation: 'a caller names a chip that is not in the design', overrides: { callers: [{ from: 'ghost', to: 'http', how: 'x' }] }, message: 'is not a design chip' },
+    { situation: 'a layer has no row and is not drawn beside another', overrides: { layers: [{ id: 'd', title: 'D', items: [[chip('c', { folders: ['x'] })]] }] }, message: 'has no row' },
     { situation: 'a component names no folder', overrides: { layers: [{ id: 'd', title: 'D', items: [[chip('c')]] }] }, message: 'names no folder' },
   ])('fails the run when $situation', ({ overrides, message }) => {
     expect(() => read(overrides)).toThrow(ReadError);

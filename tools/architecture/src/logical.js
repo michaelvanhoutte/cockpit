@@ -127,7 +127,7 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
     return { from: caller.from, to: caller.to, how: caller.how, status: found.length > 0 ? 'found' : 'notFound', files: found, at };
   });
 
-  const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => caller.status !== 'notFound' && layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
+  const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
 
   return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad, miss, callers };
 }

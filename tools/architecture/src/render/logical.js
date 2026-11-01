@@ -36,11 +36,13 @@ function linksFor({ repo, commit }) {
 
 /** A component opens its code on GitHub: its folder. It is marked ↗ and its name stays dark, since a blue name means a page one level down. */
 function codeLinked(chip, body, right, top, links) {
+  const tip = [chip.name, chip.sub].filter(Boolean).join(' - ');
   const where = chip.folders[0];
   const href = where ? links.url(where, { folder: true }) : null;
-  if (!href) return body;
+  if (!href) return `${body}<title>${esc(tip)}</title>`;
   const more = chip.folders.length > 1 ? ` (also ${chip.folders.slice(1).join(', ')})` : '';
-  return `<a class="code" href="${esc(href)}" target="_blank" rel="noopener">${body}<text class="nc-gh" x="${right - 7}" y="${top + 15}" text-anchor="end">↗</text><title>${esc(`Open on GitHub: ${where}${more}`)}</title></a>`;
+  return `<a class="code" href="${esc(href)}" target="_blank" rel="noopener">${body}<text class="nc-gh" x="${right - 7}" y="${top + 15}" text-anchor="end">↗</text><title>${esc(`${tip}
+Open on GitHub: ${where}${more}`)}</title></a>`;
 }
 
 /**
@@ -210,7 +212,7 @@ export function renderNested(spec, links) {
     const cls = { component: 'nc', client: 'nc-cl', store: 'nc-st', outside: 'nc-ext' }[chip.kind];
     const name = wrap(chip.name, R.w - 12, 6.9)[0];
     const sub = wrap(chip.sub ?? '', R.w - 12, 5.6)[0] ?? '';
-    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><title>${esc([chip.name, chip.sub].filter(Boolean).join(" - "))}</title><text class="nc-t" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
+    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
     parts.push(`<g class="node n-${id}">${codeLinked(chip, body, R.x + R.w, R.y, links)}</g>`);
   }
   const W = spec.side ? SX + SW + 20 : X0 + MW + 60;
