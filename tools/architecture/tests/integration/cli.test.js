@@ -69,7 +69,8 @@ let drawing;
 const drawReal = () => (drawing ??= draw(checkout).then((run) => {
   const logicalFile = path.join(path.dirname(run.out), 'service-cockpit.html');
   const monitorFile = path.join(path.dirname(run.out), 'service-harness-monitor.html');
-  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined };
+  const widgetFile = path.join(path.dirname(run.out), 'service-android-widget.html');
+  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
 
@@ -288,6 +289,18 @@ describe('Logical', () => {
     expect(monitor.logical.bad).toEqual([]);
     expect(monitor.logical.ok.map((each) => `${each.a}>${each.b}`)).toEqual(expect.arrayContaining(['routes>reports', 'reports>data', 'reports>outside']));
     expect(real.monitorPage).toContain('<h1>Harness Monitor</h1>');
+  });
+
+  it('places every Kotlin file of the Android widget in exactly one part, finds its lines and its addresses, and opens it from the widget chip on the Cockpit page', () => {
+    const widget = real.model.services.find((each) => each.id === 'android-widget');
+    expect(widget.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(widget.logical.within.length).toBeGreaterThan(5);
+    const [client, signIn] = widget.logical.callers;
+    expect(client).toMatchObject({ from: 'client', to: 'ctx-mcp', status: 'found' });
+    expect(client.addresses).toEqual(expect.arrayContaining(['/oauth/token', '/apps/v1/panels']));
+    expect(signIn).toMatchObject({ from: 'signin', to: 'browser', status: 'elsewhere' });
+    expect(real.widgetPage).toContain('<h1>Android widget</h1>');
+    expect(real.logicalPage).toMatch(/<g class="node n-widget"><a href="service-android-widget.html">/);
   });
 
   it('records a folder no component names, naming the folder', async () => {

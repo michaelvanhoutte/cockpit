@@ -215,6 +215,15 @@ fail the same test. A store or outside service with an `href` opens that page of
 database page, its Cockpit box opens Cockpit's page). A page of another service shows the acceptances and callers sections
 once it has an acceptance or a caller whose code this repository holds.
 
+**The Android widget** is such a service, `service-android-widget.html`, drawn as its box from Cockpit's diagram opened to show
+its parts (a layer of `kind: service`), with Cockpit's API layer beneath as a dotted box (`kind: context`: its components are
+drawn for their ↗ to a folder, and nothing places them). The widget chip on Cockpit's page opens it. Its files are Kotlin, so the
+design names `extensions: ['.kt']` and `findLines: names`: a part uses another when one of its files names a class or function
+the other's files define, comments left out and a part naming its own class drawing nothing. The page says so, since a common
+word used as a name can draw a line that is not there. A caller with `code.addresses` (a regular expression whose first group
+is an address) is found by the addresses its code calls, and its line is labelled with them; `code.only` limits it to named files.
+Its table lists every line with each file at its line.
+
 A component marked ↗ opens its folder (or, for patterns, its first file, the tooltip listing the rest) on GitHub at the commit the page was drawn from, and each file listed opens at its
 line. The page knows the repository from `GITHUB_REPOSITORY`, which GitHub Actions sets (set it by hand, as `owner/name`, to get the links in a
 local run); without it, or without a commit, it links nothing.

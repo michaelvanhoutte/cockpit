@@ -126,7 +126,7 @@ function designFilesOf(root, description) {
   for (const design of designs) {
     for (const chip of design.layers.flatMap((layer) => layer.items.flat())) {
       if (chip.files.length === 0 || chip.in in found) continue;
-      found[chip.in] = existsSync(path.join(root, chip.in)) ? filesIn(root, description.scan, chip.in, { recursive: false }).filter((each) => each.text !== null) : [];
+      found[chip.in] = existsSync(path.join(root, chip.in)) ? filesIn(root, description.scan, chip.in, { recursive: false, extensions: design.extensions ?? description.scan.extensions }).filter((each) => each.text !== null) : [];
     }
   }
   return found;

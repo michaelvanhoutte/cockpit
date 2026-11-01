@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { accTable, devData, dialog } from './deviations.js';
 import { linksFor, commitLineOf } from './links.js';
+import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
 import { esc, wrap } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,9 @@ export const LOGICAL_FILE = 'service-cockpit.html';
 export const servicesOf = (model) => [...(model.logical ? [{ id: 'cockpit', name: 'Cockpit', intro: '', file: LOGICAL_FILE, logical: model.logical }] : []), ...model.services];
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+/** How a caller talks, as its line says it: the addresses its code calls, when it is read for them, then how. */
+const callLabel = (caller) => (caller.addresses.length ? `${caller.addresses.join(', ')} · ${caller.how}` : caller.how);
 
 /** A component opens its code on GitHub: its folder. It is marked ↗ and its name stays dark, since a blue name means a page one level down. */
 function codeLinked(chip, body, right, top, links) {
@@ -58,9 +62,10 @@ export function renderNested(spec, links) {
         const n = list.length;
         const cw = Math.min(box.chipW ?? 168, (bw - 24 - (n - 1) * 10) / n);
         const total = n * cw + (n - 1) * 10;
-        list.forEach((chip, i) => rect.set(chip.id, { x: x + (bw - total) / 2 + i * (cw + 10), y: y + HEAD + s * (CHIP_H + 12), w: cw, h: CHIP_H, row: r, box: box.id, chip }));
+        list.forEach((chip, i) => rect.set(chip.id, { x: x + (bw - total) / 2 + i * (cw + 10), y: y + HEAD + s * (CHIP_H + (box.subGap ?? 12)), w: cw, h: CHIP_H, row: r, box: box.id, chip }));
       });
-      const bh = HEAD + box.items.length * (CHIP_H + 12) - 12 + 14;
+      const gap = box.subGap ?? 12;
+      const bh = HEAD + box.items.length * (CHIP_H + gap) - gap + 14;
       rect.set(box.id, { x, y, w: bw, h: bh, row: r, isBox: true, box: box.id, spec: box });
       rowH = Math.max(rowH, bh);
       x += bw + GAP;
@@ -173,7 +178,9 @@ export function renderNested(spec, links) {
     if (!R.isBox) continue;
     const box = R.spec;
     const note = box.note ? `<text class="nb-n" x="${R.x + R.w - 12}" y="${R.y + 22}" text-anchor="end">${esc(box.note)}</text>` : '';
-    parts.push(`<g class="nbox b-${id}"><rect class="nb nb-${box.kind ?? 'layer'}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="10"/><text class="nb-t" x="${R.x + 12}" y="${R.y + 22}">${esc(box.title)}</text>${note}</g>`);
+    // A box that is a page of its own opens it, and its title is blue: a page one level down.
+    const title = box.href ? `<a href="${esc(box.href)}"><text class="nb-t link" x="${R.x + 12}" y="${R.y + 22}">${esc(box.title)} →</text></a>` : `<text class="nb-t" x="${R.x + 12}" y="${R.y + 22}">${esc(box.title)}</text>`;
+    parts.push(`<g class="nbox b-${id}"><rect class="nb nb-${box.kind ?? 'layer'}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="10"/>${title}${note}</g>`);
   }
   // Declared callers' labels sit under the caller, one line per line it draws.
   const declBy = new Map();
@@ -225,7 +232,7 @@ function specOf(logical, links) {
   const nameOf = (id) => chipById.get(id)?.name ?? id;
   const boxOf = (layer) => {
     const inside = logical.inside[layer.id];
-    return { id: boxId(layer.id), title: layer.title, kind: layer.kind, frac: layer.share ?? undefined, note: layer.note || (inside && !layer.drawInside ? `${plural(inside, 'line')} inside, not drawn` : ''), items: layer.items };
+    return { id: boxId(layer.id), title: layer.title, kind: layer.kind, href: layer.href ?? undefined, chipW: layer.chipW ?? undefined, subGap: layer.subGap ?? undefined, frac: layer.share ?? undefined, note: layer.note || (inside && !layer.drawInside ? `${plural(inside, 'line')} inside, not drawn` : ''), items: layer.items };
   };
   const rowNumbers = [...new Set(logical.layers.filter((layer) => layer.alignedWith === null).map((layer) => layer.row))].sort((a, b) => a - b);
   const rows = rowNumbers.map((row) => logical.layers.filter((layer) => layer.alignedWith === null && layer.row === row).map(boxOf));
@@ -236,8 +243,8 @@ function specOf(logical, links) {
   const lines = [
     ...logical.ok.map((g) => ({ from: boxId(g.a), to: boxId(g.b), kind: 'ok', label: `${g.kinds.join(', ')} · ${plural(g.files.length, 'file')}`, title: `${layerById.get(g.a).title} → ${layerById.get(g.b).title}: in the design, and in the code\n${files(g.files)}` })),
     ...logical.miss.map(({ a, b }) => ({ from: boxId(a), to: boxId(b), kind: 'miss', label: 'in the design, not in the code', title: `${layerById.get(a).title} → ${layerById.get(b).title}: the design draws it; no file does it` })),
-    ...logical.callers.map((c) => ({ from: c.from, to: c.to, declared: true, kind: c.status === 'notFound' ? 'miss' : 'decl', label: c.how, toName: nameOf(c.to), title: `${c.from} → ${c.to}: ${c.how}${c.status === 'notFound' ? ' (not found in the code)' : ''}` })),
-    ...logical.within.map((w) => ({ from: w.from, to: w.to, kind: 'ok', route: 'within', title: `${nameOf(w.from)} → ${nameOf(w.to)}: imports, ${plural(w.files.length, 'file')}` })),
+    ...logical.callers.map((c) => ({ from: c.from, to: c.to, declared: true, kind: c.status === 'notFound' ? 'miss' : 'decl', label: callLabel(c), toName: nameOf(c.to), title: `${c.from} → ${c.to}: ${callLabel(c)}${c.status === 'notFound' ? ' (not found in the code)' : c.addresses.length ? `\nFound in ${c.files.join(', ')}` : ''}` })),
+    ...logical.within.map((w) => ({ from: w.from, to: w.to, kind: 'ok', route: 'within', title: `${nameOf(w.from)} → ${nameOf(w.to)}: ${verbOf(w, logical)}, ${plural(w.files.length, 'file')}${logical.findLines ? `\n${files(w.files)}` : ''}` })),
     ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${e.accepted.reason}\n${files(e.files)}` })),
     ...logical.bad.map((e) => ({ from: e.from, to: e.to, kind: 'bad', n: e.n, id: e.id, href: `#${e.id}`, title: `${e.n}. ${e.why}${e.partly ? `\nAccepted for ${e.partly.files.join(', ')}; new: ${e.newFiles.join(', ')}` : ''}\n${files(e.files)}\nClick to copy a /scoping prompt` })),
   ];
@@ -315,6 +322,18 @@ export function renderLogicalPage(model, service = {}) {
     ? `<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}`
     : '';
   const commitLine = commitLineOf(drawnFrom, links);
+  // A service whose box is opened inside Cockpit's diagram: its parts, what it talks to, and its lines.
+  const opened = isOpened(logical);
+  const body = opened
+    ? `${placementProblems(logical)}${partsLegend(name)}<div class="diagram">${drawing.svg}</div>
+<h2>Its lines</h2><p class="sectionnote">${esc(LINES_NOTE)} Every file listed opens on GitHub at the line that makes the line in the diagram.</p>${partsLines(logical, spec, links)}`
+    : `${placementProblems(logical)}${NLEGEND}<div class="diagram">${drawing.svg}</div>
+<h2 id="off">In the code, not in the design</h2><p class="sectionnote">The numbers match the red lines. Click a red circle, or Scope a fix, for a prompt to paste into Claude Code.</p>${offTable(logical, spec, links)}
+${acceptances}
+<h2>In the design, not in the code</h2>${missTable(logical, spec)}
+${callers}
+<h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}. A line inside one layer is always allowed.</p>${designTable(logical, spec)}
+${dialog(devData({ ...spec, commit: drawnFrom.commit }))}`;
 
   return `<!doctype html>
 <html lang="en">
@@ -327,15 +346,9 @@ export function renderLogicalPage(model, service = {}) {
 </head>
 <body>
 <div class="wrap wide">
-<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › ${esc(name)}</p><h1>${esc(name)}</h1><p class="standfirst">${standfirst}</p>
+<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › ${opened ? `<a href="${LOGICAL_FILE}">Cockpit</a> › ` : ''}${esc(name)}</p><h1>${esc(name)}</h1><p class="standfirst">${opened ? esc(service.intro ?? '') : standfirst}</p>
 <div class="runmeta">${commitLine}</div></header>
-${placementProblems(logical)}${NLEGEND}<div class="diagram">${drawing.svg}</div>
-<h2 id="off">In the code, not in the design</h2><p class="sectionnote">The numbers match the red lines. Click a red circle, or Scope a fix, for a prompt to paste into Claude Code.</p>${offTable(logical, spec, links)}
-${acceptances}
-<h2>In the design, not in the code</h2>${missTable(logical, spec)}
-${callers}
-<h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}. A line inside one layer is always allowed.</p>${designTable(logical, spec)}
-${dialog(devData({ ...spec, commit: drawnFrom.commit }))}
+${body}
 </div>
 </body>
 </html>
