@@ -17,7 +17,7 @@ import { commitLineOf, linkPaths, linksFor } from './links.js';
 import { deploymentFile, LOGICAL_FILE, NLEGEND, renderNested, servicesOf } from './logical.js';
 import { renderModules } from './modules.js';
 import { isOpened } from './parts.js';
-import { crumbTrail, prose, SERVICES_TRAIL, switchNav } from './shell.js';
+import { crumbTrail, prose, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
 import { esc } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -142,7 +142,7 @@ ${row('Other bindings', (each) => each.other.map((resource) => chip(resource, 'o
 function deploymentPage(model, service, deployment) {
   const links = linksFor(model.drawnFrom);
   const opened = isOpened(service.logical);
-  const trail = [...SERVICES_TRAIL, ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [service.name]];
+  const trail = [...trailOf(model), ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [service.name]];
   // Cockpit's tab opens on the report's own drawing of where it runs, then lists the same environments by column.
   const drawing = deployment.service === 'cockpit' ? `<div class="diagram full">${atNaturalSize(renderDiagram(model))}</div>
 <h2>Each environment</h2><p class="sectionnote">One column per environment, read from <code>${esc(deployment.source)}</code>.</p>` : '';
@@ -187,7 +187,7 @@ function layerPages(model, service) {
   const pages = {};
   // A layer of the design that names a page of its own; a dotted box that opens another service's page is not one.
   for (const layer of service.logical.layers.filter((each) => each.href && each.kind === 'layer')) {
-    const crumbs = [...SERVICES_TRAIL, [service.name, service.file], [layer.title]];
+    const crumbs = [...trailOf(model), [service.name, service.file], [layer.title]];
     const stores = layer.items.flat().filter((chip) => chip.kind === 'store');
     if (stores.length > 0) {
       const nameOf = new Map(service.logical.layers.flatMap((each) => each.items.flat()).map((chip) => [chip.id, chip.name]));

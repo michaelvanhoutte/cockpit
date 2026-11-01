@@ -242,6 +242,13 @@ describe('A service\'s Deployment tab has one column per environment its config 
     expect(pageOf(model, 'service-cockpit-deployment.html')).toContain('<nav class="switch"><a href="service-cockpit.html">Logical</a><span class="on">Deployment</span></nav>');
   });
 
+  it('links no services page from a trail when the description has no serviceMap', () => {
+    const model = { ...modelOf(), serviceMap: undefined };
+    const pages = renderServicePages(model);
+    expect(pages['services.html']).toBeUndefined();
+    for (const html of [...Object.values(pages), renderLogicalPage(model, servicesOf(model)[0])]) expect(html).not.toContain('href="services.html"');
+  });
+
   it('leaves a service out of the model when its config is not in an earlier commit', () => {
     const model = buildModel({ ...{ wrangler: { file: 'w', text: COCKPIT_CONFIG }, workflows: WORKFLOWS }, description: descriptionFile({ deployments: [DEPLOYMENTS[0]] }), deploymentFiles: { 'apps/api/wrangler.jsonc': null, 'apps/api/src/env.ts': null }, ...drawnFrom });
     expect(model.deployments).toEqual([]);
