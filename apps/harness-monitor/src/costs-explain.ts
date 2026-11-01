@@ -39,7 +39,7 @@ export const WHAT = {
     look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent.',
   },
   shareOverTime: {
-    shows: 'The bar at the top over time: day by day, or week by week over 90 days and all time: each colour of the sentence as its share of that day&rsquo;s or week&rsquo;s dollars.',
+    shows: 'The bar at the top, drawn over time: each colour of the sentence as its share of a day&rsquo;s dollars, or of a week&rsquo;s over 90 days and all time.',
     read: 'Each point is a Belgian day, or a week from Monday over 90 days and all time, as in the trend charts; one with no spend is a break in the lines. The scale is fixed at 0 to 100%, so a line keeps its place whatever the day or week cost. Point at a dot for its share. A day with little spend can swing to either end, so read the run of days rather than one.',
     look: 'A line that steps up or down is a change in how the work is split: coloured by model with Phase set to Building, the week a rule began sending more building to another model. Shares say nothing of the total; Cost per day above gives the dollars.',
   },
