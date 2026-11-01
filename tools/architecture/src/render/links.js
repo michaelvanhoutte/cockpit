@@ -19,6 +19,22 @@ export function linksFor({ repo, commit }) {
   return { known, url, file, files };
 }
 
+/** The top-level folders of this repository a path written in a page's prose may start with. */
+const ROOTS = String.raw`(?:apps|packages|tools|scripts|docs|\.github)`;
+
+/**
+ * Any repository path written in a page's prose, as `<code>apps/api/wrangler.jsonc</code>`, opens that file (or
+ * folder) on GitHub at the commit the page was drawn from. Code already inside a link is left as it is, and a
+ * `<code class="gone">` names something that is no longer there.
+ */
+export function linkPaths(html, links) {
+  if (!links.known) return html;
+  return html.replace(new RegExp(String.raw`(?<!<a [^>]*>)<code>(${ROOTS}/[\w.@/-]+)</code>`, 'g'), (_, rel) => {
+    const href = links.url(rel, { folder: !/\.\w+$/.test(rel) });
+    return `<a class="gh" href="${esc(href)}" target="_blank" rel="noopener"><code>${esc(rel)}</code></a>`;
+  });
+}
+
 /** The line under a page's heading that names the commit it was drawn from, and says what its links open. */
 export function commitLineOf(drawnFrom, links) {
   const { commit, repo } = drawnFrom;

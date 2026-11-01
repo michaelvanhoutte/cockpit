@@ -199,6 +199,7 @@ design:
 
     - id: api
       title: "API layer: the Worker's entry points"
+      href: cockpit-layer-api.html
       row: 1
       items:
         - - { id: http, name: Application API, sub: 'REST /v1, live updates', folders: [apps/api/src/http] }
@@ -209,6 +210,7 @@ design:
 
     - id: logic
       title: Business logic
+      href: cockpit-layer-logic.html
       row: 2
       items:
         - - { id: accounts, name: Accounts, sub: a Durable Object each, folders: [apps/api/src/accounts] }
@@ -220,17 +222,19 @@ design:
 
     - id: data
       title: Data
+      href: cockpit-layer-data.html
       row: 3
       share: 0.6
       items:
-        - - { id: d1, name: Register, sub: 'D1, all accounts', kind: store, folders: [apps/api/src/db], marker: '\benv\??\.DB\b', how: SQL }
-          - { id: do, name: Account store, sub: SQLite per account, kind: store, marker: '\b(ctx|this\.ctx|state)\.storage\.sql\b|storage\.sql\b', how: SQL }
+        - - { id: d1, name: Register, sub: 'D1, all accounts', kind: store, href: db-register.html, tip: 'Open its tables. Its Drizzle schema is apps/api/src/db.', folders: [apps/api/src/db], marker: '\benv\??\.DB\b', how: SQL }
+          - { id: do, name: Account store, sub: SQLite per account, kind: store, href: db-account-store.html, tip: Open its tables, marker: '\b(ctx|this\.ctx|state)\.storage\.sql\b|storage\.sql\b', how: SQL }
           - { id: r2, name: Attachments, sub: R2 bucket, kind: store, marker: '\benv\??\.ATTACHMENTS\b', how: objects }
           - { id: kv, name: OAuth grants, sub: KV, kind: store, marker: '\bOAUTH_KV\b', how: keys }
           - { id: queue, name: Queue, sub: ENRICHMENT, kind: store, marker: '\benv\??\.ENRICHMENT\b', how: enqueue }
 
     - id: conn
       title: Connectors
+      href: cockpit-layer-connectors.html
       row: 3
       share: 0.4
       drawInside: true
@@ -306,7 +310,7 @@ design:
 otherServices:
   - id: harness-monitor
     name: Harness Monitor
-    intro: A second Worker with its own D1 database, in apps/harness-monitor.
+    intro: A second Worker with its own D1 database, in `apps/harness-monitor`.
     design:
       layers:
         - id: clients
@@ -386,7 +390,7 @@ otherServices:
   # between the parts by name: a part uses another when one of its files names a class or function the other defines.
   - id: android-widget
     name: Android widget
-    intro: "The widget box from Cockpit's diagram, opened: its parts and how they use each other, found in the Kotlin. Its one line out goes where it goes on Cockpit's diagram, to the OAuth, MCP and apps API, never the Application API the web app uses. In apps/android-widget."
+    intro: "The widget box from Cockpit's diagram, opened: its parts and how they use each other, found in the Kotlin. Its one line out goes where it goes on Cockpit's diagram, to the OAuth, MCP and apps API, never the Application API the web app uses. In `apps/android-widget`."
     design:
       extensions: ['.kt']
       findLines: names
@@ -432,3 +436,65 @@ otherServices:
       callers:
         - { from: client, to: ctx-mcp, how: Bearer, code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, extensions: ['.kt'], only: [CockpitClient.kt], addresses: '"\$root(/[a-z0-9/]+)"' } }
         - { from: signin, to: browser, how: '/oauth/authorize, PKCE' }
+
+# How each service is deployed, for the Deployment tab of its page: one column per environment. A Worker names its
+# config, which is read the way the report's Deployment view reads Cockpit's, and the file that declares its bindings,
+# where its secrets' names are read from; what ships an environment is what the report's reading of the workflows
+# credits with deploying it, unless `shippedBy` names the workflows. A service that is not a Worker lists its
+# environments by hand: `workflow` is the file that ships it, `by` the words when nothing does, and its secrets are the
+# names the workflow `secretsFrom` reads.
+deployments:
+  - service: cockpit
+    intro: Where it runs, what ships it, and what each environment is bound to.
+    config: apps/api/wrangler.jsonc
+    bindings: apps/api/src/env.ts
+  - service: harness-monitor
+    intro: 'Where it runs, what ships it, and what it is bound to. One environment: it has no staging. Read from `apps/harness-monitor/wrangler.jsonc`.'
+    config: apps/harness-monitor/wrangler.jsonc
+    bindings: apps/harness-monitor/src/worker.ts
+    shippedBy: { production: [deploy-harness-monitor.yml] }
+  - service: android-widget
+    intro: How it reaches a phone, and which Cockpit each build reads.
+    environments:
+      - { name: production, runsOn: 'GitHub Release, an APK installed by hand', workflow: widget-release.yml, secretsFrom: widget-release.yml, settings: { reads: Cockpit production }, storage: [{ kind: On the phone, name: SharedPreferences }] }
+      - { name: staging, runsOn: "an engineer's phone", by: './gradlew assembleStagingDebug, by hand', settings: { reads: Cockpit staging }, storage: [{ kind: On the phone, name: SharedPreferences }] }
+
+# The services page, written by hand: who uses the services, the box each is drawn as with the page every chip opens,
+# the lines between them, and the code each service is made of, which the check that no service imports another's code
+# is made against. A call with `foundBy` is looked for in the caller's own code, as the design's caller of that name is.
+serviceMap:
+  clients:
+    - { id: people, name: People, sub: 'a browser, a phone' }
+    - { id: agents, name: MCP clients, sub: 'Claude.ai, Claude Code' }
+    - { id: teams, name: Microsoft Teams, sub: a message action }
+    - { id: mail, name: Mail senders, sub: Email Routing }
+    - { id: sessions, name: Claude Code sessions, sub: a Stop hook }
+    - { id: ci, name: 'CI, nightly jobs', sub: GitHub Actions }
+  services:
+    - id: harness-monitor
+      share: 0.36
+      items:
+        - - { name: 'Routes, write API', href: service-harness-monitor.html }
+        - - { name: Reports and jobs, href: service-harness-monitor.html }
+        - - { name: harness-monitor, sub: D1, kind: store, href: db-harness-monitor.html }
+    - id: cockpit
+      share: 0.64
+      items:
+        - - { name: Web app, href: service-cockpit.html }
+          - { name: Android widget, href: service-android-widget.html }
+        - - { name: API layer, href: cockpit-layer-api.html }
+        - - { name: Business logic, href: cockpit-layer-logic.html }
+          - { name: Connectors, href: cockpit-layer-connectors.html }
+        - - { name: Data, sub: 'D1, Durable Objects, R2, KV, queue', kind: store, href: cockpit-layer-data.html }
+  calls:
+    - { from: people, to: cockpit, how: 'web app, widget' }
+    - { from: agents, to: cockpit, how: MCP · OAuth }
+    - { from: teams, to: cockpit, how: Bot Framework }
+    - { from: mail, to: cockpit, how: an email event }
+    - { from: sessions, to: harness-monitor, how: POST /v1/usage }
+    - { from: ci, to: harness-monitor, how: POST results }
+    - { from: ci, to: cockpit, how: POST /v1/usage-records }
+    - { from: harness-monitor, to: cockpit, how: 'its API: /v1/usage-records', foundBy: monitor }
+  owns:
+    cockpit: { folders: [apps/api, apps/web, apps/android-widget, packages], packages: ['@cockpit/'] }
+    harness-monitor: { folders: [apps/harness-monitor], packages: ['@harness-monitor/'] }

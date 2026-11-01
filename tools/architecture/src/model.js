@@ -22,6 +22,7 @@ import { ReadError } from './errors.js';
 import { buildDependencies } from './dependencies.js';
 import { buildLogical } from './logical.js';
 import { buildContext, buildModules } from './modules.js';
+import { buildDeployments, buildServiceMap } from './services.js';
 import { buildTables } from './tables.js';
 
 export { ReadError };
@@ -251,7 +252,7 @@ function pagesOf(steps) {
 /**
  * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
  */
-export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], callerCode = {}, designFiles = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
+export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], callerCode = {}, designFiles = {}, deploymentFiles = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
   const description = parseDescription(descriptionFile.file, descriptionFile.text);
   const environments = environmentsOf(parseWranglerConfig(wrangler.file, wrangler.text));
   const declared = new Set(environments.map((each) => each.name));
@@ -273,6 +274,18 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
 
   const modules = buildModules(description, candidates, workersOf(environments));
   const database = buildDatabase(schema, candidates);
+  const logical = description.design ? buildLogical({ design: description.design, scan: description.scan, candidates, callerCode, designFiles }) : null;
+  // The services beyond Cockpit, each with its design laid against its code the same way.
+  const services = description.otherServices.map((service) => ({ id: service.id, name: service.name, intro: service.intro, file: service.file, logical: buildLogical({ design: service.design, scan: description.scan, candidates, callerCode, designFiles }) }));
+  const deployments = buildDeployments(
+    { entries: description.deployments, files: deploymentFiles, workflows, read, deployedBy: (name) => read.filter((workflow) => workflow.deploys.some((each) => each.environment === name)).map((workflow) => workflow.file) },
+    { parseConfig: parseWranglerConfig, environmentsOf },
+  );
+  // Every source file the model has the text of, once, for the check that no service imports another's code.
+  const sourceFiles = [...new Map([...candidates.flatMap((each) => each.files), ...Object.values(designFiles).flat(), ...Object.values(callerCode).flat()].map((each) => [each.file, each])).values()];
+  const serviceMap = description.serviceMap
+    ? buildServiceMap({ map: description.serviceMap, logical, services: [...(logical ? [{ id: 'cockpit', name: 'Cockpit', file: 'service-cockpit.html', logical }] : []), ...services], deployments, files: sourceFiles, extensions: description.scan.extensions })
+    : null;
   return {
     drawnFrom: { commit, date, repo },
     context: buildContext(description),
@@ -280,9 +293,11 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
     dependencies: buildDependencies(description, candidates, modules),
     database,
     tables: buildTables(database, monitorSchema, definitionFiles),
-    logical: description.design ? buildLogical({ design: description.design, scan: description.scan, candidates, callerCode, designFiles }) : null,
-    // The services beyond Cockpit, each with its design laid against its code the same way.
-    services: description.otherServices.map((service) => ({ id: service.id, name: service.name, intro: service.intro, file: service.file, logical: buildLogical({ design: service.design, scan: description.scan, candidates, callerCode, designFiles }) })),
+    logical,
+    services,
+    // Each service's environments, one column each, and the services page.
+    deployments,
+    serviceMap,
     deployment: {
       pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({

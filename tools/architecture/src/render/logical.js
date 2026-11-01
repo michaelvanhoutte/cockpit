@@ -13,16 +13,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { accTable, devData, dialog } from './deviations.js';
-import { linksFor, commitLineOf } from './links.js';
+import { linksFor, linkPaths, commitLineOf } from './links.js';
 import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
+import { crumbTrail, prose, switchNav, trailOf } from './shell.js';
 import { esc, wrap } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const LOGICAL_FILE = 'service-cockpit.html';
 
+/** The Deployment tab of a service's page: the same name with -deployment before the extension. */
+export const deploymentFile = (file) => file.replace(/\.html$/, '-deployment.html');
+
 /** Every service with a page, Cockpit first, each in one shape: `{ id, name, intro, file, logical }`. */
-export const servicesOf = (model) => [...(model.logical ? [{ id: 'cockpit', name: 'Cockpit', intro: '', file: LOGICAL_FILE, logical: model.logical }] : []), ...model.services];
+export const servicesOf = (model) => [...(model.logical ? [{ id: 'cockpit', name: 'Cockpit', intro: '', file: LOGICAL_FILE, logical: model.logical }] : []), ...(model.services ?? [])];
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
@@ -180,7 +184,13 @@ export function renderNested(spec, links) {
     const note = box.note ? `<text class="nb-n" x="${R.x + R.w - 12}" y="${R.y + 22}" text-anchor="end">${esc(box.note)}</text>` : '';
     // A box that is a page of its own opens it, and its title is blue: a page one level down.
     const title = box.href ? `<a href="${esc(box.href)}"><text class="nb-t link" x="${R.x + 12}" y="${R.y + 22}">${esc(box.title)} →</text></a>` : `<text class="nb-t" x="${R.x + 12}" y="${R.y + 22}">${esc(box.title)}</text>`;
-    parts.push(`<g class="nbox b-${id}"><rect class="nb nb-${box.kind ?? 'layer'}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="10"/>${title}${note}</g>`);
+    // A count of what is off the design in the box, a link to where those lines are listed.
+    let badge = '';
+    if (box.badge) {
+      const w = box.badge.text.length * 6.4 + 16;
+      badge = `<a href="${esc(box.badge.href)}"><rect class="nb-badge" x="${R.x + R.w - 12 - w}" y="${R.y + 8}" width="${w}" height="19" rx="9.5"/><text class="nb-badge-t" x="${R.x + R.w - 12 - w / 2}" y="${R.y + 21.5}" text-anchor="middle">${esc(box.badge.text)}</text></a>`;
+    }
+    parts.push(`<g class="nbox b-${id}"><rect class="nb nb-${box.kind ?? 'layer'}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="10"/>${title}${note}${badge}</g>`);
   }
   // Declared callers' labels sit under the caller, one line per line it draws.
   const declBy = new Map();
@@ -251,13 +261,13 @@ function specOf(logical, links) {
   return { rows, side: sideLayer ? boxOf(sideLayer) : undefined, sideRow, lines, nameOf, layerById, chipById, logical, links };
 }
 
-const NLEGEND = `<div class="legend">
+export const NLEGEND = `<div class="legend">
 <span><i class="ln" style="border-top-width:2px"></i>In the design and in the code: one line per pair of layers</span>
 <span><i class="ln up"></i>In the code, not in the design: numbered, drawn around what it skips</span>
 <span><i class="ln" style="border-top-color:var(--ink-3)"></i>Off the design, but accepted with a reason: marked ✓</span>
 <span><i class="ln" style="border-top-style:dotted"></i>In the design, not in the code</span>
 <span><i class="ln" style="border-top-color:var(--accent);border-top-style:dashed"></i>How a caller talks to it: declared</span>
-</div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red or ✓ circle for its files and a prompt to scope it, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
+</div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red or ✓ circle for its files and a prompt to scope it, a layer's title for its modules, a store for its tables, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
 
 /** The design itself, as text: what each layer holds and what it may call. */
 function designTable(logical, { layerById }) {
@@ -290,7 +300,7 @@ function placementProblems(logical) {
   const { unplaced, gone, doubled } = logical.placement;
   const items = [
     ...unplaced.map((folder) => `<code>${esc(folder)}</code> is in no component`),
-    ...gone.map((each) => `<code>${esc(each.folder)}</code>, named by ${esc(each.components.join(', '))}, is not in the code`),
+    ...gone.map((each) => `<code class="gone">${esc(each.folder)}</code>, named by ${esc(each.components.join(', '))}, is not in the code`),
     ...doubled.map((each) => `<code>${esc(each.folder)}</code> is in two components: ${esc(each.components.join(', '))}`),
   ];
   return items.length ? `<p class="bad">The design does not match the code's folders:</p><ul>${items.map((each) => `<li>${each}</li>`).join('')}</ul>` : '';
@@ -311,7 +321,7 @@ export function renderLogicalPage(model, service = {}) {
     const label = each.name.includes('/') && links.known ? `<a class="gh" href="${esc(links.url(each.folder, { folder: true }))}" target="_blank" rel="noopener"><code>${esc(each.name)}</code></a>` : `<code>${esc(each.name)}</code>`;
     return `${label}${each.note ? `, ${esc(each.note)},` : ''}`;
   });
-  const standfirst = `${service.intro ? `${esc(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
+  const standfirst = `${service.intro ? `${prose(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
   // Cockpit's page always shows the sections for acceptances and callers; another service's shows them once it has something to say.
   const designFile = 'tools/architecture/description.yml';
   const own = service.logical !== undefined && service.id !== 'cockpit';
@@ -324,6 +334,10 @@ export function renderLogicalPage(model, service = {}) {
   const commitLine = commitLineOf(drawnFrom, links);
   // A service whose box is opened inside Cockpit's diagram: its parts, what it talks to, and its lines.
   const opened = isOpened(logical);
+  // A service with a Deployment tab switches between the two; one without has only this page.
+  const deployed = model.deployments?.some((each) => each.service === (service.id ?? 'cockpit'));
+  const switcher = deployed ? switchNav([['Logical', service.file ?? LOGICAL_FILE, true], ['Deployment', deploymentFile(service.file ?? LOGICAL_FILE), false]]) : '';
+  const trail = crumbTrail([...trailOf(model), ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [name]]);
   const body = opened
     ? `${placementProblems(logical)}${partsLegend(name)}<div class="diagram">${drawing.svg}</div>
 <h2>Its lines</h2><p class="sectionnote">${esc(LINES_NOTE)} Every file listed opens on GitHub at the line that makes the line in the diagram.</p>${partsLines(logical, spec, links)}`
@@ -346,9 +360,9 @@ ${dialog(devData({ ...spec, commit: drawnFrom.commit }))}`;
 </head>
 <body>
 <div class="wrap wide">
-<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › ${opened ? `<a href="${LOGICAL_FILE}">Cockpit</a> › ` : ''}${esc(name)}</p><h1>${esc(name)}</h1><p class="standfirst">${opened ? esc(service.intro ?? '') : standfirst}</p>
+<header class="masthead"><p class="crumbs">${trail}</p><h1>${esc(name)}</h1>${switcher}<p class="standfirst">${linkPaths(opened ? prose(service.intro ?? '') : standfirst, links)}</p>
 <div class="runmeta">${commitLine}</div></header>
-${body}
+${linkPaths(body, links)}
 </div>
 </body>
 </html>

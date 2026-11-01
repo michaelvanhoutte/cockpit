@@ -12,7 +12,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { commitLineOf, linksFor } from './links.js';
+import { commitLineOf, linkPaths, linksFor } from './links.js';
+import { LOGICAL_FILE, servicesOf } from './logical.js';
+import { crumbTrail, switchNav, trailOf } from './shell.js';
 import { esc } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -191,8 +193,22 @@ function sourceOf(database, links) {
 
 const LEGEND = (example) => `<div class="legend"><span><i class="ln"></i>A column pointing at another table's column: from its row to that row</span><span><code class="fk-k">${esc(example)}</code> written on every pointing row, whether or not its line is drawn</span><span><i class="ln" style="border-top-color:var(--red)"></i>Struck through in red: no longer used</span></div><p class="sectionnote">Hover a table to see all its lines, including those that skip a column and are otherwise not drawn, and to fade the tables it has nothing to do with. Click a table's name (↗) to open where it is defined, on GitHub.</p>`;
 
+/**
+ * The trail to a database's pages: the services page, the service whose design opens it from a store (and the layer
+ * page that holds the store, where it has one), then the database. A database no design opens hangs off the services page.
+ */
+function crumbsOf(model, database, files) {
+  for (const service of servicesOf(model)) {
+    for (const layer of service.logical.layers) {
+      if (!layer.items.flat().some((chip) => chip.href === files.relations)) continue;
+      return [...trailOf(model), [service.name, service.file ?? LOGICAL_FILE], ...(layer.href ? [[layer.title, layer.href]] : []), [database.name]];
+    }
+  }
+  return [...trailOf(model), [database.name]];
+}
+
 /** @returns {string} a complete HTML document */
-function page({ title, tabs, standfirst, body, focus, drawnFrom, links }) {
+function page({ title, crumbs, tabs, standfirst, body, focus, drawnFrom, links }) {
   const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}${readFileSync(path.join(here, 'tables.css'), 'utf8')}${focus}`;
   return `<!doctype html>
 <html lang="en">
@@ -205,7 +221,7 @@ function page({ title, tabs, standfirst, body, focus, drawnFrom, links }) {
 </head>
 <body>
 <div class="wrap wide">
-<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › ${esc(title)}</p><h1>${esc(title)}</h1><nav class="switch">${tabs.map(([label, href, on]) => (on ? `<span class="on">${esc(label)}</span>` : `<a href="${esc(href)}">${esc(label)}</a>`)).join('')}</nav><p class="standfirst">${standfirst}</p>
+<header class="masthead"><p class="crumbs">${crumbTrail(crumbs)}</p><h1>${esc(title)}</h1>${switchNav(tabs)}<p class="standfirst">${linkPaths(standfirst, links)}</p>
 <div class="runmeta">${commitLineOf(drawnFrom, links)}</div></header>
 ${body}
 </div>
@@ -230,7 +246,7 @@ export function renderTablePages(model) {
     const example = database.tables.flatMap((table) => table.columns.filter((column) => column.references)).map((column) => `→ ${column.references.table}.${column.references.column ?? 'id'}`)[0] ?? '→ items.id';
     const relations = renderErd(database, { keysOnly: true, columnsHref: files.columns, links });
     const columns = renderErd(database, { keysOnly: false, columnsHref: files.columns, links });
-    const common = { title: database.name, drawnFrom: model.drawnFrom, links };
+    const common = { title: database.name, crumbs: crumbsOf(model, database, files), drawnFrom: model.drawnFrom, links };
     pages[files.relations] = page({ ...common, tabs: tabs('Relations'), standfirst: `${facts} ${source} This tab keeps only the rows that are a key, point somewhere, or are pointed at.`, focus: relations.focus, body: `${LEGEND(example)}<div class="diagram full">${relations.svg}</div>` });
     pages[files.columns] = page({ ...common, tabs: tabs('All columns'), standfirst: `${facts} ${source} Every column with its type, and each table's indexes.`, focus: columns.focus, body: `${LEGEND(example)}<div class="diagram full">${columns.svg}</div>` });
   }

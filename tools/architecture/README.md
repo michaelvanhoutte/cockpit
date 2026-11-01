@@ -152,7 +152,7 @@ both ways, with the report's styles and a link back. The page keeps each fit to 
 ## The table pages
 
 `db-register.html`, `db-account-store.html` and `db-harness-monitor.html`, each with a second tab, `db-<key>-columns.html`,
-are written beside the report; the report does not link them yet. They draw each database's tables left to right: a table
+are written beside the report, and a Data card or a store on Cockpit's page opens them. They draw each database's tables left to right: a table
 stands one column right of the deepest table it points at, and each pointer is a line from the pointing column's row to
 the row it points at, written "→ table.column" on its row. A pointer that skips a column is drawn only while either end is hovered.
 Hovering a table shows its lines and fades the tables it has nothing to do with; tables with no relations sit together at the bottom.
@@ -177,7 +177,7 @@ of the same family (the part of the name before its first underscore) points at 
 ## Cockpit's logical page
 
 `service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have (the `design`
-section of `description.yml`) as nested layers, with the code's own lines laid over it. The report itself does not link it yet.
+section of `description.yml`) as nested layers, with the code's own lines laid over it. The report links the services page, which opens it.
 
 | Line | Means |
 |---|---|
@@ -227,6 +227,44 @@ Its table lists every line with each file at its line.
 A component marked ↗ opens its folder (or, for patterns, its first file, the tooltip listing the rest) on GitHub at the commit the page was drawn from, and each file listed opens at its
 line. The page knows the repository from `GITHUB_REPOSITORY`, which GitHub Actions sets (set it by hand, as `owner/name`, to get the links in a
 local run); without it, or without a commit, it links nothing.
+
+## The services view
+
+`services.html` is linked from the report's header and is the way into every other page of this view. Pages are written beside
+the report; every crumb trail starts "Architecture › Services". It is built from two sections of `description.yml`, written by
+hand, and from what the model already holds.
+
+**The services page** draws Cockpit and the Harness Monitor as boxes, who uses them (`serviceMap.clients`), the lines between
+them (`serviceMap.calls`) and the outside services their designs name. A call with `foundBy` is looked for in the caller's own
+code, as the design's caller of that name is, and is grey when found. A box's badge, "N off the design", counts only the red lines
+on its own page (an accepted line is not one), links to that table, and is absent at none. Below the drawing:
+
+| Section | Says |
+|---|---|
+| Between services | red, one numbered line each, when a file imports another service's code: a relative path into a folder another service owns, or a package it is imported by (`serviceMap.owns`), read from the source files the model has the text of. Red too when two services' configs bind a store of the same kind and name. Else "No file imports another service's code." and "No store is used by two services." |
+| What deploys on its own | each service's workflows, environments and stores, from the Deployment tabs |
+
+**Logical and Deployment** switch on Cockpit, the Monitor and the widget. A Deployment tab is one column per environment
+(runs on, shipped by with the workflow linked, settings, secrets by name, storage, queues, other bindings). It comes from the
+`deployments` section: a Worker names its `config`, read exactly as the report's Deployment view reads Cockpit's (so each
+environment `apps/api/wrangler.jsonc` or the Monitor's config declares is a column, and the cron and assets are inherited
+the same way), and the file declaring its bindings, from which the names of secrets are read. A secret is only ever a name: a
+setting named like one (`SECRET`, `TOKEN`, `KEY`, `SID`, `PASSWORD`) shows `(set)` where its value would be. What ships an environment is
+what the report reads the workflows as deploying it, unless `shippedBy` names the workflows. A service that is not a Worker
+(the widget) lists its environments by hand, with the workflow that ships each, or the words when none does. Cockpit's tab also
+carries the report's own deployment drawing.
+
+**The report credits `deploy-harness-monitor.yml` with deploying Cockpit's production**, because the workflow runs
+`wrangler deploy` with no environment, which the reading takes as the top level of Cockpit's config. Cockpit's Deployment tab
+shows it as the report does. The Monitor's own tab names its workflow with `shippedBy`.
+
+**Layer pages**: a design layer with an `href` (and no stores) is a page of its own, titled by a link in Cockpit's diagram. Its
+Modules tab is the Modules view cut to the folders the layer's components name, each box marked ↗ to its folder on GitHub, and its
+Dependencies tab the same cut as a matrix; an import out of the layer is on neither. A layer holding stores is a page of
+cards instead, one per store with who uses it, a database's card opening its table page. A store with an `href` opens its table page from the diagram.
+
+**A path written between backticks in a description's intro, or as `<code>` in a page's prose, links to it on GitHub at the commit**
+when it starts with `apps/`, `packages/`, `tools/`, `scripts/`, `docs/` or `.github/`.
 
 ## Reading it without running it
 
