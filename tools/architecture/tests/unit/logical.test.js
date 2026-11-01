@@ -596,6 +596,19 @@ describe('A widget part uses another when one of its files names a class or func
     expect(lines(logical)).toEqual([['refresh', 'client', { [`${SRC}/Refresher.kt`]: 3 }]]);
   });
 
+  it.each([
+    { situation: 'a receiver with a generic inside a generic', declaration: 'fun Map<String, List<Int>>.tally() {}', name: 'tally', receiver: 'Map' },
+    { situation: 'a generic with a bound before the receiver', declaration: 'fun <T : Comparable<T>> List<T>.tally() {}', name: 'tally', receiver: 'List' },
+    { situation: 'a nullable receiver', declaration: 'fun String?.tally() {}', name: 'tally', receiver: 'String' },
+    { situation: 'an annotation on the same line', declaration: '@Composable fun Tally() {}', name: 'Tally', receiver: 'Composable' },
+    { situation: 'a type alias', declaration: 'typealias Tally = Map<String, Int>', name: 'Tally', receiver: 'Map' },
+    { situation: 'a function interface', declaration: 'public fun interface Tally { fun run() }', name: 'Tally', receiver: 'run' },
+  ])('defines $name and not $receiver for $situation', ({ declaration, name, receiver }) => {
+    const use = (word) => run({ ...normal, 'Client.kt': `${declaration}\nclass Client {}`, 'Refresher.kt': `class Refresher {\n  val a = ${word}\n}` });
+    expect(lines(use(name)).map(([from, to]) => `${from}>${to}`)).toEqual(['refresh>client']);
+    expect(lines(use(receiver))).toEqual([]);
+  });
+
   it('leaves a private declaration out of the names other files can use', () => {
     expect(lines(run({ ...normal, 'Client.kt': 'private fun hidden() {}\nclass Client {}', 'Refresher.kt': 'class Refresher {\n  val a = hidden()\n}' }))).toEqual([]);
   });

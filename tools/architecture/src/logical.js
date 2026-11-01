@@ -36,7 +36,12 @@ const patternOf = (pattern) => new RegExp(`^${pattern.split('*').map((part) => p
  * A private one is not. The name is the declaration's own: after a generic and an extension's receiver, so
  * `fun View.keepClear()` defines keepClear and never View.
  */
-const DEFINITION = /^(?:(?:internal|public|data|sealed|enum|abstract|open|suspend|inline|operator|tailrec|annotation|value|fun)\s+)*(?:class|object|interface|fun|typealias)\s+(?:<[^>]*>\s*)?(?:\w+(?:<[^>]*>)?\??\.)*(\w+)/;
+const ANNOTATIONS = String.raw`(?:@\w+(?:\([^)]*\))?\s+)*`;
+const MODIFIERS = String.raw`(?:(?:internal|public|data|sealed|enum|abstract|open|final|inner|companion|suspend|inline|operator|infix|tailrec|annotation|value|expect|actual|external|fun)\s+)*`;
+// A class-like keyword is followed by the name. A function's name is the one before its `(`, after any generic and the receiver of an extension (which may hold generics of its own).
+const DEFINITION = new RegExp(String.raw`^${ANNOTATIONS}${MODIFIERS}(?:(?:class|object|interface|typealias)\s+(\w+)|fun\s+(?:<.*?>\s+)?(?:[^(]*\.)?(\w+)\s*\()`);
+/** The name a line of code defines, if it starts a declaration. */
+const definedName = (line) => { const found = DEFINITION.exec(line); return found ? found[1] ?? found[2] : undefined; };
 
 const byPath = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 
@@ -105,7 +110,7 @@ export function buildLogical({ design, scan, candidates, callerCode = {}, design
   const filesOfChip = (chip) => [...matched].filter(([, by]) => by.includes(chip.id)).map(([file]) => (designFiles[chip.in] ?? []).find((each) => each.file === file)).filter((each) => each?.text != null);
   if (design.findLines === 'names') {
     for (const chip of placed.filter((each) => each.files.length > 0)) {
-      for (const { text } of filesOfChip(chip)) for (const { line } of codeLines(text)) { const name = DEFINITION.exec(line)?.[1]; if (name && !definedBy.has(name)) definedBy.set(name, chip.id); }
+      for (const { text } of filesOfChip(chip)) for (const { line } of codeLines(text)) { const name = definedName(line); if (name && !definedBy.has(name)) definedBy.set(name, chip.id); }
     }
   }
   const nameTests = [...definedBy].map(([name, owner]) => ({ owner, test: new RegExp(String.raw`\b${name}\b`) }));
