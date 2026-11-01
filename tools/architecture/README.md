@@ -183,10 +183,20 @@ section of `description.yml`) as nested layers, with the code's own lines laid o
 |---|---|
 | grey, labelled with a file count | the design allows the pair of layers and the code uses it: one line per pair of layers |
 | red, numbered, chip to chip | the code does what the design does not allow; its row below lists each file at the line that makes it |
+| grey, marked ✓ | the code does what the design does not allow, and the design accepts it with a reason for every file that makes it |
 | dotted | the design allows the pair of layers and no file uses it |
 | dashed blue | how a caller talks to the service, declared, and looked for in the caller's own code where this repository holds it |
 
 A line between two components in one layer is counted on the layer's title and not drawn, unless the layer sets `drawInside`.
+
+**Accepting a deviation** is a pull request to the `accepted` list beside the design: each entry names the two components
+(`from`, `to`), the `files` it covers and the `reason`. It is judged per file. A line is grey and listed under "Accepted, with
+a reason" when the entry names every file that makes it; a file it does not name leaves the line red, its row naming the new
+files. An entry no deviation on its pair needs any more (the line is gone, a file was renamed, or the design now allows it) is
+listed as "No longer needed" and fails nothing; an entry naming a component the design lacks, or giving no reason, fails the run.
+A red or ✓ circle, and each row's "Scope a fix" or "Reconsider" button, open a dialog with the files linked to their lines and
+a `/scoping` prompt to copy. The prompts are built with the page and carried in it as data; copying runs in the browser and
+sends nothing. The page's one inline script serves that dialog, and a page with no deviation carries neither.
 
 **Evidence** is one import (resolved the way Dependencies resolves it) or one marker match per file, with its line. A
 store's or outside service's `marker` is a regular expression searched in the code of every component; a match on a

@@ -274,7 +274,7 @@ describe('Logical', () => {
   it('draws this repository\'s own design with a numbered circle and a row for each line the design does not allow', () => {
     const { logical } = real.model;
     expect(logical.bad.length).toBeGreaterThan(0);
-    expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length);
+    expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length + logical.accepted.length);
     expect(real.logicalPage.match(/<tr class="bad" id="off-/g)).toHaveLength(logical.bad.length);
     expect(logical.callers.filter((caller) => caller.status === 'found').map((caller) => caller.from)).toEqual(expect.arrayContaining(['web', 'widget']));
   });
@@ -306,6 +306,8 @@ describe('Logical', () => {
   it.each([
     { situation: 'the design is not valid YAML', description: `${descriptionFile().text}design: [\n` },
     { situation: 'the design names a layer that does not exist', description: withDesign({ mayCall: { api: ['nowhere'] } }) },
+    { situation: 'an acceptance names a component the design does not have', description: withDesign({ accepted: [{ from: 'http', to: 'ghost', files: ['apps/api/src/http/app.ts'], reason: 'Because.' }] }) },
+    { situation: 'an acceptance gives no reason', description: withDesign({ accepted: [{ from: 'http', to: 'http', files: ['apps/api/src/http/app.ts'] }] }) },
   ])('fails the run and writes nothing when $situation', async ({ description }) => {
     const run = await draw(fixture({ files, description }));
     expect(run.code).toBe(1);

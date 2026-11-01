@@ -271,6 +271,15 @@ design:
     'conn>data': A connector reaches Data directly
     'clients>logic': A client reaches past the API layer
 
+  # Deviations accepted with a reason, changed by pull request. Each names the two components, the files it
+  # covers and why: the same line from a file it does not name is red again, and one the code no longer
+  # needs is listed as no longer needed.
+  accepted:
+    - from: auth
+      to: d1
+      files: [apps/api/src/auth/register.ts, apps/api/src/auth/sign-in-history.ts]
+      reason: 'Sign-in reads and writes the Register directly: every question it asks comes before an account is known, so there is nowhere else to ask it.'
+
   # How callers talk to the service. A request's path is not an import, so each is declared; where this
   # repository holds the caller's code, `code` says where to look for `marker` in it.
   callers:
