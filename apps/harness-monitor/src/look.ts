@@ -61,7 +61,8 @@ export function selectField(id: string, label: string, options: [value: string, 
 export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean | 'hidden'][], current: string, resting: string | null = null): string {
   const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off === 'hidden' ? ' hidden' : off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
   // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
-  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  // Each day has no day to show, so choosing it leaves the day too.
+  const leave = name === 'group' ? "if(this.form.elements.sort)this.form.elements.sort.disabled=true;if(this.value==='day'&&this.form.elements.day)this.form.elements.day.removeAttribute('name');" : '';
   return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
 }
 
@@ -222,6 +223,9 @@ select{height:38px;padding:0 32px 0 12px;font:inherit;font-size:14px;color:var(-
 select[data-set]{border:2px solid var(--accent);padding-left:11px}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
+/* The date input behind "Pick a day…": invisible, so the picker opens from the select */
+.period-pick{position:relative}
+.day-pick{position:absolute;left:0;bottom:0;width:100%;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
 noscript button{height:38px;padding:0 16px;font:inherit}
 
 /* Panels: a section heading over a well */
@@ -262,6 +266,8 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .key{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--ink-soft);letter-spacing:0;text-transform:none}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
 .lines>g{transition:opacity .12s}
+.day-strips rect{fill:transparent;cursor:pointer}
+.day-strips a:hover rect{fill:var(--ink-strong);fill-opacity:.08;outline:none}
 ${HIGHLIGHT}
 
 /* Tables */

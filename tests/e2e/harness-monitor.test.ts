@@ -211,6 +211,85 @@ test.describe('Harness Monitor', () => {
     await expect(choice(page, 'Rows')).toHaveValue('engineer');
   });
 
+  test('a spike on the per-day chart opens as that day, each pull request dearest first, the sentence regroups it or leaves it for the period, and "Pick a day…" opens any other', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    await page.goto(`${monitor}/?period=7d&split=model`);
+
+    // A strip is a full-height target, not a dot: tall, and as wide as its day's share of the chart, which a phone can still hit.
+    const strip = page.getByRole('img', { name: /^Cost per day/ }).locator('.day-strips a').last();
+    await strip.scrollIntoViewIfNeeded();
+    const box = (await strip.boundingBox())!;
+    expect(box.height).toBeGreaterThan(100);
+    expect(box.width).toBeGreaterThanOrEqual(16);
+    if (onAPhone) await strip.tap();
+    else await strip.click();
+
+    // The day beside the period it was opened from, the rows each pull request dearest first, the colouring kept.
+    await expect(page).toHaveURL(/[?&]period=7d(&|$)/);
+    await expect(page).toHaveURL(/[?&]day=\d{4}-\d{2}-\d{2}(&|$)/);
+    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
+    await expect(page).toHaveURL(/[?&]split=model(&|$)/);
+    const table = page.getByRole('region', { name: 'Cost by pull request' });
+    await expect(table.getByRole('row').nth(1)).toContainText('#9001');
+    await expect(table.getByRole('row').nth(2)).toContainText('#9002');
+    await expect(page.getByRole('heading', { name: /Where \d+ \w+.s \$9\.00 went, by model/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Is the harness getting more expensive/ })).toHaveCount(0);
+    // The dropdown shows the day first, above the four periods and "Pick a day…".
+    await expect(choice(page, 'Period').locator('option')).toHaveText([/^\d+ \w+ \d{4}$/, 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Each engineer, on that day: was it one person?
+    await choose(page, 'Rows', 'each engineer', /[?&]group=engineer(&|$)/);
+    await expect(page).toHaveURL(/[?&]day=/);
+    const byEngineer = page.getByRole('region', { name: 'Cost by engineer' });
+    await expect(byEngineer.getByRole('row').nth(1)).toContainText('e2e-alice');
+    await expect(byEngineer.getByRole('row').nth(1)).toContainText('$6.00');
+
+    // Each day leaves it, back to the period it was opened from.
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    expect(new URL(page.url()).searchParams.get('day') ?? '').toBe('');
+    expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
+    await expect(choice(page, 'Period')).toHaveValue('7d');
+    await expect(page.getByRole('heading', { name: /Where the period.s \$9\.00 went/ })).toBeVisible();
+
+    // "Pick a day…" opens a day from any rows, each day becoming each pull request, and a period leaves it.
+    // The picker itself is the browser's own and cannot be driven; a date it hands back is what the field is given here.
+    const pick = async (day: string) => page.locator('.day-pick').fill(day);
+
+    await page.goto(`${monitor}/?group=issue`);
+    // The picker stops at the Belgian today, which is the day the seeded requests were made.
+    const today = (await page.locator('.day-pick').getAttribute('max'))!;
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // From each issue: that day, by issue.
+    await pick(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    await expect(choice(page, 'Rows')).toHaveValue('issue');
+    await expect(page.getByRole('region', { name: 'Cost by issue' }).getByRole('row', { name: /#9000/ })).toContainText('$6.00');
+    await expect(choice(page, 'Period').locator('option').first()).toHaveAttribute('value', today);
+
+    // From a period's other rows the day keeps them; a period chosen leaves the day.
+    await choose(page, 'Period', 'the last 7 days', /[?&]period=7d(&|$)/);
+    expect(new URL(page.url()).searchParams.get('day') ?? '').toBe('');
+    await expect(choice(page, 'Rows')).toHaveValue('issue');
+
+    // From each day, which has no day to show: the picked day by pull request.
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    await pick(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
+    await expect(choice(page, 'Rows')).toHaveValue('pr');
+    await expect(page.getByRole('region', { name: 'Cost by pull request' }).getByRole('row').nth(1)).toContainText('#9001');
+
+    // Export CSV on a day carries it: the file holds that day's requests, which is all seven of the seeded ones.
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+    const csv = (await readFile((await download.path())!, 'utf8')).trimEnd().split('\r\n');
+    expect(csv).toHaveLength(1 + SEED.rows.length);
+  });
+
   test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

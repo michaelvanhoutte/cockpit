@@ -1,4 +1,4 @@
-import { formatDateTime, formatDay } from './belgium';
+import { belgianDay, formatDateTime, formatDay, formatDayMonth } from './belgium';
 import {
   categoryName,
   dayChart,
@@ -22,6 +22,7 @@ import {
   type Measure,
   type Period,
   type Series,
+  type Sort,
   type Split,
   type TrendLine,
   type Trends,
@@ -156,7 +157,7 @@ export const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '
  * Everything below follows them. A colouring that would repeat the rows is
  * offered but disabled.
  */
-function controls({ query, engineers, models }: CostsPage): string {
+function controls({ query, engineers, models }: CostsPage, now: number): string {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
@@ -166,16 +167,48 @@ function controls({ query, engineers, models }: CostsPage): string {
   return `<form class="sentence-form" method="get" action="/">
 <p class="sentence">Show cost for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
 coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
-over ${inline('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]), query.period)}</p>
+over ${periodPicker(query, now)}</p>
 <div class="only"><span>Only</span>
 ${query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
 ${query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
 ${inline('model', 'Model', modelOptions, query.model ?? '', '')}
 ${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
-<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a></div>
-${query.sort === 'total' ? '<input type="hidden" name="sort" value="total">' : ''}
+<a class="button" href="/export.csv${exportQuery(query)}" download>Export CSV</a></div>
+${hiddenSort(query)}
 <noscript><button type="submit">Apply</button></noscript>
 </form>`;
+}
+
+/** The export takes the page's filters and its day, never its rows. The rows are reset, but "each day" cannot be written beside a day, so a day's are each pull request. */
+const exportQuery = (query: CostQuery) =>
+  query.day === null ? queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 }) : queryString(query, { group: 'pr', split: 'phase', sort: 'total', page: 1 });
+
+/** What the form carries so a change to another control keeps the order the rows are in: a day is dearest first without asking, so on one it is the rows' own order. */
+function hiddenSort(query: CostQuery): string {
+  const carried: Sort = query.day === null ? 'total' : 'default';
+  return query.sort === carried && query.group !== 'engineer' ? `<input type="hidden" name="sort" value="${carried}">` : '';
+}
+
+/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; any period leaves the day. */
+const CHOOSE_PERIOD =
+  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');f.elements.period.value=v;f.submit()";
+/** A date from the picker: the input takes its name only now, and "each day" has no day to show, so its rows become each pull request. */
+const CHOOSE_DAY = "if(!this.value)return;this.name='day';var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
+
+/**
+ * The period select: the four periods, then "Pick a day…", with the chosen day first while one is shown.
+ * The day is the form's own field, a date input the picker fills, named only while a day is shown, so every
+ * other control carries a day and an address without one carries no empty `day=`; while one is shown the
+ * select sends nothing and the period it was opened from rides in a hidden field.
+ */
+function periodPicker(query: CostQuery, now: number): string {
+  const periods = (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]);
+  const options: [string, string][] = [...(query.day === null ? [] : [[query.day, formatDay(query.day)] as [string, string]]), ...periods, ['pick', 'Pick a day…']];
+  const current = query.day ?? query.period;
+  const opts = options.map(([v, t]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(t)}</option>`).join('');
+  const select = `<select${query.day === null ? ' name="period"' : ''} aria-label="Period" data-was="${esc(current)}" onchange="${CHOOSE_PERIOD}">${opts}</select>`;
+  const origin = query.day === null ? '' : `<input type="hidden" name="period" value="${query.period}">`;
+  return `<span class="period-pick">${select}${origin}<input type="date"${query.day === null ? '' : ' name="day"'} class="day-pick" aria-label="Day" max="${belgianDay(now)}" value="${query.day ?? ''}" onchange="${CHOOSE_DAY}"></span>`;
 }
 
 function whereItWent(page: CostsPage): string {
@@ -198,8 +231,10 @@ function whereItWent(page: CostsPage): string {
         `<li><i style="background:${colourOf(query.split, s.key, knownKeys(page))}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  const info = explain('where', 'Where the period&rsquo;s cost went', WHAT.where);
-  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
+  // A day is named by its date, not as the period it narrows.
+  const whose = query.day === null ? 'the period' : formatDayMonth(Date.parse(`${query.day}T12:00:00Z`));
+  const info = explain('where', `Where ${whose}&rsquo;s cost went`, WHAT.where);
+  return `<section class="panel" aria-labelledby="where">${band(`Where ${whose}&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <ul class="shares">${legend}</ul>
 </div></section>`;
@@ -231,11 +266,14 @@ function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query } = page;
   const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
   const { id, title } = MEASURES[measure];
-  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay));
+  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay), (day) => `/${dayHref(query, day)}`);
 }
 
+/** The address of one day's pull requests, dearest first, keeping the period it is opened from, the colouring and the filters. */
+const dayHref = (query: CostQuery, day: string) => queryString(query, { group: 'pr', day, sort: 'total', page: 1 });
+
 /** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series, with the (i) of `info`; empty where the chart has no day. */
-export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info): string {
+export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info, href?: (day: string) => string): string {
   if (chart.days.length === 0) return '';
   const { title, id, value, axis } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
@@ -254,14 +292,30 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
   const drawn = lines
     .map((l) => {
       const points = l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      // A point opens its day too, as its strip does.
       const dots = l.values
-        .map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`)
+        .map((v, i) => {
+          const dot = `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`;
+          // Out of the tab order, as the strips are: the "By day" dates are the keyboard's way in.
+          return href === undefined ? dot : `<a href="${esc(href(chart.days[i]!))}" tabindex="-1">${dot}</a>`;
+        })
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
     .join('');
   const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>
+  // Given an address for a day, a full-height strip per day opens it (a dot alone is too small to hit, above all on a phone); its tooltip lists the day's total and each line. The strips sit under the lines, so pointing at a line still picks it out.
+  const step = chart.days.length === 1 ? width - left - right : (width - left - right) / (chart.days.length - 1);
+  const strips =
+    href === undefined
+      ? ''
+      : `<g class="day-strips">${chart.days
+          .map((d, i) => {
+            const says = [`${formatDay(d)} · Total ${value(chart.total[i]!)}`, ...chart.lines.filter((l) => l.values[i]! > 0).map((l) => `${esc(l.label)} ${value(l.values[i]!)}`), 'Click to see this day'].join('\n');
+            return `<a href="${esc(href(d))}" tabindex="-1"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
+          })
+          .join('')}</g>`;
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g></svg></div>
 </section>`;
 }
 
@@ -365,10 +419,12 @@ const github = (repository: string, path: string, text: string) =>
  */
 function firstCell(g: CostGroup, query: CostQuery, repository: string | null): string {
   const text = esc(g.label);
+  // A day opens that day's pull requests.
+  if (query.group === 'day') return `<td class="first"><a href="/${dayHref(query, g.key)}">${text}</a></td>`;
   const label = repository === null ? text : g.prNumber !== null ? github(repository, `pull/${g.prNumber}`, text) : g.issue !== null && query.group === 'issue' ? github(repository, `issues/${g.issue}`, text) : text;
   if (g.sub === null) return `<td class="first">${label}</td>`;
   const issue = repository !== null && g.prNumber !== null && g.issue !== null ? github(repository, `issues/${g.issue}`, esc(g.sub)) : esc(g.sub);
-  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', page: 1 })}">Sessions</a>`;
+  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', day: null, page: 1 })}">Sessions</a>`;
   return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
 }
 
@@ -451,7 +507,7 @@ export function renderPage(
     jobLines(page.jobs),
     EXPLAIN_SCRIPT,
   ].join('\n');
-  return shell({ current: 'costs', controls: controls(page), body, style: EXPLAIN_STYLE }, now);
+  return shell({ current: 'costs', controls: controls(page, now), body, style: EXPLAIN_STYLE }, now);
 }
 
 /** The costs page's lead, which a pull request's page, reached from its tab, opens with too. */

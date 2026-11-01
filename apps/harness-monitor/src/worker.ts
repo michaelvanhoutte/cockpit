@@ -536,7 +536,8 @@ async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): P
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
-  const query = parseQuery(url.searchParams);
+  // A pull request's page shows its whole cost over a period, never one day of it.
+  const query = { ...parseQuery(url.searchParams), day: null };
   const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
@@ -559,6 +560,8 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
 /** The request rows under the page's filters (and one pull request's, with `pr`), as a CSV download. Never cached: it can be a year of rows. */
 function exportRows(request: Request, env: Env): Response {
   const params = new URL(request.url).searchParams;
+  // The export has no rows to group, and a day is only read beside rows that are not "each day".
+  params.set('group', 'pr');
   const pr = params.get('pr');
   const number = pr === null ? null : pullRequestNumber(pr);
   if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');

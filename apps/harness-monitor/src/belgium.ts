@@ -43,6 +43,13 @@ export function belgianDay(ms: number): string {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+/** Whether text is a real calendar day, `YYYY-MM-DD`: 2026-02-30 is not, and nor is anything that is not a date. */
+export function isDay(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const ms = Date.parse(text);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === text;
+}
+
 /** The day `n` calendar days from a day (negative for earlier); calendar arithmetic, so a clock change never moves it. */
 export const addDays = (day: string, n: number) => new Date(Date.parse(day) + n * DAY_MS).toISOString().slice(0, 10);
 
