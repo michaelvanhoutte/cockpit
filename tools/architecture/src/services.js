@@ -200,7 +200,13 @@ const lineOfImport = (text, specifier) => {
  * or a package another service is imported by. One entry per file and import, with the line that writes it.
  */
 export function crossImports({ owns, files, extensions }) {
-  const ownerOf = (file) => Object.entries(owns).find(([, own]) => own.folders.some((folder) => file.startsWith(`${folder}/`)))?.[0] ?? null;
+  // The longest folder that holds the path wins, and a path that is the folder itself is inside it.
+  const ownerOf = (file) => {
+    let best = null;
+    for (const [id, own] of Object.entries(owns)) for (const folder of own.folders) if ((file === folder || file.startsWith(`${folder}/`)) && (best === null || folder.length > best.length)) best = { id, length: folder.length };
+    return best?.id ?? null;
+  };
+  const isPackage = (specifier, prefix) => (prefix.endsWith('/') ? specifier.startsWith(prefix) : specifier === prefix || specifier.startsWith(`${prefix}/`));
   const found = [];
   for (const { file, text } of files) {
     if (text == null || !extensions.some((extension) => file.endsWith(extension))) continue;
@@ -209,7 +215,7 @@ export function crossImports({ owns, files, extensions }) {
     for (const specifier of importsOf(text)) {
       let to = null;
       if (specifier.startsWith('.')) to = ownerOf(path.posix.join(path.posix.dirname(file), specifier));
-      else to = Object.entries(owns).find(([, own]) => own.packages.some((prefix) => specifier.startsWith(prefix)))?.[0] ?? null;
+      else to = Object.entries(owns).find(([, own]) => own.packages.some((prefix) => isPackage(specifier, prefix)))?.[0] ?? null;
       if (to !== null && to !== from) found.push({ from, to, file, line: lineOfImport(text, specifier), specifier });
     }
   }

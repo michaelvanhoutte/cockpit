@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { commitLineOf, linkPaths, linksFor } from './links.js';
 import { LOGICAL_FILE, servicesOf } from './logical.js';
-import { crumbTrail, SERVICES_TRAIL, switchNav } from './shell.js';
+import { crumbTrail, switchNav, trailOf } from './shell.js';
 import { esc } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -201,10 +201,10 @@ function crumbsOf(model, database, files) {
   for (const service of servicesOf(model)) {
     for (const layer of service.logical.layers) {
       if (!layer.items.flat().some((chip) => chip.href === files.relations)) continue;
-      return [...SERVICES_TRAIL, [service.name, service.file ?? LOGICAL_FILE], ...(layer.href ? [[layer.title, layer.href]] : []), [database.name]];
+      return [...trailOf(model), [service.name, service.file ?? LOGICAL_FILE], ...(layer.href ? [[layer.title, layer.href]] : []), [database.name]];
     }
   }
-  return [...SERVICES_TRAIL, [database.name]];
+  return [...trailOf(model), [database.name]];
 }
 
 /** @returns {string} a complete HTML document */

@@ -125,6 +125,8 @@ describe('Services reach each other only through each other\'s API', () => {
     { situation: 'a Monitor file imports Cockpit\'s code by a relative path', file: 'apps/harness-monitor/src/a.ts', text: "const y = 1;\nimport { x } from '../../api/src/env.js';", expected: [['harness-monitor', 'cockpit', 2]] },
     { situation: 'a Cockpit file imports the Monitor', file: 'apps/api/src/a.ts', text: "import { x } from '../../harness-monitor/src/store.js';", expected: [['cockpit', 'harness-monitor', 1]] },
     { situation: 'a file imports its own service and a third-party package', file: 'apps/harness-monitor/src/a.ts', text: "import './b.js';\nimport { z } from 'zod';", expected: [] },
+    { situation: 'a relative path lands on the other service folder itself', file: 'apps/harness-monitor/src/a.ts', text: "import { x } from '../../api';", expected: [['harness-monitor', 'cockpit', 1]] },
+    { situation: 'a package that only shares the start of another service package name', file: 'apps/harness-monitor/src/a.ts', text: "import { x } from '@cockpit-extras/thing';", expected: [] },
     { situation: 'a comment mentions another service\'s package', file: 'apps/harness-monitor/src/a.ts', text: "// import '@cockpit/shared'\nexport {};", expected: [] },
   ])('$situation', ({ file, text, expected }) => {
     const found = check(file, text);

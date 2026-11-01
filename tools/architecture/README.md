@@ -265,6 +265,7 @@ cards instead, one per store with who uses it, a database's card opening its tab
 
 **A path written between backticks in a description's intro, or as `<code>` in a page's prose, links to it on GitHub at the commit**
 when it starts with `apps/`, `packages/`, `tools/`, `scripts/`, `docs/` or `.github/`.
+
 ## Reading it without running it
 
 The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) builds it

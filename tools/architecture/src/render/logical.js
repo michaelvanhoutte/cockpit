@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { accTable, devData, dialog } from './deviations.js';
 import { linksFor, linkPaths, commitLineOf } from './links.js';
 import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
-import { crumbTrail, prose, SERVICES_TRAIL, switchNav } from './shell.js';
+import { crumbTrail, prose, switchNav, trailOf } from './shell.js';
 import { esc, wrap } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -337,7 +337,7 @@ export function renderLogicalPage(model, service = {}) {
   // A service with a Deployment tab switches between the two; one without has only this page.
   const deployed = model.deployments?.some((each) => each.service === (service.id ?? 'cockpit'));
   const switcher = deployed ? switchNav([['Logical', service.file ?? LOGICAL_FILE, true], ['Deployment', deploymentFile(service.file ?? LOGICAL_FILE), false]]) : '';
-  const trail = crumbTrail([...SERVICES_TRAIL, ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [name]]);
+  const trail = crumbTrail([...trailOf(model), ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [name]]);
   const body = opened
     ? `${placementProblems(logical)}${partsLegend(name)}<div class="diagram">${drawing.svg}</div>
 <h2>Its lines</h2><p class="sectionnote">${esc(LINES_NOTE)} Every file listed opens on GitHub at the line that makes the line in the diagram.</p>${partsLines(logical, spec, links)}`
