@@ -1452,6 +1452,68 @@ test.describe('Harness Monitor', () => {
     }
   });
 
+  test("a page's intro text ends where the panels below it end, on a desk and on a phone", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    // Test selection's view lead shows only when a pull request is held, so one is seeded. Seeding adds rows and never removes them, so it is merged long before the 14 days the other Test selection walks count, and read with period=all, where only the rules walk looks.
+    const job = (name: 'test' | 'e2e', over: Record<string, unknown>) => ({
+      job: name,
+      status: 'ran',
+      ranEverything: false,
+      selecting: true,
+      filesRun: 1,
+      filesTotal: 40,
+      prDurationMs: name === 'test' ? 90_000 : null,
+      mainDurationMs: name === 'test' ? 400_000 : null,
+      changedFiles: [{ path: 'apps/api/src/b.ts', ignored: false }],
+      packages: [],
+      ...over,
+    });
+    const pull = {
+      number: 9201,
+      title: 'Save a note',
+      url: 'https://github.com/o/r/pull/9201',
+      mergedAt: new Date(Date.now() - 400 * 86_400_000).toISOString(), // clock-ok: the page reads the Worker's own clock, which the walk cannot inject
+      jobs: [job('test', {}), job('e2e', { status: 'docs-only', selecting: false, filesRun: null, filesTotal: null, prDurationMs: null, mainDurationMs: null })],
+      misses: [{ job: 'test', path: 'apps/api/tests/unit/flaky.test.ts', level: 'unit', reason: null }],
+    };
+    const bars = {
+      windowDays: 14,
+      minPulls: 20,
+      items: [
+        { id: 'e2e-forced-full', name: 'E2E forced to run every spec', threshold: 0.25, minOver: null, alarmIssue: null },
+        { id: 'test-forced-full', name: 'Test forced to run everything', threshold: 0.25, minOver: null, alarmIssue: null },
+        { id: 'misses', name: 'Misses', threshold: 1, minOver: null, alarmIssue: null },
+      ],
+    };
+    expect((await api.post(`${monitor}/__e2e/seed-selection`, { data: { pulls: [pull], bars } })).ok()).toBe(true);
+
+    // The intro runs to the edge of the panel below it, less only the inset the element keeps for itself on each side: the lead's 2px padding, or the view lead's 10px margin.
+    const intro = async (lead: string, below: string, inset: number) => {
+      const box = await page.evaluate(([l, b]) => {
+        const lead = document.querySelector(l)!.getBoundingClientRect();
+        const below = document.querySelector(b)!.getBoundingClientRect();
+        return { leftInset: lead.left - below.left, rightInset: below.right - lead.right };
+      }, [lead, below]);
+      const at = `${lead} at ${page.viewportSize()!.width}px`;
+      expect(Math.abs(box.leftInset - inset), `${at}: left`).toBeLessThanOrEqual(2);
+      expect(Math.abs(box.rightInset - inset), `${at}: right`).toBeLessThanOrEqual(2);
+    };
+    const noSidewaysScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
+    // Harness trend: the intro paragraph against the first panel, its charts.
+    await page.goto(`${monitor}/harness-trend`);
+    await expect(page.locator('.lead-more')).toBeVisible();
+    if ((page.viewportSize()?.width ?? 0) > 640) await page.setViewportSize({ width: 1600, height: 900 });
+    await intro('.lead-more', 'section.panel', 2);
+    expect(await noSidewaysScroll()).toBe(true);
+
+    // Test selection: its view lead against the table below it, in the misses view.
+    await page.goto(`${monitor}/selection?group=miss&period=all`);
+    await expect(page.locator('.view-lead')).toBeVisible();
+    await intro('.view-lead', '.view-lead + .well.table', 10);
+    expect(await noSidewaysScroll()).toBe(true);
+  });
+
   test("Test selection opens from the top bar on each day with a tile for each question, its sentence reaches each rule that forced a full run, a rule's paths and a pull request from them, and each test skipped then failed on main, whose Copy prompt puts that row's prompt on the clipboard, on a desk and a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString(); // clock-ok: the page reads the Worker's own clock, which the walk cannot inject

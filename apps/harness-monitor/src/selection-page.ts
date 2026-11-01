@@ -426,7 +426,7 @@ details summary{cursor:pointer;color:var(--accent-deep);font-size:14px;font-weig
 .advice{margin:0;padding:12px 16px;font-size:14px;color:var(--ink-soft);border-bottom:1px solid color-mix(in srgb,var(--shade) 10%,transparent)}
 .prs a{margin-right:6px;font-weight:500}
 tr.stopped td{opacity:.55}
-.view-lead{margin:0 10px 12px;max-width:820px;font-size:14px;line-height:1.55;color:var(--ink)}
+.view-lead{margin:0 10px 12px;font-size:14px;line-height:1.55;color:var(--ink)}
 tr.tier th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);padding-top:18px}
 .prompt-col{width:1%;white-space:nowrap;text-align:right}
 details.more{display:inline}

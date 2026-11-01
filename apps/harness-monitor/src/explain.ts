@@ -43,7 +43,7 @@ export const lead = (question: string, more: string) => `<div class="lead"><p cl
 export const EXPLAIN_STYLE = `
 .lead{padding:4px 2px 0}
 .lead-q{margin:0;font-size:18px;font-weight:600;color:var(--ink-strong);text-wrap:balance}
-.lead-more{max-width:820px;margin:4px 0 0;font-size:14px;color:var(--ink-soft);line-height:1.5;text-wrap:pretty}
+.lead-more{margin:4px 0 0;font-size:14px;color:var(--ink-soft);line-height:1.5;text-wrap:pretty}
 .heading{display:flex;align-items:center}
 .nw{white-space:nowrap}
 .info{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:18px;height:18px;margin-left:8px;padding:0;border:1px solid currentColor;border-radius:50%;background:none;color:var(--ink-faint);font:italic 600 11px/1 Georgia,serif;letter-spacing:0;text-transform:none;vertical-align:2px;cursor:pointer}
