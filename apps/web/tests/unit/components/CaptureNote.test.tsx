@@ -923,11 +923,27 @@ describe('Capture', () => {
     const lineButton = () => screen.queryByRole('button', { name: /^Captured “/ });
     const addToThis = () => screen.getByRole('button', { name: 'Add to this' });
     const itemCaptured = async () => (await captured()).payload.itemId;
+    /** The Workspace's read answering with what has been captured, as it does once the tab has read after the landing. */
+    const itemsAreRead = async (user: Awaited<ReturnType<typeof thePage>>) => {
+      await waitFor(() => expect(capturedCalls().length).toBeGreaterThan(0));
+      held.snapshots['ws-home'] = {
+        ...HOME_SNAPSHOT,
+        items: capturedCalls().map(({ payload }) => ({
+          id: payload.itemId as string,
+          title: 'A note',
+          nextAction: null,
+          completedAt: null,
+          createdAt: new Date().toISOString(),
+        })),
+      } as never;
+      await user.client.invalidateQueries({ queryKey: ['snapshot'] });
+    };
 
     it('is a button that opens that Item once it has landed', async () => {
       const user = await thePage();
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
 
       await user.click(lineButton()!);
@@ -952,6 +968,19 @@ describe('Capture', () => {
       await act(async () => {
         await user.outbox.send();
       });
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+    });
+
+    it('is text until the read that brings the Item has landed, though the note has left the outbox', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(undoButton()).toBeVisible());
+      await settled();
+
+      expect(lineButton()).toBeNull();
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
     });
 
@@ -963,6 +992,7 @@ describe('Capture', () => {
         await waitFor(() => expect(box()).toHaveValue(''));
       }
       await waitFor(() => expect(capturedCalls()).toHaveLength(2));
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).toHaveTextContent('The second one'));
 
       await user.click(lineButton()!);
@@ -974,6 +1004,7 @@ describe('Capture', () => {
       const user = await thePage();
       await user.type(box(), 'Ring the plumber');
       await user.click(chip('Capture'));
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
       await user.click(addToThis());
       await user.type(box(), 'about the boiler');
@@ -990,6 +1021,7 @@ describe('Capture', () => {
       const user = await thePage();
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
       await settled();
       const asked = everythingAsked().length;
@@ -1004,6 +1036,7 @@ describe('Capture', () => {
       const user = await thePage();
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
+      await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
       await user.click(lineButton()!);
 

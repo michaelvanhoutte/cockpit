@@ -19,6 +19,7 @@ import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
+import { useWorkspaceHolding } from '../api/useWorkspaceHolding';
 import { useCloseItem, useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
 import type { Arrived } from '../shares';
@@ -254,8 +255,15 @@ export function CaptureNote({
     select,
     enabled: last !== null && !waiting.some((entry) => entry.id === last.id),
   });
-  // The Captured line opens the Item's form once it is an Item, not while it waits in the outbox (issue 1639).
-  const landed = last !== null && !waiting.some((entry) => entry.id === last.id);
+  // The Captured line opens the Item's form once it is an Item this tab holds, not while it waits in the
+  // outbox or before the read that brings it has landed (issue 1639).
+  const held = useWorkspaceHolding(last?.id, last?.workspaceId);
+  const opensItem = last !== null && held !== undefined && !waiting.some((entry) => entry.id === last.id);
+  const said = !last
+    ? ''
+    : last.added
+      ? `Added to “${plainWords(last.message)}”`
+      : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`;
   const repeats =
     last && afterCapture
       ? possibleDuplicatesOf(
@@ -1074,22 +1082,17 @@ export function CaptureNote({
               </p>
             )}
             <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
-              {(() => {
-                const said = last.added
-                  ? `Added to “${plainWords(last.message)}”`
-                  : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`;
-                return landed ? (
-                  <button
-                    type="button"
-                    onClick={() => openItem(last.id)}
-                    className="min-w-0 truncate text-left hover:text-accent-deep hover:underline"
-                  >
-                    {said}
-                  </button>
-                ) : (
-                  <span className="min-w-0 truncate">{said}</span>
-                );
-              })()}
+              {opensItem ? (
+                <button
+                  type="button"
+                  onClick={() => openItem(last.id)}
+                  className="min-w-0 truncate text-left hover:text-accent-deep hover:underline"
+                >
+                  {said}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate">{said}</span>
+              )}
               {/* Undo of an addition takes back the addition alone, which a
                   later change brings; until then the line offers none. */}
               {!last.added && (

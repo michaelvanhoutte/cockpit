@@ -140,20 +140,10 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
     },
     [navigate],
   );
-  const closeIfOpen = useCallback(
-    (itemId: string) => {
-      if (search.item !== itemId) return;
-      void navigate({
-        to: '.',
-        replace: true,
-        search: (was) => {
-          const { item: _closed, ...rest } = was as ItemFormSearch;
-          return rest;
-        },
-      });
-    },
-    [navigate, search.item],
-  );
+  const { close } = useItemForm();
+  const closeIfOpen = (itemId: string) => {
+    if (search.item === itemId) close();
+  };
   // Replacing rather than pushing: following the rows is one open form
   // changing its Item, so Back leaves the page rather than stepping back
   // through every row that was looked at.
