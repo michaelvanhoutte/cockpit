@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { SCHEMA_FILE } from './database.js';
+import { MONITOR_SCHEMA_FILE } from './tables.js';
 import { isCodeFile, isTestFile, parseDescription } from './description.js';
 import { ReadError } from './errors.js';
 
@@ -116,6 +117,45 @@ function callerCodeOf(root, description) {
 }
 
 /**
+ * The files the schema files say their databases are defined in: each named file, and the SQL and TypeScript directly
+ * inside each named folder (one ending in a slash), with their text, for the line a table is defined at. A schema file
+ * that is not JSON names none, which the model reports; a named file that is gone is left out.
+ */
+function definitionSourcesOf(root, schemas) {
+  const found = new Map();
+  const add = (file) => {
+    if (found.has(file)) return;
+    try {
+      found.set(file, readFileSync(path.join(root, file), 'utf8'));
+    } catch {
+      // gone: the table is drawn without a link to where it is defined
+    }
+  };
+  for (const schema of schemas) {
+    let databases;
+    try {
+      databases = JSON.parse(schema.text)?.databases;
+    } catch {
+      continue;
+    }
+    for (const database of Array.isArray(databases) ? databases : []) {
+      for (const where of Array.isArray(database?.definedIn) ? database.definedIn.filter((each) => typeof each === 'string') : []) {
+        if (!where.endsWith('/')) {
+          add(where);
+          continue;
+        }
+        try {
+          for (const entry of readdirSync(path.join(root, where), { withFileTypes: true })) if (entry.isFile() && /\.(sql|ts)$/.test(entry.name)) add(posix(where.replace(/\/$/, ''), entry.name));
+        } catch {
+          // gone
+        }
+      }
+    }
+  }
+  return [...found].map(([file, text]) => ({ file, text }));
+}
+
+/**
  * @param {string} root
  * @param {{ commit?: string, fallbackDescription?: { file: string, text: string } }} [options] `commit` names the commit `root` holds when
  *   it is an earlier one, so the environment's own commit is not claimed for it; `fallbackDescription` is used when `root` has no description file.
@@ -138,8 +178,12 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
   const commit = named ?? (process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']));
   // An earlier commit drawn for What changed may predate the file; this checkout's own must have it.
   const schema = named && !existsSync(path.join(root, SCHEMA_FILE)) ? null : { file: SCHEMA_FILE, text: readText(root, SCHEMA_FILE) };
+  // The Monitor's, as the API's: an earlier commit may predate it, this checkout's own must have it.
+  const monitorSchema = named && !existsSync(path.join(root, MONITOR_SCHEMA_FILE)) ? null : { file: MONITOR_SCHEMA_FILE, text: readText(root, MONITOR_SCHEMA_FILE) };
   return {
     schema,
+    monitorSchema,
+    definitionFiles: definitionSourcesOf(root, [schema, monitorSchema].filter(Boolean)),
     wrangler: { file: WRANGLER_CONFIG, text: readText(root, WRANGLER_CONFIG) },
     description,
     candidates,

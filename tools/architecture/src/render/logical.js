@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { linksFor, commitLineOf } from './links.js';
 import { esc, wrap } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -19,20 +20,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const LOGICAL_FILE = 'service-cockpit.html';
 
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
-
-/** Links to the code on GitHub: `null` for each when the page does not know its repository and commit. */
-function linksFor({ repo, commit }) {
-  const known = Boolean(repo && commit);
-  /** @param {string} rel @param {{ line?: number|null, folder?: boolean }} [at] */
-  const url = (rel, { line = null, folder = false } = {}) => (known ? `https://github.com/${repo}/${folder ? 'tree' : 'blob'}/${commit}/${rel.replace(/\/$/, '')}${line ? `#L${line}` : ''}` : null);
-  const file = (rel, line) => {
-    const href = url(rel, { line });
-    const label = `<code>${esc(rel)}${line ? `:${line}` : ''}</code>`;
-    return href ? `<a class="gh" href="${esc(href)}" target="_blank" rel="noopener">${label}</a>` : label;
-  };
-  const files = (list, at = {}, separator = '<br>') => list.map((each) => file(each, at[each])).join(separator);
-  return { known, url, file, files };
-}
 
 /** A component opens its code on GitHub: its folder. It is marked ↗ and its name stays dark, since a blue name means a page one level down. */
 function codeLinked(chip, body, right, top, links) {
@@ -307,10 +294,7 @@ export function renderLogicalPage(model) {
     return `${name}${each.note ? `, ${esc(each.note)},` : ''}`;
   });
   const standfirst = `The layers it is meant to have, drawn clean, with every line the code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
-  const commit = drawnFrom.commit;
-  const commitLine = !commit ? '<span>commit <b>not known</b>, so no link to the code opens</span>' : links.known
-    ? `<span>commit <a class="gh" href="${esc(`https://github.com/${drawnFrom.repo}/tree/${commit}`)}" target="_blank" rel="noopener"><b>${esc(commit.slice(0, 7))}</b></a>, which every ↗ link opens the code at</span>`
-    : `<span>commit <b>${esc(commit.slice(0, 7))}</b>, which no link opens the code at here: the repository is not known</span>`;
+  const commitLine = commitLineOf(drawnFrom, links);
   const designFile = 'tools/architecture/description.yml';
 
   return `<!doctype html>

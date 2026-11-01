@@ -1,0 +1,3250 @@
+{
+  "$comment": "Written by apps/harness-monitor/tests/integration/schema-file.test.ts from a real database once every migration has run; never edited by hand.",
+  "databases": [
+    {
+      "key": "harness-monitor",
+      "name": "Harness Monitor",
+      "kind": "D1",
+      "oneFor": "the Harness Monitor",
+      "definedIn": [
+        "apps/harness-monitor/migrations/"
+      ],
+      "tables": [
+        {
+          "name": "branch_links",
+          "strict": false,
+          "columns": [
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "pr_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "title",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "state",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "merged_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "issue_number",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "engineer",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pr_updated_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "linked_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "issue_parent",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "issue_parent_title",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "branch_links_engineer",
+              "unique": false,
+              "columns": [
+                "engineer"
+              ]
+            },
+            {
+              "name": "branch_links_pr_number",
+              "unique": false,
+              "columns": [
+                "pr_number"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "ci_attempt_jobs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "job_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "outcome",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "completed_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "failed_step",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "ci_attempt_steps",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "job_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "number",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "occurrence",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "completed_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "ci_attempts",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "workflow",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "path",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "event",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "on_main",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "head_sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "outcome",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "created_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "ci_attempts_created",
+              "unique": false,
+              "columns": [
+                "on_main",
+                "created_at"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "ci_failed_jobs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "step",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "tests_more",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "ci_failed_tests",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "test_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "file",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "project",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "error",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "claude_call_daily_totals",
+          "strict": false,
+          "columns": [
+            {
+              "name": "day",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "environment",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "feature",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "started_by",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 5,
+              "references": null
+            },
+            {
+              "name": "pull_request",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 6,
+              "references": null
+            },
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 7,
+              "references": null
+            },
+            {
+              "name": "calls",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cost_micros",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_calls",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "claude_call_job_runs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "ran_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_by",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ok",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "message",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_ok_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "claude_call_place",
+          "strict": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "after_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "claude_calls",
+          "strict": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "occurred_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "environment",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "feature",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "prompt_version",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_by",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "outcome",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "tokens_in",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_read",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_write",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "tokens_out",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cost_micros",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pull_request",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ingest_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "copied_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "claude_calls_ingest",
+              "unique": false,
+              "columns": [
+                "ingest_id"
+              ]
+            },
+            {
+              "name": "claude_calls_occurred",
+              "unique": false,
+              "columns": [
+                "occurred_at"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "cycle_time_checks",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "round_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "attempt",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "held_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "is_last",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "failure",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "fluke_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "queued_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "detail_not_recorded",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "no_file_failed",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "running_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "cycle_time_failures",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "round_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "kind",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "item_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 5,
+              "references": null
+            },
+            {
+              "name": "item",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "cycle_time_pulls",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "title",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "merged_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "base",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "head",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "landing",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "additions",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "deletions",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "changed_files",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "commits",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "main_merges",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "start_from",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "recorded",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "coding_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ci_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "waiting_to_merge_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "away_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "total_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "review_count",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "review_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "test_runs",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "test_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "browser_runs",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "browser_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "runner_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "superseded_runs",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "superseded_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cancelled_runs",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cancelled_ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "code_review_count",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "code_review_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "security_review_count",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "security_review_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_code_review_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_security_review_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_test_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_browser_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "cycle_time_pulls_merged",
+              "unique": false,
+              "columns": [
+                "merged_at"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "cycle_time_rounds",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "round_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pushed_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ended_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ms",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "red",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "commits",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "queue_not_recorded",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "cycle_time_timelines",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "timeline",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "daily_credited_totals",
+          "strict": false,
+          "columns": [
+            {
+              "name": "day",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "category",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "ran_where",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 5,
+              "references": null
+            },
+            {
+              "name": "subagent",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 6,
+              "references": null
+            },
+            {
+              "name": "credit_branch",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 7,
+              "references": null
+            },
+            {
+              "name": "requests",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cost_micros",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_requests",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_input_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_output_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_cache_creation_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_cache_read_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "input_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "output_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_creation_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_read_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "daily_credited_totals_unpriced",
+              "unique": false,
+              "columns": [
+                "model"
+              ],
+              "where": "unpriced_requests > 0"
+            }
+          ]
+        },
+        {
+          "name": "daily_totals",
+          "strict": false,
+          "columns": [
+            {
+              "name": "day",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "category",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "requests",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "input_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "output_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_creation_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_read_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cost_micros",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unpriced_requests",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "job_runs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "ran_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_by",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ok",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "message",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_ok_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "link_state",
+          "strict": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "cursor",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_success_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "page_cursor",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "sizing_version",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "credited_through",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "price_list",
+          "strict": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "models",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "fetched_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_attempt_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "last_error",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "pull_request_stats",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pr_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "lines_added",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "lines_removed",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "opened_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ci_rounds",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "issue_title",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pr_updated_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "read_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "local_rounds",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "findings",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "request_credits",
+          "strict": false,
+          "columns": [
+            {
+              "name": "request_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "credit_branch",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "selection_bars",
+          "strict": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "threshold",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "min_over",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "window_days",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "min_pulls",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "alarm_issue",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "selection_changed_files",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "path",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "ignored",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "selection_files",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "package",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "path",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null
+            },
+            {
+              "name": "level",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "chain_kind",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "chain",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "chain_text",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "selection_files_path",
+              "unique": false,
+              "columns": [
+                "job",
+                "path"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "selection_misses",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "path",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "level",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "reason",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "selection_packages",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "dir",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "mode",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "report",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "reason_rule",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "reason_path",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "files_total",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "selection_pulls",
+          "strict": false,
+          "columns": [
+            {
+              "name": "pull_number",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "title",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "merged_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ran_everything",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "selecting",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "files_run",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "files_total",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "pr_duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "main_duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "unplaced_files",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "selection_pulls_merged",
+              "unique": false,
+              "columns": [
+                "merged_at"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "session_starts",
+          "strict": false,
+          "columns": [
+            {
+              "name": "session_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "request_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "occurred_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "day",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "input_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_creation_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_read_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "session_starts_day",
+              "unique": false,
+              "columns": [
+                "day"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stability_jobs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "outcome",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "completed_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "failed_step",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "stability_runs",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "workflow",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "path",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "status",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "outcome",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "head_sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "created_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "url",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "stability_runs_created",
+              "unique": false,
+              "columns": [
+                "created_at"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "stability_steps",
+          "strict": false,
+          "columns": [
+            {
+              "name": "run_id",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "job_index",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "number",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "occurrence",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "conclusion",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "started_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "completed_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "duration_ms",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "tests_area_lines",
+          "strict": false,
+          "columns": [
+            {
+              "name": "snapshot",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "commit_sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "area",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null
+            },
+            {
+              "name": "document",
+              "type": "BLOB",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "tests_current",
+          "strict": false,
+          "columns": [
+            {
+              "name": "snapshot",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "commit_sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "made_current_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "tests_trees",
+          "strict": false,
+          "columns": [
+            {
+              "name": "snapshot",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "commit_sha",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null
+            },
+            {
+              "name": "document",
+              "type": "BLOB",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "areas",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": []
+        },
+        {
+          "name": "usage_requests",
+          "strict": false,
+          "columns": [
+            {
+              "name": "request_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null
+            },
+            {
+              "name": "session_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "occurred_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "day",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "branch",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "category",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "review_level",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "model",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "speed",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "input_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "output_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_creation_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_read_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "subagent",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ran_where",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "source",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "ingest_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "received_at",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cache_creation_1h_tokens",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "cost_micros",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "price_basis",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "priced_at",
+              "type": "INTEGER",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "subagent_type",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            },
+            {
+              "name": "subagent_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null
+            }
+          ],
+          "indexes": [
+            {
+              "name": "usage_requests_branch",
+              "unique": false,
+              "columns": [
+                "branch"
+              ]
+            },
+            {
+              "name": "usage_requests_day",
+              "unique": false,
+              "columns": [
+                "day"
+              ]
+            },
+            {
+              "name": "usage_requests_ingest",
+              "unique": false,
+              "columns": [
+                "ingest_id"
+              ]
+            },
+            {
+              "name": "usage_requests_occurred",
+              "unique": false,
+              "columns": [
+                "occurred_at"
+              ]
+            },
+            {
+              "name": "usage_requests_unpriced",
+              "unique": false,
+              "columns": [
+                "model"
+              ],
+              "where": "cost_micros IS NULL"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
