@@ -24,6 +24,8 @@ export type AttachmentContentType = z.infer<typeof attachmentContentTypeSchema>;
 
 /** What a device reports for a file it has no type for, or only a generic one. */
 const NO_USEFUL_TYPE = ['', 'application/octet-stream'];
+/** ...and what a device may report for a Markdown file in particular. */
+const NO_USEFUL_MARKDOWN_TYPE = [...NO_USEFUL_TYPE, 'text/x-markdown', 'text/plain'];
 const MARKDOWN_NAME = /\.(md|markdown)$/i;
 const PLAIN_TEXT_NAME = /\.txt$/i;
 
@@ -33,11 +35,11 @@ const PLAIN_TEXT_NAME = /\.txt$/i;
  * as nothing, `application/octet-stream`, `text/x-markdown` or `text/plain`
  * is Markdown, and a `.txt` reported as nothing or generic is plain text. A
  * file reported as something specific is never overridden by its name, and
- * every other file keeps the type it reported ("Attachments accept Markdown
+ * every other file keeps the type it reported ("Attachments refuse Markdown
  * and plain text files", issue 1659).
  */
 export function resolveAttachmentType(filename: string, reportedType: string): string {
-  if (MARKDOWN_NAME.test(filename) && [...NO_USEFUL_TYPE, 'text/x-markdown', 'text/plain'].includes(reportedType)) {
+  if (MARKDOWN_NAME.test(filename) && NO_USEFUL_MARKDOWN_TYPE.includes(reportedType)) {
     return 'text/markdown';
   }
   if (PLAIN_TEXT_NAME.test(filename) && NO_USEFUL_TYPE.includes(reportedType)) return 'text/plain';
