@@ -25,10 +25,12 @@ const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one :
 /** A component opens its code on GitHub: its folder. It is marked ↗ and its name stays dark, since a blue name means a page one level down. */
 function codeLinked(chip, body, right, top, links) {
   const tip = [chip.name, chip.sub].filter(Boolean).join(' - ');
-  const where = chip.folders[0];
-  const href = where ? links.url(where, { folder: true }) : null;
-  if (!href) return `${body}<title>${esc(tip)}</title>`;
-  const more = chip.folders.length > 1 ? ` (also ${chip.folders.slice(1).join(', ')})` : '';
+  // A component of file-name patterns opens the first of its files, and its tooltip lists the rest.
+  const matched = chip.matched ?? [];
+  const where = chip.folders[0] ?? matched[0];
+  const href = where ? links.url(where, { folder: chip.folders.length > 0 }) : null;
+  if (!href) return `${body}<title>${esc(chip.tip || tip)}</title>`;
+  const more = chip.folders.length > 1 ? ` (also ${chip.folders.slice(1).join(', ')})` : matched.length > 1 ? `, the first of ${matched.length} files:\n${matched.join('\n')}` : '';
   return `<a class="code" href="${esc(href)}" target="_blank" rel="noopener">${body}<text class="nc-gh" x="${right - 7}" y="${top + 15}" text-anchor="end">↗</text><title>${esc(`${tip}
 Open on GitHub: ${where}${more}`)}</title></a>`;
 }
@@ -200,8 +202,9 @@ export function renderNested(spec, links) {
     const cls = { component: 'nc', client: 'nc-cl', store: 'nc-st', outside: 'nc-ext' }[chip.kind];
     const name = wrap(chip.name, R.w - 12, 6.9)[0];
     const sub = wrap(chip.sub ?? '', R.w - 12, 5.6)[0] ?? '';
-    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
-    parts.push(`<g class="node n-${id}">${codeLinked(chip, body, R.x + R.w, R.y, links)}</g>`);
+    // A store or an outside service that is a page of its own opens it, and its name is blue: a page one level down.
+    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t${chip.href ? ' t-link' : ''}" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
+    parts.push(`<g class="node n-${id}">${chip.href ? `<a href="${esc(chip.href)}">${body}<title>${esc(chip.tip || `Open ${chip.name}`)}</title></a>` : codeLinked(chip, body, R.x + R.w, R.y, links)}</g>`);
   }
   const W = spec.side ? SX + SW + 20 : X0 + MW + 60;
   const fade = (sel, keep) => `svg.nested:has(${sel}:hover) .nl:not(${keep}), svg.nested:has(${sel}:hover) .nl-l:not(${keep}), svg.nested:has(${sel}:hover) .nl-num:not(${keep}), svg.nested:has(${sel}:hover) .nl-num-t:not(${keep}) { opacity: .07; }`;
@@ -284,21 +287,31 @@ function placementProblems(logical) {
 }
 
 /** @returns {string} a complete HTML document: Cockpit's design with the code's lines laid over it */
-export function renderLogicalPage(model) {
-  const { logical, drawnFrom } = model;
+export function renderLogicalPage(model, service = {}) {
+  const logical = service.logical ?? model.logical;
+  const name = service.name ?? 'Cockpit';
+  const { drawnFrom } = model;
   const links = linksFor(drawnFrom);
-  const spec = specOf(logical, links);
+  const spec = { ...specOf(logical, links), service: name };
   const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}${readFileSync(path.join(here, 'logical.css'), 'utf8')}`;
-  const drawing = renderNested({ label: 'Cockpit: the design, with the code laid over it', rows: spec.rows, side: spec.side, sideRow: spec.sideRow, lines: spec.lines, laneStart: 34 }, links);
+  const drawing = renderNested({ label: `${name}: the design, with the code laid over it`, rows: spec.rows, side: spec.side, sideRow: spec.sideRow, lines: spec.lines, laneStart: 34 }, links);
 
   const count = logical.bad.length;
   const readByAll = logical.noLine.filter((each) => each.readByEveryone).map((each) => {
-    const name = each.name.includes('/') && links.known ? `<a class="gh" href="${esc(links.url(each.folder, { folder: true }))}" target="_blank" rel="noopener"><code>${esc(each.name)}</code></a>` : `<code>${esc(each.name)}</code>`;
-    return `${name}${each.note ? `, ${esc(each.note)},` : ''}`;
+    const label = each.name.includes('/') && links.known ? `<a class="gh" href="${esc(links.url(each.folder, { folder: true }))}" target="_blank" rel="noopener"><code>${esc(each.name)}</code></a>` : `<code>${esc(each.name)}</code>`;
+    return `${label}${each.note ? `, ${esc(each.note)},` : ''}`;
   });
-  const standfirst = `The layers it is meant to have, drawn clean, with every line the code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
-  const commitLine = commitLineOf(drawnFrom, links);
+  const standfirst = `${service.intro ? `${esc(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
+  // Cockpit's page always shows the sections for acceptances and callers; another service's shows them once it has something to say.
   const designFile = 'tools/architecture/description.yml';
+  const own = service.logical !== undefined;
+  const acceptances = !own || logical.accepted.length > 0 || logical.stale.length > 0
+    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, beside the design.</p>${accTable(logical, spec, links)}`
+    : '';
+  const callers = !own || logical.callers.some((caller) => caller.status !== 'elsewhere')
+    ? `<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}`
+    : '';
+  const commitLine = commitLineOf(drawnFrom, links);
 
   return `<!doctype html>
 <html lang="en">
@@ -306,18 +319,18 @@ export function renderLogicalPage(model) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Cockpit Architecture &middot; Cockpit</title>
+<title>${esc(name)} Architecture &middot; Cockpit</title>
 <style>${styles}${drawing.focus}</style>
 </head>
 <body>
 <div class="wrap wide">
-<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › Cockpit</p><h1>Cockpit</h1><p class="standfirst">${standfirst}</p>
+<header class="masthead"><p class="crumbs"><a href="index.html">Architecture</a> › ${esc(name)}</p><h1>${esc(name)}</h1><p class="standfirst">${standfirst}</p>
 <div class="runmeta">${commitLine}</div></header>
 ${placementProblems(logical)}${NLEGEND}<div class="diagram">${drawing.svg}</div>
 <h2 id="off">In the code, not in the design</h2><p class="sectionnote">The numbers match the red lines. Click a red circle, or Scope a fix, for a prompt to paste into Claude Code.</p>${offTable(logical, spec, links)}
-<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, beside the design.</p>${accTable(logical, spec, links)}
+${acceptances}
 <h2>In the design, not in the code</h2>${missTable(logical, spec)}
-<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}
+${callers}
 <h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}. A line inside one layer is always allowed.</p>${designTable(logical, spec)}
 ${dialog(devData({ ...spec, commit: drawnFrom.commit }))}
 </div>

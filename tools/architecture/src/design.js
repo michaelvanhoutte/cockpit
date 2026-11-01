@@ -20,6 +20,27 @@ const regexSource = (source, fail, where) => {
   return source;
 };
 
+/**
+ * The services beyond Cockpit's, each with a design of its own written the way `design` is. Each is drawn on a page
+ * of its own, `service-<id>.html`.
+ * @returns {{ id: string, name: string, intro: string, file: string, design: object }[]}
+ */
+export function parseServices(value, helpers) {
+  if (value === undefined) return [];
+  const { fail, object, array, string } = helpers;
+  const seen = new Set(['cockpit']);
+  return array(value, 'otherServices').map((each, index) => {
+    const where = `otherServices[${index}]`;
+    object(each, where);
+    const id = string(each.id, `${where}.id`);
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)) fail(`${where}.id must be lower case words joined by hyphens`);
+    if (seen.has(id)) fail(`${where}.id ${id} is used twice`);
+    seen.add(id);
+    const design = parseDesign(each.design ?? fail(`${where}.design is missing`), helpers);
+    return { id, name: string(each.name, `${where}.name`), intro: each.intro === undefined ? '' : string(each.intro, `${where}.intro`), file: `service-${id}.html`, design };
+  });
+}
+
 /** @returns the design, checked and normalised, or null when the file has no `design` section */
 export function parseDesign(value, { fail, object, array, string }) {
   if (value === undefined) return null;
@@ -43,11 +64,17 @@ export function parseDesign(value, { fail, object, array, string }) {
         chipIds.add(chipId);
         const chipKind = chip.kind === undefined ? 'component' : CHIP_KINDS.includes(chip.kind) ? chip.kind : fail(`${here}.kind must be one of ${CHIP_KINDS.join(', ')}`);
         const folders = chip.folders === undefined ? [] : array(chip.folders, `${here}.folders`).map((folder, n) => string(folder, `${here}.folders[${n}]`).replace(/\/+$/, ''));
-        if (chipKind === 'component' && folders.length === 0) fail(`${here} is a component and names no folder`);
-        if ((chipKind === 'client' || chipKind === 'outside') && folders.length > 0) fail(`${here} is a ${chipKind} and cannot name folders`);
+        // A component of a service that keeps its files in one folder names file-name patterns in it instead.
+        const files = chip.files === undefined ? [] : array(chip.files, `${here}.files`).map((pattern, n) => string(pattern, `${here}.files[${n}]`));
+        const inFolder = chip.in === undefined ? null : string(chip.in, `${here}.in`).replace(/\/+$/, '');
+        if (files.length > 0 && inFolder === null) fail(`${here}.files names file-name patterns and needs \`in\`, the folder they are matched in`);
+        if (files.length === 0 && inFolder !== null) fail(`${here}.in is the folder for \`files\`, which it does not name`);
+        if (chipKind === 'component' && folders.length === 0 && files.length === 0) fail(`${here} is a component and names no folder or file pattern`);
+        if ((chipKind === 'client' || chipKind === 'outside') && (folders.length > 0 || files.length > 0)) fail(`${here} is a ${chipKind} and cannot name folders`);
+        const href = chip.href === undefined ? null : /^[a-z0-9][a-z0-9.-]*\.html$/.test(String(chip.href)) ? chip.href : fail(`${here}.href must be the file name of a page beside this one`);
         const marker = chip.marker === undefined ? null : regexSource(string(chip.marker, `${here}.marker`), fail, `${here}.marker`);
         if (marker !== null && chipKind !== 'store' && chipKind !== 'outside') fail(`${here}.marker belongs on a store or an outside service`);
-        return { id: chipId, name: string(chip.name, `${here}.name`), sub: chip.sub === undefined ? '' : string(chip.sub, `${here}.sub`), kind: chipKind, folders, marker, how: chip.how === undefined ? '' : string(chip.how, `${here}.how`) };
+        return { id: chipId, name: string(chip.name, `${here}.name`), sub: chip.sub === undefined ? '' : string(chip.sub, `${here}.sub`), kind: chipKind, folders, in: inFolder, files, href, tip: chip.tip === undefined ? '' : string(chip.tip, `${here}.tip`), marker, how: chip.how === undefined ? '' : string(chip.how, `${here}.how`) };
       }),
     );
     if (items.length === 0 || items.some((row) => row.length === 0)) fail(`${where}.items must hold at least one chip in each row`);

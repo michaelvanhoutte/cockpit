@@ -83,7 +83,7 @@ export async function main(argv) {
     const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
     page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
-    if (!args.json) diagramPages = { ...renderDiagramPages(model), ...renderTablePages(model), ...(model.logical ? { [LOGICAL_FILE]: renderLogicalPage(model) } : {}) };
+    if (!args.json) diagramPages = { ...renderDiagramPages(model), ...renderTablePages(model), ...(model.logical ? { [LOGICAL_FILE]: renderLogicalPage(model) } : {}), ...Object.fromEntries(model.services.map((service) => [service.file, renderLogicalPage(model, service)])) };
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);

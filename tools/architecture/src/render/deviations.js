@@ -11,15 +11,15 @@ import { esc } from './svg.js';
 const bare = (text) => String(text).replace(/[.\s]+$/, '');
 
 /** The prompt a deviation copies: the deviation in the design's words, the rule it breaks and the exact lines, so a fresh session can scope the fix without opening the page. */
-export function devPrompt(e, { logical, nameOf, layerById, links, commit }) {
+export function devPrompt(e, { logical, nameOf, layerById, links, commit, service = 'Cockpit' }) {
   const allowed = logical.mayCall.filter(([a]) => a === e.a).map(([, b]) => layerById.get(b).title);
   const where = e.files.map((file) => {
     const href = links.url(file, { line: e.at[file] });
     return `- ${file}${e.at[file] ? `:${e.at[file]}` : ''}${href ? ` (${href})` : ''}`;
   }).join('\n');
   const head = e.accepted
-    ? `/scoping Reconsider an accepted architecture deviation in Cockpit.\n\nIt is accepted today because: ${e.accepted.reason}`
-    : '/scoping Fix an architecture deviation in Cockpit.';
+    ? `/scoping Reconsider an accepted architecture deviation in ${service}.\n\nIt is accepted today because: ${e.accepted.reason}`
+    : `/scoping Fix an architecture deviation in ${service}.`;
   const earlier = e.partly ? `\nAn earlier acceptance covers ${e.partly.files.join(', ')} ("${e.partly.reason}"); ${e.newFiles.join(', ')} ${e.newFiles.length === 1 ? 'is' : 'are'} new.` : '';
   return `${head}
 

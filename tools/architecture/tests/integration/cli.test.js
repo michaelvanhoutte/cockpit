@@ -68,7 +68,8 @@ let real;
 let drawing;
 const drawReal = () => (drawing ??= draw(checkout).then((run) => {
   const logicalFile = path.join(path.dirname(run.out), 'service-cockpit.html');
-  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined };
+  const monitorFile = path.join(path.dirname(run.out), 'service-harness-monitor.html');
+  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
 
@@ -277,6 +278,16 @@ describe('Logical', () => {
     expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length + logical.accepted.length);
     expect(real.logicalPage.match(/<tr class="bad" id="off-/g)).toHaveLength(logical.bad.length);
     expect(logical.callers.filter((caller) => caller.status === 'found').map((caller) => caller.from)).toEqual(expect.arrayContaining(['web', 'widget']));
+  });
+
+  it('places every source file of the Harness Monitor in exactly one component, and draws no red line on its code as it stands', () => {
+    const [monitor] = real.model.services;
+    expect(monitor.id).toBe('harness-monitor');
+    expect(monitor.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(monitor.logical.layers.map((layer) => layer.id)).toEqual(['clients', 'routes', 'reports', 'data', 'shared', 'outside']);
+    expect(monitor.logical.bad).toEqual([]);
+    expect(monitor.logical.ok.map((each) => `${each.a}>${each.b}`)).toEqual(expect.arrayContaining(['routes>reports', 'reports>data', 'reports>outside']));
+    expect(real.monitorPage).toContain('<h1>Harness Monitor</h1>');
   });
 
   it('records a folder no component names, naming the folder', async () => {

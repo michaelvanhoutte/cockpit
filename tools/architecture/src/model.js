@@ -251,7 +251,7 @@ function pagesOf(steps) {
 /**
  * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
  */
-export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], callerCode = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
+export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], callerCode = {}, designFiles = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
   const description = parseDescription(descriptionFile.file, descriptionFile.text);
   const environments = environmentsOf(parseWranglerConfig(wrangler.file, wrangler.text));
   const declared = new Set(environments.map((each) => each.name));
@@ -280,7 +280,9 @@ export function buildModel({ wrangler, workflows, description: descriptionFile, 
     dependencies: buildDependencies(description, candidates, modules),
     database,
     tables: buildTables(database, monitorSchema, definitionFiles),
-    logical: description.design ? buildLogical({ design: description.design, scan: description.scan, candidates, callerCode }) : null,
+    logical: description.design ? buildLogical({ design: description.design, scan: description.scan, candidates, callerCode, designFiles }) : null,
+    // The services beyond Cockpit, each with its design laid against its code the same way.
+    services: description.otherServices.map((service) => ({ id: service.id, name: service.name, intro: service.intro, file: service.file, logical: buildLogical({ design: service.design, scan: description.scan, candidates, callerCode, designFiles }) })),
     deployment: {
       pages: publisher ? { workflow: publisher.file, reports: publisher.pages.reports } : null,
       environments: environments.map((environment) => ({
