@@ -35,7 +35,7 @@ export const WHAT = {
   },
   costPerLine: {
     shows: 'What a thousand lines of merged change cost in Claude Code, in total and in each phase.',
-    read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn.',
+    read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Total, at the right of the heading, draws that line alone and solid; By phase, the default, draws it beside each phase. The switch is not offered when the Phase filter names one phase. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn.',
     look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent.',
   },
   shareOverTime: {
