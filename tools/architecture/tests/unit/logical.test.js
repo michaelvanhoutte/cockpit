@@ -389,3 +389,164 @@ describe('Every red and tick circle, and every row\'s button, opens its own devi
     expect(page).toContain('<p class="dim">None.</p>');
   });
 });
+
+/** A service that keeps its files in one folder: components are file-name patterns in it. */
+describe('A component made of file-name patterns holds exactly the files its patterns match', () => {
+  const SRC = 'apps/svc/src';
+  const patterned = (id, files, extra = {}) => chip(id, { in: SRC, files, ...extra });
+  const svc = (overrides = {}) => ({
+    layers: [
+      { id: 'clients', title: 'Clients', kind: 'clients', row: 0, items: [[chip('cron', { kind: 'client' })]] },
+      { id: 'routes', title: 'Routes', row: 1, items: [[patterned('entry', ['worker.*'])]] },
+      { id: 'reports', title: 'Reports and jobs', row: 2, items: [[patterned('cycle', ['cycle-time*', 'strip*']), patterned('jobs', ['jobs*'])]] },
+      { id: 'data', title: 'Data', row: 3, items: [[chip('db', { kind: 'store', marker: '\\.prepare\\(', how: 'SQL', href: 'db-svc.html', tip: 'Open its tables' })]] },
+      { id: 'outside', title: 'Outside', kind: 'outside', alignedWith: 'reports', items: [[chip('cockpit', { kind: 'outside', marker: 'usage-records', how: 'HTTPS', href: 'service-cockpit.html' })]] },
+    ],
+    mayCall: { clients: ['routes'], routes: ['reports'], reports: ['data', 'outside'] },
+    breaks: { 'routes>data': 'A route reads or writes the database itself, past the reports' },
+    callers: [{ from: 'cron', to: 'entry', how: 'scheduled()' }],
+    noLine: [],
+    ...overrides,
+  });
+  const source = (files) => ({ [SRC]: Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text })) });
+  const run = (files, design = svc()) => buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: source(files) });
+  const normal = { 'worker.ts': '', 'cycle-time.ts': '', 'cycle-time-page.ts': '', 'strip-x.ts': '', 'jobs.ts': '' };
+  const chipOf = (logical, id) => logical.layers.flatMap((layer) => layer.items.flat()).find((each) => each.id === id);
+
+  it('puts a file matching one components pattern in that component, and records nothing', () => {
+    const logical = run(normal);
+    expect(logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(chipOf(logical, 'cycle').matched).toEqual([`${SRC}/cycle-time-page.ts`, `${SRC}/cycle-time.ts`, `${SRC}/strip-x.ts`]);
+    expect(chipOf(logical, 'entry').matched).toEqual([`${SRC}/worker.ts`]);
+  });
+
+  it('records a file no pattern matches, naming it', () => {
+    expect(run({ ...normal, 'stray.ts': '' }).placement).toEqual({ unplaced: [`${SRC}/stray.ts`], gone: [], doubled: [] });
+  });
+
+  it('records a file two components patterns match, naming both', () => {
+    const both = svc({ layers: svc().layers.map((layer) => (layer.id === 'reports' ? { ...layer, items: [[patterned('cycle', ['cycle-time*', 'strip*']), patterned('jobs', ['jobs*', '*-both*'])]] } : layer)) });
+    expect(run({ ...normal, 'cycle-time-both.ts': '' }, both).placement.doubled).toEqual([{ folder: `${SRC}/cycle-time-both.ts`, components: ['cycle', 'jobs'] }]);
+  });
+
+  it('records a pattern matching nothing, naming it and its component', () => {
+    const { 'strip-x.ts': _gone, ...without } = normal;
+    expect(run(without).placement).toEqual({ unplaced: [], gone: [{ folder: `${SRC}/strip*`, components: ['cycle'] }], doubled: [] });
+  });
+
+  it('matches the whole name, so a dot in a pattern is a dot', () => {
+    expect(run({ ...normal, workerxts: '' }).placement.unplaced).toEqual([`${SRC}/workerxts`]);
+  });
+
+  it('reads an import between files placed in different components as a line between them', () => {
+    const logical = run({ ...normal, 'cycle-time.ts': "import { x } from './jobs.js';", 'worker.ts': "import { y } from './cycle-time';" });
+    expect(logical.inside).toEqual({ reports: 1 });
+    expect(logical.ok.map((each) => [each.a, each.b, each.files])).toEqual([['routes', 'reports', [`${SRC}/worker.ts`]]]);
+  });
+});
+
+describe('The Monitor lines are judged by its own design', () => {
+  const SRC = 'apps/svc/src';
+  const patterned = (id, files) => chip(id, { in: SRC, files });
+  const design = {
+    layers: [
+      { id: 'routes', title: 'Routes', row: 0, items: [[patterned('entry', ['worker.*'])]] },
+      { id: 'reports', title: 'Reports and jobs', row: 1, items: [[patterned('cycle', ['cycle-time*'])]] },
+      { id: 'data', title: 'Data', row: 2, items: [[chip('db', { kind: 'store', marker: '\\.prepare\\(', how: 'SQL' })]] },
+    ],
+    mayCall: { routes: ['reports'], reports: ['data'] },
+    breaks: { 'routes>data': 'A route reads or writes the database itself, past the reports' },
+    callers: [],
+    noLine: [],
+  };
+  const run = (files) => buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: { [SRC]: Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text })) } });
+
+  it('draws one grey line, Reports and jobs to Data, when a report reads the database', () => {
+    const logical = run({ 'worker.ts': '', 'cycle-time.ts': 'db.prepare(q);\ndb.prepare(r);' });
+    expect(logical.ok.map((each) => [each.a, each.b, each.files.length])).toEqual([['reports', 'data', 1]]);
+    expect(logical.bad).toEqual([]);
+  });
+
+  it('names the service, not Cockpit, in the prompt of its red line', () => {
+    const logical = run({ 'worker.ts': 'db.prepare(q);', 'cycle-time.ts': '' });
+    const page = renderLogicalPage({ logical, drawnFrom: { commit: null, repo: null } }, { name: 'Harness Monitor', logical });
+    const [prompt] = Object.values(JSON.parse(page.match(/id="devs">(.*?)<\/script>/s)[1])).map((each) => each.prompt);
+    expect(prompt.startsWith('/scoping Fix an architecture deviation in Harness Monitor.')).toBe(true);
+  });
+
+  it('draws a red line, Routes to the database, when a route runs SQL itself', () => {
+    const logical = run({ 'worker.ts': 'const x = 1;\ndb.prepare(q);', 'cycle-time.ts': '' });
+    expect(logical.bad.map((each) => [each.n, each.from, each.to, each.why, each.at])).toEqual([[1, 'entry', 'db', 'A route reads or writes the database itself, past the reports', { [`${SRC}/worker.ts`]: 2 }]]);
+  });
+});
+
+describe('A service page links to its database page, to Cockpit and to its components files', () => {
+  const SRC = 'apps/svc/src';
+  const design = {
+    layers: [
+      { id: 'reports', title: 'Reports and jobs', row: 0, items: [[chip('cycle', { in: SRC, files: ['cycle-time*', 'strip*'] }), chip('solo', { in: SRC, files: ['solo*'] })]] },
+      { id: 'data', title: 'Data', row: 1, items: [[chip('db', { kind: 'store', marker: '\\.prepare\\(', how: 'SQL', href: 'db-svc.html', tip: 'Open its tables' })]] },
+      { id: 'outside', title: 'Outside', kind: 'outside', alignedWith: 'reports', items: [[chip('cockpit', { kind: 'outside', marker: 'usage-records', href: 'service-cockpit.html' })]] },
+    ],
+    mayCall: { reports: ['data', 'outside'] },
+    callers: [],
+    noLine: [],
+  };
+  const logical = buildLogical({
+    design: parseDescription('d.yml', descriptionFile({ design }).text).design,
+    scan: { extensions: ['.ts'] },
+    candidates: [],
+    designFiles: { [SRC]: ['cycle-time-b.ts', 'cycle-time-a.ts', 'strip.ts', 'solo.ts'].map((name) => ({ file: `${SRC}/${name}`, text: name === 'solo.ts' ? 'db.prepare(q);' : '' })) },
+  });
+  const page = renderLogicalPage({ logical, drawnFrom: { commit: 'abc1234def5678', repo: 'o/r' } }, { name: 'Harness Monitor', logical, intro: 'A second Worker.' });
+  const node = (id) => page.match(new RegExp(`<g class="node n-${id}">(.*?)</g>`, 's'))[1];
+
+  it('opens the database page from the store chip, with its tooltip', () => {
+    expect(node('db')).toContain('<a href="db-svc.html">');
+    expect(node('db')).toContain('<title>Open its tables</title>');
+  });
+
+  it('opens Cockpit page from the Cockpit chip', () => {
+    expect(node('cockpit')).toContain('<a href="service-cockpit.html">');
+  });
+
+  it('opens the first file from a component of several, and lists all of them in its tooltip', () => {
+    expect(node('cycle')).toContain('<a class="code" href="https://github.com/o/r/blob/abc1234def5678/apps/svc/src/cycle-time-a.ts"');
+    expect(node('cycle')).toContain('Open on GitHub: apps/svc/src/cycle-time-a.ts, the first of 3 files:\napps/svc/src/cycle-time-a.ts\napps/svc/src/cycle-time-b.ts\napps/svc/src/strip.ts');
+  });
+
+  it('opens the one file of a component of one, without a list', () => {
+    expect(node('solo')).toContain('href="https://github.com/o/r/blob/abc1234def5678/apps/svc/src/solo.ts"');
+    expect(node('solo')).not.toContain('the first of');
+  });
+
+  it('names the service on its page, starts with what it says about itself, and leaves out a callers table with no code to look in', () => {
+    expect(page).toContain('<h1>Harness Monitor</h1>');
+    expect(page).toContain('<title>Harness Monitor Architecture &middot; Cockpit</title>');
+    expect(page).toContain('A second Worker. The layers it is meant to have');
+    expect(page).not.toContain('How each caller talks to it');
+  });
+});
+
+describe('A design of file-name patterns is checked as the rest of the description file is', () => {
+  const read = (items) => parseDescription('d.yml', descriptionFile({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[items]] }], mayCall: {}, callers: [], noLine: [] } }).text);
+
+  it('reads a valid component of patterns', () => {
+    expect(read({ id: 'c', name: 'c', in: 'a/b/', files: ['x*'] }).design.layers[0].items[0][0]).toMatchObject({ in: 'a/b', files: ['x*'], folders: [] });
+  });
+
+  it.each([
+    { situation: 'patterns name no folder to match in', item: { id: 'c', name: 'c', files: ['x*'] }, message: 'needs `in`' },
+    { situation: 'a folder is named with no patterns', item: { id: 'c', name: 'c', in: 'a', folders: ['b'] }, message: 'does not name' },
+    { situation: 'a link is not the name of a page', item: { id: 's', name: 's', kind: 'store', href: 'https://x.test/a' }, message: 'file name of a page' },
+  ])('fails the run when $situation', ({ item, message }) => {
+    expect(() => read(item)).toThrow(ReadError);
+    expect(() => read(item)).toThrow(message);
+  });
+
+  it('reads the services beyond Cockpit, each drawn on a page of its own, and fails on a repeated id', () => {
+    const service = (id) => ({ id, name: id, design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {} } });
+    expect(parseDescription('d.yml', descriptionFile({ otherServices: [service('harness-monitor')] }).text).otherServices.map((each) => each.file)).toEqual(['service-harness-monitor.html']);
+    expect(() => parseDescription('d.yml', descriptionFile({ otherServices: [service('a'), service('a')] }).text)).toThrow('is used twice');
+  });
+});

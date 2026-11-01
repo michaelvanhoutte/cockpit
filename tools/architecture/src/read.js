@@ -107,11 +107,27 @@ function discover(root, description) {
  */
 function callerCodeOf(root, description) {
   const found = {};
-  for (const caller of description.design?.callers ?? []) {
+  for (const caller of [description.design, ...description.otherServices.map((service) => service.design)].flatMap((design) => design?.callers ?? [])) {
     if (!caller.code || caller.code.folder in found) continue;
     found[caller.code.folder] = existsSync(path.join(root, caller.code.folder))
       ? filesIn(root, description.scan, caller.code.folder, { recursive: true, extensions: caller.code.extensions ?? description.scan.extensions }).filter((each) => each.text !== null)
       : [];
+  }
+  return found;
+}
+
+/**
+ * The source files directly in each folder a design names file-name patterns in (a service that keeps its files
+ * in one folder), tests left out, with their text. A folder this checkout does not have holds none.
+ */
+function designFilesOf(root, description) {
+  const found = {};
+  const designs = [description.design, ...description.otherServices.map((service) => service.design)].filter(Boolean);
+  for (const design of designs) {
+    for (const chip of design.layers.flatMap((layer) => layer.items.flat())) {
+      if (chip.files.length === 0 || chip.in in found) continue;
+      found[chip.in] = existsSync(path.join(root, chip.in)) ? filesIn(root, description.scan, chip.in, { recursive: false }).filter((each) => each.text !== null) : [];
+    }
   }
   return found;
 }
@@ -166,6 +182,7 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
   const parsed = parseDescription(description.file, description.text);
   const candidates = discover(root, parsed);
   const callerCode = callerCodeOf(root, parsed);
+  const designFiles = designFilesOf(root, parsed);
 
   let names;
   try {
@@ -188,6 +205,7 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
     description,
     candidates,
     callerCode,
+    designFiles,
     workflows: names.map((name) => ({ file: name, text: readText(root, `${WORKFLOWS_DIR}/${name}`) })),
     commit,
     date: commit ? git(root, ['show', '-s', '--format=%cI', '--end-of-options', commit]) : null,

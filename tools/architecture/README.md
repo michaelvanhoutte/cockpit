@@ -206,7 +206,16 @@ comment line is not evidence.
 component naming a folder that is gone, and a folder in two components. The `Logical` tests over this repository fail on any.
 A folder read by nearly everything goes in `noLine` instead.
 
-A component marked ↗ opens its folder on GitHub at the commit the page was drawn from, and each file listed opens at its
+**Other services** are the `otherServices` list of `description.yml`, each with a `design` written like Cockpit's and drawn
+on `service-<id>.html` (today `service-harness-monitor.html`, in `model.json` under `services`). A service that keeps its
+files in one folder names file-name patterns instead of folders: `in` is the folder (its files directly, not its subfolders)
+and `files` the patterns, where `*` is any run of characters in the name. Placement is by file: a source file no pattern
+matches, a file two components' patterns match and a pattern matching nothing are recorded in `placement` as a folder is, and
+fail the same test. A store or outside service with an `href` opens that page of its own (the Monitor's store opens its
+database page, its Cockpit box opens Cockpit's page). A page of another service shows the acceptances and callers sections
+once it has an acceptance or a caller whose code this repository holds.
+
+A component marked ↗ opens its folder (or, for patterns, its first file, the tooltip listing the rest) on GitHub at the commit the page was drawn from, and each file listed opens at its
 line. The page knows the repository from `GITHUB_REPOSITORY`, which GitHub Actions sets (set it by hand, as `owner/name`, to get the links in a
 local run); without it, or without a commit, it links nothing.
 

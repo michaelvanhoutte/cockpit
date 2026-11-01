@@ -18,6 +18,8 @@
  * architecture tool's test is what fails on it.
  */
 
+import path from 'node:path';
+
 import { importResolver } from './dependencies.js';
 import { codeOf, importsOf } from './scan.js';
 
@@ -26,15 +28,19 @@ const codeLines = (text) => codeOf(text).split('\n').map((line, at) => ({ line, 
 
 const firstLine = (lines, test) => lines.find(({ line }) => test(line))?.n ?? null;
 
+/** A file-name pattern as a regular expression: `*` is any run of characters in the name, anything else is itself. */
+const patternOf = (pattern) => new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`);
+
 const byPath = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 
 /** The line an import is written on: the first code line that quotes the specifier. */
 const importLine = (lines, specifier) => firstLine(lines, (line) => ['\'', '"', '`'].some((quote) => line.includes(`${quote}${specifier}${quote}`)));
 
 /**
- * @param {{ design: object, scan: { extensions: string[] }, candidates: { path: string, packageName?: string|null, files: { file: string, text: string|null }[] }[], callerCode?: Record<string, { file: string, text: string }[]> }} input
+ * @param {{ design: object, scan: { extensions: string[] }, candidates: { path: string, packageName?: string|null, files: { file: string, text: string|null }[] }[], callerCode?: Record<string, { file: string, text: string }[]>, designFiles?: Record<string, { file: string, text: string }[]> }} input
+ * `designFiles` holds, for each folder a component names file-name patterns in, the source files directly in it.
  */
-export function buildLogical({ design, scan, candidates, callerCode = {} }) {
+export function buildLogical({ design, scan, candidates, callerCode = {}, designFiles = {} }) {
   const chips = design.layers.flatMap((layer) => layer.items.flat().map((chip) => ({ ...chip, layer: layer.id })));
   const layerOf = new Map(chips.map((chip) => [chip.id, chip.layer]));
   const layerById = new Map(design.layers.map((layer) => [layer.id, layer]));
@@ -46,10 +52,30 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
   const place = (folder, owner) => owners.set(folder, [...(owners.get(folder) ?? []), owner]);
   for (const chip of chips) for (const folder of chip.folders) place(folder, chip.id);
   for (const each of design.noLine) place(each.folder, `${each.name} (drawn as no line)`);
+  // A component made of file-name patterns holds the files its patterns match, in the folder it names. A file
+  // no pattern matches, a file two components' patterns match and a pattern that matches nothing are recorded
+  // as a folder is: by the file's path, or for a pattern the path with the pattern as its name.
+  const matched = new Map();
+  const emptyPatterns = [];
+  for (const chip of chips.filter((each) => each.files.length > 0)) {
+    for (const pattern of chip.files) {
+      const test = patternOf(pattern);
+      const hits = (designFiles[chip.in] ?? []).filter(({ file }) => test.test(file.slice(chip.in.length + 1)));
+      if (hits.length === 0) emptyPatterns.push({ folder: `${chip.in}/${pattern}`, components: [chip.id] });
+      for (const { file } of hits) {
+        const by = matched.get(file) ?? [];
+        if (!by.includes(chip.id)) matched.set(file, [...by, chip.id]);
+      }
+    }
+  }
+  const patternFolders = new Set(chips.filter((each) => each.files.length > 0).map((each) => each.in));
+  const unmatched = [...patternFolders].flatMap((folder) => (designFiles[folder] ?? []).map(({ file }) => file)).filter((file) => !matched.has(file));
+  // A design that names no folder (a service of file patterns) is not asked to place the folders of the others.
+  const byFolder = (a, b) => a.folder.localeCompare(b.folder);
   const placement = {
-    unplaced: [...onDisk].filter((folder) => !owners.has(folder)).sort(),
-    gone: [...owners.entries()].filter(([folder]) => !onDisk.has(folder)).map(([folder, by]) => ({ folder, components: by })).sort((a, b) => a.folder.localeCompare(b.folder)),
-    doubled: [...owners.entries()].filter(([, by]) => by.length > 1).map(([folder, by]) => ({ folder, components: by })).sort((a, b) => a.folder.localeCompare(b.folder)),
+    unplaced: [...(owners.size > 0 ? [...onDisk].filter((folder) => !owners.has(folder)) : []), ...unmatched].sort(),
+    gone: [...[...owners.entries()].filter(([folder]) => !onDisk.has(folder)).map(([folder, by]) => ({ folder, components: by })), ...emptyPatterns].sort(byFolder),
+    doubled: [...[...owners.entries()].filter(([, by]) => by.length > 1).map(([folder, by]) => ({ folder, components: by })), ...[...matched].filter(([, by]) => by.length > 1).map(([file, by]) => ({ folder: file, components: by }))].sort(byFolder),
   };
 
   // ---- evidence
@@ -59,13 +85,19 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
   const markers = chips.filter((chip) => chip.marker !== null).map((chip) => ({ chip, test: new RegExp(chip.marker) }));
   const filesOf = new Map(candidates.map((candidate) => [candidate.path, candidate.files]));
 
+  // A file placed by pattern is imported by its path without the extension; the first component to match it holds it.
+  const chipOfFile = new Map();
+  for (const [file, by] of matched) chipOfFile.set(file.replace(/\.[cm]?[jt]sx?$/, ''), by[0]);
+  const patternTarget = (file, specifier) => (specifier.startsWith('.') ? chipOfFile.get(path.posix.join(path.posix.dirname(file), specifier).replace(/\.[cm]?[jt]sx?$/, '')) : undefined);
+
   const evidence = [];
   for (const chip of chips.filter((each) => each.kind === 'component')) {
-    const files = chip.folders.flatMap((folder) => filesOf.get(folder) ?? []).filter((each) => each.text !== null).sort(byPath);
+    const byPattern = [...matched].filter(([, by]) => by.includes(chip.id)).map(([file]) => (designFiles[chip.in] ?? []).find((each) => each.file === file));
+    const files = [...chip.folders.flatMap((folder) => filesOf.get(folder) ?? []), ...byPattern].filter((each) => each.text !== null).sort(byPath);
     for (const { file, text } of files) {
       const lines = codeLines(text);
       for (const specifier of importsOf(text)) {
-        const target = areaToChip.get(resolve(file, specifier));
+        const target = areaToChip.get(resolve(file, specifier)) ?? patternTarget(file, specifier);
         if (target && target !== chip.id) evidence.push({ from: chip.id, to: target, via: 'import', how: '', file, line: importLine(lines, specifier) });
       }
       for (const { chip: reached, test } of markers) {
@@ -143,5 +175,8 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
 
   const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
 
-  return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers };
+  // A component of file-name patterns carries the files they matched, for its link to the first and its tooltip.
+  const layers = design.layers.map((layer) => ({ ...layer, items: layer.items.map((row) => row.map((chip) => (chip.files.length > 0 ? { ...chip, matched: [...matched].filter(([, by]) => by.includes(chip.id)).map(([file]) => file).sort() } : chip))) }));
+
+  return { layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers };
 }

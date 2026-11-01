@@ -10,7 +10,7 @@
 
 import { parseDocument } from 'yaml';
 
-import { parseDesign } from './design.js';
+import { parseDesign, parseServices } from './design.js';
 import { ReadError } from './errors.js';
 
 export const ROLES = ['core', 'connector', 'other'];
@@ -127,5 +127,6 @@ export function parseDescription(file, text) {
     },
     layers,
     design: parseDesign(value.design, { fail, object, array, string }),
+    otherServices: parseServices(value.otherServices, { fail, object, array, string }),
   };
 }
