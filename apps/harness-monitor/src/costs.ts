@@ -1,4 +1,4 @@
-import { addDays, belgianDay, formatDate, formatDay, startOfDay, weekStart } from './belgium';
+import { addDays, belgianDay, formatDate, formatDay, isDay, startOfDay, weekStart } from './belgium';
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
 import { CATEGORIES, PHASES_BEGIN, totalsPhaseSql, WHERE, type Category } from './validate';
 
@@ -32,7 +32,10 @@ export const UNATTRIBUTED = '~unattributed';
 export const PAGE_SIZE = 25;
 
 export interface CostQuery {
+  /** The period shown, or, on a day, the one the day was opened from: choosing "each day" returns to it. */
   period: Period;
+  /** One Belgian day, `YYYY-MM-DD`, narrowing the page beside the period; null for the period alone. Never set with the rows "each day". */
+  day: string | null;
   /** A GitHub login, UNATTRIBUTED, or null for everyone. */
   engineer: string | null;
   category: Category | null;
@@ -61,9 +64,14 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   const page = Number(params.get('page'));
   const group_ = (GROUPS as readonly string[]).includes(group) ? group : DEFAULT_GROUP;
   const asked: Split = (SPLITS as readonly string[]).includes(split) ? split : 'phase';
+  // A day that is no real date is ignored, and "each day" has no day to narrow to: both show the period.
+  const dayParam = params.get('day');
+  const day = dayParam !== null && group_ !== 'day' && isDay(dayParam) ? dayParam : null;
+  const sortParam = params.get('sort');
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
+    day,
     // A filter that repeats the rows is dropped, as its control is not offered.
     engineer: group_ === 'engineer' ? null : params.get('engineer') || null,
     category: group_ !== 'category' && (CATEGORIES as readonly string[]).includes(category) ? category : null,
@@ -71,7 +79,8 @@ export function parseQuery(params: URLSearchParams): CostQuery {
     who: (WHOS as readonly string[]).includes(who) ? who : 'all',
     group: group_,
     split: SAME_AS_ROWS[group_] === asked ? INSTEAD[asked] : asked,
-    sort: params.get('sort') === 'total' && group_ !== 'engineer' ? 'total' : 'default',
+    // A day opens dearest first; asking for the rows' own order on it is kept.
+    sort: group_ !== 'engineer' && (sortParam === 'total' || (day !== null && sortParam !== 'default')) ? 'total' : 'default',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
 }
@@ -79,8 +88,11 @@ export function parseQuery(params: URLSearchParams): CostQuery {
 /** The address of a query, canonical, so the edge cache keys one page one way. */
 export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string {
   const all = { ...q, ...over };
+  // "Each day" has no day to narrow to, so choosing it returns to the period.
+  const day = all.group === 'day' ? null : all.day;
   const params = new URLSearchParams();
   if (all.period !== '30d') params.set('period', all.period);
+  if (day !== null) params.set('day', day);
   if (all.engineer) params.set('engineer', all.engineer);
   if (all.category) params.set('category', all.category);
   if (all.model) params.set('model', all.model);
@@ -88,7 +100,9 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   if (all.group !== DEFAULT_GROUP) params.set('group', all.group);
   if (all.split !== 'phase') params.set('split', all.split);
   // An engineer grouping is always by total, so it never carries a sort; a new grouping starts in its own order.
-  if (all.sort === 'total' && all.group !== 'engineer') params.set('sort', 'total');
+  // A day starts dearest first, so on one it is the rows' own order that is carried.
+  const carried: Sort = day === null ? 'total' : 'default';
+  if (all.sort === carried && all.group !== 'engineer') params.set('sort', carried);
   if (all.page > 1) params.set('page', String(all.page));
   const text = params.toString();
   return text === '' ? '' : `?${text}`;
@@ -595,8 +609,10 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     byEngineer.push(`${counted('engineer')} = ?`);
     engineerBinds.push(query.engineer);
   }
-  const where = [...(first === null ? [] : ['t.day >= ?']), ...narrowing, ...byEngineer];
-  const binds = [...(first === null ? [] : [first]), ...narrowBinds, ...engineerBinds];
+  // A day is that one day's totals; a period is every day from its first on.
+  const since = query.day !== null ? ['t.day = ?'] : first === null ? [] : ['t.day >= ?'];
+  const where = [...since, ...narrowing, ...byEngineer];
+  const binds = [...(query.day !== null ? [query.day] : first === null ? [] : [first]), ...narrowBinds, ...engineerBinds];
   const needsLinks = query.group !== 'day' || query.engineer !== null || query.split === 'outcome' || query.split === 'engineer';
   const conditions = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
   // The phase is read only for a by-category question; the split's own column is read always.

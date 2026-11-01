@@ -32,7 +32,7 @@ describe('Harness Monitor', () => {
       expect(text).toBe('Show cost for [each day] coloured by [phase] over [the last 30 days]');
       expect(choices.group!.offered).toEqual(['each day', 'each pull request', 'each issue', 'each engineer', 'each phase']);
       expect(choices.split!.offered).toEqual(['phase', 'engineer', 'model', 'where it ran', 'outcome']);
-      expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 30 days', 'the last 90 days', 'all time']);
+      expect(choices.period!.offered).toEqual(['the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
       expect(Object.values(choices).filter((c) => c.held)).toEqual([]);
       expect(choices.split!.disabled).toEqual([]);
     });

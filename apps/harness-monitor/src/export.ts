@@ -1,4 +1,4 @@
-import { startOfDay } from './belgium';
+import { addDays, startOfDay } from './belgium';
 import { firstDay, UNATTRIBUTED, type CostQuery } from './costs';
 import { requestPhaseSql } from './validate';
 
@@ -11,14 +11,18 @@ export const EXPORT_PAGE_SIZE = 20_000;
 
 /**
  * The request rows a question keeps: the same day, category and engineer rules the page's totals apply, and one pull request if asked.
- * The period starts at a Belgian midnight and is cut on the request's exact time, never on the day stored on its row, which for older rows is a UTC day.
+ * A day is cut between its two Belgian midnights; a period starts at one. Either is cut on the request's exact time, never on the day stored on its row, which for older rows is a UTC day.
  * The engineer is the author of the request's own pull request, else of the one it is credited to (`e`, joined by `exportCsv` for every question but one pull request's).
  */
 export function requestFilter(query: CostQuery, pullRequest: number | null, now = Date.now()): { where: string; binds: (string | number)[] } {
   const where: string[] = [];
   const binds: (string | number)[] = [];
   const first = firstDay(query.period, now);
-  if (first !== null) {
+  if (query.day !== null) {
+    // The 25th hour of the day the clocks go back is inside the next midnight, not past it.
+    where.push('u.occurred_at >= ?', 'u.occurred_at < ?');
+    binds.push(startOfDay(query.day), startOfDay(addDays(query.day, 1)));
+  } else if (first !== null) {
     where.push('u.occurred_at >= ?');
     binds.push(startOfDay(first));
   }

@@ -32,27 +32,70 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
 
 describe('Harness Monitor', () => {
   describe('the costs page is asked for by its address', () => {
+    describe('a day is asked for beside the period it was opened from', () => {
+      it('a day and a period are both kept, and the address spells them one way', () => {
+        const spelled = parseQuery(new URLSearchParams('group=pr&day=2026-10-24&period=7d&junk=1'));
+        const reordered = parseQuery(new URLSearchParams('period=7d&day=2026-10-24&group=pr'));
+
+        expect(spelled).toMatchObject({ day: '2026-10-24', period: '7d', group: 'pr' });
+        expect(queryString(spelled)).toBe('?period=7d&day=2026-10-24&group=pr');
+        expect(queryString(reordered)).toBe(queryString(spelled));
+      });
+
+      it.each([
+        { situation: 'a date that is not on the calendar', day: '2026-02-30' },
+        { situation: 'a month that does not exist', day: '2026-13-01' },
+        { situation: 'words', day: 'abc' },
+        { situation: 'a date with the wrong spelling', day: '24-10-2026' },
+        { situation: 'nothing', day: '' },
+      ])('$situation is ignored, and the period shows', ({ day }) => {
+        const query = parseQuery(new URLSearchParams({ group: 'pr', period: '7d', day }));
+
+        expect(query).toMatchObject({ day: null, period: '7d' });
+        expect(queryString(query)).toBe('?period=7d&group=pr');
+      });
+
+      it('choosing each day as the rows drops the day and shows the period it was opened from', () => {
+        const eachDay = parseQuery(new URLSearchParams('group=day&day=2026-10-24&period=90d'));
+
+        expect(eachDay).toMatchObject({ day: null, period: '90d', group: 'day' });
+        expect(queryString(eachDay)).toBe('?period=90d');
+      });
+
+      it('a day opens dearest first, and asking for the rows\' own order is kept in the address', () => {
+        const dearest = parseQuery(new URLSearchParams('group=pr&day=2026-10-24'));
+        const own = parseQuery(new URLSearchParams('group=pr&day=2026-10-24&sort=default'));
+
+        expect(dearest.sort).toBe('total');
+        expect(queryString(dearest)).toBe('?day=2026-10-24&group=pr');
+        expect(own.sort).toBe('default');
+        expect(queryString(own)).toBe('?day=2026-10-24&group=pr&sort=default');
+        expect(parseQuery(new URLSearchParams('group=pr&sort=total')).sort).toBe('total');
+        expect(parseQuery(new URLSearchParams('group=pr')).sort).toBe('default');
+      });
+    });
+
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
       {
         situation: 'every filter',
         query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=pr&split=outcome&page=3',
-        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
+        expected: { period: 'all', day: null, engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
       },
       {
         situation: 'values it does not know',
         query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
       {
         situation: 'a colouring by engineer',
         query: 'split=engineer&group=pr',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
       },
       {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
