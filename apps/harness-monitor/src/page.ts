@@ -191,14 +191,15 @@ function hiddenSort(query: CostQuery): string {
 
 /** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; any period leaves the day. */
 const CHOOSE_PERIOD =
-  "var f=this.form,v=this.value;if(v==='pick'){this.value=this.dataset.was;try{f.elements.day.showPicker()}catch(e){f.elements.day.focus()}return}f.elements.day.value='';f.elements.period.value=v;f.submit()";
-/** A date from the picker: "each day" has no day to show, so its rows become each pull request. */
-const CHOOSE_DAY = "if(!this.value)return;var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
+  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');f.elements.period.value=v;f.submit()";
+/** A date from the picker: the input takes its name only now, and "each day" has no day to show, so its rows become each pull request. */
+const CHOOSE_DAY = "if(!this.value)return;this.name='day';var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
 
 /**
  * The period select: the four periods, then "Pick a day…", with the chosen day first while one is shown.
- * The day is the form's own field, a date input the picker fills, so every other control carries it;
- * while one is shown the select sends nothing and the period it was opened from rides in a hidden field.
+ * The day is the form's own field, a date input the picker fills, named only while a day is shown, so every
+ * other control carries a day and an address without one carries no empty `day=`; while one is shown the
+ * select sends nothing and the period it was opened from rides in a hidden field.
  */
 function periodPicker(query: CostQuery, now: number): string {
   const periods = (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]);
@@ -207,7 +208,7 @@ function periodPicker(query: CostQuery, now: number): string {
   const opts = options.map(([v, t]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(t)}</option>`).join('');
   const select = `<select${query.day === null ? ' name="period"' : ''} aria-label="Period" data-was="${esc(current)}" onchange="${CHOOSE_PERIOD}">${opts}</select>`;
   const origin = query.day === null ? '' : `<input type="hidden" name="period" value="${query.period}">`;
-  return `<span class="period-pick">${select}${origin}<input type="date" name="day" class="day-pick" aria-label="Day" max="${belgianDay(now)}" value="${query.day ?? ''}" onchange="${CHOOSE_DAY}"></span>`;
+  return `<span class="period-pick">${select}${origin}<input type="date"${query.day === null ? '' : ' name="day"'} class="day-pick" aria-label="Day" max="${belgianDay(now)}" value="${query.day ?? ''}" onchange="${CHOOSE_DAY}"></span>`;
 }
 
 function whereItWent(page: CostsPage): string {
@@ -295,7 +296,8 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
       const dots = l.values
         .map((v, i) => {
           const dot = `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`;
-          return href === undefined ? dot : `<a href="${esc(href(chart.days[i]!))}">${dot}</a>`;
+          // Out of the tab order, as the strips are: the "By day" dates are the keyboard's way in.
+          return href === undefined ? dot : `<a href="${esc(href(chart.days[i]!))}" tabindex="-1">${dot}</a>`;
         })
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
@@ -310,7 +312,7 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
       : `<g class="day-strips">${chart.days
           .map((d, i) => {
             const says = [`${formatDay(d)} · Total ${value(chart.total[i]!)}`, ...chart.lines.filter((l) => l.values[i]! > 0).map((l) => `${esc(l.label)} ${value(l.values[i]!)}`), 'Click to see this day'].join('\n');
-            return `<a href="${esc(href(d))}"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
+            return `<a href="${esc(href(d))}" tabindex="-1"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
           })
           .join('')}</g>`;
   return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g></svg></div>

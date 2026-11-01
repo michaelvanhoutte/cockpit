@@ -83,7 +83,7 @@ const pullRequests = (count: number) =>
 
 /** A chart's strips: where each links and what its tooltip says. */
 const strips = (html: string, chart: string) =>
-  [...new RegExp(`aria-labelledby="${chart}">.*?</section>`, 's').exec(html)![0].matchAll(/<a href="([^"]*)"><rect [^>]*><title>(.*?)<\/title><\/rect><\/a>/gs)].map((m) => ({ href: m[1]!.replace(/&#38;/g, '&'), says: m[2]!.split('\n') }));
+  [...new RegExp(`aria-labelledby="${chart}">.*?</section>`, 's').exec(html)![0].matchAll(/<a href="([^"]*)" tabindex="-1"><rect [^>]*><title>(.*?)<\/title><\/rect><\/a>/gs)].map((m) => ({ href: m[1]!.replace(/&#38;/g, '&'), says: m[2]!.split('\n') }));
 const periodSelect = (html: string) => /<select[^>]*aria-label="Period"[^>]*>(.*?)<\/select>/s.exec(html)![1]!;
 const optionTexts = (select: string) => [...select.matchAll(/<option[^>]*>(.*?)<\/option>/g)].map((m) => m[1]!);
 const dayField = (html: string) => /<input type="date"[^>]*>/.exec(html)![0];
@@ -108,7 +108,8 @@ describe('Harness Monitor', () => {
     it('each point of a line links to its day, under the strips so pointing at a line still picks it out', () => {
       const html = overDays('period=all&split=model');
       const chart = new RegExp('aria-labelledby="perday">.*?</section>', 's').exec(html)![0];
-      const points = [...chart.matchAll(/<a href="([^"]*)"><circle /g)].map((m) => m[1]!.replace(/&#38;/g, '&'));
+      // Out of the tab order like the strips: the "By day" dates are the keyboard's way in.
+      const points = [...chart.matchAll(/<a href="([^"]*)" tabindex="-1"><circle /g)].map((m) => m[1]!.replace(/&#38;/g, '&'));
 
       // The chart's total has a point on the day, and so does the one phase that spent.
       expect(points.filter((h) => h === '/?period=all&day=2026-10-24&group=pr&split=model')).toHaveLength(2);

@@ -62,7 +62,7 @@ export function inline(name: string, label: string, options: [value: string, tex
   const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off === 'hidden' ? ' hidden' : off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
   // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
   // Each day has no day to show, so choosing it leaves the day too.
-  const leave = name === 'group' ? "if(this.form.elements.sort)this.form.elements.sort.disabled=true;if(this.value==='day'&&this.form.elements.day)this.form.elements.day.value='';" : '';
+  const leave = name === 'group' ? "if(this.form.elements.sort)this.form.elements.sort.disabled=true;if(this.value==='day'&&this.form.elements.day)this.form.elements.day.removeAttribute('name');" : '';
   return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
 }
 
@@ -267,7 +267,7 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
 .lines>g{transition:opacity .12s}
 .day-strips rect{fill:transparent;cursor:pointer}
-.day-strips a:hover rect,.day-strips a:focus-visible rect{fill:var(--ink-strong);fill-opacity:.08;outline:none}
+.day-strips a:hover rect{fill:var(--ink-strong);fill-opacity:.08;outline:none}
 ${HIGHLIGHT}
 
 /* Tables */
