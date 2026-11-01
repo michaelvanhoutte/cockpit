@@ -49,7 +49,8 @@ function listDir(root, relative) {
 }
 
 /** Every file under `relative` (or only those directly in it), as a path from the checkout's root; the text only of source files that are not tests. */
-function filesIn(root, scan, relative, { recursive }) {
+function filesIn(root, scan, relative, { recursive, extensions = scan.extensions }) {
+  const codeScan = { ...scan, extensions };
   const files = [];
   const walk = (directory) => {
     for (const entry of listDir(root, directory)) {
@@ -58,7 +59,7 @@ function filesIn(root, scan, relative, { recursive }) {
       if (entry.isDirectory()) {
         if (recursive) walk(file);
       } else if (entry.isFile()) {
-        files.push({ file, text: isCodeFile(scan, file) && !isTestFile(scan, file) ? readText(root, file) : null });
+        files.push({ file, text: isCodeFile(codeScan, file) && !isTestFile(scan, file) ? readText(root, file) : null });
       }
     }
   };
@@ -100,6 +101,21 @@ function discover(root, description) {
 }
 
 /**
+ * The source of each caller the design declares a marker for, by the folder it is looked for in: the files that
+ * are not tests, with their text. A folder this checkout does not have holds no files, which the page says.
+ */
+function callerCodeOf(root, description) {
+  const found = {};
+  for (const caller of description.design?.callers ?? []) {
+    if (!caller.code || caller.code.folder in found) continue;
+    found[caller.code.folder] = existsSync(path.join(root, caller.code.folder))
+      ? filesIn(root, description.scan, caller.code.folder, { recursive: true, extensions: caller.code.extensions ?? description.scan.extensions }).filter((each) => each.text !== null)
+      : [];
+  }
+  return found;
+}
+
+/**
  * @param {string} root
  * @param {{ commit?: string, fallbackDescription?: { file: string, text: string } }} [options] `commit` names the commit `root` holds when
  *   it is an earlier one, so the environment's own commit is not claimed for it; `fallbackDescription` is used when `root` has no description file.
@@ -107,7 +123,9 @@ function discover(root, description) {
 export function readCheckout(root, { commit: named, fallbackDescription } = {}) {
   const own = existsSync(path.join(root, DESCRIPTION_FILE));
   const description = !own && fallbackDescription ? fallbackDescription : { file: DESCRIPTION_FILE, text: readText(root, DESCRIPTION_FILE) };
-  const candidates = discover(root, parseDescription(description.file, description.text));
+  const parsed = parseDescription(description.file, description.text);
+  const candidates = discover(root, parsed);
+  const callerCode = callerCodeOf(root, parsed);
 
   let names;
   try {
@@ -125,6 +143,7 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
     wrangler: { file: WRANGLER_CONFIG, text: readText(root, WRANGLER_CONFIG) },
     description,
     candidates,
+    callerCode,
     workflows: names.map((name) => ({ file: name, text: readText(root, `${WORKFLOWS_DIR}/${name}`) })),
     commit,
     date: commit ? git(root, ['show', '-s', '--format=%cI', '--end-of-options', commit]) : null,

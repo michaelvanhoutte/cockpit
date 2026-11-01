@@ -34,23 +34,14 @@ function candidatesFor(resolved, extensions) {
 const linesIn = (text) => (text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0));
 
 /**
- * @param {object} description the parsed description file
- * @param {{ path: string, package: boolean, packageName?: string|null, files: { file: string, text: string|null }[] }[]} candidates every folder discovery found
- * @param {{ layers: { areas: { path: string, state: string }[] }[] }} modules the Modules view, which fixes the areas and their order
+ * Which area an import lands on: `(file, specifier) => area path | null`. A relative import is resolved to the
+ * file it lands on and so to the area holding it; a workspace package imported by name lands on that package's
+ * area. Shared with the Logical view, so both read an import the same way.
+ * @param {{ extensions: string[] }} scan
+ * @param {{ path: string, packageName?: string|null, files: { file: string }[] }[]} candidates
+ * @param {Set<string>} known the area paths an import may land on
  */
-export function buildDependencies(description, candidates, modules) {
-  const { scan } = description;
-  const areas = modules.layers
-    .flatMap((layer) => layer.areas)
-    .filter((each) => each.state !== 'gone')
-    .map((each) => ({
-      path: each.path,
-      name: each.name,
-      muted: description.readByEveryone.includes(each.path),
-      lines: 0,
-    }));
-  const known = new Set(areas.map((each) => each.path));
-
+export function importResolver(scan, candidates, known) {
   const byFile = new Map();
   const byPackage = new Map();
   for (const candidate of candidates) {
@@ -69,6 +60,27 @@ export function buildDependencies(description, candidates, modules) {
     for (const [name, area] of byPackage) if (specifier === name || specifier.startsWith(`${name}/`)) return area;
     return null;
   };
+  return (file, specifier) => (specifier.startsWith('.') ? areaOfRelative(file, specifier) : areaOfPackage(specifier));
+}
+
+/**
+ * @param {object} description the parsed description file
+ * @param {{ path: string, package: boolean, packageName?: string|null, files: { file: string, text: string|null }[] }[]} candidates every folder discovery found
+ * @param {{ layers: { areas: { path: string, state: string }[] }[] }} modules the Modules view, which fixes the areas and their order
+ */
+export function buildDependencies(description, candidates, modules) {
+  const { scan } = description;
+  const areas = modules.layers
+    .flatMap((layer) => layer.areas)
+    .filter((each) => each.state !== 'gone')
+    .map((each) => ({
+      path: each.path,
+      name: each.name,
+      muted: description.readByEveryone.includes(each.path),
+      lines: 0,
+    }));
+  const known = new Set(areas.map((each) => each.path));
+  const areaOfImport = importResolver(scan, candidates, known);
 
   const importers = new Map(); // "from\0to" -> the files of `from` that import `to`
   for (const candidate of candidates) {
@@ -78,7 +90,7 @@ export function buildDependencies(description, candidates, modules) {
       if (text === null || !isCodeFile(scan, file) || isTestFile(scan, file)) continue;
       area.lines += linesIn(text);
       for (const specifier of importsOf(text)) {
-        const target = specifier.startsWith('.') ? areaOfRelative(file, specifier) : areaOfPackage(specifier);
+        const target = areaOfImport(file, specifier);
         if (target === null || target === candidate.path) continue;
         const key = `${candidate.path}\0${target}`;
         importers.set(key, (importers.get(key) ?? new Set()).add(file));

@@ -173,3 +173,118 @@ layers:
       - path: packages/connectors/twilio
         name: 'connectors/twilio'
         description: 'The Twilio connector: a phone is connected by confirming a code Twilio Verify texts to it.'
+
+# The design: the layers Cockpit is meant to have, drawn on the Logical page with the code's own lines laid
+# over them. A component is made of `folders` (area paths, as the layers above give them), and every folder
+# the code has is in exactly one component or in `noLine`, which the architecture tool's test checks.
+# A store or outside service has a `marker`, a regular expression the code is searched for: a line of code
+# (never a comment) that matches means the file reaches it, and `how` says in what words.
+design:
+  # Rows run top to bottom by `row`; two layers on one row share it by `share`. `alignedWith` draws a layer
+  # as a column beside the row of another. `drawInside` draws the lines inside that layer, which are otherwise
+  # only counted on its title. Each `items` entry is one row of chips.
+  layers:
+    - id: clients
+      title: Clients
+      kind: clients
+      row: 0
+      items:
+        - - { id: web, name: Web app, sub: 'React PWA, in the browser', folders: [apps/web/src] }
+          - { id: widget, name: Android widget, sub: on the home screen, kind: client }
+          - { id: agents, name: MCP clients, sub: 'Claude.ai, Claude Code', kind: client }
+          - { id: msteams, name: Microsoft Teams, sub: a message action, kind: client }
+          - { id: mail, name: Mail senders, sub: Email Routing, kind: client }
+          - { id: monitor, name: Harness Monitor, sub: a service of its own, kind: client }
+          - { id: staging, name: 'Staging, CI', sub: Claude call records, kind: client }
+
+    - id: api
+      title: "API layer: the Worker's entry points"
+      row: 1
+      items:
+        - - { id: http, name: Application API, sub: 'REST /v1, live updates', folders: [apps/api/src/http] }
+          - { id: auth, name: 'Sign-in & gate', sub: 'sessions, the gate', folders: [apps/api/src/auth] }
+          - { id: mcp, name: 'OAuth, MCP, apps API', sub: '/oauth, /mcp, /apps/v1', folders: [apps/api/src/mcp] }
+          - { id: email, name: Email in, sub: the email handler, folders: [apps/api/src/email] }
+          - { id: jobs, name: Jobs, sub: 'queue consumer, cron', folders: [apps/api/src/jobs] }
+
+    - id: logic
+      title: Business logic
+      row: 2
+      items:
+        - - { id: accounts, name: Accounts, sub: a Durable Object each, folders: [apps/api/src/accounts] }
+          - { id: domain, name: Domain, sub: 'items, panels, filings', folders: [apps/api/src/domain] }
+          - { id: connectors, name: Connector host, sub: names the connectors, folders: [apps/api/src/connectors] }
+          - { id: ai, name: AI, sub: 'notes, embeddings, dictation', folders: [apps/api/src/ai, apps/api/src/embeddings, apps/api/src/transcription] }
+          - { id: gateway, name: Provider gateway, sub: every paid call, folders: [apps/api/src/gateway] }
+          - { id: engines, name: Engines, sub: the Claude Code trigger, folders: [apps/api/src/engines] }
+
+    - id: data
+      title: Data
+      row: 3
+      share: 0.6
+      items:
+        - - { id: d1, name: Register, sub: 'D1, all accounts', kind: store, folders: [apps/api/src/db], marker: '\benv\??\.DB\b', how: SQL }
+          - { id: do, name: Account store, sub: SQLite per account, kind: store, marker: '\b(ctx|this\.ctx|state)\.storage\.sql\b|storage\.sql\b', how: SQL }
+          - { id: r2, name: Attachments, sub: R2 bucket, kind: store, marker: '\benv\??\.ATTACHMENTS\b', how: objects }
+          - { id: kv, name: OAuth grants, sub: KV, kind: store, marker: '\bOAUTH_KV\b', how: keys }
+          - { id: queue, name: Queue, sub: ENRICHMENT, kind: store, marker: '\benv\??\.ENRICHMENT\b', how: enqueue }
+
+    - id: conn
+      title: Connectors
+      row: 3
+      share: 0.4
+      drawInside: true
+      items:
+        - - { id: sdk, name: connector-sdk, sub: what a connector is, folders: [packages/connector-sdk] }
+        - - { id: gmail, name: gmail, sub: implements it, folders: [packages/connectors/gmail] }
+          - { id: outlook, name: outlook, sub: implements it, folders: [packages/connectors/outlook] }
+          - { id: teams, name: teams, sub: implements it, folders: [packages/connectors/teams] }
+          - { id: twilio, name: twilio, sub: implements it, folders: [packages/connectors/twilio] }
+
+    - id: outside
+      title: Outside services
+      kind: outside
+      alignedWith: logic
+      items:
+        - - { id: google, name: Google, sub: 'sign-in, Gmail API', kind: outside, marker: 'accounts\.google\.com|googleapis\.com', how: HTTPS }
+          - { id: microsoft, name: Microsoft, sub: 'Entra, Graph, Bot', kind: outside, marker: 'login\.microsoftonline\.com|graph\.microsoft\.com|botframework\.com', how: HTTPS }
+          - { id: twilio-x, name: Twilio, sub: Verify, kind: outside, marker: 'verify\.twilio\.com', how: HTTPS }
+          - { id: anthropic, name: Anthropic, sub: Claude API, kind: outside, marker: '@anthropic-ai/sdk|api\.anthropic\.com', how: Claude API }
+          - { id: workersai, name: Workers AI, sub: 'embeddings, Whisper', kind: outside, marker: '\benv\??\.AI\b', how: AI binding }
+
+  # Which layer may call which. A line inside one layer is always allowed.
+  mayCall:
+    clients: [api]
+    api: [logic]
+    logic: [data, conn, outside]
+    conn: [outside]
+    data: [api]
+
+  # What a line the design does not draw breaks, in words, by the pair of layers it joins.
+  breaks:
+    'api>data': The API layer reaches Data directly, past Business logic
+    'api>outside': The API layer calls an outside service directly, past Business logic
+    'api>conn': The API layer uses a connector directly, past Business logic
+    'logic>api': Business logic depends on the API layer above it
+    'conn>logic': A connector depends on Business logic above it
+    'conn>api': A connector depends on the API layer above it
+    'conn>data': A connector reaches Data directly
+    'clients>logic': A client reaches past the API layer
+
+  # How callers talk to the service. A request's path is not an import, so each is declared; where this
+  # repository holds the caller's code, `code` says where to look for `marker` in it.
+  callers:
+    - { from: web, to: http, how: 'REST /v1 · SSE · cookie', code: { folder: apps/web/src, marker: '[''`"]/v1/' } }
+    - { from: widget, to: mcp, how: 'OAuth · REST /apps/v1', code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, marker: '/apps/v1|/oauth/', extensions: ['.kt'] } }
+    - { from: agents, to: mcp, how: 'MCP over HTTP · OAuth' }
+    - { from: msteams, to: http, how: Bot Framework webhook }
+    - { from: mail, to: email, how: an email event }
+    - { from: monitor, to: http, how: GET /v1/usage-records, code: { folder: apps/harness-monitor/src, marker: usage-records } }
+    - { from: staging, to: http, how: POST /v1/usage-records, code: { folder: apps/api/src, marker: '\bPRODUCTION\b' } }
+    - { from: queue, to: jobs, how: consumed by }
+
+  # Folders in no component: read by nearly everything, so drawn as no line.
+  noLine:
+    - { folder: packages/shared, name: packages/shared, note: the contract, readByEveryone: true }
+    - { folder: apps/api/src/*, name: env.ts, readByEveryone: true }
+    - { folder: packages/config, name: packages/config }

@@ -1,0 +1,54 @@
+/* The Logical page, on top of the report's styles: the nested diagram, its tables and the links to GitHub */
+.crumbs { font-size: 13px; color: var(--ink-3); margin: 0 0 6px; }
+.crumbs a { color: var(--accent); text-decoration: none; }
+.t-link { fill: var(--accent); }
+g.node a { cursor: pointer; }
+table.flows { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+table.flows th, table.flows td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.flows th { font-weight: 600; color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+table.flows a { color: var(--accent); text-decoration: none; }
+table.flows tr.bad td:first-child { border-left: 3px solid var(--red); }
+table.flows tr:target td { background: var(--red-soft); }
+.dim { color: var(--ink-3); }
+.bad { color: var(--red); font-weight: 600; }
+.ok { color: var(--green); font-weight: 600; }
+details.files summary { cursor: pointer; color: var(--accent); }
+details.files code { display: block; }
+.num { display: inline-block; min-width: 20px; height: 20px; border-radius: 10px; background: var(--red); color: var(--card); font: 700 11px/20px var(--sans); text-align: center; }
+
+.nb { stroke-width: 1.2; }
+.nb-layer { fill: var(--soft); stroke: var(--line); }
+.nb-clients { fill: none; stroke: var(--neutral); stroke-dasharray: 5 4; }
+.nb-outside { fill: var(--bg); stroke: var(--line); }
+.nb-t { font: 600 12.5px var(--sans); fill: var(--ink-2); }
+.nb-n { font: 400 11px var(--sans); fill: var(--ink-3); }
+.nc { fill: var(--card); stroke: var(--accent); stroke-width: 1.3; }
+.nc-cl { fill: var(--card); stroke: var(--neutral); stroke-dasharray: 4 3; }
+.nc-st { fill: color-mix(in srgb, var(--amber) 12%, var(--card)); stroke: var(--amber); stroke-width: 1.3; }
+.nc-ext { fill: var(--card); stroke: var(--line); }
+.nc-t { font: 600 12px var(--sans); fill: var(--ink-1); }
+.nc-s { font: 400 10.5px var(--sans); fill: var(--ink-3); }
+.nc-gh { font: 600 11px var(--sans); fill: var(--ink-3); }
+a.code { cursor: pointer; }
+a.code:hover .nc-gh { fill: var(--accent); }
+g.node a:hover .nc, g.node a:hover .nc-st, g.node a:hover .nc-cl, g.node a:hover .nc-ext { stroke-width: 2.4; }
+.nl { fill: none; stroke-linejoin: round; }
+.nl-ok { stroke: var(--neutral); stroke-width: 2; }
+.nl-decl { stroke: var(--accent); stroke-dasharray: 5 3; stroke-width: 1.3; }
+.nl-miss { stroke: var(--neutral); stroke-dasharray: 2 4; stroke-width: 1.6; }
+.nl-bad { stroke: var(--red); stroke-width: 2; }
+.nl-hit { fill: none; stroke: transparent; stroke-width: 12; }
+a.nl-a { cursor: pointer; }
+a.nl-a:hover .nl-bad { stroke-width: 3.4; }
+.nm-ok, .nm-miss { fill: var(--neutral); }
+.nm-bad { fill: var(--red); }
+.nm-decl { fill: var(--accent); }
+.nl-num { fill: var(--red); }
+.nl-num-t { font: 700 10px var(--sans); fill: var(--card); }
+.nl-l { font: 500 10.5px var(--sans); fill: var(--ink-3); paint-order: stroke; stroke: var(--card); stroke-width: 4px; }
+.nl-l-decl { fill: var(--accent); }
+.nl-l-miss { font-style: italic; }
+a.gh { text-decoration: none; }
+a.gh code { color: var(--accent); }
+a.gh:hover code, a.gh:hover b { text-decoration: underline; }
+a.gh b { color: var(--accent); }

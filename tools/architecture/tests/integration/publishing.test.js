@@ -25,6 +25,12 @@ describe('The nightly job publishes the page and its model at /architecture/', (
     expect(steps.find((step) => step.uses?.startsWith('actions/upload-artifact'))).toMatchObject({ with: { name: 'architecture-report', path: 'tools/architecture/out/' } });
   });
 
+  it('uploads the folder every page is written into, Cockpit\'s logical page among them', () => {
+    const run = steps.find((step) => step.run?.includes('tools/architecture/src/cli.js')).run;
+    expect(run).toContain('--out tools/architecture/out/index.html');
+    expect(steps.find((step) => step.uses?.startsWith('actions/upload-artifact')).with.path).toBe('tools/architecture/out/');
+  });
+
   it('gives the job the checkout and nothing else to read with', () => {
     expect(nightly.jobs.architecture.permissions).toEqual({ contents: 'read' });
     expect(JSON.stringify(nightly.jobs.architecture)).not.toContain('secrets.');

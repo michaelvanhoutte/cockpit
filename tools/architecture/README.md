@@ -149,6 +149,32 @@ Every page names the commit and the date of that commit it was drawn from.
 `context.html`, `modules.html`, `register.html`, `account-store.html` or `deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
 both ways, with the report's styles and a link back. The page keeps each fit to the column and carries no script.
 
+## Cockpit's logical page
+
+`service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have (the `design`
+section of `description.yml`) as nested layers, with the code's own lines laid over it. The report itself does not link it yet.
+
+| Line | Means |
+|---|---|
+| grey, labelled with a file count | the design allows the pair of layers and the code uses it: one line per pair of layers |
+| red, numbered, chip to chip | the code does what the design does not allow; its row below lists each file at the line that makes it |
+| dotted | the design allows the pair of layers and no file uses it |
+| dashed blue | how a caller talks to the service, declared, and looked for in the caller's own code where this repository holds it |
+
+A line between two components in one layer is counted on the layer's title and not drawn, unless the layer sets `drawInside`.
+
+**Evidence** is one import (resolved the way Dependencies resolves it) or one marker match per file, with its line. A
+store's or outside service's `marker` is a regular expression searched in the code of every component; a match on a
+comment line is not evidence.
+
+**Placement** is recorded in `model.json` under `logical.placement` and shown on the page: a folder no component names, a
+component naming a folder that is gone, and a folder in two components. The `Logical` tests over this repository fail on any.
+A folder read by nearly everything goes in `noLine` instead.
+
+A component marked ↗ opens its folder on GitHub at the commit the page was drawn from, and each file listed opens at its
+line. The page knows the repository from `GITHUB_REPOSITORY`, which GitHub Actions sets (set it by hand, as `owner/name`, to get the links in a
+local run); without it, or without a commit, it links nothing.
+
 ## Reading it without running it
 
 The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) builds it
