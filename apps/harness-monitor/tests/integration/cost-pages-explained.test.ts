@@ -85,6 +85,13 @@ describe('Harness Monitor', () => {
       expect(partsOf(html, id)).toEqual(THREE_PARTS);
     });
 
+    it('for each day, Share per day carries its own (i), whose explanation says what it shows, how to read it and what to look for', async () => {
+      const html = await theBarePage('?split=model');
+
+      expect(firstInfo(panelOf(html, 'share-band'))).toBe('share');
+      expect(partsOf(html, 'share')).toEqual(THREE_PARTS);
+    });
+
     it.each([
       { rows: 'each day', query: '', name: 'Cost by day', id: 't-day' },
       { rows: 'each pull request', query: '?group=pr', name: 'Cost by pull request', id: 't-pr' },
@@ -98,9 +105,9 @@ describe('Harness Monitor', () => {
     it('draws each (i) once, each to an explanation of its own on the page', async () => {
       const { buttons, panels } = infosOf(await theBarePage());
 
-      // Where it went, the two per-day charts, the table, the trends panel and its three charts.
-      expect(buttons).toHaveLength(8);
-      expect(new Set(buttons).size).toBe(8);
+      // Where it went, the two per-day charts, the share chart, the table, the trends panel and its three charts.
+      expect(buttons).toHaveLength(9);
+      expect(new Set(buttons).size).toBe(9);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
 

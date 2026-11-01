@@ -8,6 +8,7 @@ import {
   median,
   PAGE_SIZE,
   PERIODS,
+  shareChart,
   queryString,
   SAME_AS_ROWS,
   SPLITS,
@@ -334,15 +335,19 @@ interface TrendDrawing {
   /** A value as a point's title reads it, and as the axis does. */
   value: (n: number) => string;
   axis: (n: number) => string;
+  /** The top of the scale, fixed; the largest value drawn where absent. */
+  peak?: number;
+  /** The chart and its key alone, for a panel whose band already names it. */
+  bare?: boolean;
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
-function trendChart(t: Trends, d: TrendDrawing): string {
+function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
+  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
   if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
-  const peak = Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
+  const peak = d.peak ?? Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
   const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
   const grid = [0, 0.5, 1]
@@ -402,6 +407,26 @@ function harnessTrends(page: CostsPage): string {
   ];
   const info = explain('trends', 'Is the harness getting more expensive?', WHAT.trends);
   return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends', info.both)}<div class="well pad">${charts.join('\n')}</div></section>`;
+}
+
+const shareText = (n: number) => `${Math.round(n)}%`;
+
+/**
+ * "Where it went" over time: each colour of the sentence as its share of a bucket's dollars, on a fixed 0 to 100% scale.
+ * The buckets are the trend charts': the days of Cost per day for 7 and 30 days, weeks from Monday otherwise.
+ * A bucket with no dollars is a break in the lines, not a zero.
+ */
+function shareOverTime(page: CostsPage, now: number): string {
+  const { query } = page;
+  // As the bar above: a phase filter leaves the one phase it keeps.
+  const series = query.split === 'phase' && query.category !== null ? page.series.filter((s) => s.key === query.category) : page.series;
+  const { buckets, weekly, lines: shares } = shareChart(page.groups, series, query.period, now);
+  if (buckets.length === 0) return '';
+  const lines = shares.map((l) => ({ ...l, colour: colourOf(query.split, l.key, knownKeys(page)) }));
+  const title = `Share per ${weekly ? 'week' : 'day'}, by ${COLOUR_WORDS[query.split]}`;
+  const info = explain('share', title, WHAT.shareOverTime);
+  const drawn = trendChart({ buckets, weekly }, { id: 'share', title, what: WHAT.shareOverTime, lines, value: shareText, axis: shareText, peak: 100, bare: true });
+  return `<section class="panel" id="share" aria-labelledby="share-band">${band(title, weekly ? 'Of each week&rsquo;s dollars, from Monday' : 'Of each day&rsquo;s dollars', 'share-band', info.both)}<div class="well pad">${drawn}</div></section>`;
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
@@ -502,6 +527,7 @@ export function renderPage(
     whereItWent(page),
     page.query.group === 'day' ? overTime(page, now, 'cost') : '',
     page.query.group === 'day' ? overTime(page, now, 'tokens') : '',
+    page.query.group === 'day' ? shareOverTime(page, now) : '',
     table(page, repository),
     harnessTrends(page),
     jobLines(page.jobs),
