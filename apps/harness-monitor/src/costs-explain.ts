@@ -38,6 +38,11 @@ export const WHAT = {
     read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn.',
     look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent.',
   },
+  shareOverTime: {
+    shows: 'The bar at the top, drawn over time: each colour of the sentence as its share of a day&rsquo;s dollars, or of a week&rsquo;s over 90 days and all time.',
+    read: 'Each point is a Belgian day, or a week from Monday over 90 days and all time, as in the trend charts; one with no spend is a break in the lines. The scale is fixed at 0 to 100%, so a line keeps its place whatever the day or week cost. Point at a dot for its share. A day with little spend can swing to either end, so read the run of days rather than one.',
+    look: 'A line that steps up or down is a change in how the work is split: coloured by model with Phase set to Building, the week a rule began sending more building to another model. Shares say nothing of the total; Cost per day above gives the dollars.',
+  },
   byCategory: {
     shows: 'This pull request&rsquo;s Claude Code cost in each phase of the process.',
     read: 'Each bar is scaled to the dearest phase. Beside the dollars, how many requests it took; Local code review counts its requests at each review level, strongest first. Only requests inside the period chosen above count, so an older pull request may show part of its cost: choose All time for the whole.',

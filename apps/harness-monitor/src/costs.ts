@@ -462,6 +462,36 @@ export function dayChart(groups: DayGroup[], series: Series[], first: string | n
   return { days, lines, total: days.map((d) => totalOf(byDay.get(d))) };
 }
 
+/** One colour of the sentence over time: its share of each bucket's dollars, 0 to 100, null where the bucket has no dollars. */
+export interface ShareLine {
+  key: string;
+  label: string;
+  values: (number | null)[];
+}
+
+/**
+ * Each series as its share of a bucket's dollars. The buckets are the trend
+ * charts': the days of Cost per day for 7 and 30 days, weeks from Monday
+ * otherwise (a range by its own length), from the period's first day (the
+ * earliest day for all time) to today, or over a range's days. A week's share is of the week's summed dollars, not an average of its
+ * days' shares, and a bucket with no dollars is null for every series, a break
+ * in the line rather than a zero. A series with no dollars in the period has no line.
+ */
+export function shareChart(groups: DayGroup[], series: Series[], period: Period, now: number, range: DayWindow | null = null): { buckets: string[]; weekly: boolean; lines: ShareLine[] } {
+  const weekly = isWeekly(period, range);
+  const chart = dayChart(groups, series, range?.from ?? firstDay(period, now), now, 'cost', range?.to ?? null);
+  const buckets = weekly ? [...new Set(chart.days.map(weekStart))] : chart.days;
+  const index = new Map(buckets.map((b, i) => [b, i]));
+  const sum = (values: number[]) => {
+    const out = buckets.map(() => 0);
+    values.forEach((v, i) => (out[index.get(weekly ? weekStart(chart.days[i]!) : chart.days[i]!)!]! += v));
+    return out;
+  };
+  const total = sum(chart.total);
+  const lines = chart.lines.map((l) => ({ key: l.key, label: l.label, values: sum(l.values).map((v, i) => (total[i] === 0 ? null : (v / total[i]!) * 100)) }));
+  return { buckets, weekly, lines };
+}
+
 export function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -503,6 +533,9 @@ export interface Trends {
   costPerThousandLines: TrendLine[];
 }
 
+/** Whether a chart over the period counts in weeks from Monday rather than days: over 90 days and all time, or a range of more than 30 days. */
+export const isWeekly = (period: Period, range: DayWindow | null = null) => (range !== null ? daysIn(range) > 30 : period !== '7d' && period !== '30d');
+
 /**
  * The charts' values per bucket: days for 7 and 30 days, weeks (starting
  * Monday) otherwise. A bucket with nothing to show holds null, not zero.
@@ -513,7 +546,7 @@ export interface Trends {
  * bucket that holds some, since a hook on an older checkout still sends it.
  */
 export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number, range: DayWindow | null = null): Trends {
-  const weekly = range !== null ? daysIn(range) > 30 : period !== '7d' && period !== '30d';
+  const weekly = isWeekly(period, range);
   const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
   const span = weekly ? 7 : 1;
   // A range ends on its last day, or today where that is still to come.

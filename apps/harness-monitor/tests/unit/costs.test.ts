@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dayChart, firstDay, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
+import { addDays, weekStart } from '../../src/belgium';
+import { dayChart, firstDay, shareChart, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
 
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
@@ -357,6 +358,101 @@ describe('Harness Monitor', () => {
 
     it('the total line is each day\'s four kinds summed over every series', () => {
       expect(chart.total).toEqual([40, 0, 100]);
+    });
+  });
+
+  describe('Share over time gives each colour its share of a bucket\'s dollars, in the trend charts\' buckets', () => {
+    const NOW = Date.parse('2026-10-31T12:00:00Z');
+    const spent = (d: string, series: string, dollars: number) => row({ day: d, series, costMicros: dollars * 1_000_000, prNumber: null, title: null, branch: '' });
+    const sharesOf = (rows: TotalRow[], period: '7d' | '30d' | '90d' | 'all') => {
+      const groups = groupRows(rows, 'day', null);
+      const totals: Record<string, number> = {};
+      for (const g of groups) for (const [k, v] of Object.entries(g.bySeries)) totals[k] = (totals[k] ?? 0) + v;
+      return shareChart(groups, seriesOf('model', totals), period, NOW);
+    };
+    const valuesOf = (chart: ReturnType<typeof sharesOf>) => Object.fromEntries(chart.lines.map((l) => [l.key, l.values]));
+
+    it('a day with three dollars on one model and one on another reads 75% and 25% over 30 days', () => {
+      const chart = sharesOf([spent('2026-10-30', 'opus', 3), spent('2026-10-30', 'sonnet', 1)], '30d');
+
+      expect(valuesOf(chart).opus!.at(-2)).toBe(75);
+      expect(valuesOf(chart).sonnet!.at(-2)).toBe(25);
+    });
+
+    it("a week's share is of the week's summed dollars, not an average of its days' shares", () => {
+      // Monday: all Opus, $1. Tuesday: all Sonnet, $9. An average of the days would say 50%; the week is 10% Opus.
+      const chart = sharesOf([spent('2026-10-26', 'opus', 1), spent('2026-10-27', 'sonnet', 9)], '90d');
+
+      expect(valuesOf(chart).opus!.at(-1)).toBe(10);
+      expect(valuesOf(chart).sonnet!.at(-1)).toBe(90);
+    });
+
+    it('the shares of every bucket add to 100%', () => {
+      const chart = sharesOf([spent('2026-10-28', 'opus', 3), spent('2026-10-28', 'sonnet', 2), spent('2026-10-28', 'haiku', 1), spent('2026-10-29', 'opus', 7)], '30d');
+      const lines = Object.values(valuesOf(chart));
+
+      for (let i = 0; i < chart.buckets.length; i++) {
+        const sum = lines.reduce((acc, v) => acc + (v[i] ?? 0), 0);
+        expect(sum === 0 || Math.abs(sum - 100) < 1e-9).toBe(true);
+      }
+    });
+
+    it('a day with no dollars is a break in every line, not 0%', () => {
+      const chart = sharesOf([spent('2026-10-28', 'opus', 3), spent('2026-10-30', 'opus', 1)], '7d');
+
+      expect(valuesOf(chart).opus).toEqual([null, null, null, 100, null, 100, null]);
+    });
+
+    it('a colour with no dollars in the period has no line', () => {
+      const chart = sharesOf([spent('2026-10-30', 'opus', 3), spent('2026-10-30', 'sonnet', 0)], '30d');
+
+      expect(chart.lines.map((l) => l.key)).toEqual(['opus']);
+    });
+
+    describe('a range is shared over its own days, by day up to 30 and by week beyond', () => {
+      const groups = groupRows([spent('2026-10-10', 'opus', 1), spent('2026-10-12', 'opus', 3)], 'day', null);
+      const series = seriesOf('model', { opus: 4_000_000 });
+
+      it('a 3-day range has one bucket per day, from its first day to its last', () => {
+        const chart = shareChart(groups, series, 'all', NOW, { from: '2026-10-10', to: '2026-10-12' });
+
+        expect(chart).toMatchObject({ weekly: false, buckets: ['2026-10-10', '2026-10-11', '2026-10-12'] });
+      });
+
+      it('a 31-day range is in weeks from Monday', () => {
+        const chart = shareChart(groups, series, '7d', NOW, { from: '2026-09-30', to: '2026-10-30' });
+
+        expect(chart.weekly).toBe(true);
+        expect(chart.buckets[0]).toBe(weekStart('2026-09-30'));
+      });
+    });
+
+    describe('the buckets are the trend charts\' over the same range', () => {
+      const rows = [spent('2026-10-05', 'opus', 1)];
+
+      it('the last 30 days are one bucket per day, the same as the trend charts', () => {
+        const chart = sharesOf(rows, '30d');
+
+        expect(chart.weekly).toBe(false);
+        expect(chart.buckets).toEqual(trends([], [], '30d', NOW).buckets);
+      });
+
+      it('the last 90 days are one bucket per week, each a Monday, the first holding the first day of the period', () => {
+        const chart = sharesOf(rows, '90d');
+
+        expect(chart.weekly).toBe(true);
+        expect(chart.buckets).toEqual(trends([], [], '90d', NOW).buckets);
+        expect(chart.buckets.every((b) => weekStart(b) === b)).toBe(true);
+        expect(chart.buckets[0]! <= firstDay('90d', NOW)! && firstDay('90d', NOW)! < addDays(chart.buckets[0]!, 7)).toBe(true);
+      });
+
+      it('all time starts at the week of the earliest day on record', () => {
+        const chart = sharesOf([spent('2026-09-23', 'opus', 1), spent('2026-10-05', 'opus', 1)], 'all');
+
+        expect(chart.buckets[0]).toBe('2026-09-21');
+        expect(chart.buckets).toEqual(trends([{ day: '2026-09-23', tokens: 1 }], [], 'all', NOW).buckets);
+        expect(chart.buckets.at(-1)).toBe('2026-10-26');
+      });
     });
   });
 
