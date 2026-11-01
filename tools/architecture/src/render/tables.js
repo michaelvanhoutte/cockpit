@@ -44,11 +44,11 @@ export function renderErd(database, { keysOnly, columnsHref, links }) {
   const linked = tables.filter((table) => parentsOf(table).length || childrenOf(table).length);
   const alone = tables.filter((table) => !linked.includes(table));
 
-  // A table's column is one more than the deepest table it points at; two tables pointing at each other are walked once.
+  // A table's column is one more than the deepest table it points at; a pointer back to a table still being walked counts for nothing, so a cycle leaves no empty column.
   const depth = new Map();
   const depthOf = (table, walking = new Set()) => {
     if (depth.has(table.name)) return depth.get(table.name);
-    if (walking.has(table.name)) return 0;
+    if (walking.has(table.name)) return -1;
     walking.add(table.name);
     const deepest = parentsOf(table).reduce((most, name) => Math.max(most, depthOf(byName.get(name), walking) + 1), 0);
     walking.delete(table.name);
@@ -131,7 +131,7 @@ export function renderErd(database, { keysOnly, columnsHref, links }) {
     const rows = shown(t);
     const name = `<text class="t-h${t.unused ? ' gone' : ''}" x="${x + PAD}" y="${y + 17}">${esc(t.name)}${href ? '<tspan class="nc-gh" dx="6">↗</tspan>' : ''}</text>`;
     const parts = [
-      `<g class="tb t-${css(t.name)}">${tip(t.unused)}<rect class="${t.unused ? 'ghost' : 'box'}" x="${x}" y="${y}" width="${width}" height="${h}" rx="5"/><rect class="soft" x="${x}" y="${y}" width="${width}" height="${HEAD - 6}" rx="5"/>`
+      `<g class="tb tbl-${css(t.name)}">${tip(t.unused)}<rect class="${t.unused ? 'ghost' : 'box'}" x="${x}" y="${y}" width="${width}" height="${h}" rx="5"/><rect class="soft" x="${x}" y="${y}" width="${width}" height="${HEAD - 6}" rx="5"/>`
         + (href ? `<a class="code" href="${esc(href)}" target="_blank" rel="noopener"><title>${esc(`Where it is defined, on GitHub: ${t.at.file}:${t.at.line}`)}</title>${name}</a>` : name),
     ];
     if (t.unused) parts.push(`<text class="t-red" x="${x + width - PAD}" y="${y + 17}" text-anchor="end">no longer used</text>`);
@@ -157,9 +157,9 @@ export function renderErd(database, { keysOnly, columnsHref, links }) {
   const focus = linked.map((table) => {
     const s = css(table.name);
     const kin = uniq([table.name, ...parentsOf(table), ...childrenOf(table).map((other) => other.name)]).map(css);
-    return `svg.erd:has(.t-${s}:hover) .rl:not(.lf-${s}):not(.lt-${s}) { opacity: .05; }
-svg.erd:has(.t-${s}:hover) .rl.lf-${s}, svg.erd:has(.t-${s}:hover) .rl.lt-${s} { opacity: 1; stroke: var(--accent); stroke-width: 2; }
-svg.erd:has(.t-${s}:hover) .tb${kin.map((each) => `:not(.t-${each})`).join('')} { opacity: .3; }`;
+    return `svg.erd:has(.tbl-${s}:hover) .rl:not(.lf-${s}):not(.lt-${s}) { opacity: .05; }
+svg.erd:has(.tbl-${s}:hover) .rl.lf-${s}, svg.erd:has(.tbl-${s}:hover) .rl.lt-${s} { opacity: 1; stroke: var(--accent); stroke-width: 2; }
+svg.erd:has(.tbl-${s}:hover) .tb${kin.map((each) => `:not(.tbl-${each})`).join('')} { opacity: .3; }`;
   }).join('\n');
 
   const height = bottom + 20;
@@ -179,9 +179,13 @@ function sourceOf(database, links) {
   if (database.key === 'register') return `One database every account shares. Read from ${file}.`;
   if (database.key === 'account-store') return `One database inside each account's Durable Object, all alike. Read from ${file}.`;
   const example = database.tables.flatMap((table) => table.columns.filter((column) => column.references?.inferred).map((column) => `<code>${esc(table.name)}.${esc(column.name)}</code> and <code>${esc(column.references.table)}</code>`))[0];
-  const pointers = database.inferred
-    ? `its SQL declares no foreign key, so the ${plural(database.inferred, 'pointer')} here ${database.inferred === 1 ? 'is' : 'are'} inferred: a column named like the key of another table of the same family, such as ${example}.`
-    : 'its SQL declares no foreign key, and no column is named like the key of another table of the same family, so no pointer is drawn.';
+  const declared = database.tables.reduce((n, table) => n + table.columns.filter((column) => column.references && !column.references.inferred).length, 0);
+  const inferredWord = `${plural(database.inferred, 'pointer')} here ${database.inferred === 1 ? 'is' : 'are'} inferred: a column named like the key of another table of the same family, such as ${example}.`;
+  const pointers = declared
+    ? `its SQL declares ${plural(declared, 'foreign key')}${database.inferred ? `, and the ${inferredWord}` : '.'}`
+    : database.inferred
+      ? `its SQL declares no foreign key, so the ${inferredWord}`
+      : 'its SQL declares no foreign key, and no column is named like the key of another table of the same family, so no pointer is drawn.';
   return `Read from ${file}, which the Monitor's own tests write from the database once every migration has run. ${pointers[0].toUpperCase()}${pointers.slice(1)}`;
 }
 

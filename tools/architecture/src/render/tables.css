@@ -7,7 +7,7 @@ nav.switch a { color: var(--accent); background: var(--card); }
 nav.switch a:hover { background: var(--soft); }
 nav.switch span.on { background: var(--accent); color: var(--card); font-weight: 600; }
 .rl { fill: none; stroke: var(--neutral); stroke-width: 1.4; }
-.rl.far { opacity: 0; }
+.rl.far { opacity: 0; pointer-events: none; }
 .erd-o { fill: var(--card); stroke: var(--neutral); stroke-width: 1.5; }
 .db-t .fk, .fk-k { fill: var(--accent); color: var(--accent); font-weight: 600; }
 .db-c.pk { font-weight: 700; }

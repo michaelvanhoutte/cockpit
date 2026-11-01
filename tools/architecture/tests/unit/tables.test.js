@@ -90,6 +90,7 @@ describe('Tables', () => {
       { situation: 'is not JSON', text: '{ "databases": [' },
       { situation: 'holds no list of databases', text: JSON.stringify({ tables: [] }) },
       { situation: 'holds a database with no tables', text: JSON.stringify({ databases: [{ key: 'x' }] }) },
+      { situation: 'holds a table without indexes', text: JSON.stringify({ databases: [{ key: 'x', tables: [{ name: 't', columns: [] }] }] }) },
     ])('refuses a schema file that $situation', ({ text }) => {
       expect(() => built({ file: 'apps/harness-monitor/database-schema.json', text })).toThrow(ReadError);
     });

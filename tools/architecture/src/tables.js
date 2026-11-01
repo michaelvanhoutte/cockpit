@@ -91,6 +91,7 @@ function monitorOf(schema, sources) {
   }
   const database = parsed?.databases?.[0];
   if (!Array.isArray(parsed?.databases) || !database || !Array.isArray(database.tables)) throw new ReadError(schema.file, 'holds no `databases` list');
+  if (!database.tables.every((table) => table && Array.isArray(table.columns) && Array.isArray(table.indexes))) throw new ReadError(schema.file, 'holds a table without `columns` and `indexes` lists');
   const definedIn = database.definedIn ?? [];
   const { tables, inferred } = inferPointers(database.tables.map((table) => ({
     name: table.name,

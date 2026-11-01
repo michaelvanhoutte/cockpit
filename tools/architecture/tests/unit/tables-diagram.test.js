@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { linksFor } from '../../src/render/links.js';
@@ -12,7 +13,7 @@ const table = (name, columns, extra = {}) => ({ name, strict: false, unused: nul
 const draw = (tables, keysOnly = true) => renderErd({ name: 'Fixture', tables }, { keysOnly, columnsHref: 'cols.html', links });
 
 /** Each table's left edge, from its box. */
-const leftOf = (svg, name) => Number(new RegExp(`<g class="tb t-${name}">.*?<rect class="[a-z]+" x="(\\d+)"`).exec(svg)[1]);
+const leftOf = (svg, name) => Number(new RegExp(`<g class="tb tbl-${name}">.*?<rect class="[a-z]+" x="(\\d+)"`).exec(svg)[1]);
 const paths = (svg) => [...svg.matchAll(/<path class="rl ([^"]*)" d="([^"]*)"/g)].map(([, classes, d]) => ({ classes, d }));
 
 describe('Table diagram', () => {
@@ -29,10 +30,19 @@ describe('Table diagram', () => {
       const baseline = (name, left) => Number(new RegExp(`<text class="db-c[^"]*" x="${left + 10}" y="(\\d+)">${name}</text>`).exec(svg)[1]);
       const [x1, y1, , , , , x2, y2] = paths(svg)[0].d.match(/-?[\d.]+/g).map(Number);
       expect(x1).toBe(leftOf(svg, 'items'));
-      const width = Number(/<g class="tb t-workspaces">.*?width="(\d+)"/.exec(svg)[1]);
+      const width = Number(/<g class="tb tbl-workspaces">.*?width="(\d+)"/.exec(svg)[1]);
       expect(x2).toBe(leftOf(svg, 'workspaces') + width);
       expect(y1).toBe(baseline('workspace_id', leftOf(svg, 'items')) - 3);
       expect(y2).toBe(baseline('id', leftOf(svg, 'workspaces')) - 3);
+    });
+
+    it('leaves no empty column when two tables point at each other', () => {
+      const { svg } = draw([table('a', [key('id'), points('b_id', 'b')]), table('b', [key('id'), points('a_id', 'a')])]);
+      expect(Math.min(leftOf(svg, 'a'), leftOf(svg, 'b'))).toBe(30);
+    });
+
+    it('keeps the lines that skip a column from catching the pointer', () => {
+      expect(readFileSync(new URL('../../src/render/tables.css', import.meta.url), 'utf8')).toMatch(/\.rl\.far \{[^}]*pointer-events: none/);
     });
 
     it('writes “→ table.column” on every pointing row', () => {
@@ -59,13 +69,13 @@ describe('Table diagram', () => {
       const skipping = paths(svg).filter((each) => each.classes.includes(' far'));
       expect(skipping.map((each) => each.classes)).toEqual(['lf-items lt-tenants far']);
       expect(svg).toContain('<tspan class="fk">→ tenants.id</tspan>');
-      expect(focus).toContain('svg.erd:has(.t-items:hover) .rl.lf-items, svg.erd:has(.t-items:hover) .rl.lt-items { opacity: 1;');
-      expect(focus).toContain('svg.erd:has(.t-tenants:hover) .rl.lf-tenants, svg.erd:has(.t-tenants:hover) .rl.lt-tenants { opacity: 1;');
+      expect(focus).toContain('svg.erd:has(.tbl-items:hover) .rl.lf-items, svg.erd:has(.tbl-items:hover) .rl.lt-items { opacity: 1;');
+      expect(focus).toContain('svg.erd:has(.tbl-tenants:hover) .rl.lf-tenants, svg.erd:has(.tbl-tenants:hover) .rl.lt-tenants { opacity: 1;');
     });
 
     it('fades the tables a hovered table has nothing to do with', () => {
       const { focus } = draw([table('a', [key('id')]), table('b', [points('a_id', 'a')]), table('c', [key('id')]), table('d', [points('c_id', 'c')])]);
-      expect(focus).toContain('svg.erd:has(.t-a:hover) .tb:not(.t-a):not(.t-b) { opacity: .3; }');
+      expect(focus).toContain('svg.erd:has(.tbl-a:hover) .tb:not(.tbl-a):not(.tbl-b) { opacity: .3; }');
     });
 
     it('draws two tables pointing at each other, both once', () => {
@@ -77,7 +87,7 @@ describe('Table diagram', () => {
     it('sets a table with no relations in the group at the bottom', () => {
       const { svg } = draw([table('workspaces', [key('id')]), table('items', [points('workspace_id', 'workspaces')]), table('settings', [key('name')])]);
       const label = Number(/<text class="t-m" x="30" y="(\d+)">Pointing at no table/.exec(svg)[1]);
-      const top = (name) => Number(new RegExp(`<g class="tb t-${name}">.*?<rect class="[a-z]+" x="\\d+" y="(\\d+)"`).exec(svg)[1]);
+      const top = (name) => Number(new RegExp(`<g class="tb tbl-${name}">.*?<rect class="[a-z]+" x="\\d+" y="(\\d+)"`).exec(svg)[1]);
       expect(top('settings')).toBeGreaterThan(label);
       expect(top('settings')).toBeGreaterThan(top('items'));
       expect(top('settings')).toBeGreaterThan(top('workspaces'));
