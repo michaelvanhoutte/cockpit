@@ -48,7 +48,7 @@ export function codeOf(text) {
       while (i < n && text[i] !== '\n') i += 1;
     } else if (c === '/' && next === '*') {
       const end = text.indexOf('*/', i + 2);
-      out.push(' ');
+      out.push(' ', text.slice(i, end === -1 ? n : end).replace(/[^\n]/g, ''));
       i = end === -1 ? n : end + 2;
     } else if (c === '"' || c === "'") {
       let j = i + 1;

@@ -18,12 +18,10 @@
  */
 
 import { importResolver } from './dependencies.js';
-import { importsOf } from './scan.js';
+import { codeOf, importsOf } from './scan.js';
 
-const COMMENT = /^\s*(\/\/|\*|\/\*)/;
-
-/** The lines of a file that are not comment lines, with their line numbers. */
-const codeLines = (text) => text.split('\n').map((line, at) => ({ line, n: at + 1 })).filter(({ line }) => !COMMENT.test(line));
+/** The lines of a file with every comment blanked out (so a match on one is not evidence), with their line numbers. */
+const codeLines = (text) => codeOf(text).split('\n').map((line, at) => ({ line, n: at + 1 }));
 
 const firstLine = (lines, test) => lines.find(({ line }) => test(line))?.n ?? null;
 
@@ -129,7 +127,7 @@ export function buildLogical({ design, scan, candidates, callerCode = {} }) {
     return { from: caller.from, to: caller.to, how: caller.how, status: found.length > 0 ? 'found' : 'notFound', files: found, at };
   });
 
-  const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
+  const miss = design.mayCall.filter(([a, b]) => !agg.has(`${a}>${b}`) && !callers.some((caller) => caller.status !== 'notFound' && layerOf.get(caller.from) === a && layerOf.get(caller.to) === b)).map(([a, b]) => ({ a, b }));
 
-  return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, evidence, inside, within, ok: [...agg.values()], bad, miss, callers };
+  return { layers: design.layers, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad, miss, callers };
 }

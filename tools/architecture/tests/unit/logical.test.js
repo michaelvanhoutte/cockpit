@@ -95,7 +95,6 @@ describe('Code the design does not allow is a numbered red line between the two 
   it('is no line when the marker appears only in a comment', () => {
     const logical = code({ 'apps/api/src/http': { 'a.ts': '// env.DB is read in db/\n/*\n * env.DB again\n */\nexport {};' } });
     expect(logical.bad).toEqual([]);
-    expect(logical.evidence).toEqual([]);
   });
 
   it('numbers the lines in the order the design lists their components', () => {

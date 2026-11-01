@@ -11,6 +11,7 @@ table.flows tr.bad td:first-child { border-left: 3px solid var(--red); }
 table.flows tr:target td { background: var(--red-soft); }
 .dim { color: var(--ink-3); }
 .bad { color: var(--red); font-weight: 600; }
+tr.bad { color: inherit; font-weight: inherit; }
 .ok { color: var(--green); font-weight: 600; }
 details.files summary { cursor: pointer; color: var(--accent); }
 details.files code { display: block; }

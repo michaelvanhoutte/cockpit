@@ -64,6 +64,7 @@ export function parseDesign(value, { fail, object, array, string }) {
     };
   });
   if (layers.length === 0) fail('design.layers must hold at least one layer');
+  for (const layer of layers) if (layer.alignedWith === null && layer.row === null) fail(`design layer ${layer.id} has no row`);
   for (const layer of layers) if (layer.alignedWith !== null && !layerIds.has(layer.alignedWith)) fail(`design layer ${layer.id} is aligned with ${layer.alignedWith}, which is not a layer`);
   for (const layer of layers) if (layer.alignedWith !== null && layer.row !== null) fail(`design layer ${layer.id} is drawn beside another layer and has no row of its own`);
   if (layers.filter((layer) => layer.alignedWith !== null).length > 1) fail('design draws only one layer beside the others');

@@ -210,7 +210,7 @@ export function renderNested(spec, links) {
     const cls = { component: 'nc', client: 'nc-cl', store: 'nc-st', outside: 'nc-ext' }[chip.kind];
     const name = wrap(chip.name, R.w - 12, 6.9)[0];
     const sub = wrap(chip.sub ?? '', R.w - 12, 5.6)[0] ?? '';
-    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
+    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><title>${esc([chip.name, chip.sub].filter(Boolean).join(" - "))}</title><text class="nc-t" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
     parts.push(`<g class="node n-${id}">${codeLinked(chip, body, R.x + R.w, R.y, links)}</g>`);
   }
   const W = spec.side ? SX + SW + 20 : X0 + MW + 60;
@@ -264,7 +264,7 @@ function designTable(logical, { layerById }) {
 function offTable(logical, { nameOf, layerById }, links) {
   if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws.</p>';
   const cell = (id, layerId) => `${esc(nameOf(id))}<br><span class="dim">${esc(layerById.get(layerId).title)}</span>`;
-  return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>What it breaks</th><th>Files</th></tr>${logical.bad.map((e) => `<tr class="bad" id="${e.id}"><td><span class="num">${e.n}</span></td><td>${cell(e.from, e.a)}</td><td>${cell(e.to, e.b)}</td><td>${esc(e.why)}${e.kind === 'store' || e.how.length ? ` <span class="dim">(${esc(e.how.join(', ') || 'imports its schema')})</span>` : ''}</td><td>${links.files(e.files, e.at)}</td></tr>`).join('')}</table></div>`;
+  return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>What it breaks</th><th>Files</th></tr>${logical.bad.map((e) => `<tr class="bad" id="${e.id}"><td><span class="num">${e.n}</span></td><td>${cell(e.from, e.a)}</td><td>${cell(e.to, e.b)}</td><td>${esc(e.why)}${e.kind === 'store' || e.how.length ? ` <span class="dim">(${esc(e.how.join(', ') || 'imports it')})</span>` : ''}</td><td>${links.files(e.files, e.at)}</td></tr>`).join('')}</table></div>`;
 }
 
 function missTable(logical, { nameOf, layerById }) {
