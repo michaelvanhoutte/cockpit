@@ -205,3 +205,88 @@ describe('Harness Monitor', () => {
     });
   });
 });
+
+// ---- A range of days opens from a drag across a chart, and the page keeps it until a period or a day replaces it
+
+const RANGE = 'period=all&from=2026-10-15&to=2026-10-24';
+const rangeDays = ['2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24'];
+const decode = (href: string) => href.replace(/&#38;|&amp;/g, '&');
+
+describe('Harness Monitor', () => {
+  describe("a range stays through the page's own links until a period or a day replaces it", () => {
+    const overRange = (address = RANGE) => pageFor(address, eachDay(rangeDays));
+
+    it('the period select lists the range first and chosen, then the four periods and "Pick a day…"', () => {
+      const html = overRange();
+
+      expect(optionTexts(periodSelect(html))).toEqual(['15 Oct 2026 – 24 Oct 2026', 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+      expect(periodSelect(html)).toContain('<option value="range" selected>');
+      // The select sends nothing while a range is shown; the period it was opened from and the range ride along.
+      expect(html).not.toContain('<select name="period"');
+      expect(html).toContain('<input type="hidden" name="period" value="all">');
+      expect(html).toContain('<input type="hidden" class="range-field" name="from" value="2026-10-15">');
+      expect(html).toContain('<input type="hidden" class="range-field" name="to" value="2026-10-24">');
+    });
+
+    it('the cost bar names the range', () => {
+      expect(overRange()).toContain('Where 15 Oct to 24 Oct&rsquo;s $55.00 went, by phase</h2>');
+    });
+
+    it("both charts are drawn over the range's days alone", () => {
+      const html = overRange(`${RANGE}&split=model`);
+
+      for (const chart of ['perday', 'tokensperday']) {
+        expect(strips(html, chart).map((s) => s.says[0]!.split(' · ')[0])).toEqual(rangeDays.map((d) => `${d.slice(8)} Oct 2026`));
+      }
+    });
+
+    it.each([
+      { situation: 'another word of the sentence', address: `${RANGE}&group=day&split=model`, expected: '?period=all&from=2026-10-15&to=2026-10-24&split=model' },
+      { situation: 'an Only filter', address: `${RANGE}&group=day&engineer=alice`, expected: '?period=all&from=2026-10-15&to=2026-10-24&engineer=alice' },
+    ])("$situation keeps the range in the address a chart's zoom is built on", ({ address, expected }) => {
+      const html = overRange(address);
+
+      const zoom = decode(/<svg class="zoomable" data-range="([^"]*)"/.exec(html)![1]!);
+      expect(zoom).toBe(`/${expected.replace('from=2026-10-15&to=2026-10-24', 'from=FROM&to=TO')}`);
+    });
+
+    it("the rows' own links keep the range: a day by its strip and by its By day date, the pager", () => {
+      const html = pageFor(`${RANGE}&group=pr`, pullRequests(30));
+      const dates = overRange().match(/<td class="first"><a href="([^"]*)"/g)!.map((m) => decode(/href="([^"]*)"/.exec(m)![1]!));
+
+      expect(strips(overRange(), 'perday').map((s) => s.href)).toEqual(rangeDays.map((d) => `/?period=all&day=${d}&from=2026-10-15&to=2026-10-24&group=pr`));
+      expect(dates).toContain('/?period=all&day=2026-10-24&from=2026-10-15&to=2026-10-24&group=pr');
+      expect(html).toContain('<a href="/?period=all&from=2026-10-15&to=2026-10-24&group=pr&page=2">Next 25</a>');
+    });
+
+    it('a day opened from the range holds the range as well as the period, and its select offers the range after the day', () => {
+      const html = pageFor(`${RANGE}&day=2026-10-20&group=pr`, pullRequests(2));
+
+      expect(optionTexts(periodSelect(html))).toEqual(['20 Oct 2026', '15 Oct 2026 – 24 Oct 2026', 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+      expect(periodSelect(html)).toContain('<option value="2026-10-20" selected>');
+      expect(html).toContain('<input type="hidden" name="period" value="all">');
+      expect(html).toContain('<input type="hidden" class="range-field" name="from" value="2026-10-15">');
+      expect(html).toContain('Where 20 Oct&rsquo;s $3.00 went');
+    });
+
+    it('the Sessions link carries the period alone, no range and no day', () => {
+      const html = pageFor(`${RANGE}&day=2026-10-20&group=pr`, [totalRow({ branch: 'b/1', prNumber: 1, title: 'P1', issue: 5, engineer: 'alice' })]);
+
+      expect(/<a href="(\/pr\/1[^"]*)">Sessions/.exec(html)![1]).toBe('/pr/1?period=all');
+    });
+
+    it('Export CSV carries the range, over a range and on a day opened from one', () => {
+      const exportHref = (html: string) => /class="button" href="([^"]*)"/.exec(html)![1]!.replace(/&amp;/g, '&');
+
+      expect(exportHref(overRange(`${RANGE}&split=model`))).toBe('/export.csv?period=all&from=2026-10-15&to=2026-10-24');
+      expect(exportHref(pageFor(`${RANGE}&day=2026-10-20&group=pr`, pullRequests(1)))).toBe('/export.csv?period=all&day=2026-10-20&from=2026-10-15&to=2026-10-24&group=pr');
+    });
+
+    it('the drag script is in the page once, whatever the charts, and only on Over time', () => {
+      expect(overRange().split("addEventListener('pointerdown'")).toHaveLength(2);
+      expect(overRange()).toContain('class="brush"');
+      expect(pageFor('period=all&group=pr', pullRequests(1))).not.toContain("addEventListener('pointerdown'");
+    });
+  });
+});
+

@@ -2,7 +2,7 @@ import { checkWriteKey } from './auth';
 import { exportClaudeCalls } from './claude-calls-export';
 import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
 import { renderClaudeCalls } from './claude-calls-view';
-import { costsPage, DEFAULT_GROUP, parseQuery, parseTrendQuery, queryString, trendPage, trendQueryString } from './costs';
+import { costsPage, DEFAULT_GROUP, parseQuery, parseTrendLines, parseTrendQuery, queryString, trendPage, trendQueryString } from './costs';
 import { checkAttempts } from './ci-attempts';
 import { newestAttempt, parseScope, storeAttempts } from './ci-attempts-store';
 import { checkPulls, checkTimelines } from './cycle-time';
@@ -514,17 +514,18 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
-/** The Harness trend page, cached at the edge like the costs page; its key is the period and the filters alone. */
+/** The Harness trend page, cached at the edge like the costs page; its key is the period, the filters and the cost chart's view. */
 async function harnessTrend(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const query = parseTrendQuery(url.searchParams);
+  const lines = parseTrendLines(url.searchParams);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
-  const key = new Request(`${url.origin}/harness-trend${trendQueryString(query)}`);
+  const key = new Request(`${url.origin}/harness-trend${trendQueryString(query, lines)}`);
   const hit = await cache?.match(key);
   if (hit) return hit;
 
-  const response = new Response(renderTrendPage(await trendPage(env.DB, query)), {
+  const response = new Response(renderTrendPage(await trendPage(env.DB, query, Date.now(), lines)), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
@@ -557,8 +558,8 @@ async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): P
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
-  // A pull request's page shows its whole cost over a period, never one day of it.
-  const query = { ...parseQuery(url.searchParams), day: null };
+  // A pull request's page shows its whole cost over a period, never one day of it or a range of days.
+  const query = { ...parseQuery(url.searchParams), day: null, range: null };
   const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;

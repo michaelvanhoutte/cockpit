@@ -11,7 +11,7 @@ export const WHAT = {
   perDay: {
     shows: 'What Claude Code cost each day of the period, one line per colour of the sentence and a dashed line for the total.',
     read: 'Each point is a Belgian day; a day with no request sits at zero rather than being skipped. Point at a dot for its dollars, or at a name in the key to pick its line out.',
-    look: 'Spikes are the days to explain: the By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says what work spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
+    look: 'Spikes are the days to explain: click a day to open it, or drag across several to zoom the whole page into those days (on a phone, hold a moment first, then drag). The By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says what work spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
   },
   tokensPerDay: {
     shows: 'How many tokens Claude Code used each day, with the same lines as Cost per day.',
@@ -35,7 +35,7 @@ export const WHAT = {
   },
   costPerLine: {
     shows: 'What a thousand lines of merged change cost in Claude Code, in total and in each phase.',
-    read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn.',
+    read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Total, at the right of the heading, draws that line alone and solid; By phase, the default, draws it beside each phase. The switch is not offered when the Phase filter names one phase. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn.',
     look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent.',
   },
   shareOverTime: {
