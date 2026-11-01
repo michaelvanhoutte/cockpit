@@ -2,7 +2,7 @@ import { env, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
 import { theCallsPage } from './cockpit-support';
-import { emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, withPrices } from './support';
+import { emptyTheDatabase, send, spend, theBarePage, theSentence, thePullRequest, theTrendPage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -44,6 +44,7 @@ describe('Harness Monitor', () => {
       { situation: 'the costs page', page: () => theBarePage('?period=all'), current: 'Claude Code costs' },
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text(), current: 'Claude Code costs' },
       { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text(), current: 'Claude Code costs' },
+      { situation: 'Harness trend', page: () => theTrendPage(), current: 'Harness trend' },
       { situation: "Cockpit's Claude calls", page: () => theCallsPage(), current: "Cockpit's Claude calls" },
     ])('$situation shows the mark, the name and every tab, its own selected', async ({ page, current }) => {
       expect(topBar(await page())).toEqual({
@@ -51,6 +52,7 @@ describe('Harness Monitor', () => {
         name: true,
         tabs: [
           { label: 'Claude Code costs', current: current === 'Claude Code costs' },
+          { label: 'Harness trend', current: current === 'Harness trend' },
           { label: "Cockpit's Claude calls", current: current === "Cockpit's Claude calls" },
           { label: 'Cycle time', current: false },
           { label: 'Test selection', current: false },
@@ -64,15 +66,16 @@ describe('Harness Monitor', () => {
       { situation: 'the costs page', page: () => theBarePage() },
       { situation: "a pull request's page", page: async () => (await thePullRequest(7)).text() },
       { situation: 'the page for a pull request nothing knows', page: async () => (await thePullRequest(999)).text() },
+      { situation: 'Harness trend', page: () => theTrendPage() },
       { situation: "Cockpit's Claude calls", page: () => theCallsPage() },
     ])('$situation has exactly one top-level heading', async ({ page }) => {
       expect((await page()).match(/<h1\b/g)).toHaveLength(1);
     });
 
-    it("the tabs lead to the costs page, Cockpit's Claude calls, cycle time, test selection, test coverage and CI stability", async () => {
+    it("the tabs lead to the costs page, Harness trend, Cockpit's Claude calls, cycle time, test selection, test coverage and CI stability", async () => {
       const bar = /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(await theBarePage())![1]!;
 
-      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/claude-calls', '/cycle-time', '/selection', '/tests', '/stability']);
+      expect([...bar.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1])).toEqual(['/', '/harness-trend', '/claude-calls', '/cycle-time', '/selection', '/tests', '/stability']);
     });
   });
 
@@ -80,6 +83,7 @@ describe('Harness Monitor', () => {
     it.each([
       { situation: 'the costs page', page: () => theMonitorAt('/') },
       { situation: "a pull request's page", page: () => theMonitorAt('/pr/7') },
+      { situation: 'Harness trend', page: () => theMonitorAt('/harness-trend') },
       { situation: "Cockpit's Claude calls", page: () => theMonitorAt('/claude-calls') },
       { situation: 'Cycle time', page: () => theMonitorAt('/cycle-time') },
       { situation: 'Test selection', page: () => theMonitorAt('/selection') },

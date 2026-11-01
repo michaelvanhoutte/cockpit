@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
-import { costRows, emptyTheDatabase, merged, micros, pullRequestFigures, send, spend, theBarePage, theExport, thePage, thePullRequest, usage, whereItWent, withPrices } from './support';
+import { costRows, emptyTheDatabase, merged, micros, pullRequestFigures, send, spend, theBarePage, theExport, thePage, thePullRequest, theTrendPage, usage, whereItWent, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -17,15 +17,6 @@ const RANGE = '?period=all&from=2026-10-14&to=2026-10-16';
 /** A per-day chart's days, as its strips name them. */
 const chartDays = (html: string, id: 'perday' | 'tokensperday') =>
   [...new RegExp(`aria-labelledby="${id}">.*?</section>`, 's').exec(html)![0].matchAll(/<rect [^>]*><title>(.*?)\n/g)].map((m) => m[1]!.split(' · ')[0]);
-
-/** A trend chart's points ("14 Oct 2026 · 80 tokens"), keyed by line; 'empty' where the chart has nothing to draw. */
-function trend(html: string, id: string): Record<string, string[]> | 'empty' {
-  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
-  if (section.includes(`data-empty="${id}"`)) return 'empty';
-  return Object.fromEntries(
-    [...section.matchAll(/<g data-line="([^"]*)">(.*?)<\/g>/gs)].map(([, key, body]) => [key!, [...body!.matchAll(/<title>(.*?)<\/title>/g)].map((t) => t[1]!.split(' · ').slice(1).join(' · ').replace('week of ', ''))]),
-  );
-}
 
 describe('Harness Monitor', () => {
   describe('a range zooms the whole costs page into its days, both ends included', () => {
@@ -92,24 +83,15 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe("the trend charts stop at the range's last Belgian day", () => {
-    it('a session starting, and a pull request merging, after the last day are in no trend chart', async () => {
+  describe('the Harness trend page ignores a range, as it ignores a day', () => {
+    it('a range in its address draws the same page as its period alone', async () => {
       await send([
         usage('in', { time: '2026-10-15T10:00:00Z', sessionId: 'inside', branch: 'b/1', inputTokens: 70 }),
         usage('out', { time: '2026-10-17T10:00:00Z', sessionId: 'outside', branch: 'b/2', inputTokens: 90 }),
-        spend('cost-1', 2, { time: '2026-10-15T11:00:00Z', branch: 'b/1', sessionId: 'inside' }),
-        spend('cost-2', 6, { time: '2026-10-15T11:00:00Z', branch: 'b/2', sessionId: 'inside' }),
       ]);
-      // 16 Oct ends at 22:00 UTC: the pull request merged a second before is in, the one merged at it is on the 17th.
-      await merged(1, '2026-10-16T21:59:59Z', 1_000);
-      await merged(2, '2026-10-16T22:00:00Z', 5_000);
+      await merged(1, '2026-10-17T10:00:00Z', 1_000);
 
-      // Over 30 days the charts are weekly, so the 17th shares the 16th's week and only the read's bound keeps it out.
-      const html = await theBarePage('?period=all&from=2026-09-14&to=2026-10-16');
-
-      expect(trend(html, 'starting-context')).toEqual({ 'starting-context': ['12 Oct 2026 · 140 tokens'] });
-      expect(trend(html, 'pull-request-size')).toEqual({ 'pull-request-size': ['12 Oct 2026 · 1,000 lines'] });
-      expect((trend(html, 'cost-per-line') as Record<string, string[]>).total).toEqual(['12 Oct 2026 · $2.00']);
+      expect(await theTrendPage(`?period=all&from=2026-10-14&to=2026-10-16`)).toBe(await theTrendPage('?period=all'));
     });
   });
 

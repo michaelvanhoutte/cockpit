@@ -236,7 +236,6 @@ test.describe('Harness Monitor', () => {
     await expect(table.getByRole('row').nth(1)).toContainText('#9001');
     await expect(table.getByRole('row').nth(2)).toContainText('#9002');
     await expect(page.getByRole('heading', { name: /Where \d+ \w+.s \$9\.00 went, by model/ })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Is the harness getting more expensive/ })).toHaveCount(0);
     // The dropdown shows the day first, above the four periods and "Pick a day…".
     await expect(choice(page, 'Period').locator('option')).toHaveText([/^\d+ \w+ \d{4}$/, 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

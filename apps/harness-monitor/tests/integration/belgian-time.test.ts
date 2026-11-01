@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jobLine, linked, pullRequest, startJob } from './github-support';
-import { costRows, emptyTheDatabase, merged, send, spend, splitTotals, theBarePage, theExport, thePullRequest, totals, whereItWent, withPrices } from './support';
+import { costRows, emptyTheDatabase, merged, send, spend, splitTotals, theBarePage, theExport, thePullRequest, theTrendPage, totals, whereItWent, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -89,7 +89,7 @@ describe('Harness Monitor', () => {
       await send([spend('s', 2, { time: AFTER_MIDNIGHT, branch: 'b/1', inputTokens: 700_000 })]);
       await merged(1, AFTER_MIDNIGHT, 1_000);
 
-      const html = await theBarePage('?period=30d');
+      const html = await theTrendPage('?period=30d');
 
       expect(points(html, 'starting-context')).toEqual(['22 Oct 2026 · 700,000 tokens']);
       expect(points(html, 'pull-request-size')).toEqual(['22 Oct 2026 · 1,000 lines']);
@@ -100,7 +100,7 @@ describe('Harness Monitor', () => {
       await send([spend('s', 2, { time: '2026-10-25T23:30:00Z', branch: 'b/1', inputTokens: 700_000 })]);
       await merged(1, '2026-10-25T23:30:00Z', 1_000);
 
-      const html = await theBarePage('?period=90d');
+      const html = await theTrendPage('?period=90d');
 
       expect(points(html, 'starting-context')).toEqual(['26 Oct 2026 · 700,000 tokens']);
       expect(points(html, 'pull-request-size')).toEqual(['26 Oct 2026 · 1,000 lines']);

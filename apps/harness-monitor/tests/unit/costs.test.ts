@@ -420,6 +420,13 @@ describe('Harness Monitor', () => {
         expect(chart).toMatchObject({ weekly: false, buckets: ['2026-10-10', '2026-10-11', '2026-10-12'] });
       });
 
+      it('a 30-day range is in days', () => {
+        const chart = shareChart(groups, series, 'all', NOW, { from: '2026-09-15', to: '2026-10-14' });
+
+        expect(chart.weekly).toBe(false);
+        expect(chart.buckets).toHaveLength(30);
+      });
+
       it('a 31-day range is in weeks from Monday', () => {
         const chart = shareChart(groups, series, '7d', NOW, { from: '2026-09-30', to: '2026-10-30' });
 
@@ -476,26 +483,8 @@ describe('Harness Monitor', () => {
       expect(all.buckets).toEqual(['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
     });
 
-    describe('a range is bucketed by day up to 30 days and by week beyond, and ends today where it would run past it', () => {
-      it('a 30-day range has 30 daily buckets', () => {
-        const t = trends([], [], 'all', NOW, { from: '2026-09-15', to: '2026-10-14' });
-
-        expect(t.weekly).toBe(false);
-        expect(t.buckets).toHaveLength(30);
-        expect([t.buckets[0], t.buckets.at(-1)]).toEqual(['2026-09-15', '2026-10-14']);
-      });
-
-      it('a 31-day range has weekly buckets, each a Monday, the first holding the first day', () => {
-        const t = trends([], [], 'all', NOW, { from: '2026-09-15', to: '2026-10-15' });
-
-        expect(t.weekly).toBe(true);
-        expect(t.buckets).toEqual(['2026-09-14', '2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12']);
-      });
-
+    describe("a range's per-day charts run over its own days, ending today where it would run past it", () => {
       it('a range ending after today draws to today', () => {
-        const t = trends([], [], 'all', NOW, { from: '2026-10-28', to: '2026-11-05' });
-
-        expect(t.buckets.at(-1)).toBe('2026-10-31');
         const chart = dayChart(
           groupRows([row({ day: '2026-10-29', series: 'building', costMicros: 5, prNumber: null, title: null, branch: '' })], 'day', null),
           seriesOf('phase', { building: 5 }),

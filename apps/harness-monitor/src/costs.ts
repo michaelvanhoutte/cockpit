@@ -551,13 +551,13 @@ export const isWeekly = (period: Period, range: DayWindow | null = null) => (ran
  * day phase marks began. Unphased is drawn before then, and after it only in a
  * bucket that holds some, since a hook on an older checkout still sends it.
  */
-export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number, range: DayWindow | null = null): Trends {
-  const weekly = isWeekly(period, range);
+export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number): Trends {
+  const weekly = isWeekly(period);
   const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
   const span = weekly ? 7 : 1;
-  const today = range !== null ? rangeEnd(range, now) : belgianDay(now);
+  const today = belgianDay(now);
   const earliest = [...sessions.map((s) => s.day), ...pullRequests.map((p) => p.day)].sort()[0];
-  const first = range?.from ?? firstDay(period, now) ?? earliest;
+  const first = firstDay(period, now) ?? earliest;
   const buckets: string[] = [];
   if (first !== undefined) for (let bucket = bucketOf(first); bucket <= today; bucket = addDays(bucket, span)) buckets.push(bucket);
 
@@ -615,8 +615,6 @@ export interface CostsPage {
   creditedThrough: number | null;
   /** What each job last did: read in the same batch as the figures. */
   jobs: JobStatus[];
-  /** The Over time page's trend charts; null for every other grouping. */
-  trends: Trends | null;
 }
 
 /**
@@ -644,18 +642,7 @@ const TOKEN_SUMS = `SUM(t.input_tokens) AS inputTokens, SUM(t.output_tokens) AS 
  */
 export async function costsPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<CostsPage> {
   const first = query.range?.from ?? firstDay(query.period, now);
-  // What narrows a request: its phase, model and agent, then the engineer its pull request (or the one it is credited to) names.
-  const narrowing: string[] = [];
-  const narrowBinds: (string | number)[] = [];
-  if (query.category !== null) {
-    narrowing.push(`${PHASE} = ?`);
-    narrowBinds.push(query.category);
-  }
-  if (query.model !== null) {
-    narrowing.push('t.model = ?');
-    narrowBinds.push(query.model);
-  }
-  if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
+  const { narrowing, narrowBinds } = narrowingOf(query);
   const byEngineer: string[] = [];
   const engineerBinds: string[] = [];
   if (query.engineer === UNATTRIBUTED) byEngineer.push(`${counted('branch')} IS NULL`);
@@ -697,15 +684,12 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
          LEFT JOIN pull_request_stats s ON s.pr_number = ${link('pr_number')}
          ${conditions} GROUP BY t.branch, e.branch${phaseKey}, ${series}`;
 
-  // Only the Over time page draws the trend charts, so only it reads their sessions and merged pull requests.
-  const reads = query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds }) : [];
-  const [rows, engineers, models, state, runs, list, sessionRows, pullRequestRows] = await db.batch([
+  const [rows, engineers, models, state, runs, list] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
     db.prepare('SELECT DISTINCT model FROM daily_credited_totals ORDER BY model'),
     db.prepare('SELECT last_success_at AS lastSuccessAt, credited_through AS creditedThrough FROM link_state WHERE id = 1'),
     ...jobReads(db),
-    ...reads,
   ]);
   const linkState = state!.results[0] as { lastSuccessAt: number | null; creditedThrough: number | null } | undefined;
   const lastLinkSuccessAt = linkState?.lastSuccessAt ?? null;
@@ -727,22 +711,67 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     lastLinkSuccessAt,
     creditedThrough,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
-    trends:
-      sessionRows === undefined || query.group !== 'day'
-        ? null
-        : trends(
-            sessionRows.results as unknown as SessionStart[],
-            mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]),
-            query.period,
-            now,
-            query.range,
-          ),
   };
 }
 
 interface Narrowing {
   narrowing: string[];
   narrowBinds: (string | number)[];
+}
+
+/** What narrows a request: its phase, model and agent. The engineer is narrowed through the pull request's link, read where it is needed. */
+function narrowingOf(query: CostQuery): Narrowing {
+  const narrowing: string[] = [];
+  const narrowBinds: (string | number)[] = [];
+  if (query.category !== null) {
+    narrowing.push(`${PHASE} = ?`);
+    narrowBinds.push(query.category);
+  }
+  if (query.model !== null) {
+    narrowing.push('t.model = ?');
+    narrowBinds.push(query.model);
+  }
+  if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
+  return { narrowing, narrowBinds };
+}
+
+/** The addresses the Harness trend page reads: its period and the "Only" filters; anything else in an address is ignored. */
+const TREND_PARAMETERS = ['period', 'engineer', 'category', 'model', 'who'];
+
+/** The Harness trend page's query: the costs page's period and filters, with the rows, colouring, day, sort and page left at their defaults. */
+export function parseTrendQuery(params: URLSearchParams): CostQuery {
+  const own = new URLSearchParams();
+  for (const name of TREND_PARAMETERS) {
+    const value = params.get(name);
+    if (value !== null) own.set(name, value);
+  }
+  return parseQuery(own);
+}
+
+/** The Harness trend page's canonical address, so the edge cache keys one page one way. */
+export const trendQueryString = (q: CostQuery) => queryString(q, { group: DEFAULT_GROUP, split: 'phase', day: null, sort: 'default', page: 1 });
+
+export interface TrendPage {
+  query: CostQuery;
+  engineers: string[];
+  /** Every model with dollars on record, for the Model filter. */
+  models: string[];
+  trends: Trends;
+}
+
+/** Reads the trend charts' figures and the two lists the "Only" filters offer in one batch: no cost rows, link state or job status. */
+export async function trendPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<TrendPage> {
+  const [sessionRows, pullRequestRows, engineers, models] = await db.batch([
+    ...trendReads(db, query, firstDay(query.period, now), narrowingOf(query)),
+    db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
+    db.prepare('SELECT DISTINCT model FROM daily_credited_totals ORDER BY model'),
+  ]);
+  return {
+    query,
+    engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
+    models: (models!.results as { model: string }[]).map((m) => m.model),
+    trends: trends(sessionRows!.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]), query.period, now),
+  };
 }
 
 /**
@@ -756,14 +785,12 @@ interface Narrowing {
  */
 function trendReads(db: D1Database, query: CostQuery, first: string | null, f: Narrowing) {
   const since = first === null ? [] : [first];
-  // A range stops at its last day: sessions started on it, pull requests merged before the midnight after it.
-  const until = query.range === null ? [] : [query.range.to];
   const engineerBinds = query.engineer === null || query.engineer === UNATTRIBUTED ? [] : [query.engineer];
   const startedBy = query.engineer === UNATTRIBUTED ? 'COALESCE(l.branch, e.branch) IS NULL' : 'COALESCE(l.engineer, e.engineer) = ?';
-  const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.range === null ? [] : ['ss.day <= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...(query.engineer === null ? [] : [startedBy])];
+  const starts = [...(first === null ? [] : ['ss.day >= ?']), ...(query.model === null ? [] : ['ss.model = ?']), ...(query.engineer === null ? [] : [startedBy])];
   // The merged pull request is the row, so its author is its own.
   const mergedBy = query.engineer === UNATTRIBUTED ? ['l.branch IS NULL'] : query.engineer === null ? [] : ['l.engineer = ?'];
-  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ["strftime('%s', l.merged_at) * 1000 >= ?"]), ...(query.range === null ? [] : ["strftime('%s', l.merged_at) * 1000 < ?"]), ...f.narrowing, ...mergedBy];
+  const merged = ["l.state = 'MERGED' AND l.merged_at IS NOT NULL", ...(first === null ? [] : ["strftime('%s', l.merged_at) * 1000 >= ?"]), ...f.narrowing, ...mergedBy];
   return [
     db
       .prepare(
@@ -777,7 +804,7 @@ function trendReads(db: D1Database, query: CostQuery, first: string | null, f: N
          }
          ${starts.length === 0 ? '' : `WHERE ${starts.join(' AND ')}`}`,
       )
-      .bind(...since, ...until, ...(query.model === null ? [] : [query.model]), ...engineerBinds),
+      .bind(...since, ...(query.model === null ? [] : [query.model]), ...engineerBinds),
     db
       .prepare(
         `SELECT l.pr_number AS pr, l.merged_at AS mergedAt, s.lines_added + s.lines_removed AS lines, ${PHASE} AS category, SUM(t.cost_micros) AS costMicros
@@ -786,7 +813,7 @@ function trendReads(db: D1Database, query: CostQuery, first: string | null, f: N
          WHERE ${merged.join(' AND ')}
          GROUP BY l.pr_number, ${PHASE}`,
       )
-      .bind(...(first === null ? [] : [startOfDay(first)]), ...(query.range === null ? [] : [startOfDay(addDays(query.range.to, 1))]), ...f.narrowBinds, ...engineerBinds),
+      .bind(...(first === null ? [] : [startOfDay(first)]), ...f.narrowBinds, ...engineerBinds),
   ];
 }
 

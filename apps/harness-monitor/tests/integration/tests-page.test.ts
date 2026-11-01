@@ -99,7 +99,7 @@ describe('Harness Monitor', () => {
       const html = await thePage();
 
       expect(html).toMatch(/<a href="\/tests" title="[^"]*" aria-current="page">Test coverage<\/a>/);
-      expect(plain(html.match(/<nav class="pages".*?<\/nav>/s)![0])).toBe('Claude Code costs Cockpit s Claude calls Cycle time Test selection Test coverage CI stability');
+      expect(plain(html.match(/<nav class="pages".*?<\/nav>/s)![0])).toBe('Claude Code costs Harness trend Cockpit s Claude calls Cycle time Test selection Test coverage CI stability');
       expect(html.match(/<h1\b/g) ?? []).toHaveLength(0);
       expect(html).toContain('abc1234');
     });
