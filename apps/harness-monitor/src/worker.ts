@@ -536,8 +536,8 @@ async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): P
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
-  // A pull request's page shows its whole cost over a period, never one day of it.
-  const query = { ...parseQuery(url.searchParams), day: null };
+  // A pull request's page shows its whole cost over a period, never one day of it or a range of days.
+  const query = { ...parseQuery(url.searchParams), day: null, range: null };
   const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;

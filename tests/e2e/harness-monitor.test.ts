@@ -290,6 +290,103 @@ test.describe('Harness Monitor', () => {
     expect(csv).toHaveLength(1 + SEED.rows.length);
   });
 
+  test('a drag across days of the per-day chart zooms the whole page into them, a click still opens a day, and a period or "Pick a day…" zooms out', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    test.skip((page.viewportSize()?.width ?? 0) <= 640, 'a mouse drag is a desk gesture; the phone tap on a day is the walk above, and a touch drag is the issue\'s Real device line');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const navigations: string[] = [];
+    page.on('request', (r) => r.isNavigationRequest() && navigations.push(r.url()));
+
+    await page.goto(`${monitor}/?period=7d`);
+    const today = (await page.locator('.day-pick').getAttribute('max'))!;
+    const daysBefore = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    const strip = (n: number) => page.getByRole('img', { name: /^Cost per day/ }).locator('.day-strips rect').nth(n);
+    const centre = async (n: number) => {
+      const box = (await strip(n).boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    /** Presses on strip `from`, drags to strip `to` and leaves the button down. */
+    const dragTo = async (from: number, to: number) => {
+      const start = await centre(from);
+      const end = await centre(to);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move((start.x + end.x) / 2, end.y, { steps: 4 });
+      await page.mouse.move(end.x, end.y, { steps: 4 });
+    };
+    const params = () => new URL(page.url()).searchParams;
+    await strip(0).scrollIntoViewIfNeeded();
+
+    // Holding the drag: the three last days are shaded and their first and last dates show above them, and nothing was asked for.
+    const before = navigations.length;
+    await dragTo(4, 6);
+    await expect(page.locator('svg.zoomable').first().locator('.brush')).toBeVisible();
+    await expect(page.locator('svg.zoomable').first().locator('.brush-label')).toHaveText(/^\d+ \w+ \d{4} – \d+ \w+ \d{4}$/);
+    expect(navigations.length).toBe(before);
+    expect(params().get('from')).toBeNull();
+
+    // Let go: the page for those three days, chosen in the period select, and every panel following it.
+    await page.mouse.up();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}&to=${today}(&|$)`));
+    expect(params().get('period')).toBe('7d');
+    await expect(choice(page, 'Period')).toHaveValue('range');
+    await expect(choice(page, 'Period').locator('option').first()).toHaveText(/^\d+ \w+ \d{4} – \d+ \w+ \d{4}$/);
+    await expect(page.getByRole('heading', { name: /Where \d+ \w+ to \d+ \w+.s \$9\.00 went, by phase/ })).toBeVisible();
+    await expect(page.locator('.day-strips').first().locator('rect')).toHaveCount(3);
+
+    // Back is the period the drag started on; forward is the range again.
+    await page.goBack();
+    await expect(page).toHaveURL(`${monitor}/?period=7d`);
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}&to=${today}(&|$)`));
+
+    // Dragging again inside the zoomed chart zooms further.
+    await strip(0).scrollIntoViewIfNeeded();
+    await dragTo(1, 2);
+    await page.mouse.up();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(1)}&to=${today}(&|$)`));
+    await expect(page.locator('.day-strips').first().locator('rect')).toHaveCount(2);
+
+    // A drag that stays within one day opens nothing, and the click after it is not swallowed: it opens its day.
+    const here = page.url();
+    await strip(0).scrollIntoViewIfNeeded();
+    const inside = await centre(1);
+    await page.mouse.move(inside.x - 10, inside.y);
+    await page.mouse.down();
+    await page.mouse.move(inside.x + 10, inside.y, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    expect(page.url()).toBe(here);
+    await page.mouse.click(inside.x, inside.y);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+
+    // The day keeps the range as well as the period; choosing each day returns to the range, not to the period.
+    expect(params().get('from')).toBe(daysBefore(1));
+    expect(params().get('to')).toBe(today);
+    expect(params().get('period')).toBe('7d');
+    await expect(choice(page, 'Period').locator('option')).toHaveText([/^\d+ \w+ \d{4}$/, /–/, 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    expect(params().get('day')).toBeNull();
+    expect(params().get('from')).toBe(daysBefore(1));
+    await expect(choice(page, 'Period')).toHaveValue('range');
+
+    // Export CSV carries the range: the file holds the seeded requests, all made today.
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+    expect((await readFile((await download.path())!, 'utf8')).trimEnd().split('\r\n')).toHaveLength(1 + SEED.rows.length);
+
+    // A period chosen leaves the range.
+    await choose(page, 'Period', 'the last 30 days', /[?&]period=30d(&|$)/);
+    expect(params().get('from')).toBeNull();
+    expect(params().get('to')).toBeNull();
+
+    // "Pick a day…" on a range opens that day with no range.
+    await page.goto(`${monitor}/?period=7d&from=${daysBefore(2)}&to=${today}`);
+    await page.locator('.day-pick').fill(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    expect(params().get('from')).toBeNull();
+    expect(params().get('to')).toBeNull();
+  });
+
   test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

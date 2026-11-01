@@ -189,25 +189,29 @@ function hiddenSort(query: CostQuery): string {
   return query.sort === carried && query.group !== 'engineer' ? `<input type="hidden" name="sort" value="${carried}">` : '';
 }
 
-/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; any period leaves the day. */
+/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; a period leaves the day and the range; the range leaves the day. */
 const CHOOSE_PERIOD =
-  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');f.elements.period.value=v;f.submit()";
-/** A date from the picker: the input takes its name only now, and "each day" has no day to show, so its rows become each pull request. */
-const CHOOSE_DAY = "if(!this.value)return;this.name='day';var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
+  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');if(v!=='range'){f.querySelectorAll('.range-field').forEach(function(e){e.remove()});f.elements.period.value=v}f.submit()";
+/** A date from the picker: the input takes its name only now, it replaces any range, and "each day" has no day to show, so its rows become each pull request. */
+const CHOOSE_DAY = "if(!this.value)return;this.name='day';this.form.querySelectorAll('.range-field').forEach(function(e){e.remove()});var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
 
 /**
- * The period select: the four periods, then "Pick a day…", with the chosen day first while one is shown.
+ * The period select: the four periods, then "Pick a day…", with the chosen day first while one is shown and the zoomed range next.
  * The day is the form's own field, a date input the picker fills, named only while a day is shown, so every
  * other control carries a day and an address without one carries no empty `day=`; while one is shown the
- * select sends nothing and the period it was opened from rides in a hidden field.
+ * select sends nothing and the period it was opened from rides in a hidden field. A range rides in hidden
+ * fields the same way, beside a day too, so "each day" on a day opened from a range returns to the range.
  */
 function periodPicker(query: CostQuery, now: number): string {
   const periods = (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]);
-  const options: [string, string][] = [...(query.day === null ? [] : [[query.day, formatDay(query.day)] as [string, string]]), ...periods, ['pick', 'Pick a day…']];
-  const current = query.day ?? query.period;
+  const range = query.range === null ? [] : [['range', `${formatDay(query.range.from)} – ${formatDay(query.range.to)}`] as [string, string]];
+  const options: [string, string][] = [...(query.day === null ? [] : [[query.day, formatDay(query.day)] as [string, string]]), ...range, ...periods, ['pick', 'Pick a day…']];
+  const current = query.day ?? (query.range === null ? query.period : 'range');
+  const narrowed = query.day !== null || query.range !== null;
   const opts = options.map(([v, t]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(t)}</option>`).join('');
-  const select = `<select${query.day === null ? ' name="period"' : ''} aria-label="Period" data-was="${esc(current)}" onchange="${CHOOSE_PERIOD}">${opts}</select>`;
-  const origin = query.day === null ? '' : `<input type="hidden" name="period" value="${query.period}">`;
+  const select = `<select${narrowed ? '' : ' name="period"'} aria-label="Period" data-was="${esc(current)}" onchange="${CHOOSE_PERIOD}">${opts}</select>`;
+  const carried = query.range === null ? '' : `<input type="hidden" class="range-field" name="from" value="${query.range.from}"><input type="hidden" class="range-field" name="to" value="${query.range.to}">`;
+  const origin = (narrowed ? `<input type="hidden" name="period" value="${query.period}">` : '') + carried;
   return `<span class="period-pick">${select}${origin}<input type="date"${query.day === null ? '' : ' name="day"'} class="day-pick" aria-label="Day" max="${belgianDay(now)}" value="${query.day ?? ''}" onchange="${CHOOSE_DAY}"></span>`;
 }
 
@@ -231,8 +235,9 @@ function whereItWent(page: CostsPage): string {
         `<li><i style="background:${colourOf(query.split, s.key, knownKeys(page))}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  // A day is named by its date, not as the period it narrows.
-  const whose = query.day === null ? 'the period' : formatDayMonth(Date.parse(`${query.day}T12:00:00Z`));
+  // A day is named by its date, and a range by its two, not as the period they narrow.
+  const named = (d: string) => formatDayMonth(Date.parse(`${d}T12:00:00Z`));
+  const whose = query.day !== null ? named(query.day) : query.range !== null ? `${named(query.range.from)} to ${named(query.range.to)}` : 'the period';
   const info = explain('where', `Where ${whose}&rsquo;s cost went`, WHAT.where);
   return `<section class="panel" aria-labelledby="where">${band(`Where ${whose}&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
@@ -264,16 +269,18 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
  */
 function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query } = page;
-  const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
+  const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, query.range?.from ?? firstDay(query.period, now), now, measure, query.range?.to ?? null);
   const { id, title } = MEASURES[measure];
-  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay), (day) => `/${dayHref(query, day)}`);
+  // The address a drag across days opens: this page's, with the range left for the script to fill.
+  const zoomed = `/${queryString(query, { day: null, range: { from: 'FROM', to: 'TO' }, page: 1 })}`;
+  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay), (day) => `/${dayHref(query, day)}`, zoomed);
 }
 
 /** The address of one day's pull requests, dearest first, keeping the period it is opened from, the colouring and the filters. */
 const dayHref = (query: CostQuery, day: string) => queryString(query, { group: 'pr', day, sort: 'total', page: 1 });
 
 /** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series, with the (i) of `info`; empty where the chart has no day. */
-export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info, href?: (day: string) => string): string {
+export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info, href?: (day: string) => string, zoomHref?: string): string {
   if (chart.days.length === 0) return '';
   const { title, id, value, axis } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
@@ -315,9 +322,51 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
             return `<a href="${esc(href(d))}" tabindex="-1"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
           })
           .join('')}</g>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g></svg></div>
+  // Given an address for a range, a drag across two or more days opens it; the script reads the days and where the plot starts and ends from the chart.
+  const zoomable = zoomHref !== undefined && chart.days.length >= 2;
+  const zoom = zoomable
+    ? ` class="zoomable" data-range="${esc(zoomHref)}" data-days="${esc(JSON.stringify(chart.days))}" data-labels="${esc(JSON.stringify(chart.days.map(formatDay)))}" data-geom="${left},${width - right}"`
+    : '';
+  const brush = zoomable
+    ? `<g class="brush" style="display:none"><rect class="brush-area" y="${top}" height="${height - top - bottom}"/><text class="brush-label" y="${top + 14}" text-anchor="middle"></text></g>`
+    : '';
+  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg${zoom} viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g>${brush}</svg></div>
 </section>`;
 }
+
+/**
+ * Press on a per-day chart, drag sideways across two or more days and let go: the page zooms into them.
+ * The days are shaded while dragging, with their first and last dates above. Loaded once per page, it reads the days
+ * each `svg.zoomable` carries and never fetches. A press that moves under a few pixels is a click, which the day's strip
+ * link answers; a drag that ends within one day opens nothing. `touch-action: pan-y` leaves an up-and-down drag to the page's scroll.
+ */
+export const ZOOM_SCRIPT = `<script>(function(){
+document.addEventListener('pointerdown',function(e){
+var svg=e.target.closest&&e.target.closest('svg.zoomable');
+if(!svg||!e.isPrimary||e.button>0)return;
+var days=JSON.parse(svg.dataset.days),labels=JSON.parse(svg.dataset.labels),g=svg.dataset.geom.split(',').map(Number),L=g[0],R=g[1],step=(R-L)/(days.length-1);
+var brush=svg.querySelector('.brush'),area=brush.querySelector('rect'),text=brush.querySelector('text');
+function at(cx){var p=svg.createSVGPoint();p.x=cx;p.y=0;var x=p.matrixTransform(svg.getScreenCTM().inverse()).x;return Math.max(0,Math.min(days.length-1,Math.round((x-L)/step)))}
+var x0=e.clientX,a=at(e.clientX),b=a,dragging=false;
+function move(ev){
+if(!dragging){if(Math.abs(ev.clientX-x0)<6)return;dragging=true;try{svg.setPointerCapture(ev.pointerId)}catch(_){}brush.style.display=''}
+b=at(ev.clientX);var lo=Math.min(a,b),hi=Math.max(a,b),x1=Math.max(L,L+lo*step-step/2),x2=Math.min(R,L+hi*step+step/2);
+area.setAttribute('x',x1);area.setAttribute('width',Math.max(1,x2-x1));text.setAttribute('x',(x1+x2)/2);
+text.textContent=lo===hi?labels[lo]:labels[lo]+' – '+labels[hi]}
+function stop(done){
+svg.removeEventListener('pointermove',move);svg.removeEventListener('pointerup',up);svg.removeEventListener('pointercancel',cancel);
+if(!dragging)return;
+brush.style.display='none';
+var lo=Math.min(a,b),hi=Math.max(a,b);
+if(!done)return;
+var eat=function(c){c.preventDefault();c.stopPropagation()};
+svg.addEventListener('click',eat,true);
+setTimeout(function(){svg.removeEventListener('click',eat,true)},0);
+if(hi>lo)location.href=svg.dataset.range.replace('from=FROM&to=TO','from='+days[lo]+'&to='+days[hi])}
+function up(){stop(true)}function cancel(){stop(false)}
+svg.addEventListener('pointermove',move);svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',cancel)});
+document.addEventListener('dragstart',function(e){if(e.target.closest&&e.target.closest('svg.zoomable'))e.preventDefault()});
+})();</script>`;
 
 /** A chart's key: a swatch and a name for each line, the total's dashed. */
 const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) => lines.map((l) => lineKey(esc(l.label), l.dash ? null : l.colour)).join('');
@@ -424,7 +473,7 @@ function firstCell(g: CostGroup, query: CostQuery, repository: string | null): s
   const label = repository === null ? text : g.prNumber !== null ? github(repository, `pull/${g.prNumber}`, text) : g.issue !== null && query.group === 'issue' ? github(repository, `issues/${g.issue}`, text) : text;
   if (g.sub === null) return `<td class="first">${label}</td>`;
   const issue = repository !== null && g.prNumber !== null && g.issue !== null ? github(repository, `issues/${g.issue}`, esc(g.sub)) : esc(g.sub);
-  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', day: null, page: 1 })}">Sessions</a>`;
+  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', day: null, range: null, page: 1 })}">Sessions</a>`;
   return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
 }
 
@@ -506,6 +555,7 @@ export function renderPage(
     harnessTrends(page),
     jobLines(page.jobs),
     EXPLAIN_SCRIPT,
+    page.query.group === 'day' ? ZOOM_SCRIPT : '',
   ].join('\n');
   return shell({ current: 'costs', controls: controls(page, now), body, style: EXPLAIN_STYLE }, now);
 }

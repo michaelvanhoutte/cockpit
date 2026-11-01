@@ -75,27 +75,60 @@ describe('Harness Monitor', () => {
       });
     });
 
+    describe('a range of days is asked for beside the period it was opened from', () => {
+      it('a range and a period are both kept, and the address spells them one way whatever order they came in', () => {
+        const spelled = parseQuery(new URLSearchParams('to=2026-10-04&junk=1&group=day&from=2026-09-15&period=all'));
+        const reordered = parseQuery(new URLSearchParams('period=all&from=2026-09-15&to=2026-10-04'));
+
+        expect(spelled).toMatchObject({ range: { from: '2026-09-15', to: '2026-10-04' }, period: 'all', group: 'day' });
+        expect(queryString(spelled)).toBe('?period=all&from=2026-09-15&to=2026-10-04');
+        expect(queryString(reordered)).toBe(queryString(spelled));
+      });
+
+      it.each([
+        { situation: 'from equal to to', params: 'from=2026-10-04&to=2026-10-04' },
+        { situation: 'from after to', params: 'from=2026-10-05&to=2026-10-04' },
+        { situation: 'a from that is not on the calendar', params: 'from=2026-02-30&to=2026-10-04' },
+        { situation: 'a to that is not on the calendar', params: 'from=2026-09-15&to=2026-13-01' },
+        { situation: 'only from', params: 'from=2026-09-15' },
+        { situation: 'only to', params: 'to=2026-10-04' },
+      ])('$situation is ignored, and the period shows', ({ params }) => {
+        const query = parseQuery(new URLSearchParams(`period=7d&${params}`));
+
+        expect(query).toMatchObject({ range: null, period: '7d' });
+        expect(queryString(query)).toBe('?period=7d');
+      });
+
+      it('a day opened from a range keeps the range, so each day returns to it and not to the period', () => {
+        const day = parseQuery(new URLSearchParams('period=all&from=2026-09-15&to=2026-10-04&day=2026-09-20&group=pr'));
+
+        expect(day).toMatchObject({ day: '2026-09-20', range: { from: '2026-09-15', to: '2026-10-04' } });
+        expect(queryString(day)).toBe('?period=all&day=2026-09-20&from=2026-09-15&to=2026-10-04&group=pr');
+        expect(queryString(day, { group: 'day', sort: 'default' })).toBe('?period=all&from=2026-09-15&to=2026-10-04');
+      });
+    });
+
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
       {
         situation: 'every filter',
         query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=pr&split=outcome&page=3',
-        expected: { period: 'all', day: null, engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
+        expected: { period: 'all', day: null, range: null, engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
       },
       {
         situation: 'values it does not know',
         query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
-        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
       {
         situation: 'a colouring by engineer',
         query: 'split=engineer&group=pr',
-        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
       },
       {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
-        expected: { period: '30d', day: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
@@ -344,6 +377,51 @@ describe('Harness Monitor', () => {
       expect(ninety.buckets[0]).toBe('2026-08-03');
       expect(ninety.buckets.every((b) => new Date(b).getUTCDay() === 1)).toBe(true);
       expect(all.buckets).toEqual(['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
+    });
+
+    describe('a range is bucketed by day up to 30 days and by week beyond, and ends today where it would run past it', () => {
+      it('a 30-day range has 30 daily buckets', () => {
+        const t = trends([], [], 'all', NOW, { from: '2026-09-15', to: '2026-10-14' });
+
+        expect(t.weekly).toBe(false);
+        expect(t.buckets).toHaveLength(30);
+        expect([t.buckets[0], t.buckets.at(-1)]).toEqual(['2026-09-15', '2026-10-14']);
+      });
+
+      it('a 31-day range has weekly buckets, each a Monday, the first holding the first day', () => {
+        const t = trends([], [], 'all', NOW, { from: '2026-09-15', to: '2026-10-15' });
+
+        expect(t.weekly).toBe(true);
+        expect(t.buckets).toEqual(['2026-09-14', '2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12']);
+      });
+
+      it('a range ending after today draws to today', () => {
+        const t = trends([], [], 'all', NOW, { from: '2026-10-28', to: '2026-11-05' });
+
+        expect(t.buckets.at(-1)).toBe('2026-10-31');
+        const chart = dayChart(
+          groupRows([row({ day: '2026-10-29', series: 'building', costMicros: 5, prNumber: null, title: null, branch: '' })], 'day', null),
+          seriesOf('phase', { building: 5 }),
+          '2026-10-28',
+          NOW,
+          'cost',
+          '2026-11-05',
+        );
+        expect(chart.days).toEqual(['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
+      });
+
+      it('a range ending before today ends on its last day', () => {
+        const chart = dayChart(
+          groupRows([row({ day: '2026-10-29', series: 'building', costMicros: 5, prNumber: null, title: null, branch: '' })], 'day', null),
+          seriesOf('phase', { building: 5 }),
+          '2026-10-28',
+          NOW,
+          'cost',
+          '2026-10-29',
+        );
+
+        expect(chart.days).toEqual(['2026-10-28', '2026-10-29']);
+      });
     });
 
     it('starting context and size are medians of the sessions and pull requests in the bucket', () => {
