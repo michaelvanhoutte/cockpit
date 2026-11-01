@@ -268,6 +268,9 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
 .lines>g{transition:opacity .12s}
 .day-strips rect{fill:transparent;cursor:pointer}
+svg.zoomable{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.brush-area{fill:var(--accent);fill-opacity:.15;stroke:var(--accent);stroke-width:1}
+.brush-label{font-size:12px;fill:var(--ink-strong);font-weight:600}
 .day-strips a:hover rect{fill:var(--ink-strong);fill-opacity:.08;outline:none}
 ${HIGHLIGHT}
 

@@ -11,7 +11,7 @@ export const WHAT = {
   perDay: {
     shows: 'What Claude Code cost each day of the period, one line per colour of the sentence and a dashed line for the total.',
     read: 'Each point is a Belgian day; a day with no request sits at zero rather than being skipped. Point at a dot for its dollars, or at a name in the key to pick its line out.',
-    look: 'Spikes are the days to explain: the By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says what work spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
+    look: 'Spikes are the days to explain: click a day to open it, or drag across several to zoom the whole page into those days (on a phone, hold a moment first, then drag). The By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says what work spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
   },
   tokensPerDay: {
     shows: 'How many tokens Claude Code used each day, with the same lines as Cost per day.',
