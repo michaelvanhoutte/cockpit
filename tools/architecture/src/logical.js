@@ -31,8 +31,12 @@ const firstLine = (lines, test) => lines.find(({ line }) => test(line))?.n ?? nu
 /** A file-name pattern as a regular expression: `*` is any run of characters in the name, anything else is itself. */
 const patternOf = (pattern) => new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`);
 
-/** A class, object, interface or function declared at the start of a line, whose name other files can use. */
-const DEFINITION = /^(?:internal |data |sealed |enum |abstract |open )*(?:class|object|interface|fun)\s+(\w+)/;
+/**
+ * A class, object, interface, type alias or function declared at the start of a line, whose name other files can use.
+ * A private one is not. The name is the declaration's own: after a generic and an extension's receiver, so
+ * `fun View.keepClear()` defines keepClear and never View.
+ */
+const DEFINITION = /^(?:(?:internal|public|data|sealed|enum|abstract|open|suspend|inline|operator|tailrec|annotation|value|fun)\s+)*(?:class|object|interface|fun|typealias)\s+(?:<[^>]*>\s*)?(?:\w+(?:<[^>]*>)?\??\.)*(\w+)/;
 
 const byPath = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 

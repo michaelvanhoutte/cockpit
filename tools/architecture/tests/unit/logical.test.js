@@ -591,6 +591,15 @@ describe('A widget part uses another when one of its files names a class or func
     expect(lines(logical)).toEqual([['refresh', 'client', { [`${SRC}/Refresher.kt`]: 3 }]]);
   });
 
+  it('takes the name of an extension function, never its receiver, and a suspend or inline one counts', () => {
+    const logical = run({ ...normal, 'Client.kt': 'fun View.keepClear() {}\nsuspend fun <T> List<T>.fetch() {}\nclass Client {}', 'Refresher.kt': 'class Refresher {\n  val v = View.GONE\n  val f = fetch()\n}' });
+    expect(lines(logical)).toEqual([['refresh', 'client', { [`${SRC}/Refresher.kt`]: 3 }]]);
+  });
+
+  it('leaves a private declaration out of the names other files can use', () => {
+    expect(lines(run({ ...normal, 'Client.kt': 'private fun hidden() {}\nclass Client {}', 'Refresher.kt': 'class Refresher {\n  val a = hidden()\n}' }))).toEqual([]);
+  });
+
   it('draws the store a part reaches by its marker as a line to it', () => {
     const [line] = run().within;
     expect([line.from, line.to, line.kind, line.how]).toEqual(['storage', 'prefs', 'store', ['reads and writes']]);
