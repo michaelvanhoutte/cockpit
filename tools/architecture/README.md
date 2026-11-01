@@ -149,6 +149,31 @@ Every page names the commit and the date of that commit it was drawn from.
 `context.html`, `modules.html`, `register.html`, `account-store.html` or `deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
 both ways, with the report's styles and a link back. The page keeps each fit to the column and carries no script.
 
+## The table pages
+
+`db-register.html`, `db-account-store.html` and `db-harness-monitor.html`, each with a second tab, `db-<key>-columns.html`,
+are written beside the report; the report does not link them yet. They draw each database's tables left to right: a table
+stands one column right of the deepest table it points at, and each pointer is a line from the pointing column's row to
+the row it points at, written "→ table.column" on its row. A pointer that skips a column is drawn only while either end is hovered.
+Hovering a table shows its lines and fades the tables it has nothing to do with; tables with no relations sit together at the bottom.
+
+- **Relations** keeps the key, pointing and pointed-at rows, and "+ N more columns" opens the other tab.
+- **All columns** shows every column with its type and whether it is required, and each table's indexes.
+- A table or column no longer used is struck through in red, as in Databases; the Monitor's are never marked, since its schema file records no queries to compare with.
+- A table's name (↗) opens the line that defines it on GitHub, at the commit drawn from: the Drizzle definition for the register and the account store, the last migration that creates the table or renames into it for the Monitor.
+
+**The Monitor's tables come from `apps/harness-monitor/database-schema.json`**, which
+`apps/harness-monitor/tests/integration/schema-file.test.ts` writes from real D1 once every migration has run, as the
+API's does. A migration that changes the schema fails that test until the file is written again:
+
+```bash
+pnpm --filter @harness-monitor/worker exec vitest run tests/integration/schema-file.test.ts -u
+```
+
+Its SQL declares no foreign key, so the generator infers them: a column named like the single-column key of another table
+of the same family (the part of the name before its first underscore) points at that table, as `stability_jobs.run_id` does at
+`stability_runs`. The page says so. A missing or unreadable file fails the run as the API's does.
+
 ## Cockpit's logical page
 
 `service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have (the `design`
@@ -224,6 +249,6 @@ is told; `render/` draws what it is handed.
 
 ## Tests
 
-`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules, Dependencies and Databases views and the page under `tests/unit/`,
+`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules, Dependencies, Databases and table-page views and the page under `tests/unit/`,
 and the CLI over a fixture repository and over this repository's own checkout, with the workflow wiring
 read from `nightly.yml` and `publish.yml` and the areas found by the file's rules, under `tests/integration/`.

@@ -13,7 +13,7 @@ import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
 import { descriptionFile } from '../support/description.js';
-import { schemaFile } from '../support/schema.js';
+import { monitorSchemaFile, schemaFile } from '../support/schema.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const dirs = [];
@@ -30,12 +30,16 @@ afterEach(() => {
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A repository holding just what the generator reads, with the given text for each file. */
-function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, schema = schemaFile().text } = {}) {
+function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, schema = schemaFile().text, monitorSchema = monitorSchemaFile().text } = {}) {
   const root = tmp();
   mkdirSync(path.join(root, 'apps/api'), { recursive: true });
   mkdirSync(path.join(root, 'tools/architecture'), { recursive: true });
   writeFileSync(path.join(root, 'tools/architecture/description.yml'), description);
   if (schema !== null) writeFileSync(path.join(root, 'apps/api/database-schema.json'), schema);
+  if (monitorSchema !== null) {
+    mkdirSync(path.join(root, 'apps/harness-monitor'), { recursive: true });
+    writeFileSync(path.join(root, 'apps/harness-monitor/database-schema.json'), monitorSchema);
+  }
   for (const [name, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
     writeFileSync(path.join(root, name), text);
@@ -76,9 +80,9 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
   });
 
-  it('writes the five diagram pages beside the report when every file reads, and none when asked for the model alone', async () => {
+  it('writes the five diagram pages and the two pages of each database beside the report when every file reads, and none when asked for the model alone', async () => {
     const run = await draw(fixture());
-    for (const name of ['context.html', 'modules.html', 'register.html', 'account-store.html', 'deployment.html']) {
+    for (const name of ['context.html', 'modules.html', 'register.html', 'account-store.html', 'deployment.html', ...['register', 'account-store', 'harness-monitor'].flatMap((key) => [`db-${key}.html`, `db-${key}-columns.html`])]) {
       expect(existsSync(path.join(path.dirname(run.out), name))).toBe(true);
     }
     const dir = tmp();
@@ -97,6 +101,9 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'the schema file is missing', make: () => fixture({ schema: null }) },
     { situation: 'the schema file does not parse', make: () => fixture({ schema: '{ "databases": [' }) },
     { situation: 'the schema file holds no list of databases', make: () => fixture({ schema: '{ "tables": [] }' }) },
+    { situation: 'the Monitor’s schema file is missing', make: () => fixture({ monitorSchema: null }) },
+    { situation: 'the Monitor’s schema file does not parse', make: () => fixture({ monitorSchema: '{ "databases": [' }) },
+    { situation: 'the Monitor’s schema file holds no list of databases', make: () => fixture({ monitorSchema: '{ "tables": [] }' }) },
     { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
   ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());
@@ -320,5 +327,16 @@ describe('Databases', () => {
     expect(register.tables.find((each) => each.name === 'users').unused).toBeNull();
     expect(real.page).toContain('<a class="open" href="account-store.html"');
     expect(real.page).toContain('<a class="open" href="register.html"');
+  });
+
+  it('holds this repository’s three databases, the Monitor’s read from its own schema file with inferred pointers, and every table linked to where it is defined', () => {
+    const databases = real.model.tables.databases;
+    expect(databases.map((each) => each.key)).toEqual(['register', 'account-store', 'harness-monitor']);
+    const monitor = databases[2];
+    const jobs = monitor.tables.find((each) => each.name === 'stability_jobs');
+    expect(jobs.columns.find((each) => each.name === 'run_id').references).toEqual({ table: 'stability_runs', column: 'run_id', onDelete: null, inferred: true });
+    expect(monitor.tables.find((each) => each.name === 'usage_requests').columns.every((each) => !each.references)).toBe(true);
+    for (const database of databases) expect(database.tables.filter((each) => !each.at).map((each) => each.name)).toEqual([]);
+    expect(real.model.database.databases.map((each) => each.key)).toEqual(['register', 'account-store']);
   });
 });
