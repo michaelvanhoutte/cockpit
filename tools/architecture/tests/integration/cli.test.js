@@ -63,7 +63,8 @@ async function draw(root) {
 let real;
 let drawing;
 const drawReal = () => (drawing ??= draw(checkout).then((run) => {
-  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined };
+  const logicalFile = path.join(path.dirname(run.out), 'service-cockpit.html');
+  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
 
@@ -235,6 +236,73 @@ describe('Dependencies', () => {
     expect(dependencies.order.method).toBe('exact');
     expect(dependencies.order.areas).toBeLessThanOrEqual(dependencies.order.limit);
     expect(dependencies.areas.at(-1).path).toBe('apps/api/src/*');
+  });
+});
+
+describe('Logical', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  /** A design of one component, over the fixture's folders: `design` overrides what it holds. */
+  const withDesign = (design = {}) => descriptionFile({
+    design: {
+      layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }],
+      mayCall: {},
+      noLine: [{ folder: 'apps/api/src/*', name: 'env.ts' }],
+      ...design,
+    },
+  }).text;
+  const modelOf = async (root) => {
+    const run = await draw(root);
+    expect(run.code).toBe(0);
+    return JSON.parse(readFileSync(run.model, 'utf8'));
+  };
+  const files = { 'apps/api/src/http/app.ts': 'export {}' };
+
+  it('places every folder of this repository in exactly one component of the design', () => {
+    expect(real.code).toBe(0);
+    expect(real.model.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(real.model.logical.layers.map((layer) => layer.id)).toEqual(['clients', 'api', 'logic', 'data', 'conn', 'outside']);
+  });
+
+  it('draws this repository\'s own design with a numbered circle and a row for each line the design does not allow', () => {
+    const { logical } = real.model;
+    expect(logical.bad.length).toBeGreaterThan(0);
+    expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length);
+    expect(real.logicalPage.match(/<tr class="bad" id="off-/g)).toHaveLength(logical.bad.length);
+    expect(logical.callers.filter((caller) => caller.status === 'found').map((caller) => caller.from)).toEqual(expect.arrayContaining(['web', 'widget']));
+  });
+
+  it('records a folder no component names, naming the folder', async () => {
+    const { logical } = await modelOf(fixture({ files: { ...files, 'apps/api/src/extra/x.ts': 'export {}' }, description: withDesign() }));
+    expect(logical.placement).toEqual({ unplaced: ['apps/api/src/extra'], gone: [], doubled: [] });
+  });
+
+  it('records a component naming a folder that is gone, naming it', async () => {
+    const { logical } = await modelOf(fixture({ files, description: withDesign({ layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http', 'apps/api/src/gone'] }]] }] }) }));
+    expect(logical.placement.gone).toEqual([{ folder: 'apps/api/src/gone', components: ['http'] }]);
+  });
+
+  it('records a folder named by two components, naming both', async () => {
+    const twice = { id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }, { id: 'again', name: 'again', folders: ['apps/api/src/http'] }]] };
+    const { logical } = await modelOf(fixture({ files, description: withDesign({ layers: [twice] }) }));
+    expect(logical.placement.doubled).toEqual([{ folder: 'apps/api/src/http', components: ['http', 'again'] }]);
+  });
+
+  it('writes Cockpit\'s page beside the report, and draws none when the description has no design', async () => {
+    const run = await draw(fixture({ files, description: withDesign() }));
+    expect(run.code).toBe(0);
+    expect(run.written).toContain('service-cockpit.html');
+    expect(readFileSync(path.join(path.dirname(run.out), 'service-cockpit.html'), 'utf8')).toContain('<h1>Cockpit</h1>');
+    expect((await draw(fixture({ files }))).written).not.toContain('service-cockpit.html');
+  });
+
+  it.each([
+    { situation: 'the design is not valid YAML', description: `${descriptionFile().text}design: [\n` },
+    { situation: 'the design names a layer that does not exist', description: withDesign({ mayCall: { api: ['nowhere'] } }) },
+  ])('fails the run and writes nothing when $situation', async ({ description }) => {
+    const run = await draw(fixture({ files, description }));
+    expect(run.code).toBe(1);
+    expect(run.written).toEqual([]);
   });
 });
 

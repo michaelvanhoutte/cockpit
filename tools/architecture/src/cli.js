@@ -15,6 +15,7 @@ import { compareWithPrevious } from './compare.js';
 import { buildModel, ReadError } from './model.js';
 import { readCheckout } from './read.js';
 import { renderDiagramPages, renderHtml } from './render/html.js';
+import { LOGICAL_FILE, renderLogicalPage } from './render/logical.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -81,7 +82,7 @@ export async function main(argv) {
     const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
     page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
-    if (!args.json) diagramPages = renderDiagramPages(model);
+    if (!args.json) diagramPages = { ...renderDiagramPages(model), ...(model.logical ? { [LOGICAL_FILE]: renderLogicalPage(model) } : {}) };
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);
