@@ -68,6 +68,8 @@ const held = vi.hoisted(() => ({
   gate: undefined as Promise<void> | undefined,
   settleQuiet: vi.fn(),
   openItemId: 'item-1' as string | undefined,
+  /** What the page's address names: the Workspace, or none (the phone Capture page). */
+  params: { workspaceId: 'ws-work' } as { workspaceId?: string },
   /** What the item's history reads back, how long a read of it takes, and whether it fails. */
   history: [] as RewriteHistoryEntry[],
   historyGate: undefined as Promise<void> | undefined,
@@ -75,7 +77,7 @@ const held = vi.hoisted(() => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-  useParams: () => ({ workspaceId: 'ws-work' }),
+  useParams: () => held.params,
 }));
 
 vi.mock('../../../src/itemForm', () => ({
@@ -430,6 +432,7 @@ beforeEach(() => {
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
+  held.params = { workspaceId: 'ws-work' };
   held.history = [];
   held.historyGate = undefined;
   held.historyFails = false;
@@ -840,6 +843,68 @@ describe('Item editing', () => {
       await theForm();
 
       expect(screen.getByRole('heading')).toHaveClass('sr-only');
+    });
+  });
+
+  /**
+   * "Open a captured Item's form from the Captured line" (issue 1639): the
+   * address carries the Item alone, so the form finds its Workspace among the
+   * copies the tab already holds.
+   */
+  describe('the form opens on the Workspace that holds the Item, not only the page’s', () => {
+    /** Lets whatever the form would have started, start. */
+    const settled = () =>
+      act(async () => {
+        for (let i = 0; i < 50; i++) await new Promise((resolve) => setImmediate(resolve));
+      });
+    const aCopyHolding = (...items: Item[]) => ({ items, filings: [], panels: [], dashboards: [], duplicates: [] });
+    /** The form drawn over a tab that already holds these Workspaces' copies. */
+    async function overTab(copies: Record<string, Item[]>, page: { workspaceId?: string }) {
+      held.params = page;
+      held.items = [anItem()];
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      for (const [workspaceId, items] of Object.entries(copies)) {
+        client.setQueryData(['snapshot', workspaceId], aCopyHolding(...items));
+      }
+      render(
+        <QueryClientProvider client={client}>
+          <ItemForm />
+        </QueryClientProvider>,
+      );
+      return client;
+    }
+    /** The Workspaces whose copy the form itself went on to read. */
+    const readByTheForm = (client: QueryClient) =>
+      client
+        .getQueryCache()
+        .findAll({ queryKey: ['snapshot'] })
+        .filter((query) => query.queryKey.length > 2)
+        .map((query) => query.queryKey[1]);
+
+    it.each([
+      { situation: 'the page names that Workspace', page: { workspaceId: 'ws-home' }, readFrom: 'ws-home' },
+      { situation: 'the page names another Workspace', page: { workspaceId: 'ws-work' }, readFrom: 'ws-home' },
+      { situation: 'the page names none, as the phone Capture page', page: {}, readFrom: 'ws-home' },
+    ])('opens from it when $situation', async ({ page, readFrom }) => {
+      const client = await overTab({ 'ws-work': [], 'ws-home': [anItem()] }, page);
+
+      expect(await screen.findByLabelText('Title')).toHaveValue('Part 11');
+      expect(readByTheForm(client)).toEqual([readFrom]);
+    });
+
+    it('prefers the page’s own Workspace where it holds the Item too', async () => {
+      const client = await overTab({ 'ws-home': [anItem()], 'ws-work': [anItem()] }, { workspaceId: 'ws-work' });
+
+      expect(await screen.findByLabelText('Title')).toHaveValue('Part 11');
+      expect(readByTheForm(client)).toEqual(['ws-work']);
+    });
+
+    it('draws nothing, and reads nothing, where the page names none and no held Workspace has the Item', async () => {
+      const client = await overTab({ 'ws-home': [] }, {});
+
+      await settled();
+      expect(screen.queryByLabelText('Title')).toBeNull();
+      expect(readByTheForm(client)).toEqual([]);
     });
   });
 

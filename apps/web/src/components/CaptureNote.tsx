@@ -19,7 +19,7 @@ import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
-import { useDockedItem, useOpenItem } from '../itemForm';
+import { useCloseItem, useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
@@ -241,6 +241,7 @@ export function CaptureNote({
   const outbox = useOutbox();
   const waiting = useWaitingCaptures();
   const openItem = useOpenItem();
+  const closeItem = useCloseItem();
   /**
    * The note the capture just made may repeat another ("Warn at Capture when
    * the note just captured repeats another", issue 1115): read from the
@@ -253,6 +254,8 @@ export function CaptureNote({
     select,
     enabled: last !== null && !waiting.some((entry) => entry.id === last.id),
   });
+  // The Captured line opens the Item's form once it is an Item, not while it waits in the outbox (issue 1639).
+  const landed = last !== null && !waiting.some((entry) => entry.id === last.id);
   const repeats =
     last && afterCapture
       ? possibleDuplicatesOf(
@@ -454,6 +457,8 @@ export function CaptureNote({
       return;
     }
     restore(back);
+    // Its form is showing an Item that is no longer there; edits made in it are not restored.
+    closeItem(back.id);
     if (unsure) setRefused(UNDO_MAYBE_SENT);
     setLast((was) => (was?.id === back.id ? null : was));
     // Nothing is left on the line to add to.
@@ -1069,11 +1074,22 @@ export function CaptureNote({
               </p>
             )}
             <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
-              <span className="min-w-0 truncate">
-                {last.added
+              {(() => {
+                const said = last.added
                   ? `Added to “${plainWords(last.message)}”`
-                  : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`}
-              </span>
+                  : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`;
+                return landed ? (
+                  <button
+                    type="button"
+                    onClick={() => openItem(last.id)}
+                    className="min-w-0 truncate text-left hover:text-accent-deep hover:underline"
+                  >
+                    {said}
+                  </button>
+                ) : (
+                  <span className="min-w-0 truncate">{said}</span>
+                );
+              })()}
               {/* Undo of an addition takes back the addition alone, which a
                   later change brings; until then the line offers none. */}
               {!last.added && (

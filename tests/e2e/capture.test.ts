@@ -13,9 +13,15 @@ import {
   openCapture,
   openFirstWorkspace,
   openInbox,
+  makeWorkspace,
   press,
+  saveTheItem,
+  startEditingTheItem,
+  STARTING_WORKSPACE,
+  switchTo,
   test,
   uniqueTitle,
+  workspaceTab,
 } from './support/app';
 
 /** A minimal, valid 1x1 PNG. */
@@ -452,6 +458,51 @@ test.describe('Capture', () => {
       await expect(page.getByRole('dialog').getByRole('img', { name: 'sunset.png' })).toBeVisible({
         timeout: 15_000,
       });
+    });
+  });
+
+  test.describe('a captured note is read whole and edited from the Captured line, on a phone screen as on a desktop', () => {
+    test('opens the Item in the Workspace it was captured into, over the one on screen', async ({
+      page,
+      isMobile,
+    }) => {
+      // "Open a captured Item's form from the Captured line" (issue 1639). Only
+      // a browser carries the address, the shell's form and the Capture screen
+      // together, and on a phone the Capture page names no Workspace at all;
+      // which copy the form draws from is ItemForm.test.tsx's.
+      const elsewhere = 'Elsewhere';
+      await openInbox(page, isMobile);
+      if ((await workspaceTab(page, elsewhere).count()) === 0) {
+        await makeWorkspace(page, elsewhere, isMobile);
+        await switchTo(page, STARTING_WORKSPACE, isMobile);
+      }
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: elsewhere }), isMobile);
+      const start = uniqueTitle('Plan the offsite');
+      const tail = `and book the ${crypto.randomUUID().slice(0, 8)} room`;
+      await captureBox(page).fill(`${start} with the whole team, then ${'draft the agenda, '.repeat(12)}${tail}`);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+
+      // A button only once the note is an Item; the line still cuts the note short.
+      const line = page.getByRole('button', { name: new RegExp(`^Captured “${start}`) });
+      await expect(line).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await press(line, isMobile);
+      const form = page.getByRole('dialog').filter({ hasNot: page.getByLabel('What is on your mind?') });
+      await expect(form).toContainText(tail);
+
+      // Edited like any Item: the edit is in the Workspace it was captured into.
+      await startEditingTheItem(page, isMobile);
+      const edited = uniqueTitle('Offsite plan');
+      await form.getByLabel('Title').fill(edited);
+      await saveTheItem(page, isMobile);
+      await expect(form).toBeHidden();
+      // The form's closing replaces the entry its opening pushed, so on a phone the page is under Back twice.
+      if (isMobile) await page.goBack();
+      await closeCapture(page, isMobile);
+      await switchTo(page, elsewhere, isMobile);
+      if (isMobile) await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
+      await expect(itemRow(page, edited)).toBeVisible();
     });
   });
 
