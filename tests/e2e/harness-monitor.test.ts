@@ -387,6 +387,47 @@ test.describe('Harness Monitor', () => {
     expect(params().get('to')).toBeNull();
   });
 
+  test('on a phone a swipe over the per-day chart does not select, and a press held a moment then dragged zooms into the days', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    test.skip((page.viewportSize()?.width ?? 0) > 640, 'the hold is a touch gesture; a mouse drag is the walk above');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+
+    await page.goto(`${monitor}/?period=7d`);
+    const chart = page.getByRole('img', { name: /^Cost per day/ });
+    await chart.scrollIntoViewIfNeeded();
+    // The chart is wider than its panel, so a swipe must be left to scroll it.
+    expect(await chart.evaluate((el) => getComputedStyle(el).touchAction)).toBe('auto');
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', x?: number, y?: number) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: x!, y: y! }] });
+    const centre = async (n: number) => {
+      const box = (await chart.locator('.day-strips rect').nth(n).boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    // Strips are 91px wide on a 640px chart, so two of them are on screen from the chart's start; the last days scroll into view.
+    await chart.evaluate((el) => (el.parentElement!.scrollLeft = el.parentElement!.scrollWidth));
+    const first = await centre(4);
+    const last = await centre(6);
+    const here = page.url();
+
+    // A quick swipe: moved before the hold, so it selects nothing and opens nothing.
+    await touch('touchStart', last.x, last.y);
+    for (let i = 1; i <= 4; i++) await touch('touchMove', last.x - i * 20, last.y);
+    await touch('touchEnd');
+    await page.waitForTimeout(800);
+    await expect(chart.locator('.brush')).toBeHidden();
+    expect(page.url()).toBe(here);
+
+    // Held half a second without moving, then dragged: the days are selected and letting go zooms.
+    await touch('touchStart', first.x, first.y);
+    await page.waitForTimeout(700);
+    await expect(chart.locator('.brush')).toBeVisible();
+    for (let i = 1; i <= 4; i++) await touch('touchMove', first.x + ((last.x - first.x) * i) / 4, first.y);
+    await touch('touchEnd');
+    await expect(page).toHaveURL(/[?&]from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}(&|$)/);
+    expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
+  });
+
   test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);

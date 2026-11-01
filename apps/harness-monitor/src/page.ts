@@ -337,25 +337,37 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
 /**
  * Press on a per-day chart, drag sideways across two or more days and let go: the page zooms into them.
  * The days are shaded while dragging, with their first and last dates above. Loaded once per page, it reads the days
- * each `svg.zoomable` carries and never fetches. A press that moves under a few pixels is a click, which the day's strip
- * link answers; a drag that ends within one day opens nothing. `touch-action: pan-y` leaves an up-and-down drag to the page's scroll.
+ * each `svg.zoomable` carries and never fetches. With a mouse or pen, a press that moves past a few pixels starts selecting;
+ * under that it is a click, which the day's strip link answers. On touch a swipe still scrolls the chart and the page and a tap
+ * opens a day: selecting starts only after a press held for half a second without moving, and then the drag selects. A drag that
+ * ends within one day opens nothing.
  */
 export const ZOOM_SCRIPT = `<script>(function(){
+var selecting=false;
+document.addEventListener('touchmove',function(e){if(selecting&&e.cancelable)e.preventDefault()},{passive:false});
+document.addEventListener('contextmenu',function(e){if(selecting)e.preventDefault()});
 document.addEventListener('pointerdown',function(e){
 var svg=e.target.closest&&e.target.closest('svg.zoomable');
 if(!svg||!e.isPrimary||e.button>0)return;
+var touch=e.pointerType==='touch';
 var days=JSON.parse(svg.dataset.days),labels=JSON.parse(svg.dataset.labels),g=svg.dataset.geom.split(',').map(Number),L=g[0],R=g[1],step=(R-L)/(days.length-1);
 var brush=svg.querySelector('.brush'),area=brush.querySelector('rect'),text=brush.querySelector('text');
 function at(cx){var p=svg.createSVGPoint();p.x=cx;p.y=0;var x=p.matrixTransform(svg.getScreenCTM().inverse()).x;return Math.max(0,Math.min(days.length-1,Math.round((x-L)/step)))}
-var x0=e.clientX,a=at(e.clientX),b=a,dragging=false;
-function move(ev){
-if(!dragging){if(Math.abs(ev.clientX-x0)<6)return;dragging=true;try{svg.setPointerCapture(ev.pointerId)}catch(_){}brush.style.display=''}
-b=at(ev.clientX);var lo=Math.min(a,b),hi=Math.max(a,b),x1=Math.max(L,L+lo*step-step/2),x2=Math.min(R,L+hi*step+step/2);
+var x0=e.clientX,y0=e.clientY,a=at(e.clientX),b=a,dragging=false,hold=null;
+function begin(){dragging=true;selecting=touch;try{svg.setPointerCapture(e.pointerId)}catch(_){}brush.style.display='';paint()}
+function paint(){var lo=Math.min(a,b),hi=Math.max(a,b),x1=Math.max(L,L+lo*step-step/2),x2=Math.min(R,L+hi*step+step/2);
 area.setAttribute('x',x1);area.setAttribute('width',Math.max(1,x2-x1));text.setAttribute('x',(x1+x2)/2);
 text.textContent=lo===hi?labels[lo]:labels[lo]+' – '+labels[hi]}
+function move(ev){
+if(!dragging){
+if(!touch){if(Math.abs(ev.clientX-x0)<6)return;begin()}
+else{if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>8)abandon();return}}
+b=at(ev.clientX);paint()}
+function release(){svg.removeEventListener('pointermove',move);svg.removeEventListener('pointerup',up);svg.removeEventListener('pointercancel',cancel);clearTimeout(hold);selecting=false}
+function abandon(){release()}
 function stop(done){
-svg.removeEventListener('pointermove',move);svg.removeEventListener('pointerup',up);svg.removeEventListener('pointercancel',cancel);
-if(!dragging)return;
+var was=dragging;release();
+if(!was)return;
 brush.style.display='none';
 var lo=Math.min(a,b),hi=Math.max(a,b);
 if(!done)return;
@@ -364,6 +376,7 @@ svg.addEventListener('click',eat,true);
 setTimeout(function(){svg.removeEventListener('click',eat,true)},0);
 if(hi>lo)location.href=svg.dataset.range.replace('from=FROM&to=TO','from='+days[lo]+'&to='+days[hi])}
 function up(){stop(true)}function cancel(){stop(false)}
+if(touch)hold=setTimeout(function(){if(!dragging)begin()},500);
 svg.addEventListener('pointermove',move);svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',cancel)});
 document.addEventListener('dragstart',function(e){if(e.target.closest&&e.target.closest('svg.zoomable'))e.preventDefault()});
 })();</script>`;
