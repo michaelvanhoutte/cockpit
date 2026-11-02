@@ -10,12 +10,12 @@ export const WHAT = {
   },
   perDay: {
     shows: 'What Claude Code cost each day of the period, one line per colour of the sentence and a dashed line for the total.',
-    read: 'Each point is a Belgian day; a day with no request sits at zero rather than being skipped. Point at a dot for its dollars, or at a name in the key to pick its line out.',
+    read: 'Each point is a Belgian day; a day with no request sits at zero rather than being skipped. Point at a dot for its dollars, or at a name in the key to pick its line out. The note at the right of the heading gives the total of the days drawn and the mean over the days that cost anything.',
     look: 'Spikes are the days to explain: click a day to open it, or drag across several to zoom the whole page into those days (on a phone, hold a moment first, then drag). The By day rows below give each day&rsquo;s tokens, and choosing each pull request as the rows says what work spent them. A line that climbs while the others hold is a phase, model or engineer whose spend is growing.',
   },
   tokensPerDay: {
     shows: 'How many tokens Claude Code used each day, with the same lines as Cost per day.',
-    read: 'Every request counts, priced or not: its input, output, cache write and cache read tokens added together. Cache reads, context the model has already been sent and reads again at a tenth of the input price, are usually most of the count.',
+    read: 'Every request counts, priced or not: its input, output, cache write and cache read tokens added together. Cache reads, context the model has already been sent and reads again at a tenth of the input price, are usually most of the count. The note at the right of the heading gives the total of the days drawn and the mean over the days that used any.',
     look: 'Tokens rising while cost holds usually means more of the work is read from the cache, which is cheap. A model with a line here and none in Cost per day has no price yet; the warning at the top of the page names it.',
   },
   trends: {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { linked, pullRequest } from './github-support';
+import { panelOf } from './series-colours';
 import { costRows, emptyTheDatabase, send, spend, theBarePage, usage, withPrices } from './support';
 
 beforeEach(async () => {
@@ -103,6 +104,20 @@ describe('Harness Monitor', () => {
 
       expect(tokensPerDay(html)).toBeNull();
       expect(html).toContain('Nothing in this period.');
+    });
+  });
+});
+
+describe('Harness Monitor', () => {
+  describe("each per-day chart's heading counts the days with any of its own measure", () => {
+    it('a day whose only requests are unpriced counts as a day with tokens and not as a day with spend', async () => {
+      await send([spend('paid', 1, { time: '2026-10-01T10:00:00Z' }), tokens('unpriced', [700, 0, 0, 0], { model: 'no-such-model', time: '2026-10-02T10:00:00Z' })]);
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00Z') });
+
+      const html = await theBarePage('?period=all');
+      const note = (id: string) => /<span class="aside">(.*?)<\/span>/s.exec(panelOf(html, id))?.[1]?.replace(/<\/?b>/g, '');
+
+      expect([note('perday'), note('tokensperday')]).toEqual(['$1.00 total · $1.00 a day on average, over 1 day with spend', '501k tokens total · 250k a day on average, over 2 days with tokens']);
     });
   });
 });

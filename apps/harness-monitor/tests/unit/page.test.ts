@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { groupRows, parseQuery, seriesOf, type CostsPage, type TotalRow } from '../../src/costs';
-import { renderPage, tokenCount } from '../../src/page';
+import { groupRows, parseQuery, seriesOf, type CostsPage, type DayChart, type TotalRow } from '../../src/costs';
+import { costPerDay, renderPage, tokenCount } from '../../src/page';
 
 describe('Harness Monitor', () => {
   describe('a token count reads as people say one', () => {
@@ -290,3 +290,35 @@ describe('Harness Monitor', () => {
   });
 });
 
+describe('Harness Monitor', () => {
+  describe("each per-day chart's heading states the total of the days it draws and the mean over the days with any of its measure", () => {
+    /** A chart over `values` (micros or tokens, one per day) with a single line. */
+    const chartOf = (values: number[]): DayChart => ({
+      days: values.map((_, i) => `2026-10-${String(10 + i).padStart(2, '0')}`),
+      lines: [{ key: 'building', label: 'Building', values }],
+      total: values,
+    });
+    const note = (values: number[], measure: 'cost' | 'tokens') => {
+      const html = costPerDay(chartOf(values), () => '#000', measure, { button: '', panel: '', both: '' });
+      return /<span class="aside">(.*?)<\/span>/s.exec(html)![1]!.replace(/<\/?b>/g, '');
+    };
+
+    it.each([
+      { situation: 'Cost per day over three days of $1.00, nothing, $2.00', values: [1e6, 0, 2e6], measure: 'cost' as const, reads: '$3.00 total · $1.50 a day on average, over 2 days with spend' },
+      { situation: 'Tokens per day over 1,000, nothing and 3,000 tokens', values: [1000, 0, 3000], measure: 'tokens' as const, reads: '4,000 tokens total · 2,000 a day on average, over 2 days with tokens' },
+      { situation: 'only one day with spend', values: [0, 5e6, 0], measure: 'cost' as const, reads: '$5.00 total · $5.00 a day on average, over 1 day with spend' },
+      { situation: 'a token total above a billion', values: [1.2e9, 0.8e9], measure: 'tokens' as const, reads: '2.00B tokens total · 1.00B a day on average, over 2 days with tokens' },
+      { situation: 'days that all cost $0.00, every request unpriced', values: [0, 0], measure: 'cost' as const, reads: '$0.00 total · no day with spend' },
+      { situation: 'days with no tokens', values: [0, 0], measure: 'tokens' as const, reads: '0 tokens total · no day with tokens' },
+    ])('$situation reads "$reads"', ({ values, measure, reads }) => {
+      expect(note(values, measure)).toBe(reads);
+    });
+
+    it('the key sits under the heading, not in its band', () => {
+      const html = costPerDay(chartOf([1e6]), () => '#000', 'cost', { button: '', panel: '', both: '' });
+
+      expect(html.indexOf('class="aside"')).toBeLessThan(html.indexOf('<div class="legend">'));
+      expect(/<span class="aside">[^<]*(<b>[^<]*<\/b>[^<]*)*<\/span>/.test(html)).toBe(true);
+    });
+  });
+});

@@ -2118,6 +2118,29 @@ test.describe('Harness Monitor', () => {
     await expect(page.getByRole('heading', { level: 1, name: /#9001 Add a filter panel/ })).toBeVisible();
   });
 
+  test("each per-day chart's total and mean sit at the right of its heading on a desk and under it on a phone, without the page scrolling sideways", async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    await page.goto(`${monitor}/`);
+
+    // The seed spends $9.00 (4.2M tokens) on one day.
+    const cost = page.getByRole('region', { name: 'Cost per day' });
+    const tokens = page.getByRole('region', { name: 'Tokens per day' });
+    await expect(cost.locator('.aside')).toHaveText('$9.00 total · $9.00 a day on average, over 1 day with spend');
+    await expect(tokens.locator('.aside')).toHaveText('4.2M tokens total · 4.2M a day on average, over 1 day with tokens');
+
+    for (const chart of [cost, tokens]) {
+      const [title, note, band] = await Promise.all([chart.locator('h2').boundingBox(), chart.locator('.aside').boundingBox(), chart.locator('.section-band').boundingBox()]);
+      // Right-aligned in the band either way; on a desk it shares the title's row, on a phone it wraps beneath it.
+      expect(Math.abs(note!.x + note!.width - (band!.x + band!.width)), 'at the band\'s right edge').toBeLessThanOrEqual(12);
+      if (onAPhone) expect(note!.y).toBeGreaterThanOrEqual(title!.y + title!.height - 1);
+      else expect(note!.y).toBeLessThan(title!.y + title!.height);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
   test('pointing at or focusing a line of a per-day chart, or its key, keeps that line at full strength and fades the others, and the total never fades', async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
