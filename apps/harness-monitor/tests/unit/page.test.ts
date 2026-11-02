@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { groupRows, parseQuery, seriesOf, type CostsPage, type DayChart, type TotalRow } from '../../src/costs';
-import { costPerDay, renderPage, tokenCount } from '../../src/page';
+import { costPerDay, renderPage, tokenCount, trendOf, trendWords } from '../../src/page';
 
 describe('Harness Monitor', () => {
   describe('a token count reads as people say one', () => {
@@ -286,6 +286,76 @@ describe('Harness Monitor', () => {
       expect(overRange().split("addEventListener('pointerdown'")).toHaveLength(2);
       expect(overRange()).toContain('class="brush"');
       expect(pageFor('period=all&group=pr', pullRequests(1))).not.toContain("addEventListener('pointerdown'");
+    });
+  });
+
+  describe('a trend line runs straight through the points that have a value, from the first to the last, and one spike does not tilt it', () => {
+    it('a steady rise from 1 to 4 runs from 1 to 4', () => {
+      expect(trendOf([1, 2, 3, 4])).toEqual({ from: 0, to: 3, start: 1, end: 4 });
+    });
+
+    it('a flat series with one spike in it stays flat', () => {
+      const fit = trendOf([5, 5, 5, 5, 400, 5, 5, 5, 5])!;
+
+      expect(fit.start).toBeCloseTo(5);
+      expect(fit.end).toBeCloseTo(5);
+    });
+
+    it('a bucket with no value in the middle is skipped, not read as zero, and the line still spans first to last', () => {
+      expect(trendOf([2, null, 6])).toEqual({ from: 0, to: 2, start: 2, end: 6 });
+    });
+
+    it('buckets with no value at either end leave the line starting and ending at the first and last buckets with one', () => {
+      expect(trendOf([null, null, 10, 20, 30, null])).toEqual({ from: 2, to: 4, start: 10, end: 30 });
+    });
+
+    it('exactly two points are passed through', () => {
+      expect(trendOf([null, 3, null, 9])).toEqual({ from: 1, to: 3, start: 3, end: 9 });
+    });
+
+    it.each([[[7]], [[null, 7, null]], [[null, null]], [[]]])('%j has under two points and so no line', (values) => {
+      expect(trendOf(values)).toBeNull();
+    });
+
+    it.each([
+      // A straight rise from 0 at 300 a step, the first point 1 off it: the line starts at exactly 0.
+      [[1, 300, 600, 900, 1200]],
+      [[0, 0, 5, 10]],
+    ])('%j starts at or below zero, where a change has no percentage, and so has no line', (values) => {
+      expect(trendOf(values)).toBeNull();
+    });
+
+    it('an even number of slopes takes the mean of the middle two', () => {
+      // Four points give six slopes, 0, 0, 0, 2, 3, 6: the middle two are 0 and 2, so the slope is 1 and the line rises 3 over 3 steps.
+      const fit = trendOf([1, 1, 1, 7])!;
+
+      expect(fit.end - fit.start).toBeCloseTo(3);
+    });
+
+    it('all time with 150 weekly points fits as a short series does', () => {
+      const weeks = Array.from({ length: 150 }, (_, i) => 100 + i * 2);
+
+      const fit = trendOf(weeks)!;
+
+      expect(fit.start).toBeCloseTo(100);
+      expect(fit.end).toBeCloseTo(100 + 149 * 2);
+    });
+  });
+
+  describe("a trend's words say the fitted change from start to end in whole percent", () => {
+    const fit = (start: number, end: number) => ({ from: 0, to: 9, start, end });
+
+    it.each([
+      { start: 100, end: 125, period: '30d' as const, reads: 'Trending up 25% over the last 30 days' },
+      { start: 100, end: 92, period: '90d' as const, reads: 'Trending down 8% over the last 90 days' },
+      { start: 100, end: 100.4, period: '30d' as const, reads: 'Flat over the last 30 days' },
+      { start: 100, end: 125, period: 'all' as const, reads: 'Trending up 25% over all time' },
+    ])('a fit from $start to $end over $period reads "$reads"', ({ start, end, period, reads }) => {
+      expect(trendWords(fit(start, end), period)).toBe(reads);
+    });
+
+    it('no fit has no words', () => {
+      expect(trendWords(null, '30d')).toBe('');
     });
   });
 });
