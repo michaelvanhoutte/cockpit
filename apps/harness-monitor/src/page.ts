@@ -267,9 +267,9 @@ export const tokenCount = (n: number) =>
   n >= 999.95e6 ? `${(n / 1e9).toFixed(2)}B` : n >= 999.5e3 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
 
 /** How each per-day chart is headed, labelled and read. */
-const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string }> = {
-  cost: { title: 'Cost per day', id: 'perday', value: dollars, axis: dollars },
-  tokens: { title: 'Tokens per day', id: 'tokensperday', value: (n) => `${tokenCount(n)} tokens`, axis: tokenCount },
+const MEASURES: Record<Measure, { title: string; id: string; word: string; value: (n: number) => string; axis: (n: number) => string }> = {
+  cost: { title: 'Cost per day', id: 'perday', word: 'spend', value: dollars, axis: dollars },
+  tokens: { title: 'Tokens per day', id: 'tokensperday', word: 'tokens', value: (n) => `${tokenCount(n)} tokens`, axis: tokenCount },
 };
 
 /**
@@ -291,7 +291,7 @@ const dayHref = (query: CostQuery, day: string) => queryString(query, { group: '
 /** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series, with the (i) of `info`; empty where the chart has no day. */
 export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info, href?: (day: string) => string, zoomHref?: string): string {
   if (chart.days.length === 0) return '';
-  const { title, id, value, axis } = MEASURES[measure];
+  const { title, id, word, value, axis } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
   const peak = Math.max(...chart.total, 1);
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
@@ -339,7 +339,12 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
   const brush = zoomable
     ? `<g class="brush" style="display:none"><rect class="brush-area" y="${top}" height="${height - top - bottom}"/><text class="brush-label" y="${top + 14}" text-anchor="middle"></text></g>`
     : '';
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg${zoom} viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g>${brush}</svg></div>
+  // The band's note: the drawn days added up, and their mean over the days with any of the measure (a day at zero is not one).
+  const sum = chart.total.reduce((a, b) => a + b, 0);
+  const active = chart.total.filter((v) => v > 0).length;
+  const strong = (s: string) => `<b>${s}</b>`;
+  const note = `${strong(value(sum))} total · ${active === 0 ? `no day with ${word}` : `${strong(axis(sum / active))} a day on average, over ${active} ${active === 1 ? 'day' : 'days'} with ${word}`}`;
+  return `<section class="panel" aria-labelledby="${id}">${band(title, note, id, info.both)}<div class="legend">${keys(lines)}</div><div class="well chart"><svg${zoom} viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g>${brush}</svg></div>
 </section>`;
 }
 

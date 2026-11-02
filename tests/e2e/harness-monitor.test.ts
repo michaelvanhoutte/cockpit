@@ -441,7 +441,7 @@ test.describe('Harness Monitor', () => {
     expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
   }
 
-  test("the sentence stays on screen as the page scrolls, and the page's intro ends where the panels below it end, on a desk and on a phone", async ({ page, request: api }) => {
+  test("the sentence stays on screen as the page scrolls, the page's intro ends where the panels below it end, and each per-day chart's total and mean sit at the right of its heading on a desk and under it on a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
@@ -449,6 +449,19 @@ test.describe('Harness Monitor', () => {
     await page.goto(`${monitor}/`);
     // Every page opens with the same intro; its paragraph keeps the lead's 2px padding.
     await endsWithPanel(page, page.locator('.lead-more'), page.locator('section.panel').first(), 2);
+
+    // The seed spends $9.00 (4.2M tokens) on one day.
+    const cost = page.getByRole('region', { name: 'Cost per day' });
+    const tokens = page.getByRole('region', { name: 'Tokens per day' });
+    await expect(cost.locator('.aside')).toHaveText('$9.00 total · $9.00 a day on average, over 1 day with spend');
+    await expect(tokens.locator('.aside')).toHaveText('4.2M tokens total · 4.2M a day on average, over 1 day with tokens');
+    for (const chart of [cost, tokens]) {
+      const [title, note, heading] = await Promise.all([chart.locator('h2').boundingBox(), chart.locator('.aside').boundingBox(), chart.locator('.section-band').boundingBox()]);
+      // At the band's right edge either way; on a desk it shares the title's row, on a phone it wraps beneath it.
+      expect(Math.abs(note!.x + note!.width - (heading!.x + heading!.width)), "at the band's right edge").toBeLessThanOrEqual(12);
+      if (onAPhone) expect(note!.y).toBeGreaterThanOrEqual(title!.y + title!.height - 1);
+      else expect(note!.y).toBeLessThan(title!.y + title!.height);
+    }
 
     // Scrolled to the table, the band is still the first thing on screen.
     await page.getByRole('region', { name: 'Cost by day' }).scrollIntoViewIfNeeded();

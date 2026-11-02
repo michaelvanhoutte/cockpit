@@ -30,7 +30,7 @@ export const WHAT = {
   },
   perDay: {
     shows: 'What the calls cost each day of the period, a line per colour of the sentence and a dashed line for the total.',
-    read: 'Every day of the period has a point, zero on a day with no call. Point at a dot for its dollars, or at a name in the key to pick its line out.',
+    read: 'Every day of the period has a point, zero on a day with no call. Point at a dot for its dollars, or at a name in the key to pick its line out. The note at the right of the heading gives the total of the days drawn and the mean over the days that cost anything.',
     look: 'CI&rsquo;s line jumps on the days contract tests ran, which is expected. A production line climbing steadily is either more use or calls getting dearer; the Calls tile tells the two apart.',
   },
 } satisfies Record<string, Explanation>;

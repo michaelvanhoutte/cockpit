@@ -234,6 +234,8 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .section-band{display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;padding:11px 10px 10px}
 .section-band h2{font-size:13px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--accent-deep)}
 .section-band .aside{margin-left:auto;font-size:13px;color:var(--ink-faint)}
+.section-band .aside b{font-weight:600;color:var(--ink-strong)}
+.panel>.legend{padding:0 10px 8px}
 .well{margin:0;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 7%,transparent);flex:1}
 .pad{padding:18px 16px;display:flex;flex-direction:column;gap:14px}
 .warning{border-color:var(--due)}
