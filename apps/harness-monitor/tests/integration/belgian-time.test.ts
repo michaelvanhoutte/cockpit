@@ -25,7 +25,7 @@ const perDay = (html: string) => /<section class="panel" aria-labelledby="perday
 const titles = (html: string) => [...html.matchAll(/<title>(.*?)<\/title>/g)].map((m) => m[1]!);
 /** A trend chart's points ("22 Oct 2026 · 80 tokens"), whichever line draws them. */
 function points(html: string, id: string): string[] {
-  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
+  const section = new RegExp(`<section class="panel" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
   return titles(section).map((t) => t.split(' · ').slice(1).join(' · ').replace('week of ', ''));
 }
 

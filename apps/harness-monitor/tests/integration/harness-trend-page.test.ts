@@ -12,6 +12,28 @@ afterEach(() => vi.useRealTimers());
 const QUESTION = 'Is the harness getting more expensive?';
 const nav = (html: string) => /<nav class="pages"[^>]*>(.*?)<\/nav>/s.exec(html)![1]!;
 
+/** A chart's panel, band and chart together, by its id. */
+const panelOf = (html: string, id: string) => new RegExp(`<section class="panel" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1] ?? '';
+const bandOf = (panel: string) => panel.slice(0, panel.indexOf('<div class="well pad">'));
+const wordsOf = (panel: string) => /<span class="trend-words">(.*?)<\/span>/.exec(panel)?.[1] ?? null;
+/** What pointing at each trend line reads, one per line drawn. */
+const trendTitles = (panel: string) => [...panel.matchAll(/<line [^>]*data-trend[^>]*><title>(.*?)<\/title>/g)].map((m) => m[1]!);
+const explanationOf = (html: string, id: string) => new RegExp(`<div id="x-${id}" popover="manual" class="explain-pop">.*?</div>`, 's').exec(html)?.[0] ?? '';
+const IDS = ['starting-context', 'pull-request-size', 'cost-per-line'];
+
+/** One session and one merged pull request a day from 3 Oct 2026: `dollars` of building, `lines` changed and `later` dollars of after-push work. */
+async function dailyWork(days: { dollars: number; lines: number; later?: number }[]) {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
+  for (const [i, d] of days.entries()) {
+    const day = `2026-10-${String(3 + i).padStart(2, '0')}`;
+    const rows = [spend(`s${i}`, d.dollars, { time: `${day}T10:00:00Z`, branch: `b/${i + 1}`, sessionId: `s${i}` })];
+    if (d.later) rows.push(spend(`l${i}`, d.later, { time: `${day}T11:00:00Z`, branch: `b/${i + 1}`, sessionId: `s${i}`, category: 'after-push' }));
+    await send(rows);
+    await merged(i + 1, `${day}T12:00:00Z`, d.lines);
+  }
+}
+const rising = Array.from({ length: 6 }, (_, i) => ({ dollars: 2 + i, lines: 1000, later: 1 }));
+
 async function viewWith(query: string, over: Record<string, unknown> = {}) {
   const ctx = createExecutionContext();
   const response = await worker.fetch(new Request(`https://monitor.test/harness-trend${query}`), { ...env, ...over }, ctx);
@@ -95,7 +117,7 @@ describe('Harness Monitor', () => {
       await merged(2, '2026-10-14T10:00:00Z', 1_000);
     });
 
-    const section = (html: string, id: string) => new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
+    const section = (html: string, id: string) => new RegExp(`<section class="panel" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)![1]!;
     const lines = (html: string, id: string) => [...section(html, id).matchAll(/<g data-line="([^"]*)">(.*?)<\/g>/gs)].map(([, key, body]) => ({ key: key!, dashed: body!.includes('stroke-dasharray') }));
     const switchOf = (html: string) => /<span class="lines-switch"[^>]*>(.*?)<\/span>/s.exec(html)?.[1];
     const links = (html: string) => [...switchOf(html)!.matchAll(/<a href="([^"]*)"( aria-current="true")?>([^<]*)<\/a>/g)].map(([, href, current, text]) => ({ text, href, current: current !== undefined }));
@@ -129,10 +151,7 @@ describe('Harness Monitor', () => {
       expect(links(html).find((l) => l.current)!.text).toBe('By phase');
     });
 
-    it('the switch sits in the chart heading with the current view marked', async () => {
-      const heading = /<div class="heading"><h3 id="cost-per-line">(.*?)<div class="chart">/s.exec(await theTrendPage('?period=all'))![1]!;
-
-      expect(heading).toContain('class="lines-switch"');
+    it('the switch marks the current view', async () => {
       expect(links(await theTrendPage('?period=all')).map((l) => [l.text, l.current])).toEqual([['Total', false], ['By phase', true]]);
       expect(links(await theTrendPage('?period=all&lines=total')).map((l) => [l.text, l.current])).toEqual([['Total', true], ['By phase', false]]);
     });
@@ -169,6 +188,162 @@ describe('Harness Monitor', () => {
 
       expect(explanation).toContain('Total');
       expect(explanation).toContain('By phase');
+    });
+  });
+
+  describe('Harness trend draws its three charts as three panels, each with its title and explanation on its own band', () => {
+    it('with data, they are Starting context, Pull request size and Cost per 1,000 lines changed, in that order', async () => {
+      await dailyWork(rising);
+
+      const html = await theTrendPage();
+
+      expect([...html.matchAll(/<section class="panel" aria-labelledby="([^"]*)"/g)].map((m) => m[1])).toEqual(IDS);
+      expect(IDS.map((id) => new RegExp(`<h2 id="${id}">(.*?)</h2>`).exec(bandOf(panelOf(html, id)))?.[1])).toEqual(['Starting context', 'Pull request size', 'Cost per 1,000 lines changed']);
+    });
+
+    it.each(IDS)('the band of %s opens that chart’s explanation', async (id) => {
+      await dailyWork(rising);
+
+      const band = bandOf(panelOf(await theTrendPage(), id));
+
+      expect(/<button [^>]*data-pop="x-([^"]*)"/.exec(band)?.[1]).toBe(id);
+    });
+
+    it('no band asks the question, though the opening text still does', async () => {
+      await dailyWork(rising);
+
+      const html = await theTrendPage();
+
+      expect([...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map((m) => m[1])).not.toContain(QUESTION);
+      expect(/<div class="lead">(.*?)<\/div>/s.exec(html)![1]).toContain(QUESTION);
+    });
+
+    it('a period with nothing to chart still has the three panels, each saying so, with no words and no line', async () => {
+      const html = await theTrendPage();
+
+      for (const id of IDS) {
+        const panel = panelOf(html, id);
+        expect(panel).toContain('Nothing to chart in this period.');
+        expect(wordsOf(panel)).toBeNull();
+        expect(trendTitles(panel)).toEqual([]);
+      }
+    });
+  });
+
+  describe('each chart draws its trend line and its band’s words from its own values', () => {
+    it('Starting context and Pull request size draw one trend line through their one line, with words on each band', async () => {
+      await dailyWork(rising);
+
+      const html = await theTrendPage();
+
+      expect(trendTitles(panelOf(html, 'starting-context'))).toEqual(['Trend · 1,000,000 tokens to 3,500,000 tokens']);
+      expect(wordsOf(bandOf(panelOf(html, 'starting-context')))).toBe('Trending up 250% over the last 30 days');
+      expect(trendTitles(panelOf(html, 'pull-request-size'))).toEqual(['Trend · 1,000 lines to 1,000 lines']);
+      expect(wordsOf(bandOf(panelOf(html, 'pull-request-size')))).toBe('Flat over the last 30 days');
+    });
+
+    it('a shrinking pull request reads as trending down', async () => {
+      await dailyWork(Array.from({ length: 6 }, (_, i) => ({ dollars: 2, lines: 1000 - 100 * i })));
+
+      const html = await theTrendPage();
+
+      expect(wordsOf(bandOf(panelOf(html, 'pull-request-size')))).toBe('Trending down 50% over the last 30 days');
+    });
+
+    it('Cost per 1,000 lines changed on Total fits the All phases line', async () => {
+      await dailyWork(rising);
+
+      const panel = panelOf(await theTrendPage('?lines=total'), 'cost-per-line');
+
+      expect(trendTitles(panel)).toEqual(['Trend · $3.00 to $8.00']);
+      expect(wordsOf(bandOf(panel))).toBe('Trending up 167% over the last 30 days');
+    });
+
+    it('Cost per 1,000 lines changed on By phase draws exactly one trend line, on the All phases line, though phase lines are drawn', async () => {
+      await dailyWork(rising);
+
+      const panel = panelOf(await theTrendPage(), 'cost-per-line');
+
+      expect(panel).toContain('data-line="building"');
+      expect(trendTitles(panel)).toEqual(['Trend · $3.00 to $8.00']);
+    });
+
+    it('with one phase filtered the fit is on that phase’s line', async () => {
+      await dailyWork(rising);
+
+      const panel = panelOf(await theTrendPage('?category=building'), 'cost-per-line');
+
+      expect(trendTitles(panel)).toEqual(['Trend · $2.00 to $7.00']);
+      expect(wordsOf(bandOf(panel))).toBe('Trending up 250% over the last 30 days');
+    });
+
+    it('a chart with one point in the period is drawn as ever, with no trend line and no words, and the other panels are unaffected', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
+      // Only the first session starts inside the period, so Starting context has one point; both pull requests merge inside it.
+      await send([spend('in', 2, { time: '2026-10-05T10:00:00Z', branch: 'b/1', sessionId: 'in' }), spend('before', 2, { time: '2026-08-01T10:00:00Z', branch: 'b/2', sessionId: 'before' })]);
+      await merged(1, '2026-10-05T12:00:00Z', 1_000);
+      await merged(2, '2026-10-08T12:00:00Z', 2_000);
+
+      const html = await theTrendPage();
+
+      expect(panelOf(html, 'starting-context')).toContain('<circle');
+      expect(trendTitles(panelOf(html, 'starting-context'))).toEqual([]);
+      expect(wordsOf(panelOf(html, 'starting-context'))).toBeNull();
+      expect(trendTitles(panelOf(html, 'pull-request-size'))).toEqual(['Trend · 1,000 lines to 2,000 lines']);
+      expect(wordsOf(panelOf(html, 'pull-request-size'))).toBe('Trending up 100% over the last 30 days');
+    });
+
+    it('over the last 90 days the fit has one point per week and the words say so', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-14T12:00:00Z') });
+      for (const [i, day] of ['2026-09-29', '2026-10-06', '2026-10-13'].entries()) {
+        await send([spend(`w${i}`, 2 * (i + 1), { time: `${day}T10:00:00Z`, branch: `b/${i + 1}`, sessionId: `w${i}` })]);
+        await merged(i + 1, `${day}T12:00:00Z`, 1_000);
+      }
+
+      const panel = panelOf(await theTrendPage('?period=90d&lines=total'), 'cost-per-line');
+
+      expect(trendTitles(panel)).toEqual(['Trend · $2.00 to $6.00']);
+      expect(wordsOf(bandOf(panel))).toBe('Trending up 200% over the last 90 days');
+    });
+
+    it('a fit that ends below zero is clipped to the chart’s plot area', async () => {
+      await dailyWork([1000, 850, 700, 550, 400, 250, 100, 100, 100, 100].map((lines) => ({ dollars: 2, lines })));
+
+      const panel = panelOf(await theTrendPage(), 'pull-request-size');
+      const line = /<line clip-path="url\(#([^)]*)\)"[^>]*y2="([^"]*)"[^>]*data-trend/.exec(panel)!;
+
+      // The line runs past the bottom of the plot area (248 of 280), and the clip it is drawn through stops there.
+      expect(Number(line[2])).toBeGreaterThan(248);
+      expect(new RegExp(`<clipPath id="${line[1]}"><rect [^>]*y="16" [^>]*height="232"`).test(panel)).toBe(true);
+    });
+  });
+
+  describe('the Total / By phase switch sits on Cost per 1,000 lines changed’s band, after its words', () => {
+    beforeEach(() => dailyWork(rising));
+
+    it('with no phase filtered, the switch is on that panel’s band after the words, the current view marked', async () => {
+      const band = bandOf(panelOf(await theTrendPage(), 'cost-per-line'));
+
+      expect(band.indexOf('class="trend-words"')).toBeGreaterThan(-1);
+      expect(band.indexOf('class="lines-switch"')).toBeGreaterThan(band.indexOf('class="trend-words"'));
+      expect(band).toContain('<a href="/harness-trend" aria-current="true">By phase</a>');
+    });
+
+    it('with one phase filtered there is no switch, and the words are still shown', async () => {
+      const band = bandOf(panelOf(await theTrendPage('?category=after-push'), 'cost-per-line'));
+
+      expect(band).not.toContain('lines-switch');
+      expect(wordsOf(band)).toBe('Flat over the last 30 days');
+    });
+  });
+
+  describe('each chart’s explanation says how its trend line is fitted', () => {
+    it.each(IDS)('%s says the line is straight, not tilted by a single spike, and that the words are its change over the period', async (id) => {
+      const explanation = explanationOf(await theTrendPage(), id);
+
+      expect(explanation).toContain('straight');
+      expect(explanation).toContain('a single spike does not tilt it');
+      expect(explanation).toContain('its change over the period');
     });
   });
 

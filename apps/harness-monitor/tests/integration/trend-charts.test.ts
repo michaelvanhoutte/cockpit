@@ -33,7 +33,7 @@ async function sessionStarts(): Promise<Start[]> {
 
 /** Each line of a chart as its points read ("2026-10-05 · $2.00"), keyed by the line; 'empty' where the chart has nothing to draw. */
 function chart(html: string, id: string): Record<string, string[]> | 'empty' {
-  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
+  const section = new RegExp(`<section class="panel" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
   if (section === undefined) throw new Error(`no chart ${id}`);
   if (section.includes(`data-empty="${id}"`)) return 'empty';
   return Object.fromEntries(
@@ -115,7 +115,6 @@ describe('Harness Monitor', () => {
 
       const html = await theTrendPage('?period=all');
 
-      expect(html).toContain('<h2 id="trends">Is the harness getting more expensive?</h2>');
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 80 tokens`] });
       expect(chart(html, 'pull-request-size')).toEqual({ 'pull-request-size': [`${WEEK} · 1,000 lines`] });
       expect(chart(html, 'cost-per-line')).toMatchObject({ total: [`${WEEK} · $2.00`], building: [`${WEEK} · $2.00`] });

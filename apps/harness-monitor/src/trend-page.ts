@@ -1,9 +1,10 @@
 import { PERIODS, type Period, type TrendPage, trendQueryString } from './costs';
 import { LEAD_MORE, WHAT } from './costs-explain';
-import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead } from './explain';
-import { band, inline, questionOf, sentenceForm, shell } from './look';
-import { VIOLET } from './palette';
-import { compact, COLOURS, dollars, number, onlyFilters, PERIOD_WORDS, trendChart } from './page';
+import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead, type Explanation } from './explain';
+import { inline, questionOf, sentenceForm, shell } from './look';
+import { AMBER, VIOLET } from './palette';
+import { compact, COLOURS, dollars, number, onlyFilters, PERIOD_WORDS, trendChart, trendOf, trendWords } from './page';
+import { section } from './report';
 import { type Category } from './validate';
 
 /** The Harness trend page's controls: the period, then the costs page's "Only" filters, each narrowing the charts as it does there. */
@@ -20,42 +21,74 @@ function linesSwitch({ query }: TrendPage, total: boolean): string {
   return `<span class="lines-switch" role="group" aria-label="Cost per 1,000 lines changed shows">${link('Total', 'total')}${link('By phase', 'phase')}</span>`;
 }
 
-/** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
+/** One panel per chart: its title and explanation on the band, then the trend's words and any `extra` beside them. */
+function panel(id: string, title: string, what: Explanation, words: string, chart: string, extra = ''): string {
+  const aside = (words === '' ? '' : `<span class="trend-words">${words}</span>`) + extra;
+  return section(id, title, aside, `<div class="well pad">${chart}</div>`, 'panel', explain(id, title, what));
+}
+
+/** Starting context, pull request size and cost per 1,000 lines changed, each a panel with its trend line and the line's change in words. */
 function charts(page: TrendPage): string {
   const { trends: t } = page;
+  const { period, category } = page.query;
   // One phase chosen leaves the chart a single line, so there is nothing to switch.
-  const total = page.lines === 'total' && page.query.category === null;
+  const total = page.lines === 'total' && category === null;
   const ink = VIOLET;
-  const drawn = [
-    trendChart(t, {
-      id: 'starting-context',
-      title: 'Starting context',
-      what: WHAT.startingContext,
-      lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
-      value: (n) => `${number(n)} tokens`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'pull-request-size',
-      title: 'Pull request size',
-      what: WHAT.prSize,
-      lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
-      value: (n) => `${number(n)} lines`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'cost-per-line',
-      title: 'Cost per 1,000 lines changed',
-      what: WHAT.costPerLine,
-      // Dashed means "the sum" while phase lines sit beside it; alone, the total is solid.
-      lines: t.costPerThousandLines.filter((l) => !total || l.key === 'total').map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: !total } : { ...l, colour: COLOURS[l.key as Category] })),
-      value: dollars,
-      axis: dollars,
-      ...(page.query.category === null ? { aside: linesSwitch(page, total) } : {}),
-    }),
-  ];
-  const info = explain('trends', 'Is the harness getting more expensive?', WHAT.trends);
-  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', '', 'trends', info.both)}<div class="well pad">${drawn.join('\n')}</div></section>`;
+  // Phase lines sit beside the total, which the fit follows; with one phase chosen it follows that phase.
+  const costKey = category ?? 'total';
+  const wordsOf = (values: (number | null)[]) => trendWords(trendOf(values), period);
+  return [
+    panel(
+      'starting-context',
+      'Starting context',
+      WHAT.startingContext,
+      wordsOf(t.startingContext),
+      trendChart(t, {
+        id: 'starting-context',
+        title: 'Starting context',
+        what: WHAT.startingContext,
+        bare: true,
+        fit: 'starting-context',
+        lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
+        value: (n) => `${number(n)} tokens`,
+        axis: compact,
+      }),
+    ),
+    panel(
+      'pull-request-size',
+      'Pull request size',
+      WHAT.prSize,
+      wordsOf(t.prSize),
+      trendChart(t, {
+        id: 'pull-request-size',
+        title: 'Pull request size',
+        what: WHAT.prSize,
+        bare: true,
+        fit: 'pull-request-size',
+        lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
+        value: (n) => `${number(n)} lines`,
+        axis: compact,
+      }),
+    ),
+    panel(
+      'cost-per-line',
+      'Cost per 1,000 lines changed',
+      WHAT.costPerLine,
+      wordsOf(t.costPerThousandLines.find((l) => l.key === costKey)?.values ?? []),
+      trendChart(t, {
+        id: 'cost-per-line',
+        title: 'Cost per 1,000 lines changed',
+        what: WHAT.costPerLine,
+        bare: true,
+        fit: costKey,
+        // Dashed means "the sum" while phase lines sit beside it; alone, the total is solid.
+        lines: t.costPerThousandLines.filter((l) => !total || l.key === 'total').map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: !total } : { ...l, colour: COLOURS[l.key as Category] })),
+        value: dollars,
+        axis: dollars,
+      }),
+      category === null ? linesSwitch(page, total) : '',
+    ),
+  ].join('\n');
 }
 
 /** The public page: whether the same work is getting dearer. Counts and dollars only. */
@@ -64,7 +97,8 @@ export function renderTrendPage(page: TrendPage, now = Date.now()): string {
   return shell({ current: 'harness-trend', controls: controls(page), body, style: EXPLAIN_STYLE + SWITCH_STYLE }, now);
 }
 
-const SWITCH_STYLE = `.lines-switch{margin-left:auto;padding-left:12px;display:inline-flex;flex-shrink:0}
+const SWITCH_STYLE = `.trend-words{color:${AMBER};font-weight:600;font-size:13px;white-space:nowrap}
+.lines-switch{margin-left:auto;padding-left:12px;display:inline-flex;flex-shrink:0}
 .lines-switch a{padding:3px 10px;border:1px solid color-mix(in srgb,var(--shade) 24%,transparent);font-size:12px;color:var(--ink-soft);text-decoration:none;white-space:nowrap}
 .lines-switch a:first-child{border-radius:var(--radius-sm) 0 0 var(--radius-sm)}
 .lines-switch a:last-child{margin-left:-1px;border-radius:0 var(--radius-sm) var(--radius-sm) 0}
