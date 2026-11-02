@@ -620,7 +620,6 @@ describe('Harness Monitor', () => {
     });
   });
 
-
   describe("Cockpit's Claude calls carries the total and the mean a day on its Cost per day panel", () => {
     it('calls costing $1.00 one day and $3.00 another read $4.00 in total and $2.00 a day on average over 2 days with spend', async () => {
       await importTheCalls([callLike({ id: 1, at: '2026-10-21T09:00:00Z', costUsd: 1 }), callLike({ id: 2, at: '2026-10-22T09:00:00Z', costUsd: 3 })]);
@@ -629,4 +628,6 @@ describe('Harness Monitor', () => {
 
       expect(band?.replace(/<\/?b>/g, '')).toBe('$4.00 total · $2.00 a day on average, over 2 days with spend');
     });
-  });});
+  });
+});
+
