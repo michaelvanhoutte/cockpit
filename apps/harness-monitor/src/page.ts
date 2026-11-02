@@ -409,7 +409,7 @@ interface TrendDrawing {
   peak?: number;
   /** The chart and its key alone, for a panel whose band already names it. */
   bare?: boolean;
-  /** The key of the line to draw a straight trend line through; none is drawn where it has under two points. */
+  /** The key of the line to draw a straight trend line through; none is drawn where it has under two points or the fit starts at or below zero. */
   fit?: string;
 }
 
@@ -443,7 +443,9 @@ export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawin
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
-  const fitted = d.fit === undefined ? null : trendOf(shown.find((l) => l.key === d.fit)?.values ?? []);
+  const fit = d.fit === undefined ? null : trendOf(shown.find((l) => l.key === d.fit)?.values ?? []);
+  // A fit starting at or below zero has no change worth a percentage, so it draws nothing either.
+  const fitted = fit !== null && fit.start > 0 ? fit : null;
   // The fit can run past the scale where it is steep, so it is clipped to the plot area rather than drawn over the axes.
   const trend =
     fitted === null

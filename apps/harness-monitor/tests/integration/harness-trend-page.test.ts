@@ -316,6 +316,17 @@ describe('Harness Monitor', () => {
       expect(Number(line[2])).toBeGreaterThan(248);
       expect(new RegExp(`<clipPath id="${line[1]}"><rect [^>]*y="16" [^>]*height="232"`).test(panel)).toBe(true);
     });
+
+    it('a fit that starts at zero draws no trend line and no words, the chart drawn as ever', async () => {
+      // A straight rise from 0 at 300 a day, the first point 1 off it: the fit starts at exactly 0.
+      await dailyWork([1, 300, 600, 900, 1200].map((lines) => ({ dollars: 2, lines })));
+
+      const panel = panelOf(await theTrendPage(), 'pull-request-size');
+
+      expect(panel).toContain('data-line="pull-request-size"');
+      expect(panel).not.toContain('data-trend');
+      expect(panel).not.toContain('class="trend-words"');
+    });
   });
 
   describe('the Total / By phase switch sits on Cost per 1,000 lines changed’s band, after its words', () => {
