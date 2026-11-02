@@ -317,6 +317,13 @@ describe('Harness Monitor', () => {
       expect(new RegExp(`<clipPath id="${line[1]}"><rect [^>]*y="16" [^>]*height="232"`).test(panel)).toBe(true);
     });
 
+    it('pointing at the trend line names its ends in whole units, though the fit falls between them', async () => {
+      // The fit runs from 999.917 to 1,000.417 lines.
+      await dailyWork([1000, 1000, 1000, 1001].map((lines) => ({ dollars: 2, lines })));
+
+      expect(trendTitles(panelOf(await theTrendPage(), 'pull-request-size'))).toEqual(['Trend · 1,000 lines to 1,000 lines']);
+    });
+
     it('a fit that starts at zero draws no trend line and no words, the chart drawn as ever', async () => {
       // A straight rise from 0 at 300 a day, the first point 1 off it: the fit starts at exactly 0.
       await dailyWork([1, 300, 600, 900, 1200].map((lines) => ({ dollars: 2, lines })));

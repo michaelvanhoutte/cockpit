@@ -450,7 +450,7 @@ export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawin
   const trend =
     fitted === null
       ? ''
-      : `<clipPath id="clip-${d.id}"><rect x="${left}" y="${top}" width="${width - left - right}" height="${height - top - bottom}"/></clipPath><line clip-path="url(#clip-${d.id})" x1="${x(fitted.from).toFixed(1)}" y1="${y(fitted.start).toFixed(1)}" x2="${x(fitted.to).toFixed(1)}" y2="${y(fitted.end).toFixed(1)}" stroke="${AMBER}" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" data-trend><title>Trend · ${d.value(fitted.start)} to ${d.value(fitted.end)}</title></line>`;
+      : `<clipPath id="clip-${d.id}"><rect x="${left}" y="${top}" width="${width - left - right}" height="${height - top - bottom}"/></clipPath><line clip-path="url(#clip-${d.id})" x1="${x(fitted.from).toFixed(1)}" y1="${y(fitted.start).toFixed(1)}" x2="${x(fitted.to).toFixed(1)}" y2="${y(fitted.end).toFixed(1)}" stroke="${AMBER}" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" data-trend><title>Trend · ${d.value(Math.round(fitted.start))} to ${d.value(Math.round(fitted.end))}</title></line>`;
   return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g>${trend}</svg></div>${legend}</section>`;
 }
 
