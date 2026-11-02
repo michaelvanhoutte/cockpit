@@ -1,6 +1,10 @@
 import type { Explanation } from './explain';
 import type { Group } from './costs';
 
+/** How every Harness trend chart's points and trend line read, said once and closing each chart's own reading. */
+const TREND_READ =
+  'Each point is a day, or a week from Monday over 90 days or all time; a break in a line is a day or week with nothing to measure, not a zero. The dashed amber line is straight, fitted so a single spike does not tilt it: its slope is the median of the slopes between every pair of points. The words beside the heading are its change over the period, from where it starts to where it ends.';
+
 /** What each panel of Claude Code costs and of a pull request's page shows, how to read it and what to look for, written for a reader who knows software but not this repository. */
 export const WHAT = {
   where: {
@@ -20,18 +24,18 @@ export const WHAT = {
   },
   startingContext: {
     shows: 'How many tokens a session holds at its first request: the instructions, tools and memory every session loads before it does any work.',
-    read: 'The median, over the sessions started that day or week, of the first main-agent request&rsquo;s input, cache write and cache read tokens; output and subagents are left out. It follows the period, the engineer and the model only. The dashed amber line is straight, fitted so a single spike does not tilt it: its slope is the median of the slopes between every pair of points. The words beside the heading are its change over the period, from where it starts to where it ends.',
+    read: `The median, over the sessions started that day or week, of the first main-agent request&rsquo;s input, cache write and cache read tokens; output and subagents are left out. It follows the period, the engineer and the model only. ${TREND_READ}`,
     look: 'A step up marks the day something was added to what every session loads, such as a longer instructions file, a skill or a tool. That context is read again on every request, so a rise here raises the cost of every request after it.',
   },
   prSize: {
     shows: 'How much a typical merged pull request changes.',
-    read: 'The median of lines added plus removed over the pull requests merged that day or week, leaving out lockfiles, snapshots and generated files. A pull request not yet sized is left out. The dashed amber line is straight, fitted so a single spike does not tilt it: its slope is the median of the slopes between every pair of points. The words beside the heading are its change over the period, from where it starts to where it ends.',
+    read: `The median of lines added plus removed over the pull requests merged that day or week, leaving out lockfiles, snapshots and generated files. A pull request not yet sized is left out. ${TREND_READ}`,
     look: 'It is the context for the chart below: a smaller pull request still pays the fixed cost of scoping, reviews and CI, so it costs more a line even when nothing got dearer.',
   },
   costPerLine: {
     shows: 'What a thousand lines of merged change cost in Claude Code, in total and in each phase.',
-    read: 'The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Total, beside the words on the band, draws that line alone and solid; By phase, the default, draws it beside each phase. The switch is not offered when the Phase filter names one phase. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn. The dashed amber line follows the All phases line (or the one phase the Phase filter names) and is straight, fitted so a single spike does not tilt it: its slope is the median of the slopes between every pair of points. The words beside the heading are its change over the period, from where it starts to where it ends.',
-    look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent.',
+    read: `The pull requests merged that day or week: their whole cost, first request to last, divided by thousands of lines added plus removed. One with no counted lines is left out of both. The dashed line is every phase together. Total, beside the words on the band, draws that line alone and solid; By phase, the default, draws it beside each phase. The switch is not offered when the Phase filter names one phase. Phases were first recorded on 21 Sep 2026, so before it only the total and Unphased are drawn. The amber line follows the All phases line, or the one phase the Phase filter names. ${TREND_READ}`,
+    look: 'The total rising means the same amount of change costs more to land; the phase lines say where. After push rising means more fixing after CI and review, and a review phase rising means reviews got dearer or more frequent. Read it with the two charts above: rising while pull requests shrink can be the same fixed cost spread over less change; rising while size holds, beside a growing starting context, means the harness itself is getting heavier.',
   },
   shareOverTime: {
     shows: 'The bar at the top, drawn over time: each colour of the sentence as its share of a day&rsquo;s dollars, or of a week&rsquo;s over 90 days and all time.',

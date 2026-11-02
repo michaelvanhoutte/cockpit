@@ -21,7 +21,7 @@ export const VIOLET = slot(1);
 export const ORANGE = slot(2);
 export const BLUE = slot(6);
 export const GREY = 'var(--series-grey)';
-/** A trend line, which sits over series and so takes none of their slots. */
+/** A trend line, which sits over series and so takes none of their slots; its words take the darker `--trend-ink`, readable as text on the light page. */
 export const AMBER = 'var(--trend)';
 /** Bad, and only bad. */
 export const RED = 'var(--over)';

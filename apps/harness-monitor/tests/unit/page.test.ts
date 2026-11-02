@@ -288,10 +288,7 @@ describe('Harness Monitor', () => {
       expect(pageFor('period=all&group=pr', pullRequests(1))).not.toContain("addEventListener('pointerdown'");
     });
   });
-});
 
-
-describe('Harness Monitor', () => {
   describe('a trend line runs straight through the points that have a value, from the first to the last, and one spike does not tilt it', () => {
     it('a steady rise from 1 to 4 runs from 1 to 4', () => {
       expect(trendOf([1, 2, 3, 4])).toEqual({ from: 0, to: 3, start: 1, end: 4 });
@@ -320,9 +317,17 @@ describe('Harness Monitor', () => {
       expect(trendOf(values)).toBeNull();
     });
 
+    it.each([
+      // A straight rise from 0 at 300 a step, the first point 1 off it: the line starts at exactly 0.
+      [[1, 300, 600, 900, 1200]],
+      [[0, 0, 5, 10]],
+    ])('%j starts at or below zero, where a change has no percentage, and so has no line', (values) => {
+      expect(trendOf(values)).toBeNull();
+    });
+
     it('an even number of slopes takes the mean of the middle two', () => {
       // Four points give six slopes, 0, 0, 0, 2, 3, 6: the middle two are 0 and 2, so the slope is 1 and the line rises 3 over 3 steps.
-      const fit = trendOf([0, 0, 0, 6])!;
+      const fit = trendOf([1, 1, 1, 7])!;
 
       expect(fit.end - fit.start).toBeCloseTo(3);
     });
@@ -347,10 +352,6 @@ describe('Harness Monitor', () => {
       { start: 100, end: 125, period: 'all' as const, reads: 'Trending up 25% over all time' },
     ])('a fit from $start to $end over $period reads "$reads"', ({ start, end, period, reads }) => {
       expect(trendWords(fit(start, end), period)).toBe(reads);
-    });
-
-    it.each([[0], [-3]])('a fit starting at %d has no words', (start) => {
-      expect(trendWords(fit(start, 10), '30d')).toBe('');
     });
 
     it('no fit has no words', () => {

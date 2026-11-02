@@ -312,9 +312,11 @@ describe('Harness Monitor', () => {
       const panel = panelOf(await theTrendPage(), 'pull-request-size');
       const line = /<line clip-path="url\(#([^)]*)\)"[^>]*y2="([^"]*)"[^>]*data-trend/.exec(panel)!;
 
-      // The line runs past the bottom of the plot area (248 of 280), and the clip it is drawn through stops there.
-      expect(Number(line[2])).toBeGreaterThan(248);
-      expect(new RegExp(`<clipPath id="${line[1]}"><rect [^>]*y="16" [^>]*height="232"`).test(panel)).toBe(true);
+      const clip = new RegExp(`<clipPath id="${line[1]}"><rect [^>]*y="([^"]*)" [^>]*height="([^"]*)"`).exec(panel)!;
+      // The line runs past the bottom of the plot area, and the clip it is drawn through stops there.
+      expect(Number(line[2])).toBeGreaterThan(Number(clip[1]) + Number(clip[2]));
+      expect(panel).toContain('class="gridline"');
+      expect(Number(clip[1]) + Number(clip[2])).toBe(Number(/<line x1="[^"]*" x2="[^"]*" y1="([^"]*)"[^>]*class="gridline"/.exec(panel)![1]));
     });
 
     it('pointing at the trend line names its ends in whole units, though the fit falls between them', async () => {

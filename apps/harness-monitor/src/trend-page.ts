@@ -2,7 +2,7 @@ import { PERIODS, type Period, type TrendPage, trendQueryString } from './costs'
 import { LEAD_MORE, WHAT } from './costs-explain';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead, type Explanation } from './explain';
 import { inline, questionOf, sentenceForm, shell } from './look';
-import { AMBER, VIOLET } from './palette';
+import { VIOLET } from './palette';
 import { compact, COLOURS, dollars, number, onlyFilters, PERIOD_WORDS, trendChart, trendOf, trendWords } from './page';
 import { section } from './report';
 import { type Category } from './validate';
@@ -36,19 +36,24 @@ function charts(page: TrendPage): string {
   const ink = VIOLET;
   // Phase lines sit beside the total, which the fit follows; with one phase chosen it follows that phase.
   const costKey = category ?? 'total';
-  const wordsOf = (values: (number | null)[]) => trendWords(trendOf(values), period);
+  // Each fit is worked out once, so the words and the line drawn can never disagree.
+  const fits = {
+    startingContext: trendOf(t.startingContext),
+    prSize: trendOf(t.prSize),
+    costPerLine: trendOf(t.costPerThousandLines.find((l) => l.key === costKey)?.values ?? []),
+  };
   return [
     panel(
       'starting-context',
       'Starting context',
       WHAT.startingContext,
-      wordsOf(t.startingContext),
+      trendWords(fits.startingContext, period),
       trendChart(t, {
         id: 'starting-context',
         title: 'Starting context',
         what: WHAT.startingContext,
         bare: true,
-        fit: 'starting-context',
+        fit: fits.startingContext,
         lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
         value: (n) => `${number(n)} tokens`,
         axis: compact,
@@ -58,13 +63,13 @@ function charts(page: TrendPage): string {
       'pull-request-size',
       'Pull request size',
       WHAT.prSize,
-      wordsOf(t.prSize),
+      trendWords(fits.prSize, period),
       trendChart(t, {
         id: 'pull-request-size',
         title: 'Pull request size',
         what: WHAT.prSize,
         bare: true,
-        fit: 'pull-request-size',
+        fit: fits.prSize,
         lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
         value: (n) => `${number(n)} lines`,
         axis: compact,
@@ -74,13 +79,13 @@ function charts(page: TrendPage): string {
       'cost-per-line',
       'Cost per 1,000 lines changed',
       WHAT.costPerLine,
-      wordsOf(t.costPerThousandLines.find((l) => l.key === costKey)?.values ?? []),
+      trendWords(fits.costPerLine, period),
       trendChart(t, {
         id: 'cost-per-line',
         title: 'Cost per 1,000 lines changed',
         what: WHAT.costPerLine,
         bare: true,
-        fit: costKey,
+        fit: fits.costPerLine,
         // Dashed means "the sum" while phase lines sit beside it; alone, the total is solid.
         lines: t.costPerThousandLines.filter((l) => !total || l.key === 'total').map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: !total } : { ...l, colour: COLOURS[l.key as Category] })),
         value: dollars,
@@ -97,7 +102,7 @@ export function renderTrendPage(page: TrendPage, now = Date.now()): string {
   return shell({ current: 'harness-trend', controls: controls(page), body, style: EXPLAIN_STYLE + SWITCH_STYLE }, now);
 }
 
-const SWITCH_STYLE = `.trend-words{color:${AMBER};font-weight:600;font-size:13px;white-space:nowrap}
+const SWITCH_STYLE = `.trend-words{color:var(--trend-ink);font-weight:600;font-size:13px;white-space:nowrap}
 .lines-switch{margin-left:auto;padding-left:12px;display:inline-flex;flex-shrink:0}
 .lines-switch a{padding:3px 10px;border:1px solid color-mix(in srgb,var(--shade) 24%,transparent);font-size:12px;color:var(--ink-soft);text-decoration:none;white-space:nowrap}
 .lines-switch a:first-child{border-radius:var(--radius-sm) 0 0 var(--radius-sm)}

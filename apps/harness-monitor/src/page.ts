@@ -409,8 +409,8 @@ interface TrendDrawing {
   peak?: number;
   /** The chart and its key alone, for a panel whose band already names it. */
   bare?: boolean;
-  /** The key of the line to draw a straight trend line through; none is drawn where it has under two points or the fit starts at or below zero. */
-  fit?: string;
+  /** The straight trend line to draw over the series, from `trendOf`; none where it is null or absent. */
+  fit?: TrendFit | null;
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
@@ -443,9 +443,7 @@ export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawin
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
-  const fit = d.fit === undefined ? null : trendOf(shown.find((l) => l.key === d.fit)?.values ?? []);
-  // A fit starting at or below zero has no change worth a percentage, so it draws nothing either.
-  const fitted = fit !== null && fit.start > 0 ? fit : null;
+  const fitted = d.fit ?? null;
   // The fit can run past the scale where it is steep, so it is clipped to the plot area rather than drawn over the axes.
   const trend =
     fitted === null
@@ -472,7 +470,8 @@ export interface TrendFit {
 /**
  * A straight line through a series that one spike cannot tilt (Theil-Sen): the slope is the median of the slopes between
  * every pair of points, the intercept the median of what each point leaves. A bucket with no value is skipped, not read as
- * zero. Null where fewer than two buckets have values.
+ * zero. Null where fewer than two buckets have values, or where the line starts at or below zero, which leaves no change
+ * worth a percentage, so neither the line nor its words are drawn.
  */
 export function trendOf(values: (number | null)[]): TrendFit | null {
   const points = values.flatMap((v, i) => (v === null ? [] : [[i, v] as const]));
@@ -482,15 +481,13 @@ export function trendOf(values: (number | null)[]): TrendFit | null {
   const intercept = middle(points.map(([i, v]) => v - slope * i));
   const from = points[0]![0];
   const to = points.at(-1)![0];
-  return { from, to, start: intercept + slope * from, end: intercept + slope * to };
+  const start = intercept + slope * from;
+  return start > 0 ? { from, to, start, end: intercept + slope * to } : null;
 }
 
-/**
- * The fitted line's change over the period, in whole percent: "Trending up 25% over the last 30 days". A change that
- * rounds to 0% is "Flat". Empty where there is no fit, or it starts at or below zero, where a percentage means nothing.
- */
+/** The fitted line's change over the period, in whole percent: "Trending up 25% over the last 30 days". A change that rounds to 0% is "Flat". Empty where there is no fit. */
 export function trendWords(fit: TrendFit | null, period: Period): string {
-  if (fit === null || fit.start <= 0) return '';
+  if (fit === null) return '';
   const percent = Math.round(((fit.end - fit.start) / fit.start) * 100);
   return `${percent === 0 ? 'Flat' : percent > 0 ? `Trending up ${percent}%` : `Trending down ${-percent}%`} over ${PERIOD_WORDS[period]}`;
 }
