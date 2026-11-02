@@ -33,7 +33,7 @@ import { LEAD_MORE, TABLES, WHAT } from './costs-explain';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead, type Explanation, type Info } from './explain';
 import { type JobName, type JobStatus } from './jobs';
 import { band, esc, inline, lineKey, questionOf, shell } from './look';
-import { colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
+import { AMBER, colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
@@ -409,15 +409,15 @@ interface TrendDrawing {
   peak?: number;
   /** The chart and its key alone, for a panel whose band already names it. */
   bare?: boolean;
-  /** Markup at the right of the heading, beside the title and its explanation; a bare chart has no heading to hold it. */
-  aside?: string;
+  /** The straight trend line to draw over the series, from `trendOf`; none where it is null or absent. */
+  fit?: TrendFit | null;
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
 export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}${d.aside ?? ''}</div>`;
+  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
   if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
   const peak = d.peak ?? Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
@@ -443,7 +443,53 @@ export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawin
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
-  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g></svg></div>${legend}</section>`;
+  const fitted = d.fit ?? null;
+  // The fit can run past the scale where it is steep, so it is clipped to the plot area rather than drawn over the axes.
+  const trend =
+    fitted === null
+      ? ''
+      : `<clipPath id="clip-${d.id}"><rect x="${left}" y="${top}" width="${width - left - right}" height="${height - top - bottom}"/></clipPath><line clip-path="url(#clip-${d.id})" x1="${x(fitted.from).toFixed(1)}" y1="${y(fitted.start).toFixed(1)}" x2="${x(fitted.to).toFixed(1)}" y2="${y(fitted.end).toFixed(1)}" stroke="${AMBER}" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" data-trend><title>Trend · ${d.value(Math.round(fitted.start))} to ${d.value(Math.round(fitted.end))}</title></line>`;
+  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g>${trend}</svg></div>${legend}</section>`;
+}
+
+/** The middle value; the mean of the middle two where there is an even number of them. */
+function middle(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/** A straight line through a series, from its first bucket with a value (`from`) to its last (`to`), with the line's value at each end. */
+export interface TrendFit {
+  from: number;
+  to: number;
+  start: number;
+  end: number;
+}
+
+/**
+ * A straight line through a series that one spike cannot tilt (Theil-Sen): the slope is the median of the slopes between
+ * every pair of points, the intercept the median of what each point leaves. A bucket with no value is skipped, not read as
+ * zero. Null where fewer than two buckets have values, or where the line starts at or below zero, which leaves no change
+ * worth a percentage, so neither the line nor its words are drawn.
+ */
+export function trendOf(values: (number | null)[]): TrendFit | null {
+  const points = values.flatMap((v, i) => (v === null ? [] : [[i, v] as const]));
+  if (points.length < 2) return null;
+  const slopes = points.flatMap(([i, v], a) => points.slice(a + 1).map(([j, w]) => (w - v) / (j - i)));
+  const slope = middle(slopes);
+  const intercept = middle(points.map(([i, v]) => v - slope * i));
+  const from = points[0]![0];
+  const to = points.at(-1)![0];
+  const start = intercept + slope * from;
+  return start > 0 ? { from, to, start, end: intercept + slope * to } : null;
+}
+
+/** The fitted line's change over the period, in whole percent: "Trending up 25% over the last 30 days". A change that rounds to 0% is "Flat". Empty where there is no fit. */
+export function trendWords(fit: TrendFit | null, period: Period): string {
+  if (fit === null) return '';
+  const percent = Math.round(((fit.end - fit.start) / fit.start) * 100);
+  return `${percent === 0 ? 'Flat' : percent > 0 ? `Trending up ${percent}%` : `Trending down ${-percent}%`} over ${PERIOD_WORDS[period]}`;
 }
 
 const shareText = (n: number) => `${Math.round(n)}%`;

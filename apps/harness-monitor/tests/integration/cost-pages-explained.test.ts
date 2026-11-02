@@ -82,7 +82,6 @@ describe('Harness Monitor', () => {
     });
 
     it.each([
-      { panel: 'Is the harness getting more expensive?', id: 'trends' },
       { panel: 'Starting context', id: 'starting-context' },
       { panel: 'Pull request size', id: 'pull-request-size' },
       { panel: 'Cost per 1,000 lines changed', id: 'cost-per-line' },
@@ -96,9 +95,9 @@ describe('Harness Monitor', () => {
     it('on Harness trend, draws each (i) once, each to an explanation of its own on the page', async () => {
       const { buttons, panels } = infosOf(await theTrendPage());
 
-      // The trends panel and its three charts.
-      expect(buttons).toHaveLength(4);
-      expect(new Set(buttons).size).toBe(4);
+      // The three charts.
+      expect(buttons).toHaveLength(3);
+      expect(new Set(buttons).size).toBe(3);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
 
@@ -143,7 +142,7 @@ describe('Harness Monitor', () => {
 
       const html = await theTrendPage();
 
-      for (const id of ['trends', 'starting-context', 'pull-request-size', 'cost-per-line']) expect(firstInfo(panelOf(html, id))).toBe(id);
+      for (const id of ['starting-context', 'pull-request-size', 'cost-per-line']) expect(firstInfo(panelOf(html, id))).toBe(id);
     });
   });
 

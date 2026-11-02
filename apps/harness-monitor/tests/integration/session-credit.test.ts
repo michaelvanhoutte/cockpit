@@ -470,7 +470,7 @@ describe('Harness Monitor', () => {
     /** The points of the starting-context chart, or 'empty' where it has none. */
     async function startingContext(query: string) {
       const html = await theTrendPage(`?period=all&${query}`);
-      const section = /<section class="trend" aria-labelledby="starting-context">(.*?)<\/section>/s.exec(html)![1]!;
+      const section = /<section class="panel" aria-labelledby="starting-context">(.*?)<\/section>/s.exec(html)![1]!;
       return section.includes('data-empty="starting-context"') ? 'empty' : [...section.matchAll(/<title>(.*?)<\/title>/g)].map((t) => t[1]!.split(' · ').slice(1).join(' · '));
     }
 
