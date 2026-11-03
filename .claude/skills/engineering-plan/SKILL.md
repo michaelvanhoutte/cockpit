@@ -164,7 +164,7 @@ Do not ask, and do not slice, if:
 - There is no **How it works** description, or it names a part or term no later section explains.
 - A diagram has a lane with no line saying what it is, a lane outside a boundary box, or an arrow between boxes that does not name the call.
 - The ticket has no Schema changes, a filtered or sorted column in it names no index and no reason, or an index in it has no measured query plan.
-- A new dependency between parts is not in the component diagram, or points up the order `scripts/import-rules.json` declares, which CI fails on.
+- A new dependency between parts is not in the component diagram, or points up the order `docs/architecture.yml` declares, which CI fails on.
 - A capability reachable from more than one entry point names no single command.
 - A trigger fired in step 2 and its decisions are not recorded.
 - A placement question (store, sync or async, service) is still open.
