@@ -16,6 +16,17 @@ export const RULES_FILE = 'docs/architecture.yml';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/** The words a rule carries: why it exists or the question where no reason is written, where the reason was read, and whether the engineer agreed it. */
+const noteOf = (each, string, where) => {
+  const entry = isObject(each) ? each : {};
+  return {
+    ...(entry.reason === undefined ? {} : { reason: string(entry.reason, `${where}.reason`) }),
+    ...(entry.question === undefined ? {} : { question: string(entry.question, `${where}.question`) }),
+    ...(entry.source === undefined ? {} : { source: string(entry.source, `${where}.source`) }),
+    agreed: entry.agreed === true,
+  };
+};
+
 /** @returns {object} the rules file's contents, checked and normalised */
 export function parseRules(file, text) {
   const fail = (reason) => {
@@ -45,7 +56,7 @@ export function parseRules(file, text) {
     object(each, where);
     const from = each.from === undefined ? null : string(each.from, `${where}.from`);
     const to = each.to === undefined ? null : string(each.to, `${where}.to`);
-    return { rule: string(each.rule, `${where}.rule`), from, to };
+    return { rule: string(each.rule, `${where}.rule`), from, to, ...noteOf(each, string, where) };
   });
 
   const reachedBy = (list, where) => (list === undefined ? [] : array(list, where)).map((each, index) => {
@@ -57,7 +68,7 @@ export function parseRules(file, text) {
   const sections = {};
   for (const [id, each] of Object.entries(value)) {
     if (id === 'services' || id === 'between services' || !isObject(each)) continue;
-    const section = { reachedBy: reachedBy(each['reached by'], `${id}.reached by`), calls: null, layers: null, accepted: [], sources: [] };
+    const section = { reachedBy: reachedBy(each['reached by'], `${id}.reached by`), calls: null, callNotes: {}, layers: null, rules: [], accepted: [], sources: [] };
 
     if (each.layers !== undefined) {
       section.layers = Object.entries(object(each.layers, `${id}.layers`)).map(([layerId, layer]) => {
@@ -67,21 +78,33 @@ export function parseRules(file, text) {
           object(part, `${where}.parts.${partId}`);
           return { id: partId, name: string(part.name, `${where}.parts.${partId}.name`), what: part.what === undefined ? '' : string(part.what, `${where}.parts.${partId}.what`), code: folders(part.code, `${where}.parts.${partId}.code`), store: part.store === true };
         });
-        const calls = Object.keys(layer.calls === undefined ? {} : object(layer.calls, `${where}.calls`));
+        const callEntries = layer.calls === undefined ? {} : object(layer.calls, `${where}.calls`);
+        const calls = Object.keys(callEntries);
+        const callNotes = Object.fromEntries(calls.map((to) => [to, noteOf(callEntries[to], string, `${where}.calls.${to}`)]));
         const notAllowed = {};
         for (const [to, sentence] of Object.entries(layer['not allowed'] === undefined ? {} : object(layer['not allowed'], `${where}.not allowed`))) notAllowed[to] = string(sentence, `${where}.not allowed.${to}`);
-        return { id: layerId, name: string(layer.name, `${where}.name`), parts, calls, notAllowed };
+        return { id: layerId, name: string(layer.name, `${where}.name`), parts, calls, callNotes, notAllowed };
       });
       if (section.layers.length === 0) fail(`${id}.layers must hold at least one layer`);
     }
 
     // What a service that is not ruled inside keeps: the calls it may make, by the name of what it calls.
-    if (each.calls !== undefined) section.calls = Object.keys(object(each.calls, `${id}.calls`));
+    if (each.calls !== undefined) {
+      const entries = object(each.calls, `${id}.calls`);
+      section.calls = Object.keys(entries);
+      section.callNotes = Object.fromEntries(section.calls.map((to) => [to, noteOf(entries[to], string, `${id}.calls.${to}`)]));
+    }
+
+    // The rules inside and across the layers: each says what it is and carries its words; how CI checks it is not the report's.
+    section.rules = (each.rules === undefined ? [] : array(each.rules, `${id}.rules`)).map((one, index) => {
+      object(one, `${id}.rules[${index}]`);
+      return { rule: string(one.rule, `${id}.rules[${index}].rule`), ...noteOf(one, string, `${id}.rules[${index}]`) };
+    });
 
     section.accepted = (each.accepted === undefined ? [] : array(each.accepted, `${id}.accepted`)).map((one, index) => {
       const where = `${id}.accepted[${index}]`;
       object(one, where);
-      return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), reason: string(one.reason, `${where}.reason`) };
+      return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), reason: string(one.reason, `${where}.reason`), ...(one.source === undefined ? {} : { source: string(one.source, `${where}.source`) }), agreed: one.agreed === true };
     });
 
     if (each.sources !== undefined) section.sources = Object.keys(object(each.sources, `${id}.sources`));

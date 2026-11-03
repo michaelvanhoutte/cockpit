@@ -309,7 +309,7 @@ describe('Logical', () => {
     expect(client.addresses).toEqual(expect.arrayContaining(['/oauth/token', '/apps/v1/panels']));
     expect(signIn).toMatchObject({ from: 'signin', to: 'browser', status: 'elsewhere' });
     expect(real.widgetPage).toContain('<h1>Android widget</h1>');
-    expect(real.logicalPage).toMatch(/<g class="node n-widget"><a href="service-android-widget.html">/);
+    expect(real.logicalPage).toMatch(/<g class="node n-widget"><a href="service-android-widget-design.html">/);
   });
 
   it('records a folder no component names, naming the folder', async () => {
@@ -382,12 +382,13 @@ describe('Services', () => {
   it('writes the services page, each service\'s two tabs, the layer pages and the database pages beside the report, all of which the nightly upload takes', () => {
     expect(Object.keys(real.pages)).toEqual(expect.arrayContaining([
       'services.html',
-      ...['cockpit', 'harness-monitor', 'android-widget'].flatMap((id) => [`service-${id}.html`, `service-${id}-deployment.html`]),
+      'services-design.html',
+      ...['cockpit', 'harness-monitor', 'android-widget'].flatMap((id) => [`service-${id}.html`, `service-${id}-design.html`, `service-${id}-deployment.html`]),
       ...['api', 'logic', 'connectors'].flatMap((layer) => [`cockpit-layer-${layer}.html`, `cockpit-layer-${layer}-dependencies.html`]),
       'cockpit-layer-data.html',
       ...['register', 'account-store', 'harness-monitor'].map((key) => `db-${key}.html`),
     ]));
-    expect(real.page).toContain('<a href="services.html"><b>Services &rarr;</b></a>');
+    expect(real.page).toContain('<a href="services-design.html"><b>Services &rarr;</b></a>');
   });
 
   it('says that no file imports another service\'s code and no store is used by two services, as this repository stands', () => {

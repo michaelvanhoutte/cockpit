@@ -50,8 +50,10 @@ function composeCockpit(design, section, fail) {
 
   const mayCall = {};
   const breaks = {};
+  const reasons = {};
   for (const layer of section.layers) {
     if (layer.calls.length > 0) mayCall[layer.id] = layer.calls;
+    for (const to of layer.calls) reasons[`${layer.id}>${to}`] = layer.callNotes[to];
     for (const [to, sentence] of Object.entries(layer.notAllowed)) breaks[`${layer.id}>${to}`] = sentence;
   }
 
@@ -65,7 +67,7 @@ function composeCockpit(design, section, fail) {
     return { from: found.from, to: reach.at, how: reach.how, ...(found.code ? { code: found.code } : {}) };
   });
 
-  return { ...design, layers, mayCall, breaks, accepted: section.accepted, callers };
+  return { ...design, layers, mayCall, breaks, reasons, rules: section.rules, accepted: section.accepted, callers };
 }
 
 /**
@@ -77,6 +79,7 @@ function composeService(id, design, section, fail) {
   const layers = list(design.layers).filter(isObject);
   const layerIds = new Set(layers.map((layer) => layer.id));
   let mayCall = {};
+  const reasons = {};
   let unruled = true;
   if (section.calls !== null) {
     const own = layers.filter((layer) => layer.kind === 'service');
@@ -86,6 +89,7 @@ function composeService(id, design, section, fail) {
     const notCalled = layers.filter((layer) => layer !== own[0] && !section.calls.includes(layer.id));
     if (notCalled.length > 0) fail(`design.layers places ${notCalled[0].id}, which the rules file does not say ${id} calls`);
     mayCall = { [own[0].id]: section.calls };
+    for (const to of section.calls) reasons[`${own[0].id}>${to}`] = section.callNotes[to];
     unruled = false;
   }
 
@@ -102,7 +106,7 @@ function composeService(id, design, section, fail) {
       return { from: found.from, to: found.to, how: reach.how, ...(found.code ? { code: found.code } : {}) };
     });
   }
-  return { ...design, mayCall, breaks: {}, accepted: section.accepted, callers, unruled };
+  return { ...design, mayCall, breaks: {}, reasons, rules: section.rules, accepted: section.accepted, callers, unruled };
 }
 
 /** The `owns` folders of the services page come from the rules' `code`; the packages stay with the drawing. */
@@ -130,7 +134,7 @@ function composeServiceMap(map, rules, fail) {
     const code = rules.services[id]?.code;
     owns[id] = { ...(isObject(own) ? own : {}), ...(code ? { folders: code } : {}) };
   }
-  return { ...map, owns };
+  return { ...map, owns, between: rules.between };
 }
 
 /**

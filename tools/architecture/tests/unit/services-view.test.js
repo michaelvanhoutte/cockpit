@@ -239,8 +239,8 @@ describe('A service\'s Deployment tab has one column per environment its config 
     const model = modelOf();
     const [cockpit] = servicesOf(model);
     const logical = renderLogicalPage(model, cockpit);
-    expect(logical).toContain('<nav class="switch"><span class="on">Logical</span><a href="service-cockpit-deployment.html">Deployment</a></nav>');
-    expect(pageOf(model, 'service-cockpit-deployment.html')).toContain('<nav class="switch"><a href="service-cockpit.html">Logical</a><span class="on">Deployment</span></nav>');
+    expect(logical).toContain('<nav class="switch"><a href="service-cockpit-design.html">Design</a><span class="on">Logical</span><a href="service-cockpit-deployment.html">Deployment</a></nav>');
+    expect(pageOf(model, 'service-cockpit-deployment.html')).toContain('<nav class="switch"><a href="service-cockpit-design.html">Design</a><a href="service-cockpit.html">Logical</a><span class="on">Deployment</span></nav>');
   });
 
   it('links no services page from a trail when the description has no serviceMap', () => {
@@ -265,7 +265,7 @@ describe('A layer page shows only that layer\'s folders and the imports between 
     expect(html).toContain('<a class="code" href="https://github.com/o/r/tree/abc1234def5678/apps/api/src/accounts" target="_blank" rel="noopener">');
     expect(html.match(/>↗<\/text>/g)).toHaveLength(2);
     expect(html).toContain('<nav class="switch"><span class="on">Modules</span><a href="cockpit-layer-logic-dependencies.html">Dependencies</a></nav>');
-    expect(html).toContain('<a href="services.html">Services</a> › <a href="service-cockpit.html">Cockpit</a> › Business logic');
+    expect(html).toContain('<a href="services-design.html">Services</a> › <a href="service-cockpit-design.html">Cockpit</a> › Business logic');
   });
 
   it('has the same imports as a matrix on its Dependencies tab', () => {
@@ -305,14 +305,14 @@ describe('A layer page shows only that layer\'s folders and the imports between 
 describe('The services page is linked from the report, and its crumbs lead back', () => {
   it('adds one link to the report\'s header, and none where the description has no services map', () => {
     const model = modelOf();
-    expect(renderHtml(model)).toContain('<span><a href="services.html"><b>Services &rarr;</b></a></span>');
+    expect(renderHtml(model)).toContain('<span><a href="services-design.html"><b>Services &rarr;</b></a></span>');
     expect(renderHtml({ ...model, serviceMap: null })).not.toContain('services.html');
   });
 
   it('draws a box per service, each opening its page, and the lines between them', () => {
     const html = renderServicePages(modelOf())['services.html'];
-    expect(html).toContain('<a href="service-cockpit.html"><text class="nb-t link"');
-    expect(html).toContain('<a href="service-harness-monitor.html"><text class="nb-t link"');
+    expect(html).toContain('<a href="service-cockpit-design.html"><text class="nb-t link"');
+    expect(html).toContain('<a href="service-harness-monitor-design.html"><text class="nb-t link"');
     expect(html).toContain('>its API</text>');
     expect(html).toContain('<a href="cockpit-layer-logic.html">');
     expect(stripped(html)).toContain('<a href="index.html">Architecture</a> › Services');

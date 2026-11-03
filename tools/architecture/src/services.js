@@ -116,7 +116,9 @@ export function parseServiceMap(value, { fail, object, array, string }, knownSer
       packages: own.packages === undefined ? [] : array(own.packages, `serviceMap.owns.${id}.packages`).map((prefix, at) => string(prefix, `serviceMap.owns.${id}.packages[${at}]`)),
     };
   }
-  return { clients, services, calls, owns };
+  // The rules between services, with their words, kept for the Design tab; the rules file is where they are written.
+  const between = Array.isArray(value.between) ? value.between : [];
+  return { clients, services, calls, owns, between };
 }
 
 // ---- each service's environments
@@ -270,6 +272,7 @@ export function buildServiceMap({ map, logical, services, deployments, files, ex
     calls,
     outside,
     reaches,
+    between: map.between ?? [],
     cross: { imports, shared: sharedStores(deployments) },
   };
 }

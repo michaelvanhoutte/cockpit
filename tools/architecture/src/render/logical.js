@@ -25,6 +25,16 @@ export const LOGICAL_FILE = 'service-cockpit.html';
 /** The Deployment tab of a service's page: the same name with -deployment before the extension. */
 export const deploymentFile = (file) => file.replace(/\.html$/, '-deployment.html');
 
+/** The Design tab of a service's page: the same name with -design before the extension. */
+export const designFile = (file) => file.replace(/\.html$/, '-design.html');
+
+/** The switch between a service's tabs: Design, Logical and, for a service that deploys, Deployment. */
+export const serviceTabs = (model, service, on) => {
+  const file = service.file ?? LOGICAL_FILE;
+  const deployed = model.deployments?.some((each) => each.service === (service.id ?? 'cockpit'));
+  return switchNav([['Design', designFile(file), on === 'Design'], ['Logical', file, on === 'Logical'], ...(deployed ? [['Deployment', deploymentFile(file), on === 'Deployment']] : [])]);
+};
+
 /** Every service with a page, Cockpit first, each in one shape: `{ id, name, intro, file, logical }`. */
 export const servicesOf = (model) => [...(model.logical ? [{ id: 'cockpit', name: 'Cockpit', intro: '', file: LOGICAL_FILE, logical: model.logical }] : []), ...(model.services ?? [])];
 
@@ -176,7 +186,7 @@ export function renderNested(spec, links) {
     drawn.push({ ...p, d, start, mid });
   }
 
-  const parts = [`<defs>${['ok', 'bad', 'acc', 'decl', 'miss'].map((c) => `<marker id="n-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="nm-${c}"/></marker>`).join('')}</defs>`];
+  const parts = [`<defs>${['ok', 'bad', 'acc', 'decl', 'miss', 'rule'].map((c) => `<marker id="n-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="nm-${c}"/></marker>`).join('')}</defs>`];
   // The boxes, behind everything.
   for (const [id, R] of rect) {
     if (!R.isBox) continue;
@@ -195,13 +205,13 @@ export function renderNested(spec, links) {
   // Declared callers' labels sit under the caller, one line per line it draws.
   const declBy = new Map();
   for (const p of drawn) if (p.l.declared && p.l.label && p.type !== 'same' && p.type !== 'horiz') (declBy.get(p.l.from) ?? declBy.set(p.l.from, []).get(p.l.from)).push(p);
-  const order = { ok: 0, miss: 1, decl: 2, acc: 3, bad: 4 };
+  const order = { ok: 0, miss: 1, decl: 2, acc: 3, bad: 4, rule: 5 };
   for (const p of [...drawn].sort((a, b) => order[a.l.kind] - order[b.l.kind])) {
     const { l } = p;
     const cls = `nl nl-${l.kind} f-${l.from} t-${l.to} fb-${p.A.box} tb-${p.B.box}`;
     const line = `<path class="${cls}" d="${p.d}" marker-end="url(#n-${l.kind})"><title>${esc(l.title ?? '')}</title></path>`;
-    if (l.kind === 'bad' || l.kind === 'acc') {
-      // A deviation's circle opens it: what it breaks, its files, and a prompt to scope the fix.
+    if (l.kind === 'bad' || l.kind === 'acc' || l.kind === 'rule') {
+      // A deviation's circle opens it: what it breaks, its files, and a prompt to scope the fix. A rule's jumps to its card on the Design tab.
       parts.push(`<a href="${l.href}" data-dev="${l.id}" class="nl-a"><path class="nl-hit" d="${p.d}"/>${line}<circle class="nl-num nl-num-${l.kind} f-${l.from} t-${l.to}" cx="${p.start[0]}" cy="${p.start[1]}" r="8"/><text class="nl-num-t f-${l.from} t-${l.to}" x="${p.start[0]}" y="${p.start[1] + 3.5}" text-anchor="middle">${l.n}</text><title>${esc(l.title ?? '')}</title></a>`);
     } else parts.push(line);
     if (l.label && p.mid && !(l.declared && declBy.has(l.from))) {
@@ -235,7 +245,7 @@ export function renderNested(spec, links) {
 // ---- the page, from the model
 
 /** The design's rows of boxes, the column beside them, and every line to draw, from the model's logical section. */
-function specOf(logical, links) {
+export function specOf(logical, links) {
   const boxId = (layerId) => `L-${layerId}`;
   const layerById = new Map(logical.layers.map((layer) => [layer.id, layer]));
   const chipById = new Map(logical.layers.flatMap((layer) => layer.items.flat().map((chip) => [chip.id, { ...chip, layer: layer.id }])));
@@ -268,13 +278,6 @@ export const NLEGEND = `<div class="legend">
 <span><i class="ln" style="border-top-style:dotted"></i>In the design, not in the code</span>
 <span><i class="ln" style="border-top-color:var(--accent);border-top-style:dashed"></i>How a caller talks to it: declared</span>
 </div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red or ✓ circle for its files and a prompt to scope it, a layer's title for its modules, a store for its tables, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
-
-/** The design itself, as text: what each layer holds and what it may call. */
-function designTable(logical, { layerById }) {
-  const holds = (layer) => layer.items.flat().map((chip) => esc(chip.name)).join(', ');
-  const mayCall = (layer) => (logical.unruled ? '<span class="dim">not ruled: drawn by its boundary</span>' : logical.mayCall.filter(([a]) => a === layer.id).map(([, b]) => esc(layerById.get(b).title)).join(', ') || '<span class="dim">nothing</span>');
-  return `<div class="scroll"><table class="flows"><tr><th>Layer</th><th>Holds</th><th>May call</th></tr>${logical.layers.map((layer) => `<tr><td><b>${esc(layer.title)}</b></td><td>${holds(layer)}</td><td>${mayCall(layer)}</td></tr>`).join('')}</table></div>`;
-}
 
 function offTable(logical, { nameOf, layerById }, links) {
   if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws, or one accepted with a reason.</p>';
@@ -323,10 +326,10 @@ export function renderLogicalPage(model, service = {}) {
   });
   const standfirst = `${service.intro ? `${prose(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
   // Cockpit's page always shows the sections for acceptances and callers; another service's shows them once it has something to say.
-  const designFile = 'docs/architecture.yml';
+  const rulesFile = 'docs/architecture.yml';
   const own = service.logical !== undefined && service.id !== 'cockpit';
   const acceptances = !own || logical.accepted.length > 0 || logical.stale.length > 0
-    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, the rules file.</p>${accTable(logical, spec, links)}`
+    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(rulesFile)}, the rules file.</p>${accTable(logical, spec, links)}`
     : '';
   const callers = !own || logical.callers.some((caller) => caller.status !== 'elsewhere')
     ? `<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}`
@@ -334,10 +337,8 @@ export function renderLogicalPage(model, service = {}) {
   const commitLine = commitLineOf(drawnFrom, links);
   // A service whose box is opened inside Cockpit's diagram: its parts, what it talks to, and its lines.
   const opened = isOpened(logical);
-  // A service with a Deployment tab switches between the two; one without has only this page.
-  const deployed = model.deployments?.some((each) => each.service === (service.id ?? 'cockpit'));
-  const switcher = deployed ? switchNav([['Logical', service.file ?? LOGICAL_FILE, true], ['Deployment', deploymentFile(service.file ?? LOGICAL_FILE), false]]) : '';
-  const trail = crumbTrail([...trailOf(model), ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [name]]);
+  const switcher = serviceTabs(model, service, 'Logical');
+  const trail = crumbTrail([...trailOf(model), ...(opened ? [['Cockpit', designFile(LOGICAL_FILE)]] : []), [name]]);
   const body = opened
     ? `${placementProblems(logical)}${partsLegend(name)}<div class="diagram">${drawing.svg}</div>
 <h2>Its lines</h2><p class="sectionnote">${esc(LINES_NOTE)} Every file listed opens on GitHub at the line that makes the line in the diagram.</p>${partsLines(logical, spec, links)}`
@@ -346,7 +347,6 @@ export function renderLogicalPage(model, service = {}) {
 ${acceptances}
 <h2>In the design, not in the code</h2>${missTable(logical, spec)}
 ${callers}
-<h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}${own && logical.unruled ? ', for how it is reached; its layers are only drawn' : ''}, and drawn by ${links.file('tools/architecture/description.yml')}. ${logical.unruled ? 'Every line between its layers is allowed.' : 'A line inside one layer is always allowed.'}</p>${designTable(logical, spec)}
 ${dialog(devData({ ...spec, commit: drawnFrom.commit }))}`;
 
   return `<!doctype html>

@@ -14,10 +14,10 @@ import { renderDependencies } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
 import { atNaturalSize } from './html.js';
 import { commitLineOf, linkPaths, linksFor } from './links.js';
-import { deploymentFile, LOGICAL_FILE, NLEGEND, renderNested, servicesOf } from './logical.js';
+import { deploymentFile, designFile, LOGICAL_FILE, NLEGEND, renderNested, servicesOf } from './logical.js';
 import { renderModules } from './modules.js';
 import { isOpened } from './parts.js';
-import { crumbTrail, prose, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
+import { crumbTrail, prose, SERVICES_DESIGN_FILE, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
 import { esc } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -62,24 +62,30 @@ const workflowLink = (file, links) => {
   return href ? `<a class="gh" href="${esc(href)}" target="_blank" rel="noopener"><code>${esc(file)}</code></a>` : `<code>${esc(file)}</code>`;
 };
 
-function servicesPage(model) {
-  const links = linksFor(model.drawnFrom);
-  const map = model.serviceMap;
+/** The services page's boxes: who uses the services, a box for each service, and the outside services beside them. The Design tab draws the same boxes. */
+export function servicesSpec(map, { opensOn = (file) => file, badges = true } = {}) {
   const clientId = (id) => `s-${id}`;
   const clients = map.clients.map((each) => ({ id: clientId(each.id), name: each.name, sub: each.sub, kind: 'client', folders: [] }));
   const boxes = map.boxes.map((box) => ({
     id: `S-${box.id}`,
     title: box.name,
     kind: 'service',
-    href: box.file,
+    href: opensOn(box.file),
     frac: box.share ?? undefined,
-    badge: box.off > 0 ? { text: `${box.off} off the design`, href: `${box.file}#off` } : undefined,
+    badge: badges && box.off > 0 ? { text: `${box.off} off the design`, href: `${box.file}#off` } : undefined,
     items: box.items.map((row, r) => row.map((chip, i) => ({ id: `c-${box.id}-${r}-${i}`, name: chip.name, sub: chip.sub, kind: chip.kind === 'store' ? 'store' : 'component', href: chip.href, folders: [] }))),
   }));
   const side = { id: 'S-out', title: 'Outside', kind: 'outside', items: [map.outside.map((each) => ({ id: `o-${each.id}`, name: each.name, sub: each.sub, kind: 'outside', href: null, folders: [] }))] };
   const nameOf = new Map(map.boxes.map((each) => [each.id, each.name]));
   const shortOf = new Map(map.boxes.map((each) => [each.id, each.short]));
   const endOf = (id) => (nameOf.has(id) ? `S-${id}` : clientId(id));
+  return { rows: [[{ id: 'S-clients', title: 'Who uses them', kind: 'clients', items: [clients] }], boxes], side, nameOf, shortOf, endOf };
+}
+
+function servicesPage(model) {
+  const links = linksFor(model.drawnFrom);
+  const map = model.serviceMap;
+  const { rows: spaceRows, side, nameOf, shortOf, endOf } = servicesSpec(map, { opensOn: designFile });
 
   const lines = [
     ...map.calls.map((call) => (call.state === 'declared'
@@ -90,7 +96,7 @@ function servicesPage(model) {
       : { from: `S-${each.from}`, to: `o-${each.to}`, kind: 'ok', title: `${nameOf.get(each.from)} → ${map.outside.find((one) => one.id === each.to)?.name}` })),
     ...map.cross.imports.map((each, at) => ({ from: `S-${each.from}`, to: `S-${each.to}`, kind: 'bad', n: at + 1, id: `x-${at + 1}`, href: '#cross', title: `Imports another service's code: ${each.file}` })),
   ];
-  const drawing = renderNested({ label: 'The services', rows: [[{ id: 'S-clients', title: 'Who uses them', kind: 'clients', items: [clients] }], boxes], side, sideRow: 1, lines, laneStart: 30, gap: 170 }, links);
+  const drawing = renderNested({ label: 'The services', rows: spaceRows, side, sideRow: 1, lines, laneStart: 30, gap: 170 }, links);
 
   const { imports, shared } = map.cross;
   const importFiles = uniq(imports.map((each) => each.file));
@@ -102,7 +108,7 @@ function servicesPage(model) {
   const services = servicesOf(model);
   const rows = model.deployments.map((deployment) => {
     const service = services.find((each) => each.id === deployment.service);
-    const label = service ? `<a href="${esc(service.file)}">${esc(service.name)}${isOpened(service.logical) ? ', part of Cockpit' : ''}</a>` : esc(deployment.service);
+    const label = service ? `<a href="${esc(designFile(service.file))}">${esc(service.name)}${isOpened(service.logical) ? ', part of Cockpit' : ''}</a>` : esc(deployment.service);
     const shipped = uniq(deployment.environments.filter((env) => env.name !== 'local').flatMap((env) => env.shippedBy.map((each) => (each.file ? workflowLink(each.file, links) : esc(each.text.split(',')[0]))))).join('<br>');
     const stores = uniq(deployment.environments.flatMap((env) => env.stores.map((each) => `${each.kind} ${each.name ?? ''}`.trim()))).map((each) => `<span class="chip">${esc(each)}</span>`).join('');
     return `<tr><td>${label}</td><td>${shipped}</td><td>${deployment.environments.map((env) => esc(env.name)).join(', ')}</td><td>${stores}</td></tr>`;
@@ -112,6 +118,7 @@ function servicesPage(model) {
     model,
     title: 'Services',
     crumbs: [SERVICES_TRAIL[0], ['Services']],
+    tabs: [['Design', SERVICES_DESIGN_FILE, false], ['Logical', SERVICES_FILE, true]],
     standfirst: 'What deploys on its own, who uses it, and how the services reach each other. Click a service for its layers.',
     focus: drawing.focus,
     body: `${NLEGEND}<div class="diagram">${drawing.svg}</div>
@@ -123,6 +130,9 @@ function servicesPage(model) {
 }
 
 // ---- each service's Deployment tab
+
+/** A service's tabs as the page wants them: label, address and whether it is the page shown. */
+const serviceTabsOf = (model, service, on) => [['Design', designFile(service.file), false], ['Logical', service.file, false], ['Deployment', deploymentFile(service.file), on === 'Deployment']];
 
 function deploymentTable(deployment, links) {
   const targets = deployment.environments;
@@ -142,7 +152,7 @@ ${row('Other bindings', (each) => each.other.map((resource) => chip(resource, 'o
 function deploymentPage(model, service, deployment) {
   const links = linksFor(model.drawnFrom);
   const opened = isOpened(service.logical);
-  const trail = [...trailOf(model), ...(opened ? [['Cockpit', LOGICAL_FILE]] : []), [service.name]];
+  const trail = [...trailOf(model), ...(opened ? [['Cockpit', designFile(LOGICAL_FILE)]] : []), [service.name]];
   // Cockpit's tab opens on the report's own drawing of where it runs, then lists the same environments by column.
   const drawing = deployment.service === 'cockpit' ? `<div class="diagram full">${atNaturalSize(renderDiagram(model))}</div>
 <h2>Each environment</h2><p class="sectionnote">One column per environment, read from <code>${esc(deployment.source)}</code>.</p>` : '';
@@ -150,7 +160,7 @@ function deploymentPage(model, service, deployment) {
     model,
     title: service.name,
     crumbs: trail,
-    tabs: [['Logical', service.file, false], ['Deployment', deploymentFile(service.file), true]],
+    tabs: serviceTabsOf(model, service, 'Deployment'),
     standfirst: prose(deployment.intro),
     body: `${drawing}${deploymentTable(deployment, links)}`,
   });
@@ -187,7 +197,7 @@ function layerPages(model, service) {
   const pages = {};
   // A layer of the design that names a page of its own; a dotted box that opens another service's page is not one.
   for (const layer of service.logical.layers.filter((each) => each.href && each.kind === 'layer')) {
-    const crumbs = [...trailOf(model), [service.name, service.file], [layer.title]];
+    const crumbs = [...trailOf(model), [service.name, designFile(service.file)], [layer.title]];
     const stores = layer.items.flat().filter((chip) => chip.kind === 'store');
     if (stores.length > 0) {
       const nameOf = new Map(service.logical.layers.flatMap((each) => each.items.flat()).map((chip) => [chip.id, chip.name]));

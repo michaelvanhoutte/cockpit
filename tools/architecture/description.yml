@@ -190,7 +190,7 @@ design:
       row: 0
       items:
         - - { id: web }
-          - { id: widget, kind: client, href: service-android-widget.html, tip: Open the widget's own diagram }
+          - { id: widget, kind: client, href: service-android-widget-design.html, tip: Open the widget's own diagram }
           - { id: agents, caller: 'MCP clients (Claude.ai, Claude Code)', name: MCP clients, sub: 'Claude.ai, Claude Code', kind: client }
           - { id: msteams, caller: Microsoft Teams, name: Microsoft Teams, sub: a message action, kind: client }
           - { id: mail, caller: Mail senders, name: Mail senders, sub: Email Routing, kind: client }
@@ -331,7 +331,7 @@ otherServices:
           items:
             - - { id: github, name: GitHub, sub: REST API, kind: outside, marker: 'api\.github\.com', how: HTTPS }
               - { id: litellm, name: LiteLLM price list, sub: a JSON file on GitHub, kind: outside, marker: 'raw\.githubusercontent\.com', how: HTTPS }
-              - { id: cockpit, name: Cockpit, sub: its Application API, kind: outside, href: service-cockpit.html, marker: usage-records, how: HTTPS }
+              - { id: cockpit, name: Cockpit, sub: its Application API, kind: outside, href: service-cockpit-design.html, marker: usage-records, how: HTTPS }
 
       # How each caller is looked for, by the name `reached by` gives it; the part it reaches is checked against `at`.
       callers:
@@ -371,7 +371,7 @@ otherServices:
         - id: cockpit
           title: "Cockpit: API layer"
           kind: context
-          href: service-cockpit.html
+          href: service-cockpit-design.html
           row: 1
           items:
             - - { id: ctx-http, name: Application API, sub: 'REST /v1, live updates', folders: [apps/api/src/http] }
@@ -429,14 +429,14 @@ serviceMap:
     - id: harness-monitor
       share: 0.36
       items:
-        - - { name: 'Routes, write API', href: service-harness-monitor.html }
-        - - { name: Reports and jobs, href: service-harness-monitor.html }
+        - - { name: 'Routes, write API', href: service-harness-monitor-design.html }
+        - - { name: Reports and jobs, href: service-harness-monitor-design.html }
         - - { name: harness-monitor, sub: D1, kind: store, href: db-harness-monitor.html }
     - id: cockpit
       share: 0.64
       items:
-        - - { name: Web app, href: service-cockpit.html }
-          - { name: Android widget, href: service-android-widget.html }
+        - - { name: Web app, href: service-cockpit-design.html }
+          - { name: Android widget, href: service-android-widget-design.html }
         - - { name: API layer, href: cockpit-layer-api.html }
         - - { name: Business logic, href: cockpit-layer-logic.html }
           - { name: Connectors, href: cockpit-layer-connectors.html }
