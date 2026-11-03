@@ -217,5 +217,5 @@ export function buildLogical({ design, scan, candidates, callerCode = {}, design
   const usedBy = {};
   for (const edge of edges.values()) usedBy[edge.to] = [...(usedBy[edge.to] ?? []), edge.from];
 
-  return { layers, findLines: design.findLines, unruled: design.unruled, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers, usedBy };
+  return { layers, findLines: design.findLines, unruled: design.unruled, mayCall: design.mayCall, design: { breaks: design.breaks, reasons: design.reasons, rules: design.rules, accepted: design.accepted, callers: design.callers.map(({ from, to, how }) => ({ from, to, how })) }, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers, usedBy };
 }

@@ -174,9 +174,25 @@ Its SQL declares no foreign key, so the generator infers them: a column named li
 of the same family (the part of the name before its first underscore) points at that table, as `stability_jobs.run_id` does at
 `stability_runs`. The page says so. A missing or unreadable file fails the run as the API's does.
 
+## The Design tab
+
+`service-<id>-design.html` (`service-cockpit-design.html`, `service-harness-monitor-design.html`, `service-android-widget-design.html`) and `services-design.html` show the intended design alone, with no line from the code, drawn from the rules file. The services page and each service open on it, and its tabs are Design, Logical and, where the service deploys, Deployment.
+
+| On the page | Is |
+|---|---|
+| the drawing | the layers as boxes with their parts; one arrow per allowed call, carrying only its number, which jumps to its card; the dashed lines are how a caller reaches it |
+| the count under the title | N rules, how many agreed, drafted and questions: a call, a rule in `rules` and an accepted deviation each count one |
+| a group | the calls from one layer, opened by a sentence ("Business logic calls Data, Connectors and Outside services, and nothing else."); a layer that calls nothing has none |
+| a card | the rule's number, from → to, its mark, its reason and where in `docs/architecture.md` it was read |
+| the other rules | `rules` of the rules file as cards of their own, marked with a dot because the drawing has no arrow for them |
+| what is not allowed | the `not allowed` sentences, then "Anything else the drawing does not draw." |
+| accepted deviations, callers | the `accepted` entries with reason, files and mark; one row for each `reached by` caller |
+
+A rule's mark is **agreed** when the rules file sets `agreed: true`, a **question for you** when it carries a `question` (or no reason), and **drafted, not agreed** otherwise. A service the rules do not rule inside (the Harness Monitor) has no layers to draw: its page holds its rules, its callers and the count. The widget draws its box with the two calls it may make. The services page draws the services and the `between services` rules that name a `from` and a `to` as numbered arrows; a rule about every service is a card with a dot. Every reason, source and question is escaped, so one holding `<` or `&` is shown as written.
+
 ## Cockpit's logical page
 
-`service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have as nested layers, with the code's own lines laid over it. The report links the services page, which opens it.
+`service-cockpit.html`, the Logical tab, draws the design Cockpit is meant to have as nested layers, with the code's own lines laid over it. The report links the services page, which opens on its Design tab; each service's Design tab (next section) comes before Logical.
 
 **The design is `docs/architecture.yml`; `description.yml` is how it is drawn.** The rules file holds the services and the calls between them, Cockpit's layers with their parts, what each layer may call (`calls`), what is not allowed (`not allowed`), the accepted deviations and who reaches Cockpit (`reached by`). The tool reads it with its own reader (`src/rules.js`), since the nightly run installs the tool alone, and joins it to the `design` section of `description.yml` (`src/compose.js`). That section keeps only where each box sits (`row`, `share`, `alignedWith`, `drawInside`, `href`), the `marker` that finds a store or an outside service in the code, the `noLine` folders, and for each caller the code it is looked for in. The two name the same ids: a layer, a part or a caller in one and not the other fails the run and names it. A part's name, description and folders are the rules file's `name`, `what` and `code`; a layer's title is its `name`. A chip with a `caller` is a box for something that reaches Cockpit and is no part of it, named as `reached by` names it.
 
@@ -233,7 +249,7 @@ local run); without it, or without a commit, it links nothing.
 
 ## The services view
 
-`services.html` is linked from the report's header and is the way into every other page of this view. Pages are written beside
+`services-design.html` (the services page's Design tab; `services.html` is its Logical tab) is linked from the report's header and is the way into every other page of this view. Pages are written beside
 the report; every crumb trail starts "Architecture › Services". It is built from two sections of `description.yml`, written by
 hand, from `docs/architecture.yml` and from what the model already holds. The services in `serviceMap.services` are the services of the rules file, a call from one service to another in `serviceMap.calls` is one of its `between services` rules and the reverse, and the folders a service owns (`serviceMap.owns`) are its `code`; `description.yml` keeps the packages it is imported by.
 
@@ -247,7 +263,7 @@ on its own page (an accepted line is not one), links to that table, and is absen
 | Between services | red, one numbered line each, when a file imports another service's code: a relative path into a folder another service owns, or a package it is imported by (`serviceMap.owns`, the folders from the rules file), read from the source files the model has the text of. Red too when two services' configs bind a store of the same kind and name. Else "No file imports another service's code." and "No store is used by two services." |
 | What deploys on its own | each service's workflows, environments and stores, from the Deployment tabs |
 
-**Logical and Deployment** switch on Cockpit, the Monitor and the widget. A Deployment tab is one column per environment
+**Design, Logical and Deployment** switch on Cockpit, the Monitor and the widget. A Deployment tab is one column per environment
 (runs on, shipped by with the workflow linked, settings, secrets by name, storage, queues, other bindings). It comes from the
 `deployments` section: a Worker names its `config`, read exactly as the report's Deployment view reads Cockpit's (so each
 environment `apps/api/wrangler.jsonc` or the Monitor's config declares is a column, and the cron and assets are inherited

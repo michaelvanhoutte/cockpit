@@ -189,7 +189,7 @@ export function renderHtml(model, { monitor = '', comparison = { state: 'unavail
       <span>${plural(counts.areas, 'area')}</span>
       <span>${plural(environments.length, 'environment')}</span>
       <span>${plural(workflows.length, 'workflow')}</span>
-      ${model.serviceMap ? '<span><a href="services.html"><b>Services &rarr;</b></a></span>' : ''}
+      ${model.serviceMap ? '<span><a href="services-design.html"><b>Services &rarr;</b></a></span>' : ''}
       ${reportLinks}
     </div>
     <nav class="views" aria-label="Views"><a href="#changes">What changed</a><a href="#context">Context</a><a href="#modules">Modules</a><a href="#deps">Dependencies</a><a href="#database">Databases</a><a href="#deployment">Deployment</a></nav>

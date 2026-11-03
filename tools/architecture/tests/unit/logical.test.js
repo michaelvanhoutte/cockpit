@@ -301,7 +301,7 @@ describe('An acceptance is checked as the rest of the description file is', () =
   const entry = { from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' };
 
   it('reads a valid acceptance', () => {
-    expect(read([entry]).design.accepted).toEqual([entry]);
+    expect(read([entry]).design.accepted).toEqual([{ ...entry, source: null, agreed: false }]);
   });
 
   it.each([

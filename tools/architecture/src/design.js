@@ -14,6 +14,8 @@ export const CHIP_KINDS = ['component', 'client', 'store', 'outside'];
 export const LAYER_KINDS = ['layer', 'clients', 'outside', 'service', 'context'];
 export const LINE_FINDERS = ['names'];
 
+const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
 const regexSource = (source, fail, where) => {
   try {
     new RegExp(source);
@@ -159,7 +161,7 @@ export function parseDesign(value, { fail, object, array, string }) {
     const files = array(each.files, `${where}.files`).map((file, at) => string(file, `${where}.files[${at}]`));
     if (files.length === 0) fail(`${where}.files must name at least one file`);
     if (accepted.some((other) => other.from === from && other.to === to)) fail(`${where} accepts ${from} to ${to}, which an earlier entry already accepts`);
-    accepted.push({ from, to, files, reason: string(each.reason, `${where}.reason`) });
+    accepted.push({ from, to, files, reason: string(each.reason, `${where}.reason`), source: each.source === undefined ? null : string(each.source, `${where}.source`), agreed: each.agreed === true });
   });
 
   // How the lines inside a layer are found where the files are not JavaScript with imports to read. `names`: a file that
@@ -169,5 +171,8 @@ export function parseDesign(value, { fail, object, array, string }) {
   const extensions = value.extensions === undefined ? null : array(value.extensions, 'design.extensions').map((each, at) => string(each, `design.extensions[${at}]`));
 
   // A design the rules do not rule inside is drawn by its boundary: every line between its layers is allowed.
-  return { layers, mayCall, breaks, callers, noLine, accepted, findLines, extensions, unruled: value.unruled === true };
+  // What the Design tab shows besides the layers: the words of each call (by `from>to`) and of each rule that is not a call.
+  const reasons = isPlain(value.reasons) ? value.reasons : {};
+  const rules = Array.isArray(value.rules) ? value.rules : [];
+  return { layers, mayCall, breaks, reasons, rules, callers, noLine, accepted, findLines, extensions, unruled: value.unruled === true };
 }

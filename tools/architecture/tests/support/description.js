@@ -18,20 +18,21 @@ function cockpitRules(design) {
   for (const layer of design.layers ?? []) {
     const parts = {};
     for (const chip of layer.items.flat()) if (chip.caller === undefined) parts[chip.id] = { name: chip.name ?? chip.id };
-    const calls = Object.fromEntries((design.mayCall?.[layer.id] ?? []).map((to) => [to, { reason: 'r', agreed: false }]));
+    const calls = Object.fromEntries((design.mayCall?.[layer.id] ?? []).map((to) => [to, design.reasons?.[`${layer.id}>${to}`] ?? { reason: 'r', agreed: false }]));
     const notAllowed = Object.fromEntries(Object.entries(design.breaks ?? {}).filter(([pair]) => pair.startsWith(`${layer.id}>`)).map(([pair, text]) => [pair.split('>')[1], text]));
     layers[layer.id] = { name: layer.title, parts, ...(Object.keys(calls).length > 0 ? { calls } : {}), ...(Object.keys(notAllowed).length > 0 ? { 'not allowed': notAllowed } : {}) };
   }
   return {
     'reached by': (design.callers ?? []).map((caller) => ({ caller: callerName(caller), at: caller.to, how: caller.how })),
     layers,
+    ...(design.rules ? { rules: design.rules } : {}),
     ...(design.accepted ? { accepted: design.accepted } : {}),
   };
 }
 
 /** The drawing a design written in one piece keeps: everything but the rules, its callers reduced to where each is looked for. */
 function drawnDesign(design, { withNames }) {
-  const { mayCall: _mayCall, breaks: _breaks, accepted: _accepted, ...drawn } = design;
+  const { mayCall: _mayCall, breaks: _breaks, accepted: _accepted, reasons: _reasons, rules: _rules, ...drawn } = design;
   return { ...drawn, callers: (design.callers ?? []).map((caller) => ({ ...(withNames ? { caller: callerName(caller) } : { ...(caller.how ? { how: caller.how } : {}), to: caller.to }), from: caller.from, ...(caller.code ? { code: caller.code } : {}) })) };
 }
 
@@ -39,7 +40,8 @@ function drawnDesign(design, { withNames }) {
 function serviceRules(service) {
   const own = service.design.layers.find((layer) => layer.kind === 'service');
   return {
-    ...(own ? { calls: Object.fromEntries((service.design.mayCall?.[own.id] ?? []).map((to) => [to, { reason: 'r', agreed: false }])) } : {}),
+    ...(own ? { calls: Object.fromEntries((service.design.mayCall?.[own.id] ?? []).map((to) => [to, service.design.reasons?.[`${own.id}>${to}`] ?? { reason: 'r', agreed: false }])) } : {}),
+    ...(service.design.rules ? { rules: service.design.rules } : {}),
     ...(service.design.accepted ? { accepted: service.design.accepted } : {}),
   };
 }
@@ -79,7 +81,7 @@ export function filesOf(overrides = {}) {
     const ids = serviceMap.services.map((each) => each.id);
     drawing.serviceMap = { ...serviceMap, owns: Object.fromEntries(Object.entries(serviceMap.owns).map(([id, own]) => [id, { packages: own.packages }])) };
     for (const [id, own] of Object.entries(serviceMap.owns)) rules.services[id] = { name: names[id] ?? id, code: own.folders };
-    rules['between services'] = serviceMap.calls.filter((call) => ids.includes(call.from) && ids.includes(call.to)).map((call) => ({ rule: 'r', from: call.from, to: call.to }));
+    rules['between services'] = serviceMap.calls.filter((call) => ids.includes(call.from) && ids.includes(call.to)).map((call) => ({ rule: 'r', from: call.from, to: call.to, ...(serviceMap.reasons?.[`${call.from}>${call.to}`] ?? {}) })).concat(serviceMap.between ?? []);
   }
   return { drawing, rules };
 }
