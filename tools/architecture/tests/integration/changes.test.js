@@ -13,7 +13,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { main } from '../../src/cli.js';
-import { descriptionFile } from '../support/description.js';
+import { descriptionFile, rulesFile } from '../support/description.js';
 import { monitorSchemaFile, schemaFile } from '../support/schema.js';
 
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
@@ -120,6 +120,18 @@ describe('What changed', () => {
 
     it('draws a commit that has no description file with the current one, and says so', async () => {
       const { ids, root } = repository([{ ...base, 'tools/architecture/description.yml': null }, { 'tools/architecture/description.yml': DESCRIPTION }]);
+      const text = await whatChanged(root, published(ids[0]));
+      expect(text).toContain('has no description file');
+      expect(text).toContain('Nothing changed.');
+    });
+
+    it('draws a commit whose description holds the rules itself, from before the rules file, with the current pair, and says so', async () => {
+      const design = { layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }], mayCall: {}, noLine: [] };
+      const before = { ...base, 'tools/architecture/description.yml': `${DESCRIPTION}design:
+  layers: []
+  mayCall: {}
+` };
+      const { ids, root } = repository([before, { 'tools/architecture/description.yml': descriptionFile({ design }).text, 'docs/architecture.yml': rulesFile({ design }).text }]);
       const text = await whatChanged(root, published(ids[0]));
       expect(text).toContain('has no description file');
       expect(text).toContain('Nothing changed.');

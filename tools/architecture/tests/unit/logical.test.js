@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseDescription } from '../../src/description.js';
 import { ReadError } from '../../src/errors.js';
 import { buildLogical } from '../../src/logical.js';
 import { LOGICAL_FILE, renderLogicalPage } from '../../src/render/logical.js';
-import { descriptionFile } from '../support/description.js';
+import { readDescription } from '../support/description.js';
 
 const chip = (id, extra = {}) => ({ id, name: id, ...extra });
 
@@ -26,7 +25,7 @@ const design = (overrides = {}) => ({
 });
 
 /** The design as the description file reads it, so these tests go through the same checks the run does. */
-const parsed = (overrides) => parseDescription('d.yml', descriptionFile({ design: design(overrides) }).text).design;
+const parsed = (overrides) => readDescription({ design: design(overrides) }).design;
 
 const folder = (path, files) => ({ path, package: false, packageName: null, role: 'core', files: Object.entries(files).map(([file, text]) => ({ file: `${path}/${file}`, text })) });
 const pack = (path, name, files) => ({ ...folder(path, files), package: true, packageName: name });
@@ -182,7 +181,7 @@ describe('Every folder of the code is in exactly one component of the design', (
 });
 
 describe('The design section is checked as the rest of the description file is', () => {
-  const read = (overrides) => parseDescription('d.yml', descriptionFile({ design: design(overrides) }).text);
+  const read = (overrides) => readDescription({ design: design(overrides) });
 
   it('reads a valid design', () => {
     expect(read({}).design.layers.map((each) => each.id)).toEqual(['clients', 'api', 'logic', 'data', 'conn', 'outside']);
@@ -201,7 +200,7 @@ describe('The design section is checked as the rest of the description file is',
   });
 
   it('has no design when the file has no section, and draws no page', () => {
-    expect(parseDescription('d.yml', descriptionFile().text).design).toBeNull();
+    expect(readDescription().design).toBeNull();
   });
 });
 
@@ -298,7 +297,7 @@ describe('An acceptance the code no longer needs is listed as no longer needed, 
 });
 
 describe('An acceptance is checked as the rest of the description file is', () => {
-  const read = (accepted) => parseDescription('d.yml', descriptionFile({ design: design({ accepted }) }).text);
+  const read = (accepted) => readDescription({ design: design({ accepted }) });
   const entry = { from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' };
 
   it('reads a valid acceptance', () => {
@@ -307,8 +306,8 @@ describe('An acceptance is checked as the rest of the description file is', () =
 
   it.each([
     { situation: 'it names a component the design does not have', accepted: [{ ...entry, to: 'ghost' }], message: 'ghost' },
-    { situation: 'it has no reason', accepted: [{ ...entry, reason: undefined }], message: 'design.accepted[0].reason' },
-    { situation: 'its reason is blank', accepted: [{ ...entry, reason: '  ' }], message: 'design.accepted[0].reason' },
+    { situation: 'it has no reason', accepted: [{ ...entry, reason: undefined }], message: 'accepted[0].reason' },
+    { situation: 'its reason is blank', accepted: [{ ...entry, reason: '  ' }], message: 'accepted[0].reason' },
     { situation: 'it covers no file', accepted: [{ ...entry, files: [] }], message: 'at least one file' },
     { situation: 'the pair is accepted twice', accepted: [entry, entry], message: 'already accepts' },
   ])('fails the run, naming the entry, when $situation', ({ accepted, message }) => {
@@ -409,7 +408,7 @@ describe('A component made of file-name patterns holds exactly the files its pat
     ...overrides,
   });
   const source = (files) => ({ [SRC]: Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text })) });
-  const run = (files, design = svc()) => buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: source(files) });
+  const run = (files, design = svc()) => buildLogical({ design: readDescription({ design }).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: source(files) });
   const normal = { 'worker.ts': '', 'cycle-time.ts': '', 'cycle-time-page.ts': '', 'strip-x.ts': '', 'jobs.ts': '' };
   const chipOf = (logical, id) => logical.layers.flatMap((layer) => layer.items.flat()).find((each) => each.id === id);
 
@@ -459,7 +458,7 @@ describe('The Monitor lines are judged by its own design', () => {
     callers: [],
     noLine: [],
   };
-  const run = (files) => buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: { [SRC]: Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text })) } });
+  const run = (files) => buildLogical({ design: readDescription({ design }).design, scan: { extensions: ['.ts'] }, candidates: [], designFiles: { [SRC]: Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text })) } });
 
   it('draws one grey line, Reports and jobs to Data, when a report reads the database', () => {
     const logical = run({ 'worker.ts': '', 'cycle-time.ts': 'db.prepare(q);\ndb.prepare(r);' });
@@ -493,7 +492,7 @@ describe('A service page links to its database page, to Cockpit and to its compo
     noLine: [],
   };
   const logical = buildLogical({
-    design: parseDescription('d.yml', descriptionFile({ design }).text).design,
+    design: readDescription({ design }).design,
     scan: { extensions: ['.ts'] },
     candidates: [],
     designFiles: { [SRC]: ['cycle-time-b.ts', 'cycle-time-a.ts', 'strip.ts', 'solo.ts'].map((name) => ({ file: `${SRC}/${name}`, text: name === 'solo.ts' ? 'db.prepare(q);' : '' })) },
@@ -529,7 +528,7 @@ describe('A service page links to its database page, to Cockpit and to its compo
 });
 
 describe('A design of file-name patterns is checked as the rest of the description file is', () => {
-  const read = (items) => parseDescription('d.yml', descriptionFile({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[items]] }], mayCall: {}, callers: [], noLine: [] } }).text);
+  const read = (items) => readDescription({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[items]] }], mayCall: {}, callers: [], noLine: [] } });
 
   it('reads a valid component of patterns', () => {
     expect(read({ id: 'c', name: 'c', in: 'a/b/', files: ['x*'] }).design.layers[0].items[0][0]).toMatchObject({ in: 'a/b', files: ['x*'], folders: [] });
@@ -546,8 +545,8 @@ describe('A design of file-name patterns is checked as the rest of the descripti
 
   it('reads the services beyond Cockpit, each drawn on a page of its own, and fails on a repeated id', () => {
     const service = (id) => ({ id, name: id, design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {} } });
-    expect(parseDescription('d.yml', descriptionFile({ otherServices: [service('harness-monitor')] }).text).otherServices.map((each) => each.file)).toEqual(['service-harness-monitor.html']);
-    expect(() => parseDescription('d.yml', descriptionFile({ otherServices: [service('a'), service('a')] }).text)).toThrow('is used twice');
+    expect(readDescription({ otherServices: [service('harness-monitor')] }).otherServices.map((each) => each.file)).toEqual(['service-harness-monitor.html']);
+    expect(() => readDescription({ otherServices: [service('a'), service('a')] })).toThrow('is used twice');
   });
 });
 
@@ -570,7 +569,7 @@ describe('A widget part uses another when one of its files names a class or func
   const kotlin = (files) => Object.entries(files).map(([name, text]) => ({ file: `${SRC}/${name}`, text }));
   const normal = { 'Refresher.kt': 'class Refresher {}', 'Storage.kt': 'class WidgetStore {\n  val p = context.getSharedPreferences("a", 0)\n}', 'Client.kt': 'class Client {}' };
   const run = (files = normal, design = widget()) =>
-    buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: kotlin(files) } });
+    buildLogical({ design: readDescription({ design }).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: kotlin(files) } });
   const lines = (logical) => logical.within.filter((each) => each.kind === 'import').map((each) => [each.from, each.to, each.at]);
 
   it('draws a line, Refresh to Storage, at the line that names the class Storage defines', () => {
@@ -649,7 +648,7 @@ describe('The widget\'s line out carries the addresses its client calls', () => 
   };
   const render = (client, other = '') => {
     const files = [{ file: `${SRC}/Client.kt`, text: client }, { file: `${SRC}/SignIn.kt`, text: other }];
-    const logical = buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files }, callerCode: { [SRC]: files } });
+    const logical = buildLogical({ design: readDescription({ design }).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files }, callerCode: { [SRC]: files } });
     return { logical, page: renderLogicalPage({ logical, drawnFrom: { commit: 'abc1234def5678', repo: 'o/r' } }, { name: 'Widget', id: 'widget', logical, intro: 'The box, opened.' }) };
   };
 
@@ -692,7 +691,7 @@ describe('The widget\'s page opens its box, lays Cockpit\'s API layer beneath it
     callers: [],
     noLine: [],
   };
-  const logical = buildLogical({ design: parseDescription('d.yml', descriptionFile({ design }).text).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files } });
+  const logical = buildLogical({ design: readDescription({ design }).design, scan: { extensions: ['.ts'] }, candidates: [{ path: 'apps/api/src/mcp', package: false, role: 'core', files: [] }], designFiles: { [SRC]: files } });
   const page = renderLogicalPage({ logical, drawnFrom: { commit: 'abc1234def5678', repo: 'o/r' } }, { name: 'Widget', id: 'widget', logical, intro: 'The box, opened.' });
   const node = (id) => page.match(new RegExp(`<g class="node n-${id}">(.*?)</g>`, 's'))[1];
 
@@ -720,7 +719,7 @@ describe('The widget\'s page opens its box, lays Cockpit\'s API layer beneath it
 });
 
 describe('A design of a widget is checked as the rest of the description file is', () => {
-  const read = (design) => parseDescription('d.yml', descriptionFile({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {}, callers: [], noLine: [], ...design } }).text).design;
+  const read = (design) => readDescription({ design: { layers: [{ id: 'd', title: 'D', row: 0, items: [[chip('c', { in: 'a', files: ['x*'] })]] }], mayCall: {}, callers: [], noLine: [], ...design } }).design;
 
   it('reads how the lines are found and the extensions', () => {
     const value = read({ findLines: 'names', extensions: ['.kt'] });

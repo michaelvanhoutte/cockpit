@@ -8,11 +8,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
-import { descriptionFile } from '../support/description.js';
+import { descriptionFile, rulesFile } from '../support/description.js';
 import { monitorSchemaFile, schemaFile } from '../support/schema.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -30,11 +30,15 @@ afterEach(() => {
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A repository holding just what the generator reads, with the given text for each file. */
-function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, schema = schemaFile().text, monitorSchema = monitorSchemaFile().text } = {}) {
+function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, rules = rulesFile().text, schema = schemaFile().text, monitorSchema = monitorSchemaFile().text } = {}) {
   const root = tmp();
   mkdirSync(path.join(root, 'apps/api'), { recursive: true });
   mkdirSync(path.join(root, 'tools/architecture'), { recursive: true });
   writeFileSync(path.join(root, 'tools/architecture/description.yml'), description);
+  if (rules !== null) {
+    mkdirSync(path.join(root, 'docs'), { recursive: true });
+    writeFileSync(path.join(root, 'docs/architecture.yml'), rules);
+  }
   if (schema !== null) writeFileSync(path.join(root, 'apps/api/database-schema.json'), schema);
   if (monitorSchema !== null) {
     mkdirSync(path.join(root, 'apps/harness-monitor'), { recursive: true });
@@ -253,15 +257,18 @@ describe('Dependencies', () => {
 describe('Logical', () => {
   beforeAll(drawReal, REAL_DRAW_TIMEOUT);
 
-  /** A design of one component, over the fixture's folders: `design` overrides what it holds. */
-  const withDesign = (design = {}) => descriptionFile({
-    design: {
-      layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }],
-      mayCall: {},
-      noLine: [{ folder: 'apps/api/src/*', name: 'env.ts' }],
-      ...design,
-    },
-  }).text;
+  /** A design of one component, over the fixture's folders: `design` overrides what it holds. Both files, as `fixture` takes them. */
+  const withDesign = (design = {}) => {
+    const overrides = {
+      design: {
+        layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }],
+        mayCall: {},
+        noLine: [{ folder: 'apps/api/src/*', name: 'env.ts' }],
+        ...design,
+      },
+    };
+    return { description: descriptionFile(overrides).text, rules: rulesFile(overrides).text };
+  };
   const modelOf = async (root) => {
     const run = await draw(root);
     expect(run.code).toBe(0);
@@ -306,36 +313,64 @@ describe('Logical', () => {
   });
 
   it('records a folder no component names, naming the folder', async () => {
-    const { logical } = await modelOf(fixture({ files: { ...files, 'apps/api/src/extra/x.ts': 'export {}' }, description: withDesign() }));
+    const { logical } = await modelOf(fixture({ files: { ...files, 'apps/api/src/extra/x.ts': 'export {}' }, ...withDesign() }));
     expect(logical.placement).toEqual({ unplaced: ['apps/api/src/extra'], gone: [], doubled: [] });
   });
 
   it('records a component naming a folder that is gone, naming it', async () => {
-    const { logical } = await modelOf(fixture({ files, description: withDesign({ layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http', 'apps/api/src/gone'] }]] }] }) }));
+    const { logical } = await modelOf(fixture({ files, ...withDesign({ layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http', 'apps/api/src/gone'] }]] }] }) }));
     expect(logical.placement.gone).toEqual([{ folder: 'apps/api/src/gone', components: ['http'] }]);
   });
 
   it('records a folder named by two components, naming both', async () => {
     const twice = { id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }, { id: 'again', name: 'again', folders: ['apps/api/src/http'] }]] };
-    const { logical } = await modelOf(fixture({ files, description: withDesign({ layers: [twice] }) }));
+    const { logical } = await modelOf(fixture({ files, ...withDesign({ layers: [twice] }) }));
     expect(logical.placement.doubled).toEqual([{ folder: 'apps/api/src/http', components: ['http', 'again'] }]);
   });
 
   it('writes Cockpit\'s page beside the report, and draws none when the description has no design', async () => {
-    const run = await draw(fixture({ files, description: withDesign() }));
+    const run = await draw(fixture({ files, ...withDesign() }));
     expect(run.code).toBe(0);
     expect(run.written).toContain('service-cockpit.html');
     expect(readFileSync(path.join(path.dirname(run.out), 'service-cockpit.html'), 'utf8')).toContain('<h1>Cockpit</h1>');
     expect((await draw(fixture({ files }))).written).not.toContain('service-cockpit.html');
   });
 
+  it('names the rules file and the line when it does not parse, and writes nothing', async () => {
+    const written = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((text) => { written.push(String(text)); return true; });
+    try {
+      const run = await draw(fixture({ files, ...withDesign(), rules: `${rulesFile().text}cockpit: [\n` }));
+      expect(run.code).toBe(1);
+      expect(run.written).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(written.join('')).toMatch(/docs\/architecture\.yml: not valid YAML at line \d+/);
+  });
+
+  it('keeps the design out of the drawing file: no rule, and no name or folder for a part the rules file names', () => {
+    const drawn = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS();
+    for (const design of [drawn.design, ...drawn.otherServices.map((service) => service.design)]) {
+      for (const key of ['mayCall', 'breaks', 'accepted']) expect(design[key], key).toBeUndefined();
+    }
+    const parts = drawn.design.layers.flatMap((layer) => layer.items.flat()).filter((chip) => chip.caller === undefined);
+    expect(parts.length).toBeGreaterThan(20);
+    for (const chip of parts) expect(Object.keys(chip).filter((key) => ['name', 'sub', 'folders', 'title'].includes(key)), chip.id).toEqual([]);
+    expect(drawn.design.layers.filter((layer) => 'title' in layer)).toEqual([]);
+  });
+
   it.each([
-    { situation: 'the design is not valid YAML', description: `${descriptionFile().text}design: [\n` },
-    { situation: 'the design names a layer that does not exist', description: withDesign({ mayCall: { api: ['nowhere'] } }) },
-    { situation: 'an acceptance names a component the design does not have', description: withDesign({ accepted: [{ from: 'http', to: 'ghost', files: ['apps/api/src/http/app.ts'], reason: 'Because.' }] }) },
-    { situation: 'an acceptance gives no reason', description: withDesign({ accepted: [{ from: 'http', to: 'http', files: ['apps/api/src/http/app.ts'] }] }) },
-  ])('fails the run and writes nothing when $situation', async ({ description }) => {
-    const run = await draw(fixture({ files, description }));
+    { situation: 'the drawing is not valid YAML', given: { description: `${descriptionFile().text}design: [
+` } },
+    { situation: 'the rules file is not valid YAML', given: { rules: `${rulesFile().text}cockpit: [
+` } },
+    { situation: 'the rules file is missing', given: { rules: null, description: withDesign().description } },
+    { situation: 'the design names a layer that does not exist', given: withDesign({ mayCall: { api: ['nowhere'] } }) },
+    { situation: 'an acceptance names a component the design does not have', given: withDesign({ accepted: [{ from: 'http', to: 'ghost', files: ['apps/api/src/http/app.ts'], reason: 'Because.' }] }) },
+    { situation: 'an acceptance gives no reason', given: withDesign({ accepted: [{ from: 'http', to: 'http', files: ['apps/api/src/http/app.ts'] }] }) },
+  ])('fails the run and writes nothing when $situation', async ({ given }) => {
+    const run = await draw(fixture({ files, ...given }));
     expect(run.code).toBe(1);
     expect(run.written).toEqual([]);
   });
