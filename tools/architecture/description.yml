@@ -333,7 +333,7 @@ otherServices:
           title: Reports and jobs
           row: 2
           items:
-            - - { id: costs, name: Costs and usage, sub: 'GET /, /pr/<n>; the usage store', in: apps/harness-monitor/src, files: ['validate.*', 'store.*', 'costs.*', 'costs-explain.*', 'page.*', 'export.*', 'prices.*', 'price-list.*', 'pull-request.*', 'pull-request-page.*'] }
+            - - { id: costs, name: Costs and usage, sub: 'GET /, /pr/<n>, /harness-trend; the usage store', in: apps/harness-monitor/src, files: ['validate.*', 'store.*', 'costs.*', 'costs-explain.*', 'page.*', 'trend-page.*', 'export.*', 'prices.*', 'price-list.*', 'pull-request.*', 'pull-request-page.*'] }
               - { id: cycle, name: Cycle time, sub: GET /cycle-time, in: apps/harness-monitor/src, files: ['cycle-time*', 'pull-request-strip*', 'pull-request-timeline*'] }
               - { id: selection, name: Test selection, sub: GET /selection, in: apps/harness-monitor/src, files: ['selection*'] }
               - { id: stability, name: CI stability, sub: GET /stability, in: apps/harness-monitor/src, files: ['stability*', 'ci-attempts*', 'ci-flakiness*'] }

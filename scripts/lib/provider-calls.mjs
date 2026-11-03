@@ -6,7 +6,11 @@
 // lists as holding provider code. A provider added later is recorded from its
 // first call because it cannot be called from anywhere else.
 //
-// The declaration it reads is scripts/provider-rules.json. The functions are
+// What counts as a paid call (SDK names, addresses, bindings) is declared in
+// scripts/provider-rules.json; the files that may make one are the paid-call
+// rule in docs/architecture.yml, read as text because this job installs no YAML
+// parser (tests/lint/import-rules.test.mjs holds that reading to the parser's).
+// The functions are
 // pure over the files' text; `readSources` is the one that touches the tree.
 // Text rather than a parsed tree, so this runs in the checkout-only job
 // `test:scripts` has, with no TypeScript installed.
@@ -16,6 +20,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 export const RULES_PATH = 'scripts/provider-rules.json';
+export const ARCHITECTURE_PATH = 'docs/architecture.yml';
 
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 
@@ -77,7 +82,7 @@ export function strayCallsIn(path, text, rules) {
 export function strayCalls(files, rules, exists) {
   return [
     ...files.flatMap((file) => strayCallsIn(file.path, file.text, rules)),
-    ...rules.holders.filter((holder) => !exists(holder)).map((holder) => `${RULES_PATH}: holder ${holder} does not exist, remove it`),
+    ...rules.holders.filter((holder) => !exists(holder)).map((holder) => `${ARCHITECTURE_PATH}: ${holder} is named by the paid-call rule and does not exist, remove it`),
   ];
 }
 
@@ -111,7 +116,30 @@ export function readSources(root, rules) {
 
 /** @param {string} root */
 export function readRules(root) {
-  return JSON.parse(readFileSync(join(root, RULES_PATH), 'utf8'));
+  const detection = JSON.parse(readFileSync(join(root, RULES_PATH), 'utf8'));
+  return { ...detection, holders: paidCallFiles(readFileSync(join(root, ARCHITECTURE_PATH), 'utf8')) };
+}
+
+/**
+ * The files the paid-call rule (`check: paid-calls`) names, read from the rules
+ * file's text. The rule's `files` must be one flow list on one line.
+ * @param {string} text the rules file
+ * @returns {string[]}
+ */
+export function paidCallFiles(text) {
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((line) => /^\s*check:\s*paid-calls\s*(#.*)?$/.test(line));
+  if (at < 0) throw new Error(`${ARCHITECTURE_PATH}: no rule has check: paid-calls`);
+  let start = at;
+  while (start > 0 && !/^\s*-\s/.test(lines[start])) start -= 1;
+  const indent = lines[start].search(/\S/);
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === '' || lines[end].search(/\S/) > indent)) end += 1;
+  for (const line of lines.slice(start, end)) {
+    const match = /^\s*files:\s*\[(.*)\]\s*(#.*)?$/.exec(line);
+    if (match) return match[1].split(',').map((file) => file.trim().replace(/^(['"])(.*)\1$/, '$2')).filter((file) => file !== '');
+  }
+  throw new Error(`${ARCHITECTURE_PATH}: the paid-call rule needs its files written as one list on one line, files: [a, b]`);
 }
 
 /** Every failure over the real tree. @param {string} root */

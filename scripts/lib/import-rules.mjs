@@ -2,17 +2,20 @@
 // Fails CI when the core imports source code, or an API area imports against
 // the agreed direction ("Fail CI when the core imports source code, or an area
 // imports against the agreed direction", issue 876). The declaration it reads
-// is scripts/import-rules.json: the sources, the core, the direction, the one
-// registry file and the allowlist of today's breaches.
+// is docs/architecture.yml, which holds every structure rule with its reason;
+// this reads only the rules it enforces (the ones with a `check`) and the
+// accepted list, and maps them into one shape, `Rules`. The merge base's copy is
+// read into the same shape from whichever file the base has.
 //
 // The functions are pure over an import list and the declaration; `readImports`
-// is the one that touches the tree, and `shrinkFailures` compares the allowlist
-// with the merge base's copy, which the caller reads.
+// is the one that touches the tree, and `shrinkFailures` compares the accepted
+// entries the order forbids with the merge base's copy, which the caller reads.
 //
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
 import ts from 'typescript';
+import { LineCounter, parseDocument } from 'yaml';
 
 import { placeMergeBase } from './merge-base.mjs';
 
@@ -252,7 +255,7 @@ export function findBreaches(imports, rules) {
   const breaches = new Map();
   const add = (from, to, rule) => {
     const key = `${from} -> ${to}`;
-    if (!breaches.has(key)) breaches.set(key, { from, to, rule });
+    if (!breaches.has(key)) breaches.set(key, { from, to, toArea: areaOf(to, rules), rule });
   };
   for (const { importer, imported } of imports) {
     // Rule 2: source code in the core.
@@ -288,8 +291,12 @@ export function findBreaches(imports, rules) {
   return [...breaches.values()];
 }
 
-/** @param {{ from: string, to: string }} entry */
-const keyOf = (entry) => `${entry.from} -> ${entry.to}`;
+/**
+ * An allowlist entry or a breach, keyed by the importing file and the area it
+ * imports (the file, where the import is not into an API area).
+ * @param {{ from: string, to: string, toArea?: string | null }} entry
+ */
+const keyOf = (entry) => `${entry.from} -> ${entry.toArea ?? entry.to}`;
 
 /**
  * Breaches not on the allowlist, and allowlist entries whose breach is gone.
@@ -304,12 +311,13 @@ export function failuresAgainst(breaches, allowlist) {
     ...breaches.filter((b) => !allowed.has(keyOf(b))).map((b) => `${b.from} imports ${b.to}: ${b.rule}`),
     ...allowlist
       .filter((entry) => !present.has(keyOf(entry)))
-      .map((entry) => `allowlist entry no longer needed, remove it: ${keyOf(entry)}`),
+      .map((entry) => `accepted entry no longer needed, remove it: ${keyOf(entry)}`),
   ];
 }
 
 /**
- * Allowlist entries a change added, which is how a build would silence a breach.
+ * Entries a change added to the accepted imports the order forbids, which is
+ * how a build would silence a breach.
  * @param {{ from: string, to: string }[]} allowlist
  * @param {{ from: string, to: string }[]} baseAllowlist the merge base's copy
  * @returns {string[]}
@@ -318,7 +326,7 @@ export function shrinkFailures(allowlist, baseAllowlist) {
   const base = new Set(baseAllowlist.map(keyOf));
   return allowlist
     .filter((entry) => !base.has(keyOf(entry)))
-    .map((entry) => `allowlist entry is not in the merge base's allowlist, the list may only shrink: ${keyOf(entry)}`);
+    .map((entry) => `accepted entry is not in the merge base's accepted list, the list may only shrink: ${keyOf(entry)}`);
 }
 
 /**
@@ -368,27 +376,160 @@ export function relaxations(rules, base) {
  * @typedef {{ from: string, to: string, rule: string }} Breach
  */
 
-export const RULES_PATH = 'scripts/import-rules.json';
+export const RULES_PATH = 'docs/architecture.yml';
+/** Where the rules were kept before the rules file; a merge base may still hold them here. */
+export const OLD_RULES_PATH = 'scripts/import-rules.json';
 
-/** @param {string} root */
-export function readRules(root) {
-  return JSON.parse(readFileSync(join(root, RULES_PATH), 'utf8'));
+/**
+ * The parsed rules file. A file that does not parse throws, naming the file and
+ * the line.
+ * @param {string} text
+ * @param {string} [path]
+ */
+export function parseRulesFile(text, path = RULES_PATH) {
+  const lineCounter = new LineCounter();
+  const doc = parseDocument(text, { lineCounter });
+  if (doc.errors.length > 0) {
+    const [error] = doc.errors;
+    const { line } = lineCounter.linePos(error.pos[0]);
+    throw new Error(`${path}:${line}: ${error.message.split('\n')[0]}`);
+  }
+  return doc.toJS() ?? {};
 }
 
-/** Every failure over the real tree, given the base copy's allowlist or why there is none. */
+/**
+ * The layers' parts as the folders of the API they sit in: part id to areas.
+ * @param {any} file
+ * @param {string} folder
+ */
+function partAreas(file, folder) {
+  const areas = new Map();
+  for (const layer of Object.values(file.cockpit?.layers ?? {})) {
+    for (const [id, part] of Object.entries(layer.parts ?? {})) {
+      const codes = [part.code ?? []].flat();
+      areas.set(id, codes.filter((code) => code.startsWith(`${folder}/`)).map((code) => code.slice(folder.length + 1).split('/')[0]));
+    }
+  }
+  return areas;
+}
+
+/**
+ * The rules the import check enforces, from the parsed rules file, in the one
+ * shape the check reads. Setting `agreed` or rewording a reason changes nothing
+ * here, so it can never read as a relaxation.
+ * @param {any} file the parsed rules file
+ * @param {(path: string) => string | null} [readText] a repo-relative file's text, or null; names the source packages
+ * @returns {Rules}
+ */
+export function rulesFromFile(file, readText = () => null) {
+  const rules = file.cockpit?.rules ?? [];
+  const checked = (name) => {
+    const found = rules.find((rule) => rule.check === name);
+    if (!found) throw new Error(`${RULES_PATH}: no rule has check: ${name}`);
+    return found;
+  };
+  const order = checked('import-order');
+  const imports = checked('connector-imports');
+  const sources = {};
+  for (const [id, source] of Object.entries(file.cockpit?.sources ?? {})) {
+    sources[id] = {};
+    if (source.engine) sources[id].engine = true;
+    if (source.package) {
+      const manifest = readText(`${source.package}/package.json`);
+      sources[id].package = manifest ? JSON.parse(manifest).name : source.package;
+    }
+  }
+  const declared = {
+    sources,
+    core: imports.core,
+    registry: imports.files[0],
+    areas: { folder: order.folder, root: order['root files'], sharedRoot: order['shared root files'], order: order.order },
+    names: { exempt: Object.keys(checked('source-names').except ?? {}) },
+    engines: checked('engine-lists').files,
+    allowlist: [],
+  };
+  const rank = new Map(declared.areas.order.flatMap((tier, index) => tier.map((area) => [area, index])));
+  const areas = partAreas(file, declared.areas.folder);
+  for (const entry of file.cockpit?.accepted ?? []) {
+    for (const from of areas.get(entry.from) ?? []) {
+      for (const to of areas.get(entry.to) ?? []) {
+        if (from === to || !rank.has(from) || !rank.has(to) || rank.get(to) > rank.get(from)) continue;
+        for (const importer of entry.files ?? []) declared.allowlist.push({ from: importer, to });
+      }
+    }
+  }
+  return declared;
+}
+
+/**
+ * The rules as `scripts/import-rules.json` held them, in the same shape.
+ * @param {any} json
+ * @returns {Rules}
+ */
+export function rulesFromOldJson(json) {
+  return { ...json, allowlist: (json.allowlist ?? []).map((entry) => ({ from: entry.from, to: areaOf(entry.to, json) ?? entry.to })) };
+}
+
+/**
+ * Every rule, entry and call in the rules file that has neither a reason nor a
+ * question, or no agreed mark, naming it.
+ * @param {any} file the parsed rules file
+ * @returns {string[]}
+ */
+export function shapeFailures(file) {
+  const failures = [];
+  const check = (name, item) => {
+    const said = (value) => typeof value === 'string' && value.trim() !== '';
+    if (!said(item?.reason) && !said(item?.question)) failures.push(`${RULES_PATH}: ${name} has neither a reason nor a question`);
+    if (typeof item?.agreed !== 'boolean') failures.push(`${RULES_PATH}: ${name} has no agreed mark, true or false`);
+  };
+  const named = (item) => item.rule ?? `${item.from} -> ${item.to}`;
+  for (const item of file['between services'] ?? []) check(`the rule "${named(item)}"`, item);
+  for (const item of file.cockpit?.rules ?? []) check(`the rule "${named(item)}"`, item);
+  for (const item of file.cockpit?.accepted ?? []) check(`the accepted entry ${named(item)}`, item);
+  for (const item of file['harness-monitor']?.rules ?? []) check(`the rule "${named(item)}"`, item);
+  for (const [layer, body] of Object.entries(file.cockpit?.layers ?? {})) {
+    for (const [target, item] of Object.entries(body.calls ?? {})) check(`${layer} calling ${target}`, item);
+  }
+  for (const [target, item] of Object.entries(file['android-widget']?.calls ?? {})) check(`the widget calling ${target}`, item);
+  return failures;
+}
+
+/**
+ * The rules at a checkout.
+ * @param {string} root
+ * @returns {Rules}
+ */
+export function readRules(root) {
+  const readText = (path) => {
+    if (existsSync(join(root, path))) return readFileSync(join(root, path), 'utf8');
+    // A source whose manifest is gone would be guarded under its folder path, not its package name.
+    if (path.endsWith('/package.json')) throw new Error(`${RULES_PATH}: ${path} does not exist, so the source's package name cannot be read`);
+    return null;
+  };
+  return rulesFromFile(parseRulesFile(readFileSync(join(root, RULES_PATH), 'utf8')), readText);
+}
+
+/** Every failure over the real tree, given the base copy's rules or why there are none. */
 export function checkTree(root, base) {
-  const rules = readRules(root);
+  let rules;
+  try {
+    rules = readRules(root);
+  } catch (error) {
+    return [error.message];
+  }
   const failures = [
     ...failuresAgainst(findBreaches(readImports(root, rules), rules), rules.allowlist),
     ...readNamedSources(root, rules).map(namedSourceFailure),
   ];
-  if (base.error) failures.push(`cannot read the merge base's copy of ${RULES_PATH}, so the shrink-only check cannot run: ${base.error}`);
+  if (base.error) failures.push(`cannot read the merge base's copy of the rules, so the relaxation check cannot run: ${base.error}`);
   else if (base.rules) failures.push(...shrinkFailures(rules.allowlist, base.rules.allowlist), ...relaxations(rules, base.rules));
   return failures;
 }
 
 /**
- * The merge base's copy of the declaration, for `checkTree`.
+ * The merge base's copy of the rules, for `checkTree`, from whichever file the
+ * base has: the rules file, or the import rules kept before it.
  * A pull request has its base placed by scripts/lib/merge-base.mjs, and one that
  * cannot be placed or read is an error, never a skipped check. A push in CI has
  * no base to compare with. Anywhere else (a session's own checkout) the base is
@@ -417,8 +558,18 @@ export function readBase({ event, ci, git }) {
   }
   try {
     git(['cat-file', '-e', `${base}^{commit}`]);
-    if (git(['ls-tree', base, '--', RULES_PATH]) === '') return { rules: null, skipped: `${RULES_PATH} does not exist at the merge base yet` };
-    return { rules: JSON.parse(git(['show', `${base}:${RULES_PATH}`])) };
+    const shown = (path) => {
+      try {
+        return git(['show', `${base}:${path}`]);
+      } catch {
+        return null;
+      }
+    };
+    if (git(['ls-tree', base, '--', RULES_PATH]) !== '') {
+      return { rules: rulesFromFile(parseRulesFile(git(['show', `${base}:${RULES_PATH}`]), `${RULES_PATH} at the merge base`), shown) };
+    }
+    if (git(['ls-tree', base, '--', OLD_RULES_PATH]) !== '') return { rules: rulesFromOldJson(JSON.parse(git(['show', `${base}:${OLD_RULES_PATH}`]))) };
+    return { rules: null, skipped: `neither ${RULES_PATH} nor ${OLD_RULES_PATH} exists at the merge base yet` };
   } catch (error) {
     return { rules: null, error: error.message };
   }

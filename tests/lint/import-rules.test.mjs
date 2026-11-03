@@ -1,5 +1,5 @@
 //
-// The import rules ("Fail CI when the core imports source code, or an area
+// The import rules, read from docs/architecture.yml ("Fail CI when the core imports source code, or an area
 // imports against the agreed direction", issue 876): the pure functions over a
 // small declaration written here, then the same checks over the real tree,
 // which is the half that gates.
@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
+import { paidCallFiles } from '../../scripts/lib/provider-calls.mjs';
 import {
   checkTree,
   failuresAgainst,
@@ -23,8 +24,13 @@ import {
   namedSourceFailure,
   namedSourceIds,
   namedSourcesIn,
+  parseRulesFile,
   readNamedSources,
+  readRules,
   relaxations,
+  rulesFromFile,
+  rulesFromOldJson,
+  shapeFailures,
   sourcePackages,
   sourcesNamedBy,
   readBase,
@@ -150,8 +156,8 @@ describe('the engine list: the core reaches an engine only through it', () => {
 });
 
 describe('rule 3: the allowlist can only shrink', () => {
-  const breach = { from: api('accounts/store.ts'), to: api('jobs/debounce.ts'), rule: 'accounts may not import jobs' };
-  const entry = { from: breach.from, to: breach.to };
+  const [breach] = breachesOf(api('accounts/store.ts'), api('jobs/debounce.ts'));
+  const entry = { from: breach.from, to: 'jobs' };
 
   it('passes a breach that is on the allowlist', () => {
     assert.deepEqual(failuresAgainst([breach], [entry]), []);
@@ -160,13 +166,13 @@ describe('rule 3: the allowlist can only shrink', () => {
   it('fails an allowlist entry whose import is gone, naming the entry to remove', () => {
     const failures = failuresAgainst([], [entry]);
     assert.equal(failures.length, 1);
-    assert.match(failures[0], /remove it: .*accounts\/store\.ts -> .*jobs\/debounce\.ts/);
+    assert.match(failures[0], /remove it: .*accounts\/store\.ts -> jobs/);
   });
 
   it("fails an entry absent from the merge base's allowlist, naming the entry", () => {
     const failures = shrinkFailures([entry], []);
     assert.equal(failures.length, 1);
-    assert.match(failures[0], /accounts\/store\.ts -> .*jobs\/debounce\.ts/);
+    assert.match(failures[0], /accounts\/store\.ts -> jobs/);
     assert.deepEqual(shrinkFailures([entry], [entry]), []);
   });
 
@@ -207,7 +213,7 @@ describe('specifiersOf', () => {
 
 describe("today's tree", () => {
   it('passes with nothing excused: every API area imports only the areas below it', () => {
-    assert.deepEqual(JSON.parse(readFileSync(join(repo, 'scripts/import-rules.json'), 'utf8')).allowlist, []);
+    assert.deepEqual(readRules(repo).allowlist, []);
     const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
     const base = readBase({ event: process.env.GITHUB_EVENT_NAME, ci: process.env.GITHUB_ACTIONS === 'true', git });
     if (base.skipped) console.log(`# shrink-only comparison skipped: ${base.skipped}`);
@@ -376,5 +382,195 @@ describe('relaxing the rules themselves', () => {
     assert.match(relaxations(change((r) => { r.areas.order = [['jobs'], ['http'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']]; }), rules).join('\n'), /http no longer stays above jobs/);
     assert.match(relaxations(change((r) => { r.areas.order = r.areas.order.filter((tier) => tier[0] !== 'jobs'); }), rules).join('\n'), /http no longer stays above jobs/);
     assert.match(relaxations(change((r) => { r.areas.order[6] = ['ai']; r.areas.order.splice(7, 0, ['embeddings']); }), rules).join('\n'), /ai and embeddings no longer share a tier/);
+  });
+});
+
+// The rules file as a parsed object, small enough to change one thing at a time.
+const fileDoc = () => ({
+  cockpit: {
+    layers: {
+      api: { parts: { auth: { code: 'apps/api/src/auth' }, accounts: { code: 'apps/api/src/accounts' }, jobs: { code: 'apps/api/src/jobs' } } },
+      data: { parts: { register: { code: 'apps/api/src/db' }, queue: {} } },
+    },
+    rules: [
+      {
+        rule: 'one direction',
+        check: 'import-order',
+        folder: 'apps/api/src',
+        'root files': ['worker.ts', 'env.ts'],
+        'shared root files': ['env.ts'],
+        order: [['http'], ['jobs'], ['connectors'], ['auth'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']],
+        reason: 'Domain imports nothing.',
+        agreed: false,
+      },
+      { rule: 'one registry', check: 'connector-imports', core: ['apps/api', 'apps/web'], files: ['apps/api/src/connectors/registry.ts'], reason: 'One coupling point.', agreed: false },
+      { rule: 'engine lists', check: 'engine-lists', files: ['apps/api/src/engines/list.ts'], reason: 'A seam.', agreed: false },
+      { rule: 'no source ids', check: 'source-names', except: { 'apps/api/src/accounts/changes.ts': 'migrations' }, reason: 'Blind core.', agreed: false },
+      { rule: 'paid calls', check: 'paid-calls', files: ['apps/api/src/gateway/'], reason: 'Recorded.', agreed: false },
+    ],
+    accepted: [],
+    sources: { gmail: { package: 'packages/connectors/gmail' }, 'claude-code': { engine: true } },
+  },
+});
+
+/** The same rules as scripts/import-rules.json held them before the rules file. */
+const oldJson = () => ({
+  sources: { gmail: { package: '@cockpit/connector-gmail' }, 'claude-code': { engine: true } },
+  core: ['apps/api', 'apps/web'],
+  registry: 'apps/api/src/connectors/registry.ts',
+  areas: {
+    folder: 'apps/api/src',
+    root: ['worker.ts', 'env.ts'],
+    sharedRoot: ['env.ts'],
+    order: [['http'], ['jobs'], ['connectors'], ['auth'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']],
+  },
+  allowlist: [],
+  names: { exempt: ['apps/api/src/accounts/changes.ts'] },
+  engines: ['apps/api/src/engines/list.ts'],
+});
+
+const manifests = { 'packages/connectors/gmail/package.json': JSON.stringify({ name: '@cockpit/connector-gmail' }) };
+const manifestOf = (path) => manifests[path] ?? null;
+
+describe('rule 1: a rule cannot be loosened, whichever file the merge base holds the rules in', () => {
+  /** A git that knows a merge base holding exactly these files (path to text). */
+  const gitHolding = (files) => (args) => {
+    if (args[0] === 'merge-base') return 'basesha';
+    if (args[0] === 'cat-file') return '';
+    if (args[0] === 'ls-tree') return args[3] in files ? `100644 blob abc\t${args[3]}` : '';
+    if (args[0] === 'show') {
+      const path = args[1].replace('basesha:', '');
+      if (path in files) return files[path];
+      throw new Error(`no ${path}`);
+    }
+    throw new Error(`unexpected git ${args.join(' ')}`);
+  };
+  const yamlOf = (doc) => JSON.stringify(doc);
+  /** What a pull request with this head would be told, against a base holding these files. */
+  const compare = (baseFiles, head) => {
+    const base = readBase({ event: undefined, ci: false, git: gitHolding({ ...manifests, ...baseFiles }) });
+    if (!base.rules) return base;
+    const rules = rulesFromFile(head, manifestOf);
+    return [...shrinkFailures(rules.allowlist, base.rules.allowlist), ...relaxations(rules, base.rules)];
+  };
+
+  it('passes the rules file holding the same rules as the old import rules', () => {
+    assert.deepEqual(compare({ 'scripts/import-rules.json': JSON.stringify(oldJson()) }, fileDoc()), []);
+  });
+
+  it('fails the rules file with a source removed, naming the source', () => {
+    const head = fileDoc();
+    delete head.cockpit.sources.gmail;
+    const failures = compare({ 'scripts/import-rules.json': JSON.stringify(oldJson()) }, head);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /source gmail was removed/);
+  });
+
+  it('fails two areas reordered against a base that already holds the rules file, naming both', () => {
+    const head = fileDoc();
+    head.cockpit.rules[0].order = [['http'], ['connectors'], ['jobs'], ['auth'], ['accounts'], ['db'], ['ai', 'embeddings'], ['domain']];
+    const failures = compare({ 'docs/architecture.yml': yamlOf(fileDoc()) }, head);
+    assert.match(failures.join('\n'), /jobs no longer stays above connectors/);
+  });
+
+  it('passes a rule set agreed and a reason reworded', () => {
+    const head = fileDoc();
+    head.cockpit.rules[0].agreed = true;
+    head.cockpit.rules[0].reason = 'Said another way.';
+    head.cockpit.rules[1].source = 'architecture.md';
+    assert.deepEqual(compare({ 'docs/architecture.yml': yamlOf(fileDoc()) }, head), []);
+  });
+
+  it('skips, saying why, when the base holds neither file', () => {
+    const base = readBase({ event: undefined, ci: false, git: gitHolding({}) });
+    assert.equal(base.rules, null);
+    assert.match(base.skipped, /neither docs\/architecture\.yml nor scripts\/import-rules\.json/);
+  });
+
+  it('reads the old file into the shape the rules file maps to', () => {
+    assert.deepEqual(rulesFromOldJson(oldJson()), rulesFromFile(fileDoc(), manifestOf));
+  });
+});
+
+describe('rule 3: an accepted entry lets through only an import the order forbids, and the list may only shrink', () => {
+  const forbidden = { from: 'accounts', to: 'jobs', files: [api('accounts/store.ts')], reason: 'x', agreed: false };
+  const withAccepted = (...accepted) => {
+    const doc = fileDoc();
+    doc.cockpit.accepted = accepted;
+    return rulesFromFile(doc, manifestOf);
+  };
+  const breachesIn = (declared, importer, imported) => findBreaches([{ importer, imported, typeOnly: false }], declared);
+
+  it('passes a forbidden import with an accepted entry for its file', () => {
+    const declared = withAccepted(forbidden);
+    assert.deepEqual(failuresAgainst(breachesIn(declared, api('accounts/store.ts'), api('jobs/run.ts')), declared.allowlist), []);
+  });
+
+  it('fails an accepted forbidden entry whose import is gone, naming the entry to remove', () => {
+    const declared = withAccepted(forbidden);
+    const failures = failuresAgainst([], declared.allowlist);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /remove it: .*accounts\/store\.ts -> jobs/);
+  });
+
+  it('fails a forbidden entry the merge base does not have', () => {
+    const declared = withAccepted(forbidden);
+    const failures = shrinkFailures(declared.allowlist, withAccepted().allowlist);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /accounts\/store\.ts -> jobs/);
+  });
+
+  it('passes an entry the order already allows, which changes nothing', () => {
+    const declared = withAccepted({ from: 'auth', to: 'register', files: [api('auth/register.ts')], reason: 'x', agreed: false });
+    assert.deepEqual(declared.allowlist, []);
+    assert.deepEqual(shrinkFailures(declared.allowlist, []), []);
+    assert.deepEqual(failuresAgainst(breachesIn(declared, api('auth/register.ts'), api('db/client.ts')), declared.allowlist), []);
+  });
+});
+
+describe('rule 4: every rule in the file carries a reason or a question, and an agreed mark', () => {
+  it('fails a rule with neither, naming it', () => {
+    const doc = fileDoc();
+    delete doc.cockpit.rules[1].reason;
+    const failures = shapeFailures(doc);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /"one registry" has neither a reason nor a question/);
+  });
+
+  it('fails a rule with no agreed mark, naming it', () => {
+    const doc = fileDoc();
+    delete doc.cockpit.rules[2].agreed;
+    const failures = shapeFailures(doc);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /"engine lists" has no agreed mark/);
+  });
+
+  it("passes today's file", () => {
+    assert.deepEqual(shapeFailures(parseRulesFile(readFileSync(join(repo, 'docs/architecture.yml'), 'utf8'))), []);
+  });
+
+  it("reads the paid-call rule's files the same way the checkout-only paid-call check does", () => {
+    const text = readFileSync(join(repo, 'docs/architecture.yml'), 'utf8');
+    const rule = parseRulesFile(text).cockpit.rules.find((found) => found.check === 'paid-calls');
+    assert.deepEqual(paidCallFiles(text), rule.files);
+  });
+});
+
+describe('rule 5: a rules file that does not parse fails the check, naming the file and the line', () => {
+  it('names the file and the line in the error', () => {
+    assert.throws(() => parseRulesFile('cockpit:\n  rules: [\n'), /^Error: docs\/architecture\.yml:\d+:/);
+  });
+
+  it('fails the tree check with that message', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rules-file-'));
+    try {
+      mkdirSync(join(dir, 'docs'), { recursive: true });
+      writeFileSync(join(dir, 'docs/architecture.yml'), 'cockpit:\n  rules: [\n');
+      const [failure, ...rest] = checkTree(dir, { rules: null, skipped: 'test' });
+      assert.match(failure, /^docs\/architecture\.yml:\d+:/);
+      assert.deepEqual(rest, []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

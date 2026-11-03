@@ -1,0 +1,262 @@
+# The intended design of everything in this repository: the services, the layers inside each, what may call what,
+# and why. CI's import check and the architecture report both read this file; the Design tab of each page in the
+# architecture report is how a person reads it. docs/architecture.md keeps the decisions that are not rules about
+# structure, and links here where it would otherwise restate one.
+#
+# A rule with a `check` is enforced by CI and the check's name says which. A rule without one is design only: nothing
+# fails a build on it. The `accepted` list is the one place both kinds meet: an entry the import order forbids lets
+# that import through and may only shrink; an entry the order already allows changes nothing in CI and only greys the
+# line on the report.
+#
+# Every rule carries one of:
+#   reason    why the rule exists, in a sentence or two
+#   question  no reason is written anywhere yet; the engineer answers it
+# and, beside it:
+#   source    where in docs/architecture.md the reason was read, while it is a draft
+#   agreed    false until the engineer has read the rule and agreed it, by a pull request setting it true
+#
+# What is not here, because it says how a rule is checked or drawn rather than what the rule is: where each
+# drawing's boxes sit, the patterns that find a store or an outside service in the code, the SDK names and addresses
+# that count as a paid call. Those stay with the code that checks them.
+
+services:
+  cockpit:
+    name: Cockpit
+    what: Unified inbox and dashboards. One Worker per environment serving the API, live updates and the web app.
+    code: [apps/api, apps/web, apps/android-widget, packages]
+
+  harness-monitor:
+    name: Harness Monitor
+    what: What Claude Code spends on this repository, and the harness reports CI sends. A second Worker with its own D1.
+    code: [apps/harness-monitor]
+
+# How the services may reach each other. Anything not listed is not allowed.
+between services:
+  - rule: The Harness Monitor shares no code with Cockpit, in either direction
+    reason: It is public with no sign-in, holds development data rather than user data, and is meant to be lifted into a repository of its own.
+    source: The Harness Monitor ("The boundary is real, not tidy")
+    agreed: false
+
+  - rule: No two services bind the same store
+    question: docs/architecture.md says the Monitor has its own D1, not why sharing one is ruled out. Is it the same reason as sharing no code?
+    agreed: false
+
+  - rule: The Harness Monitor reads Cockpit's Claude calls only through GET /v1/usage-records, under a read token
+    from: harness-monitor
+    to: cockpit
+    reason: The copy holds no user, account or item, and a page carrying one is refused whole, so the Monitor still holds no user data.
+    source: The Harness Monitor ("Cockpit's Claude calls are copied from production every 12 hours")
+    agreed: false
+
+# ---------------------------------------------------------------------------------------------------------------------
+cockpit:
+  # Who reaches Cockpit, at which part and how. A request is not an import, so each is declared here.
+  reached by:
+    - { caller: Web app, at: http, how: 'REST /v1, live updates, a session cookie' }
+    - { caller: Android widget, at: mcp, how: 'OAuth, then REST /apps/v1' }
+    - { caller: 'MCP clients (Claude.ai, Claude Code)', at: mcp, how: 'MCP over HTTP, OAuth' }
+    - { caller: Microsoft Teams, at: http, how: a Bot Framework webhook }
+    - { caller: Mail senders, at: email, how: an email event }
+    - { caller: Harness Monitor, at: http, how: GET /v1/usage-records }
+    - { caller: 'Staging, CI', at: http, how: POST /v1/usage-records }
+    - { caller: the queue, at: jobs, how: consumed by }
+
+  # Top to bottom. A layer may call the layers its `calls` names and nothing else.
+  layers:
+    clients:
+      name: Clients
+      parts:
+        web: { name: Web app, what: 'React PWA, in the browser', code: apps/web/src }
+        widget: { name: Android widget, what: on the home screen, code: apps/android-widget }
+      calls:
+        api:
+          reason: 'Everything from outside arrives at an entry point that checks it first: a route validates the request, the gate checks the session, a webhook proves itself genuine.'
+          source: 'Hono + Zod on Cloudflare Workers; Connectors: plugin-shaped, host-blind ("Webhook ingress is generic")'
+          agreed: false
+      not allowed:
+        logic: A client reaches past the API layer
+
+    api:
+      name: "API layer: the Worker's entry points"
+      parts:
+        http: { name: Application API, what: 'REST /v1, live updates', code: apps/api/src/http }
+        auth: { name: 'Sign-in & gate', what: 'sessions, the gate', code: apps/api/src/auth }
+        mcp: { name: 'OAuth, MCP, apps API', what: '/oauth, /mcp, /apps/v1', code: apps/api/src/mcp }
+        email: { name: Email in, what: the email handler, code: apps/api/src/email }
+        jobs: { name: Jobs, what: 'queue consumer, cron', code: apps/api/src/jobs }
+      calls:
+        logic:
+          reason: 'Routes are thin adapters: validate, call the account store or the domain, serialize. What a command does is decided below them, so it is the same whichever entry point asked.'
+          source: Hono + Zod on Cloudflare Workers (module layout)
+          agreed: false
+      not allowed:
+        data: The API layer reaches Data directly, past Business logic
+        outside: The API layer calls an outside service directly, past Business logic
+        conn: The API layer uses a connector directly, past Business logic
+
+    logic:
+      name: Business logic
+      parts:
+        accounts: { name: Accounts, what: a Durable Object each, code: apps/api/src/accounts }
+        domain: { name: Domain, what: 'items, panels, filings', code: apps/api/src/domain }
+        connectors: { name: Connector host, what: names the connectors, code: apps/api/src/connectors }
+        ai: { name: AI, what: 'notes, embeddings, dictation', code: [apps/api/src/ai, apps/api/src/embeddings, apps/api/src/transcription] }
+        gateway: { name: Provider gateway, what: every paid call, code: apps/api/src/gateway }
+        engines: { name: Engines, what: the Claude Code trigger, code: apps/api/src/engines }
+      calls:
+        data:
+          reason: "The account store loads what a command needs, hands it to the domain to decide, and writes the answer in one transaction, so a rule is proved on facts handed in and the store's tests prove only the read and the write."
+          source: 'Hono + Zod on Cloudflare Workers ("The account store orchestrates a command; domain/ decides it")'
+          agreed: false
+        conn:
+          reason: The core knows connectors only as the list in one composition-root file, the connector host, so a connector is added, removed or loaded differently by changing that one file.
+          source: 'Connectors: plugin-shaped, host-blind ("Decision: plugin-shaped packages behind an SDK")'
+          agreed: false
+        outside:
+          reason: Every paid provider call goes through the gateway, which retries it and records one row per attempt.
+          source: AI layer ("Every paid provider call goes through the gateway")
+          agreed: false
+      not allowed:
+        api: Business logic depends on the API layer above it
+
+    data:
+      name: Data
+      parts:
+        register: { name: Register, what: 'D1, all accounts', code: apps/api/src/db, store: true }
+        account-store: { name: Account store, what: SQLite per account, store: true }
+        attachments: { name: Attachments, what: R2 bucket, store: true }
+        oauth-grants: { name: OAuth grants, what: KV, store: true }
+        queue: { name: Queue, what: ENRICHMENT, store: true }
+      calls:
+        api:
+          question: 'docs/architecture.md says the queue is consumed by the same Worker, which is "the queue reaches Jobs" under `reached by` above. It gives no reason for code in Data to call the API layer. Is this rule there only so that line is allowed?'
+          agreed: false
+
+    conn:
+      name: Connectors
+      parts:
+        sdk: { name: connector-sdk, what: what a connector is, code: packages/connector-sdk }
+        gmail: { name: gmail, what: implements it, code: packages/connectors/gmail }
+        outlook: { name: outlook, what: implements it, code: packages/connectors/outlook }
+        teams: { name: teams, what: implements it, code: packages/connectors/teams }
+        twilio: { name: twilio, what: implements it, code: packages/connectors/twilio }
+      calls:
+        outside:
+          reason: "A source's quirks stay inside its connector, so only the connector talks to its source, and the core never learns how a source behaves."
+          source: 'Connectors: plugin-shaped, host-blind ("Quirks stay inside the connector")'
+          agreed: false
+      not allowed:
+        logic: A connector depends on Business logic above it
+        api: A connector depends on the API layer above it
+        data: A connector reaches Data directly
+
+    outside:
+      name: Outside services
+      parts:
+        google: { name: Google, what: 'sign-in, Gmail API' }
+        microsoft: { name: Microsoft, what: 'Entra, Graph, Bot' }
+        twilio-verify: { name: Twilio, what: Verify }
+        anthropic: { name: Anthropic, what: Claude API }
+        workers-ai: { name: Workers AI, what: 'embeddings, Whisper' }
+
+  # Rules inside and across the layers, finer than the layers above.
+  rules:
+    - rule: Every part may read packages/shared and env.ts
+      reason: packages/shared is the contract between the web app and the API, and env.ts is the bindings type every API area takes.
+      source: System shape ("packages/shared is the contract")
+      agreed: false
+
+    - rule: 'The API folders import in one direction only: http, mcp, jobs, engines, connectors, email, auth, accounts, db, then ai, embeddings and transcription, then gateway, then domain'
+      check: import-order
+      folder: apps/api/src
+      root files: [worker.ts, index.ts, env.ts, share-target.ts]
+      shared root files: [env.ts]
+      order: [[http], [mcp], [jobs], [engines], [connectors], [email], [auth], [accounts], [db], [ai, embeddings, transcription], [gateway], [domain]]
+      reason: Domain imports nothing from the other layers, which makes its tests a property of the design rather than a mocking exercise.
+      source: Hono + Zod on Cloudflare Workers ("The dependency rule is one-directional")
+      question: This order lets engines and connectors import email and auth, which the layers above forbid (Business logic may not call the API layer). Which is right?
+      agreed: false
+
+    - rule: A connector package imports the connector SDK and nothing else of ours
+      reason: Plain in-app separation erodes one convenient import at a time; a package that may import only the SDK cannot.
+      source: 'Connectors: plugin-shaped, host-blind ("Decision: plugin-shaped packages behind an SDK")'
+      agreed: false
+
+    - rule: Only the composition root imports a connector package
+      check: connector-imports
+      core: [apps/api, apps/web, packages/shared]
+      files: [apps/api/src/connectors/registry.ts]
+      reason: The registry is the sole coupling point, so moving to dynamic loading later is a change to one file.
+      source: 'Connectors: plugin-shaped, host-blind ("Decision: plugin-shaped packages behind an SDK")'
+      agreed: false
+
+    - rule: Only an engine list imports an engine, and an engine list imports no other source
+      check: engine-lists
+      files: [apps/api/src/engines/list.ts, apps/web/src/components/engines.ts]
+      reason: Outbound engines are core, behind a seam inside it, until a second engine makes them an SDK-backed package as connectors are.
+      source: 'Connectors: plugin-shaped, host-blind ("Outbound engines are accepted as core")'
+      agreed: false
+
+    - rule: No core file writes a source's id as a string
+      check: source-names
+      except:
+        apps/api/src/accounts/changes.ts: the store's migrations
+        apps/api/src/accounts/guest-seed-data.ts: the guest demo, content a visitor sees
+        apps/api/src/jobs/guest-arrival.ts: the guest demo
+        packages/shared/src/domain/demo-address.ts: the guest demo's page names
+      reason: The core must not know a source exists, and no core behaviour may be shaped by a particular source's behaviour.
+      source: 'Connectors: plugin-shaped, host-blind ("Requirement (binding)")'
+      agreed: false
+
+    - rule: Only the gateway and the three adapters that hold a client, a binding or an address make a paid call
+      check: paid-calls
+      files: [apps/api/src/gateway/, apps/api/src/ai/index.ts, apps/api/src/embeddings/index.ts, apps/api/src/transcription/index.ts]
+      reason: A provider added later is then recorded from its first call.
+      source: AI layer ("Every paid provider call goes through the gateway")
+      agreed: false
+
+  # Calls the rules do not allow, accepted for the files named and no others.
+  accepted:
+    - from: auth
+      to: register
+      files: [apps/api/src/auth/register.ts, apps/api/src/auth/sign-in-history.ts]
+      reason: 'Sign-in reads and writes the Register directly: every question it asks comes before an account is known, so there is nowhere else to ask it.'
+      agreed: false
+
+  # The sources Cockpit knows, each a connector package or an engine.
+  sources:
+    gmail: { name: Gmail, package: packages/connectors/gmail }
+    outlook: { name: Outlook, package: packages/connectors/outlook }
+    teams: { name: Microsoft Teams, package: packages/connectors/teams }
+    twilio: { name: Text messages, package: packages/connectors/twilio }
+    claude-code: { name: Claude Code, engine: true }
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Only what the widget may call. Its inside is not ruled: nothing checks its Kotlin.
+android-widget:
+  part of: cockpit
+  calls:
+    cockpit:
+      reason: "The widget only reads Panels, so it holds a grant for /apps, which reads Panels and nothing else, and never the session cookie the web app uses."
+      source: 'App login: hand-rolled Google OIDC + own sessions (the OAuth server table: Routing, Two resources)'
+      agreed: false
+    phone:
+      reason: "It signs in through the phone's browser, on Cockpit's consent page, and is returned to an address of its own; PKCE keeps another app claiming that address from using the code."
+      source: 'App login: hand-rolled Google OIDC + own sessions (the OAuth server table: A native client)'
+      agreed: false
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Only how the Monitor is reached. Its inside is not ruled: no reason for its layering is written anywhere, and it is
+# meant to move to a repository of its own. How it reaches Cockpit is under `between services`.
+harness-monitor:
+  reached by:
+    - { caller: Claude Code sessions, at: routes, how: 'POST /v1/usage, the write key' }
+    - { caller: 'CI, nightly jobs', at: routes, how: 'POST /v1/* results, the write key' }
+    - { caller: Readers, at: routes, how: 'GET pages, cached at the edge' }
+    - { caller: Cloudflare cron, at: routes, how: scheduled() }
+
+  rules:
+    - rule: Every caller arrives at the routes, where the write key is checked
+      reason: One write key adds rows, re-places stored ones and starts jobs, and reading the pages needs none.
+      source: The Harness Monitor ("One write key")
+      agreed: false
