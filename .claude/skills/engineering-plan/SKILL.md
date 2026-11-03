@@ -132,7 +132,7 @@ One entry per decision, four lines at most: the decision as an arrangement of pa
 4. The decisions.
 5. The **Schema changes**, as their own section.
 
-**A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause; **a drawing that changed a model reaches the model in the pull request that builds it**: a new area or a moved layer is described in `tools/architecture/description.yml`, and the schema file is rewritten by its test (`tools/architecture/README.md`, "Databases"), so the architecture page stays what the next design is a diff to. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
+**A decision that outlives the issue goes to `architecture.md`, edited in place and only once built**, as the rule now stands with its reason in a clause; **a drawing that changed a model reaches the model in the pull request that builds it**: a new area or a moved layer is described in `tools/architecture/description.yml` (how it is drawn) and, where it changes a layer, a call or a rule, in `docs/architecture.yml` (what the design is, with its reason), and the schema file is rewritten by its test (`tools/architecture/README.md`, "Databases"), so the architecture page stays what the next design is a diff to. Nothing goes to `docs/adr/`; what was weighed stays in the issue.
 
 **Do not slice in this phase.** Where a decision forces a seam (an expand-then-contract migration, a queue between two parts), say so in its entry.
 

@@ -83,7 +83,7 @@ Two of its rules are restated here because this file is in context always and th
 
 | Change | Runs |
 |---|---|
-| only `docs/`, `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no browser pass |
+| only `docs/` (not `docs/architecture.yml`, which CI reads), `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no browser pass |
 | only test files, or a test deletion | that package's suite and `pnpm test:scripts`; no browser pass |
 | anything touching product code | everything the definition of done lists today |
 
