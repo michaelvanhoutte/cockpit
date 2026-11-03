@@ -50,7 +50,7 @@ describe('Each Design tab draws one numbered arrow per allowed call and one card
 
   it('opens no group for a layer that calls nothing', () => {
     const text = textOf(pageOf());
-    expect(text).toContain('Clients call API layer, and nothing else.');
+    expect(text).toContain('Clients call the API layer, and nothing else.');
     expect(text).not.toContain('Outside services call');
     expect(text).not.toContain('Outside services calls');
   });
@@ -123,7 +123,7 @@ describe('Each rule shows its mark, and the count line totals the marks', () => 
 
 describe('Each group opens with one sentence naming every layer its start layer may call, then "and nothing else"', () => {
   it.each([
-    { situation: 'one call', from: 'Clients', targets: ['the API layer'], expected: 'Clients call the API layer, and nothing else.' },
+    { situation: 'one call', from: 'Clients', targets: ['API layer'], expected: 'Clients call the API layer, and nothing else.' },
     { situation: 'a singular start layer', from: 'Business logic', targets: ['Data'], expected: 'Business logic calls Data, and nothing else.' },
     { situation: 'three calls', from: 'Business logic', targets: ['Data', 'Connectors', 'Outside services'], expected: 'Business logic calls Data, Connectors and Outside services, and nothing else.' },
     { situation: 'two calls', from: 'Android widget', targets: ['Cockpit', 'On the phone'], expected: 'Android widget calls Cockpit and On the phone, and nothing else.' },
@@ -133,7 +133,7 @@ describe('Each group opens with one sentence naming every layer its start layer 
 
   it('names a layer by its title up to the colon', () => {
     expect(textOf(pageOf())).toContain('Business logic calls Data and Outside services, and nothing else.');
-    expect(textOf(pageOf())).toContain('API layer calls Business logic, and nothing else.');
+    expect(textOf(pageOf())).toContain('The API layer calls Business logic, and nothing else.');
   });
 });
 
@@ -220,5 +220,24 @@ describe('A reason holding markup is shown as written, never as markup', () => {
     });
     expect(html).not.toContain('<script>alert');
     expect(html).toContain('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp;');
+  });
+});
+
+describe('A chip description that does not fit ends in an ellipsis and carries its full text as the tooltip', () => {
+  const sub = 'notes, embeddings, dictation, and a good deal more besides';
+  const svgOf = (html) => html.match(/<svg[\s\S]*?<\/svg>/)[0];
+
+  it('shows no sign of a cut when the description fits', () => {
+    const svg = svgOf(pageOf());
+    expect(svg).not.toContain('…</text>');
+  });
+
+  it.each([
+    { situation: 'the Design tab', render: (overrides) => pageOf(overrides) },
+    { situation: 'the Logical tab', render: (overrides) => renderLogicalPage(modelOf(overrides)) },
+  ])('on $situation', ({ render }) => {
+    const svg = svgOf(render({ layers: design().layers.map((layer) => (layer.id === 'logic' ? { ...layer, items: [[chip('accounts', { folders: ['apps/api/src/accounts'], sub })]] } : layer)) }));
+    expect(svg).toMatch(/<text class="nc-s"[^>]*>[^<]*…<\/text>/);
+    expect(svg).toContain(`accounts - ${sub}`);
   });
 });

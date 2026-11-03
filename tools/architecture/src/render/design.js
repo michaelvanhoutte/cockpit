@@ -43,8 +43,11 @@ export function countLine(entries) {
 /** One sentence naming every layer a start layer may call: "Clients call the API layer, and nothing else." */
 export function callsSentence(from, targets) {
   const verb = /s$/i.test(from.trim().split(/\s+/).at(-1)) ? 'call' : 'calls';
-  const list = targets.length === 1 ? targets[0] : `${targets.slice(0, -1).join(', ')} and ${targets.at(-1)}`;
-  return `${from} ${verb} ${list}, and nothing else.`;
+  // A name ending in "layer" takes "the", as subject and as object.
+  const named = (name, article) => (/\blayer$/i.test(name.trim()) ? `${article} ${name}` : name);
+  const them = targets.map((target) => named(target, 'the'));
+  const list = them.length === 1 ? them[0] : `${them.slice(0, -1).join(', ')} and ${them.at(-1)}`;
+  return `${named(from, 'The')} ${verb} ${list}, and nothing else.`;
 }
 
 const MARKS = {
@@ -187,7 +190,7 @@ export function renderServicesDesignPage(model) {
 
   const clientName = new Map(map.clients.map((each) => [each.id, each.name]));
   const who = (id) => nameOf.get(id) ?? clientName.get(id) ?? id;
-  const groups = groupsOf(called.map((rule) => ({ n: rule.n, from: rule.from, to: rule.to, entry: rule, text: rule.rule })), (id) => nameOf.get(id));
+  const groups = groupsOf(called.map((rule) => ({ n: rule.n, from: rule.from, to: rule.to, entry: rule, text: rule.rule })), who);
   const generalHtml = general.length ? `<h3>Between every pair of services</h3>${general.map((rule) => ruleCard({ title: rule.rule, entry: rule })).join('')}` : '';
 
   const body = `${LEGEND}<div class="diagram">${drawing.svg}</div>

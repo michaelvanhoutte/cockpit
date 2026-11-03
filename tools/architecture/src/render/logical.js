@@ -16,7 +16,7 @@ import { accTable, devData, dialog } from './deviations.js';
 import { linksFor, linkPaths, commitLineOf } from './links.js';
 import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
 import { crumbTrail, prose, switchNav, trailOf } from './shell.js';
-import { esc, wrap } from './svg.js';
+import { esc, firstLine, wrap } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -228,12 +228,14 @@ export function renderNested(spec, links) {
   // The chips, on top.
   for (const [id, R] of rect) {
     if (R.isBox) continue;
-    const { chip } = R;
+    let { chip } = R;
     const cls = { component: 'nc', client: 'nc-cl', store: 'nc-st', outside: 'nc-ext' }[chip.kind];
-    const name = wrap(chip.name, R.w - 12, 6.9)[0];
-    const sub = wrap(chip.sub ?? '', R.w - 12, 5.6)[0] ?? '';
+    const name = firstLine(chip.name, R.w - 12, 6.9);
+    const sub = firstLine(chip.sub ?? '', R.w - 12, 5.6);
+    // A cut name or description ends in an ellipsis, and its full text is the tooltip.
+    if (name.cut || sub.cut) chip = { ...chip, tip: [[chip.name, chip.sub].filter(Boolean).join(' - '), chip.tip || (chip.href ? `Open ${chip.name}` : '')].filter(Boolean).join('\n') };
     // A store or an outside service that is a page of its own opens it, and its name is blue: a page one level down.
-    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t${chip.href ? ' t-link' : ''}" x="${R.x + 8}" y="${R.y + 19}">${esc(name)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub)}</text>`;
+    const body = `<rect class="${cls}" x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" rx="${chip.kind === 'client' ? 14 : 6}"/><text class="nc-t${chip.href ? ' t-link' : ''}" x="${R.x + 8}" y="${R.y + 19}">${esc(name.text)}</text><text class="nc-s" x="${R.x + 8}" y="${R.y + 35}">${esc(sub.text)}</text>`;
     parts.push(`<g class="node n-${id}">${chip.href ? `<a href="${esc(chip.href)}">${body}<title>${esc(chip.tip || `Open ${chip.name}`)}</title></a>` : codeLinked(chip, body, R.x + R.w, R.y, links)}</g>`);
   }
   const W = spec.side ? SX + SW + 20 : X0 + MW + 60;
