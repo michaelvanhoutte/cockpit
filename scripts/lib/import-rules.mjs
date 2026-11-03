@@ -328,6 +328,7 @@ export function shrinkFailures(allowlist, baseAllowlist) {
     .filter((entry) => !base.has(keyOf(entry)))
     .map((entry) => `accepted entry is not in the merge base's accepted list, the list may only shrink: ${keyOf(entry)}`);
 }
+
 /**
  * What a change relaxed in the rules themselves, against the merge base's copy.
  * Additions are fine (a source, a core folder, an area anywhere that keeps every
@@ -500,7 +501,12 @@ export function shapeFailures(file) {
  * @returns {Rules}
  */
 export function readRules(root) {
-  const readText = (path) => (existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : null);
+  const readText = (path) => {
+    if (existsSync(join(root, path))) return readFileSync(join(root, path), 'utf8');
+    // A source whose manifest is gone would be guarded under its folder path, not its package name.
+    if (path.endsWith('/package.json')) throw new Error(`${RULES_PATH}: ${path} does not exist, so the source's package name cannot be read`);
+    return null;
+  };
   return rulesFromFile(parseRulesFile(readFileSync(join(root, RULES_PATH), 'utf8')), readText);
 }
 

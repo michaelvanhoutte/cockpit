@@ -177,6 +177,11 @@ describe('productChanged', () => {
     }
   });
 
+  it('runs them on the rules file, since the import and paid-call checks read it from docs/', () => {
+    assert.equal(productChanged(['docs/architecture.yml']), true);
+    assert.equal(productChanged(['docs/architecture.md']), false);
+  });
+
   it('answers the same question the run log answers, so the two cannot disagree', () => {
     for (const paths of [['docs/a.md'], ['docs/a.md', 'apps/web/src/main.tsx'], ['apps/web/src/main.tsx'], [], ['  ']]) {
       // Mirrors productChanged's own definition exactly - no trim-based
