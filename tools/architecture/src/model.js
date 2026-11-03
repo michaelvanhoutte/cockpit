@@ -21,6 +21,7 @@ import { parseDescription } from './description.js';
 import { ReadError } from './errors.js';
 import { buildDependencies } from './dependencies.js';
 import { buildLogical } from './logical.js';
+import { parseRules } from './rules.js';
 import { buildContext, buildModules } from './modules.js';
 import { buildDeployments, buildServiceMap } from './services.js';
 import { buildTables } from './tables.js';
@@ -250,10 +251,10 @@ function pagesOf(steps) {
 }
 
 /**
- * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
+ * @param {{ wrangler: { file: string, text: string }, workflows: { file: string, text: string }[], description: { file: string, text: string }, rules?: { file: string, text: string }|null, candidates?: object[], commit: string|null, date: string|null, repo?: string|null }} input
  */
-export function buildModel({ wrangler, workflows, description: descriptionFile, candidates = [], callerCode = {}, designFiles = {}, deploymentFiles = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
-  const description = parseDescription(descriptionFile.file, descriptionFile.text);
+export function buildModel({ wrangler, workflows, description: descriptionFile, rules: rulesFile = null, candidates = [], callerCode = {}, designFiles = {}, deploymentFiles = {}, schema = null, monitorSchema = null, definitionFiles = [], commit, date, repo = null }) {
+  const description = parseDescription(descriptionFile.file, descriptionFile.text, rulesFile ? parseRules(rulesFile.file, rulesFile.text) : null);
   const environments = environmentsOf(parseWranglerConfig(wrangler.file, wrangler.text));
   const declared = new Set(environments.map((each) => each.name));
   const parsed = workflows.map((each) => parseWorkflow(each.file, each.text)).sort((a, b) => a.file.localeCompare(b.file));

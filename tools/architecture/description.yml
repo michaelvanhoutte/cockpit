@@ -1,6 +1,6 @@
 # What the architecture report cannot read from the code: each area's wording,
-# where it sits on the Modules view, who the Context view shows, and the rules
-# the marks come from. tools/architecture/README.md says how it is read.
+# where it sits on the Modules view, who the Context view shows, how the design is drawn,
+# and the rules the marks come from. The design itself is docs/architecture.yml. tools/architecture/README.md says how it is read.
 
 # Where to look for areas. `one` is a folder drawn as a single area; `folders`
 # is each folder inside it (and, with rootFiles, the files directly in it as
@@ -174,127 +174,95 @@ layers:
         name: 'connectors/twilio'
         description: 'The Twilio connector: a phone is connected by confirming a code Twilio Verify texts to it.'
 
-# The design: the layers Cockpit is meant to have, drawn on the Logical page with the code's own lines laid
-# over them. A component is made of `folders` (area paths, as the layers above give them), and every folder
-# the code has is in exactly one component or in `noLine`, which the architecture tool's test checks.
-# A store or outside service has a `marker`, a regular expression the code is searched for: a line of code
-# (never a comment) that matches means the file reaches it, and `how` says in what words.
+# How the design is drawn. What the design is (each layer's name and parts, what a layer may call, what is not allowed, the
+# accepted deviations, who reaches it) is in docs/architecture.yml, and this file names the same ids: a layer or a part in
+# one and not the other fails the run. A part's name, its description and its folders come from the rules file, so a chip
+# here gives only its `id` and how it is drawn; a store or an outside service has a `marker`, a regular expression the code
+# is searched for (a line of code, never a comment, that matches means the file reaches it, and `how` says in what words).
+# A chip with a `caller` is a box for something that reaches Cockpit and is no part of it, named as `reached by` names it.
 design:
   # Rows run top to bottom by `row`; two layers on one row share it by `share`. `alignedWith` draws a layer
   # as a column beside the row of another. `drawInside` draws the lines inside that layer, which are otherwise
   # only counted on its title. Each `items` entry is one row of chips.
   layers:
     - id: clients
-      title: Clients
       kind: clients
       row: 0
       items:
-        - - { id: web, name: Web app, sub: 'React PWA, in the browser', folders: [apps/web/src] }
-          - { id: widget, name: Android widget, sub: on the home screen, kind: client, href: service-android-widget.html, tip: Open the widget's own diagram }
-          - { id: agents, name: MCP clients, sub: 'Claude.ai, Claude Code', kind: client }
-          - { id: msteams, name: Microsoft Teams, sub: a message action, kind: client }
-          - { id: mail, name: Mail senders, sub: Email Routing, kind: client }
-          - { id: monitor, name: Harness Monitor, sub: a service of its own, kind: client }
-          - { id: staging, name: 'Staging, CI', sub: Claude call records, kind: client }
+        - - { id: web }
+          - { id: widget, kind: client, href: service-android-widget.html, tip: Open the widget's own diagram }
+          - { id: agents, caller: 'MCP clients (Claude.ai, Claude Code)', name: MCP clients, sub: 'Claude.ai, Claude Code', kind: client }
+          - { id: msteams, caller: Microsoft Teams, name: Microsoft Teams, sub: a message action, kind: client }
+          - { id: mail, caller: Mail senders, name: Mail senders, sub: Email Routing, kind: client }
+          - { id: monitor, caller: Harness Monitor, name: Harness Monitor, sub: a service of its own, kind: client }
+          - { id: staging, caller: 'Staging, CI', name: 'Staging, CI', sub: Claude call records, kind: client }
 
     - id: api
-      title: "API layer: the Worker's entry points"
       href: cockpit-layer-api.html
       row: 1
       items:
-        - - { id: http, name: Application API, sub: 'REST /v1, live updates', folders: [apps/api/src/http] }
-          - { id: auth, name: 'Sign-in & gate', sub: 'sessions, the gate', folders: [apps/api/src/auth] }
-          - { id: mcp, name: 'OAuth, MCP, apps API', sub: '/oauth, /mcp, /apps/v1', folders: [apps/api/src/mcp] }
-          - { id: email, name: Email in, sub: the email handler, folders: [apps/api/src/email] }
-          - { id: jobs, name: Jobs, sub: 'queue consumer, cron', folders: [apps/api/src/jobs] }
+        - - { id: http }
+          - { id: auth }
+          - { id: mcp }
+          - { id: email }
+          - { id: jobs }
 
     - id: logic
-      title: Business logic
       href: cockpit-layer-logic.html
       row: 2
       items:
-        - - { id: accounts, name: Accounts, sub: a Durable Object each, folders: [apps/api/src/accounts] }
-          - { id: domain, name: Domain, sub: 'items, panels, filings', folders: [apps/api/src/domain] }
-          - { id: connectors, name: Connector host, sub: names the connectors, folders: [apps/api/src/connectors] }
-          - { id: ai, name: AI, sub: 'notes, embeddings, dictation', folders: [apps/api/src/ai, apps/api/src/embeddings, apps/api/src/transcription] }
-          - { id: gateway, name: Provider gateway, sub: every paid call, folders: [apps/api/src/gateway] }
-          - { id: engines, name: Engines, sub: the Claude Code trigger, folders: [apps/api/src/engines] }
+        - - { id: accounts }
+          - { id: domain }
+          - { id: connectors }
+          - { id: ai }
+          - { id: gateway }
+          - { id: engines }
 
     - id: data
-      title: Data
       href: cockpit-layer-data.html
       row: 3
       share: 0.6
       items:
-        - - { id: d1, name: Register, sub: 'D1, all accounts', kind: store, href: db-register.html, tip: 'Open its tables. Its Drizzle schema is apps/api/src/db.', folders: [apps/api/src/db], marker: '\benv\??\.DB\b', how: SQL }
-          - { id: do, name: Account store, sub: SQLite per account, kind: store, href: db-account-store.html, tip: Open its tables, marker: '\b(ctx|this\.ctx|state)\.storage\.sql\b|storage\.sql\b', how: SQL }
-          - { id: r2, name: Attachments, sub: R2 bucket, kind: store, marker: '\benv\??\.ATTACHMENTS\b', how: objects }
-          - { id: kv, name: OAuth grants, sub: KV, kind: store, marker: '\bOAUTH_KV\b', how: keys }
-          - { id: queue, name: Queue, sub: ENRICHMENT, kind: store, marker: '\benv\??\.ENRICHMENT\b', how: enqueue }
+        - - { id: register, href: db-register.html, tip: 'Open its tables. Its Drizzle schema is apps/api/src/db.', marker: '\benv\??\.DB\b', how: SQL }
+          - { id: account-store, href: db-account-store.html, tip: Open its tables, marker: '\b(ctx|this\.ctx|state)\.storage\.sql\b|storage\.sql\b', how: SQL }
+          - { id: attachments, marker: '\benv\??\.ATTACHMENTS\b', how: objects }
+          - { id: oauth-grants, marker: '\bOAUTH_KV\b', how: keys }
+          - { id: queue, marker: '\benv\??\.ENRICHMENT\b', how: enqueue }
 
     - id: conn
-      title: Connectors
       href: cockpit-layer-connectors.html
       row: 3
       share: 0.4
       drawInside: true
       items:
-        - - { id: sdk, name: connector-sdk, sub: what a connector is, folders: [packages/connector-sdk] }
-        - - { id: gmail, name: gmail, sub: implements it, folders: [packages/connectors/gmail] }
-          - { id: outlook, name: outlook, sub: implements it, folders: [packages/connectors/outlook] }
-          - { id: teams, name: teams, sub: implements it, folders: [packages/connectors/teams] }
-          - { id: twilio, name: twilio, sub: implements it, folders: [packages/connectors/twilio] }
+        - - { id: sdk }
+        - - { id: gmail }
+          - { id: outlook }
+          - { id: teams }
+          - { id: twilio }
 
     - id: outside
-      title: Outside services
       kind: outside
       alignedWith: logic
       items:
-        - - { id: google, name: Google, sub: 'sign-in, Gmail API', kind: outside, marker: 'accounts\.google\.com|googleapis\.com', how: HTTPS }
-          - { id: microsoft, name: Microsoft, sub: 'Entra, Graph, Bot', kind: outside, marker: 'login\.microsoftonline\.com|graph\.microsoft\.com|botframework\.com', how: HTTPS }
-          - { id: twilio-x, name: Twilio, sub: Verify, kind: outside, marker: 'verify\.twilio\.com', how: HTTPS }
-          - { id: anthropic, name: Anthropic, sub: Claude API, kind: outside, marker: '@anthropic-ai/sdk|api\.anthropic\.com', how: Claude API }
-          - { id: workersai, name: Workers AI, sub: 'embeddings, Whisper', kind: outside, marker: '\benv\??\.AI\b', how: AI binding }
+        - - { id: google, marker: 'accounts\.google\.com|googleapis\.com', how: HTTPS }
+          - { id: microsoft, marker: 'login\.microsoftonline\.com|graph\.microsoft\.com|botframework\.com', how: HTTPS }
+          - { id: twilio-verify, marker: 'verify\.twilio\.com', how: HTTPS }
+          - { id: anthropic, marker: '@anthropic-ai/sdk|api\.anthropic\.com', how: Claude API }
+          - { id: workers-ai, marker: '\benv\??\.AI\b', how: AI binding }
 
-  # Which layer may call which. A line inside one layer is always allowed.
-  mayCall:
-    clients: [api]
-    api: [logic]
-    logic: [data, conn, outside]
-    conn: [outside]
-    data: [api]
-
-  # What a line the design does not draw breaks, in words, by the pair of layers it joins.
-  breaks:
-    'api>data': The API layer reaches Data directly, past Business logic
-    'api>outside': The API layer calls an outside service directly, past Business logic
-    'api>conn': The API layer uses a connector directly, past Business logic
-    'logic>api': Business logic depends on the API layer above it
-    'conn>logic': A connector depends on Business logic above it
-    'conn>api': A connector depends on the API layer above it
-    'conn>data': A connector reaches Data directly
-    'clients>logic': A client reaches past the API layer
-
-  # Deviations accepted with a reason, changed by pull request. Each names the two components, the files it
-  # covers and why: the same line from a file it does not name is red again, and one the code no longer
-  # needs is listed as no longer needed.
-  accepted:
-    - from: auth
-      to: d1
-      files: [apps/api/src/auth/register.ts, apps/api/src/auth/sign-in-history.ts]
-      reason: 'Sign-in reads and writes the Register directly: every question it asks comes before an account is known, so there is nowhere else to ask it.'
-
-  # How callers talk to the service. A request's path is not an import, so each is declared; where this
-  # repository holds the caller's code, `code` says where to look for `marker` in it.
+  # How each caller is looked for in its own code, by the name `reached by` gives it. A request's path is not an import,
+  # so where this repository holds the caller's code, `code` says where to look for `marker` in it. What it reaches and
+  # in what words are the rules file's.
   callers:
-    - { from: web, to: http, how: 'REST /v1 · SSE · cookie', code: { folder: apps/web/src, marker: '[''`"]/v1/' } }
-    - { from: widget, to: mcp, how: 'OAuth · REST /apps/v1', code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, marker: '/apps/v1|/oauth/', extensions: ['.kt'] } }
-    - { from: agents, to: mcp, how: 'MCP over HTTP · OAuth' }
-    - { from: msteams, to: http, how: Bot Framework webhook }
-    - { from: mail, to: email, how: an email event }
-    - { from: monitor, to: http, how: GET /v1/usage-records, code: { folder: apps/harness-monitor/src, marker: usage-records } }
-    - { from: staging, to: http, how: POST /v1/usage-records, code: { folder: apps/api/src, marker: '\bPRODUCTION\b' } }
-    - { from: queue, to: jobs, how: consumed by }
+    - { caller: Web app, from: web, code: { folder: apps/web/src, marker: '[''`"]/v1/' } }
+    - { caller: Android widget, from: widget, code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, marker: '/apps/v1|/oauth/', extensions: ['.kt'] } }
+    - { caller: 'MCP clients (Claude.ai, Claude Code)', from: agents }
+    - { caller: Microsoft Teams, from: msteams }
+    - { caller: Mail senders, from: mail }
+    - { caller: Harness Monitor, from: monitor, code: { folder: apps/harness-monitor/src, marker: usage-records } }
+    - { caller: 'Staging, CI', from: staging, code: { folder: apps/api/src, marker: '\bPRODUCTION\b' } }
+    - { caller: the queue, from: queue }
 
   # Folders in no component: read by nearly everything, so drawn as no line.
   noLine:
@@ -302,14 +270,14 @@ design:
     - { folder: apps/api/src/*, name: env.ts, readByEveryone: true }
     - { folder: packages/config, name: packages/config }
 
-# The services beyond Cockpit, each with a design written as `design` above and drawn on a page of its own,
-# service-<id>.html. A service that keeps its files in one folder names file-name patterns in it (`in`, `files`;
-# `*` is any run of characters in the name) instead of folders: every source file in that folder must be matched by
-# exactly one component, and a pattern must match a file, or the architecture tool's test fails. `href` makes a
-# store or an outside service open a page of its own.
+# The services beyond Cockpit, each drawn on a page of its own, service-<id>.html. A service that keeps its files in one
+# folder names file-name patterns in it (`in`, `files`; `*` is any run of characters in the name) instead of folders: every
+# source file in that folder must be matched by exactly one component, and a pattern must match a file, or the architecture
+# tool's test fails. `href` makes a store or an outside service open a page of its own. The rules file rules neither inside:
+# it keeps what the widget may call and how the Monitor is reached, so both are drawn by their boundary, and the layers and
+# parts below only say where the code is found.
 otherServices:
   - id: harness-monitor
-    name: Harness Monitor
     intro: A second Worker with its own D1 database, in `apps/harness-monitor`.
     design:
       layers:
@@ -365,29 +333,18 @@ otherServices:
               - { id: litellm, name: LiteLLM price list, sub: a JSON file on GitHub, kind: outside, marker: 'raw\.githubusercontent\.com', how: HTTPS }
               - { id: cockpit, name: Cockpit, sub: its Application API, kind: outside, href: service-cockpit.html, marker: usage-records, how: HTTPS }
 
-      # Routes hand off to the reports and jobs, which alone read and write the database.
-      mayCall:
-        clients: [routes]
-        routes: [reports, shared]
-        reports: [data, outside, shared]
-
-      breaks:
-        'routes>data': A route reads or writes the database itself, past the reports
-        'routes>outside': A route calls an outside service itself, past the reports
-        'reports>routes': A report depends on the routes above it
-        'shared>reports': The shared look depends on a report
-        'shared>data': The shared look reads the database
-
+      # How each caller is looked for, by the name `reached by` gives it; the part it reaches is checked against `at`.
       callers:
-        - { from: hook, to: entry, how: 'POST /v1/usage · write key' }
-        - { from: ci, to: entry, how: 'POST /v1/* results · write key' }
-        - { from: readers, to: entry, how: 'GET pages, edge-cached' }
-        - { from: cron, to: entry, how: scheduled() }
+        - { caller: Claude Code sessions, from: hook, to: entry }
+        - { caller: 'CI, nightly jobs', from: ci, to: entry }
+        - { caller: Readers, from: readers, to: entry }
+        - { caller: Cloudflare cron, from: cron, to: entry }
 
   # The Android widget: its box in Cockpit's diagram, opened to show its parts. A `service` layer is that box, a
   # `context` layer the dotted box of what it talks to (its components are drawn for their links to the code and are
   # placed by nothing). `extensions` are the source files the patterns match, and `findLines: names` finds the lines
   # between the parts by name: a part uses another when one of its files names a class or function the other defines.
+  # What the `service` layer may call is the rules file's, and each layer after it is one of those calls.
   - id: android-widget
     name: Android widget
     intro: "The widget box from Cockpit's diagram, opened: its parts and how they use each other, found in the Kotlin. Its one line out goes where it goes on Cockpit's diagram, to the OAuth, MCP and apps API, never the Application API the web app uses. In `apps/android-widget`."
@@ -430,9 +387,6 @@ otherServices:
           items:
             - - { id: browser, name: "The phone's browser", sub: "Cockpit's consent page", kind: outside }
 
-      mayCall:
-        widget: [cockpit, phone]
-
       callers:
         - { from: client, to: ctx-mcp, how: Bearer, code: { folder: apps/android-widget/app/src/main/java/com/conselit/cockpit/widget, extensions: ['.kt'], only: [CockpitClient.kt], addresses: '"\$root(/[a-z0-9/]+)"' } }
         - { from: signin, to: browser, how: '/oauth/authorize, PKCE' }
@@ -460,8 +414,9 @@ deployments:
       - { name: staging, runsOn: "an engineer's phone", by: './gradlew assembleStagingDebug, by hand', settings: { reads: Cockpit staging }, storage: [{ kind: On the phone, name: SharedPreferences }] }
 
 # The services page, written by hand: who uses the services, the box each is drawn as with the page every chip opens,
-# the lines between them, and the code each service is made of, which the check that no service imports another's code
-# is made against. A call with `foundBy` is looked for in the caller's own code, as the design's caller of that name is.
+# the lines between them (a call from one service to another is a rule of docs/architecture.yml), and the packages each
+# service is imported by; the folders it is made of are that file's `code`. Together they are what the check that no
+# service imports another's code is made against. A call with `foundBy` is looked for in the caller's own code, as the design's caller of that name is.
 serviceMap:
   clients:
     - { id: people, name: People, sub: 'a browser, a phone' }
@@ -496,5 +451,5 @@ serviceMap:
     - { from: ci, to: cockpit, how: POST /v1/usage-records }
     - { from: harness-monitor, to: cockpit, how: 'its API: /v1/usage-records', foundBy: monitor }
   owns:
-    cockpit: { folders: [apps/api, apps/web, apps/android-widget, packages], packages: ['@cockpit/'] }
-    harness-monitor: { folders: [apps/harness-monitor], packages: ['@harness-monitor/'] }
+    cockpit: { packages: ['@cockpit/'] }
+    harness-monitor: { packages: ['@harness-monitor/'] }

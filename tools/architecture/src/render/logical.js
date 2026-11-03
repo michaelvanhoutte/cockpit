@@ -272,7 +272,7 @@ export const NLEGEND = `<div class="legend">
 /** The design itself, as text: what each layer holds and what it may call. */
 function designTable(logical, { layerById }) {
   const holds = (layer) => layer.items.flat().map((chip) => esc(chip.name)).join(', ');
-  const mayCall = (layer) => logical.mayCall.filter(([a]) => a === layer.id).map(([, b]) => esc(layerById.get(b).title)).join(', ') || '<span class="dim">nothing</span>';
+  const mayCall = (layer) => (logical.unruled ? '<span class="dim">not ruled: drawn by its boundary</span>' : logical.mayCall.filter(([a]) => a === layer.id).map(([, b]) => esc(layerById.get(b).title)).join(', ') || '<span class="dim">nothing</span>');
   return `<div class="scroll"><table class="flows"><tr><th>Layer</th><th>Holds</th><th>May call</th></tr>${logical.layers.map((layer) => `<tr><td><b>${esc(layer.title)}</b></td><td>${holds(layer)}</td><td>${mayCall(layer)}</td></tr>`).join('')}</table></div>`;
 }
 
@@ -323,10 +323,10 @@ export function renderLogicalPage(model, service = {}) {
   });
   const standfirst = `${service.intro ? `${prose(service.intro)} ` : ''}The layers it is meant to have, drawn clean, with every line ${service.intro ? 'its' : 'the'} code really has laid over them. <b class="bad">${plural(count, 'line')}</b> in the code ${count === 1 ? 'is' : 'are'} not in the design.${readByAll.length ? ` ${readByAll.join(' and ')} ${readByAll.length === 1 ? 'is' : 'are'} read by nearly everything and drawn as no line.` : ''}`;
   // Cockpit's page always shows the sections for acceptances and callers; another service's shows them once it has something to say.
-  const designFile = 'tools/architecture/description.yml';
+  const designFile = 'docs/architecture.yml';
   const own = service.logical !== undefined && service.id !== 'cockpit';
   const acceptances = !own || logical.accepted.length > 0 || logical.stale.length > 0
-    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, beside the design.</p>${accTable(logical, spec, links)}`
+    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(designFile)}, the rules file.</p>${accTable(logical, spec, links)}`
     : '';
   const callers = !own || logical.callers.some((caller) => caller.status !== 'elsewhere')
     ? `<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}`
@@ -346,7 +346,7 @@ export function renderLogicalPage(model, service = {}) {
 ${acceptances}
 <h2>In the design, not in the code</h2>${missTable(logical, spec)}
 ${callers}
-<h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}. A line inside one layer is always allowed.</p>${designTable(logical, spec)}
+<h2>The design it is compared against</h2><p class="sectionnote">Written by hand in ${links.file(designFile)}${own && logical.unruled ? ', for how it is reached; its layers are only drawn' : ''}, and drawn by ${links.file('tools/architecture/description.yml')}. ${logical.unruled ? 'Every line between its layers is allowed.' : 'A line inside one layer is always allowed.'}</p>${designTable(logical, spec)}
 ${dialog(devData({ ...spec, commit: drawnFrom.commit }))}`;
 
   return `<!doctype html>

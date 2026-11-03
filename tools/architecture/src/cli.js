@@ -81,7 +81,7 @@ export async function main(argv) {
     const checkout = readCheckout(root);
     model = buildModel(checkout);
     // Only the page shows the comparison, so only the page pays for the second drawing.
-    const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
+    const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, rules: checkout.rules, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
     page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
     if (!args.json) diagramPages = { ...renderDiagramPages(model), ...renderTablePages(model), ...renderServicePages(model), ...Object.fromEntries(servicesOf(model).map((service) => [service.file, renderLogicalPage(model, service)])) };

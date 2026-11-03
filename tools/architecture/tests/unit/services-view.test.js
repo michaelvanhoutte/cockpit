@@ -7,7 +7,7 @@ import { crossImports, sharedStores } from '../../src/services.js';
 import { renderHtml } from '../../src/render/html.js';
 import { renderLogicalPage, servicesOf } from '../../src/render/logical.js';
 import { renderServicePages } from '../../src/render/services.js';
-import { descriptionFile } from '../support/description.js';
+import { descriptionFile, readDescription, rulesFile } from '../support/description.js';
 
 const chip = (id, extra = {}) => ({ id, name: id, ...extra });
 const drawnFrom = { commit: 'abc1234def5678', date: '2026-10-08T13:03:04+02:00', repo: 'o/r' };
@@ -99,6 +99,7 @@ function modelOf({ files = {}, monitorConfig = MONITOR_CONFIG, deployments = DEP
     wrangler: { file: 'apps/api/wrangler.jsonc', text: COCKPIT_CONFIG },
     workflows: WORKFLOWS,
     description: descriptionFile({ design, otherServices: [monitorDesign, WIDGET], deployments, serviceMap: SERVICE_MAP }),
+    rules: rulesFile({ design, otherServices: [monitorDesign, WIDGET], deployments, serviceMap: SERVICE_MAP }),
     candidates: [
       folder('apps/web/src', on('apps/web/src', {})),
       folder('apps/api/src/http', on('apps/api/src/http', { 'app.ts': "import '../accounts/store.js';" })),
@@ -338,7 +339,7 @@ describe('The services page is linked from the report, and its crumbs lead back'
 });
 
 describe('The services sections of the description file are checked like the rest of it', () => {
-  const read = (overrides) => parseDescription('d.yml', descriptionFile(overrides).text);
+  const read = (overrides) => readDescription(overrides);
 
   it.each([
     { situation: 'a deployment names a service the file does not describe', overrides: { deployments: [{ service: 'ghost', config: 'a.jsonc' }] } },

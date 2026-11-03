@@ -29,7 +29,7 @@ is nothing to compare the section says which and lists nothing, and the run goes
 | no merge since | nothing changed |
 
 The earlier commit is checked out into a temporary `git worktree`, removed afterwards. A commit with no description
-file is drawn with the current one, and the section says so; a commit with no schema file is drawn without its
+file, or one that predates the rules file, is drawn with the current description and rules, and the section says so; a commit with no schema file is drawn without its
 databases; one missing the Worker config or the workflows cannot be drawn.
 
 **Context** shows the people and outside services [`description.yml`](description.yml) declares, around Cockpit.
@@ -176,8 +176,9 @@ of the same family (the part of the name before its first underscore) points at 
 
 ## Cockpit's logical page
 
-`service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have (the `design`
-section of `description.yml`) as nested layers, with the code's own lines laid over it. The report links the services page, which opens it.
+`service-cockpit.html`, written beside the report, draws the design Cockpit is meant to have as nested layers, with the code's own lines laid over it. The report links the services page, which opens it.
+
+**The design is `docs/architecture.yml`; `description.yml` is how it is drawn.** The rules file holds the services and the calls between them, Cockpit's layers with their parts, what each layer may call (`calls`), what is not allowed (`not allowed`), the accepted deviations and who reaches Cockpit (`reached by`). The tool reads it with its own reader (`src/rules.js`), since the nightly run installs the tool alone, and joins it to the `design` section of `description.yml` (`src/compose.js`). That section keeps only where each box sits (`row`, `share`, `alignedWith`, `drawInside`, `href`), the `marker` that finds a store or an outside service in the code, the `noLine` folders, and for each caller the code it is looked for in. The two name the same ids: a layer, a part or a caller in one and not the other fails the run and names it. A part's name, description and folders are the rules file's `name`, `what` and `code`; a layer's title is its `name`. A chip with a `caller` is a box for something that reaches Cockpit and is no part of it, named as `reached by` names it.
 
 | Line | Means |
 |---|---|
@@ -189,7 +190,7 @@ section of `description.yml`) as nested layers, with the code's own lines laid o
 
 A line between two components in one layer is counted on the layer's title and not drawn, unless the layer sets `drawInside`.
 
-**Accepting a deviation** is a pull request to the `accepted` list beside the design: each entry names the two components
+**Accepting a deviation** is a pull request to the `accepted` list in `docs/architecture.yml`: each entry names the two components
 (`from`, `to`), the `files` it covers and the `reason`. It is judged per file. A line is grey and listed under "Accepted, with
 a reason" when the entry names every file that makes it; a file it does not name leaves the line red, its row naming the new
 files. An entry no deviation on its pair needs any more (the line is gone, a file was renamed, or the design now allows it) is
@@ -206,7 +207,7 @@ comment line is not evidence.
 component naming a folder that is gone, and a folder in two components. The `Logical` tests over this repository fail on any.
 A folder read by nearly everything goes in `noLine` instead.
 
-**Other services** are the `otherServices` list of `description.yml`, each with a `design` written like Cockpit's and drawn
+**Other services** are the `otherServices` list of `description.yml`, each with a `design` that says where its code is, and drawn
 on `service-<id>.html` (today `service-harness-monitor.html`, in `model.json` under `services`). A service that keeps its
 files in one folder names file-name patterns instead of folders: `in` is the folder (its files directly, not its subfolders)
 and `files` the patterns, where `*` is any run of characters in the name. Placement is by file: a source file no pattern
@@ -214,6 +215,8 @@ matches, a file two components' patterns match and a pattern matching nothing ar
 fail the same test. A store or outside service with an `href` opens that page of its own (the Monitor's store opens its
 database page, its Cockpit box opens Cockpit's page). A page of another service shows the acceptances and callers sections
 once it has an acceptance or a caller whose code this repository holds.
+
+**Only Cockpit is ruled inside.** The rules file has no layers for the Harness Monitor or the Android widget, so they are drawn by their boundary. The Monitor keeps how it is reached (`reached by`, matched to the drawing's callers by name and by the part they reach, `at`), and every line between its layers is allowed, so none is red: the placement check still places each source file in exactly one component, because that is how its lines are found. The widget keeps what it may call (`calls`), which must be the drawing's other layers (Cockpit and the phone), and the lines among its own parts are not ruled.
 
 **The Android widget** is such a service, `service-android-widget.html`, drawn as its box from Cockpit's diagram opened to show
 its parts (a layer of `kind: service`), with Cockpit's API layer beneath as a dotted box (`kind: context`: its components are
@@ -232,7 +235,7 @@ local run); without it, or without a commit, it links nothing.
 
 `services.html` is linked from the report's header and is the way into every other page of this view. Pages are written beside
 the report; every crumb trail starts "Architecture › Services". It is built from two sections of `description.yml`, written by
-hand, and from what the model already holds.
+hand, from `docs/architecture.yml` and from what the model already holds. The services in `serviceMap.services` are the services of the rules file, a call from one service to another in `serviceMap.calls` is one of its `between services` rules and the reverse, and the folders a service owns (`serviceMap.owns`) are its `code`; `description.yml` keeps the packages it is imported by.
 
 **The services page** draws Cockpit and the Harness Monitor as boxes, who uses them (`serviceMap.clients`), the lines between
 them (`serviceMap.calls`) and the outside services their designs name. A call with `foundBy` is looked for in the caller's own
@@ -241,7 +244,7 @@ on its own page (an accepted line is not one), links to that table, and is absen
 
 | Section | Says |
 |---|---|
-| Between services | red, one numbered line each, when a file imports another service's code: a relative path into a folder another service owns, or a package it is imported by (`serviceMap.owns`), read from the source files the model has the text of. Red too when two services' configs bind a store of the same kind and name. Else "No file imports another service's code." and "No store is used by two services." |
+| Between services | red, one numbered line each, when a file imports another service's code: a relative path into a folder another service owns, or a package it is imported by (`serviceMap.owns`, the folders from the rules file), read from the source files the model has the text of. Red too when two services' configs bind a store of the same kind and name. Else "No file imports another service's code." and "No store is used by two services." |
 | What deploys on its own | each service's workflows, environments and stores, from the Deployment tabs |
 
 **Logical and Deployment** switch on Cockpit, the Monitor and the widget. A Deployment tab is one column per environment

@@ -162,7 +162,7 @@ export function buildLogical({ design, scan, candidates, callerCode = {}, design
     if (a === b) {
       inside[a] = (inside[a] ?? 0) + 1;
       if (layerById.get(a).drawInside) within.push({ from: edge.from, to: edge.to, kind: edge.kind, how: edge.how, files: edge.files, at: edge.at });
-    } else if (allowed.has(`${a}>${b}`)) {
+    } else if (design.unruled || allowed.has(`${a}>${b}`)) {
       const group = agg.get(`${a}>${b}`) ?? { a, b, files: [], kinds: [] };
       for (const file of edge.files) if (!group.files.includes(file)) group.files.push(file);
       const kind = edge.kind === 'store' ? 'uses' : 'imports';
@@ -217,5 +217,5 @@ export function buildLogical({ design, scan, candidates, callerCode = {}, design
   const usedBy = {};
   for (const edge of edges.values()) usedBy[edge.to] = [...(usedBy[edge.to] ?? []), edge.from];
 
-  return { layers, findLines: design.findLines, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers, usedBy };
+  return { layers, findLines: design.findLines, unruled: design.unruled, mayCall: design.mayCall, noLine: design.noLine, placement, inside, within, ok: [...agg.values()], bad: red, accepted, stale, miss, callers, usedBy };
 }

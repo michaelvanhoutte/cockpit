@@ -1,5 +1,5 @@
 /**
- * The `design` section of the description file, read: the layers Cockpit is meant to have, the components
+ * The `design` section of the description file once the rules file has completed it, read: the layers Cockpit is meant to have, the components
  * in them and the folders each is made of, which layer may call which, what in code means "reaching" a
  * store or an outside service, how each caller is looked for in its own code, and the deviations accepted with
  * a reason, each for the files it names.
@@ -168,5 +168,6 @@ export function parseDesign(value, { fail, object, array, string }) {
   // The extensions of the source files a component's patterns match, where they are not the scan's own.
   const extensions = value.extensions === undefined ? null : array(value.extensions, 'design.extensions').map((each, at) => string(each, `design.extensions[${at}]`));
 
-  return { layers, mayCall, breaks, callers, noLine, accepted, findLines, extensions };
+  // A design the rules do not rule inside is drawn by its boundary: every line between its layers is allowed.
+  return { layers, mayCall, breaks, callers, noLine, accepted, findLines, extensions, unruled: value.unruled === true };
 }

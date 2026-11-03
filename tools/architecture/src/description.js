@@ -10,6 +10,7 @@
 
 import { parseDocument } from 'yaml';
 
+import { composeDescription } from './compose.js';
 import { parseDesign, parseServices } from './design.js';
 import { ReadError } from './errors.js';
 import { parseDeployments, parseServiceMap } from './services.js';
@@ -23,21 +24,27 @@ export const isTestFile = (scan, file) => scan.testFile.test(file);
 /** Whether `file` is source code the views read, by the file's own extension list. */
 export const isCodeFile = (scan, file) => scan.extensions.some((extension) => file.endsWith(extension));
 
-/** @returns the description file's contents, checked and normalised */
-export function parseDescription(file, text) {
+/**
+ * @param {string} file
+ * @param {string} text the drawing file
+ * @param {object|null} [rules] the rules file, read by `parseRules`: the design, the other services and the services page are completed from it
+ * @returns the description file's contents, checked and normalised
+ */
+export function parseDescription(file, text, rules = null) {
   const fail = (reason) => {
     throw new ReadError(file, reason);
   };
   const document = parseDocument(text);
   if (document.errors.length > 0) fail(`not valid YAML (${document.errors[0].message.split('\n')[0]})`);
-  const value = document.toJS();
+  const drawn = document.toJS();
   const object = (each, where) => (each !== null && typeof each === 'object' && !Array.isArray(each) ? each : fail(`${where} must be a mapping`));
   const array = (each, where) => (Array.isArray(each) ? each : fail(`${where} must be a list`));
   const string = (each, where) => (typeof each === 'string' && each.trim() !== '' ? each.trim() : fail(`${where} must be a non-empty string`));
   const role = (each, where) => (ROLES.includes(each) ? each : fail(`${where} must be one of ${ROLES.join(', ')}`));
   const named = (list, where) => array(list, where).map((each, index) => ({ name: string(object(each, `${where}[${index}]`).name, `${where}[${index}].name`), detail: each.detail === undefined ? '' : string(each.detail, `${where}[${index}].detail`) }));
 
-  object(value, 'the file');
+  object(drawn, 'the file');
+  const value = composeDescription(drawn, rules, fail, rules?.file ?? 'docs/architecture.yml');
 
   const scan = object(value.scan, 'scan');
   let testFile;
