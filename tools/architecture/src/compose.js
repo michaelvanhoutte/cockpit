@@ -36,7 +36,7 @@ function composeCockpit(design, section, fail) {
       if (!isObject(chip) || isCaller(chip)) return chip;
       const part = parts.get(chip.id);
       if (!part) fail(`design layer ${layer.id} has the chip ${chip.id}, which the rules file has no part for`);
-      const { caller: _caller, ...own } = chip;
+      const own = chip;
       const kind = own.kind ?? (part.store ? 'store' : layer.kind === 'outside' ? 'outside' : undefined);
       // A client or an outside service is not a folder of the code, whatever the rules say it is made of.
       const folders = (kind === undefined || kind === 'component' || kind === 'store') && part.code.length > 0 && own.in === undefined ? part.code : undefined;
