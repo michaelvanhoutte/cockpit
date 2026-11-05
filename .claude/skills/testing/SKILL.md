@@ -187,10 +187,10 @@ Verify against `package.json` before relying on this; it goes stale.
 | Command | Runs |
 |---|---|
 | `pnpm dev` | starts the app: migrations, seed and both halves in one command, **printing the addresses** (read them off that line; a worktree derives its own pair, `scripts/lib/ports.mjs`). `pnpm dev:api` and `pnpm dev:web` run one half. Full sequence in [readme.md](../../../readme.md) |
-| `pnpm test:fast` | L1/F1 everywhere, in seconds. It leaves `apps/api`'s L2 out, since that alone takes over three minutes and would push the run near the budget |
+| `pnpm test:fast` | L1/F1 everywhere, in seconds, plus the repository's own checks (`test:scripts`, `test:lint`, `test:runners`). It leaves `apps/api`'s L2 out, since that alone takes over three minutes and would push the run near the budget |
 | `pnpm --filter @cockpit/api test:integration` | the API's L2: the API in process through `SELF.fetch(...)` against real local storage, D1 for the account register and a real Durable Object for an account's own data (`@cloudflare/vitest-plugin`, `apps/api/vitest.config.ts`); model in `apps/api/tests/integration/http/item-changes.test.ts` |
 | `pnpm test:e2e` | F3 on its own stack ([references/browser-tests.md](references/browser-tests.md)) |
-| `pnpm test:all` | everything above; CI runs it on merge |
+| `pnpm test:all` | `test:fast`, the L2 and F3 with its walk ceilings; CI runs it on merge |
 | `pnpm test` | `-r test` across packages |
 | `test:contract` | the live tier, in neither `test:fast` nor `test:all`, which stay free of anything that costs money or reaches a third party ([references/third-parties.md](references/third-parties.md)) |
 

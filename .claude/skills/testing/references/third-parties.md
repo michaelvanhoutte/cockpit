@@ -5,7 +5,7 @@ Open this for a test that touches an outside service or a Claude prompt. The rul
 ## The three rules
 
 1. **L1/F1: a third party never appears.**
-2. **L2/F2 and per-change L3/F3 use local fakes or fixtures recorded from real responses**, never hand-invented shapes, checked into the repository. Fake at the *network* boundary, by replacing `fetch`, so the application makes its own request through its own client (`apps/api/tests/integration/issuer.ts`, and the model in `apps/api/tests/integration/http/note-cleanup.test.ts`). A connector's own code takes its `fetch` handed in, so its tests reach no network.
+2. **L2/F2 and per-change L3/F3 use local fakes or fixtures recorded from real responses**, never hand-invented shapes, checked into the repository. Fake at the *network* boundary, by replacing `fetch`, so the application makes its own request through its own client (`apps/api/tests/integration/issuer.ts`, and the model in `apps/api/tests/integration/http/note-cleanup.test.ts`). A connector takes what reaches the network handed in (`fetch` for Gmail and Outlook, the signing `keys` for Teams), so its tests reach no network.
 3. **A small live contract suite checks the fixtures still match reality**, never per change: when a prompt it holds changes, weekly, and by hand. A failure makes updating the fixture priority work, and is never fixed by running it again.
 
 Rule 3 is what makes the first two safe: without it every level stays green against a fake of Slack while real Slack has changed.
@@ -17,7 +17,7 @@ Rule 3 is what makes the first two safe: without it every level stays green agai
 | Package | Folder | Config | What it asks |
 |---|---|---|---|
 | `@cockpit/api` | `apps/api/tests/contract/` | `apps/api/vitest.contract.config.ts` | the Claude API, one call per prompt; the free suites |
-| `@cockpit/connector-teams` | `packages/connectors/teams/tests/contract/` | `packages/connectors/teams/vitest.contract.config.ts` | whether Microsoft still publishes the signing keys, issuer and algorithm the connector checks a saved message against; no credential, the keys being public |
+| `@cockpit/connector-teams` | `packages/connectors/teams/tests/contract/` | `packages/connectors/teams/vitest.contract.config.ts` | whether Microsoft still publishes the signing keys, issuer and algorithm the connector checks a saved message against ("Save a Teams message to Cockpit", issue 486); no credential, the keys being public |
 | other connectors | `packages/connectors/*/tests/contract/` | their own `vitest.contract.config.ts` | their recorded answers against the real service |
 
 Run it with `pnpm --filter <package> test:contract`. **It is excluded from the config every other tier runs under**, not left to a naming convention: `pnpm test` is `vitest run` over everything under `tests/`, and a tier that spends real money must not be reachable by an ordinary test command. It is in neither `test:fast` nor `test:all`. CI runs it from `.github/workflows/contract.yml` on a pull request that touches the AI layer, weekly, and on demand.
