@@ -7,7 +7,8 @@ import { signInProjectOf } from './tests/e2e/support/projects';
 
 /**
  * F3, the end-to-end tier — the level definitions and the directory
- * conventions of docs/testing-strategy.md (§2, §9). Lives at the repo root
+ * conventions of the testing skill (.claude/skills/testing/SKILL.md, and
+ * references/browser-tests.md beside it). Lives at the repo root
  * because it belongs to no package: it drives `apps/web` and `apps/api`
  * together, and `tools/test-explorer` reads `tests/e2e/` at the root as the F3
  * column (its columns table, docs/test-explorer-spec.md §4.2). The frontend
@@ -99,7 +100,7 @@ export default defineConfig({
   // column reading zero however many tests were written.
   testMatch: '**/*.test.ts',
 
-  // The flakiness policy is "never retry-to-green", and a retry count is
+  // The testing skill's flakiness rule is "never retry-to-green", and a retry count is
   // exactly that mechanised. A failure here means something is broken or the
   // test is; both need diagnosing, not re-running.
   retries: 0,
@@ -114,7 +115,7 @@ export default defineConfig({
   workers: 1,
   // Only so `--shard` deals individual walks rather than whole spec files, which
   // would leave the shards uneven. A walk therefore never relies on an earlier
-  // one in its file having run: that is a bug under the flakiness policy.
+  // one in its file having run: that is a bug under the testing skill's flakiness rules.
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   // The last records the run on the branch's session record, where it has one.

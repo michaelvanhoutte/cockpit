@@ -6,8 +6,8 @@ import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mj
  * L1 (tests/unit) and L2 (tests/integration) share this config: the workers
  * pool runs plain unit tests fine, and only the integration tier touches the
  * real bindings declared here - D1 for the register, and the Durable Object
- * namespace an account's own store lives in (docs/testing-strategy.md, "Test
- * level definitions and dependency restrictions").
+ * namespace an account's own store lives in (.claude/skills/testing/SKILL.md,
+ * "What each level may use").
  */
 export default defineConfig({
   test: {

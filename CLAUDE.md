@@ -70,7 +70,7 @@ The desktop-app tools named here are missing from a terminal, scheduled or remot
 
 ## Tests
 
-**Follow the `testing` skill before writing, moving or reviewing any test.** It restates every binding rule, so writing a test needs nothing else. `docs/testing-strategy.md` is the version of record: open it to change a rule, or to settle what the skill does not decide.
+**Follow the `testing` skill before writing, moving or reviewing any test.** It is the test strategy, with no other copy: change a rule there.
 
 Two of its rules are restated here because this file is in context always and the skill only once something triggers it:
 
@@ -167,7 +167,7 @@ Anything it prints is a rule you are already working under and have not read.
 | `docs/product/*.md` | what the product is, one file per area |
 | `docs/design-system.md` | how it looks |
 | `docs/architecture.md` | how it is built |
-| `docs/testing-strategy.md` | what counts as proof it works |
+| `.claude/skills/testing/SKILL.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |
 | `tools/architecture/README.md` | the architecture page drawn nightly from the checkout: areas and their layers, what imports what, every table and index, and the deployment, which a design is a diff to |
 | `docs/ideas.md` | unscheduled ideas, deliberately not scheduled |

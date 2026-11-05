@@ -17,7 +17,7 @@ rule is one test body; the cases are a table inside it. What the runner prints p
 case is a plain-English statement, and those printed lines are the statement list.
 Nothing separate is stored.
 
-Levels, in the words the testing strategy uses: **integration** is the API running in
+Levels, in the words the testing skill uses: **integration** is the API running in
 process against a real local database; **frontend unit** replaces the backend;
 **frontend plus its own backend** uses the real one; **end to end** is a real browser
 against the whole stack.

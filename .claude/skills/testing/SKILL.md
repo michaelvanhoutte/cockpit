@@ -5,18 +5,25 @@ description: Cockpit's binding rules for tests - which level a test goes at, whe
 
 # Testing in Cockpit
 
-**This file is complete on its own. Do not open the strategy document to write a test.** Every binding rule is restated here; [docs/testing-strategy.md](../../../docs/testing-strategy.md) holds the reasoning and is the version of record. Open it only to change a rule, to settle a case this file does not decide, or when asked why a rule exists — if the two disagree, the document wins and this file is what gets fixed.
+This skill is Cockpit's test strategy, binding on every agent and person writing or changing a test. To change a rule, change it here. The premise: writing tests is nearly free, running them is not, so every test is a permanent cost paid by every later change and every CI run.
 
-The premise: writing tests is nearly free, running them is not. Every test is a permanent tax on every future change.
+**Open a reference file when the work calls for it:**
+
+| Open | When |
+|---|---|
+| [references/browser-tests.md](references/browser-tests.md) | writing, changing or debugging a browser walk under `tests/e2e/`, or anything about the F3 stack, its shards, budgets or selection |
+| [references/third-parties.md](references/third-parties.md) | a test touching an outside service or a Claude prompt: fixtures, contract tests, behaviour suites, `scripts/outside-services.json`, credentials |
+| [references/android-widget.md](references/android-widget.md) | a test of the home-screen widget (`apps/android-widget`, Kotlin) |
+| [references/statement-lists.md](references/statement-lists.md) | generating a statement list, which the [engineering-plan](../engineering-plan/SKILL.md) skill does for every new piece of work. Worked example: [docs/statements-issue-36-experiment.md](../../../docs/statements-issue-36-experiment.md) |
 
 ## Pick the level: lowest that can prove the behaviour
 
-Ask in order, stop at the first yes:
+Each level up is an order of magnitude slower to run, harder to debug and more brittle, so ask in order and stop at the first yes:
 
 1. Can a **unit test** prove it? Write a unit test.
 2. Does it need a real vertical dependency (real DB query, real schema, real serialization)? Write an **integration test** covering *only* what the unit test could not.
-3. Does it only exist when services talk to each other? Write a **system test** covering *only* the cross-service wiring. (Cockpit has one service today — see "This repo, today".)
-4. User-visible? Same ladder on the frontend: frontend unit → frontend + its own backend → end-to-end browser.
+3. Does it only exist when services talk to each other? Write a **system test** covering *only* the cross-service wiring.
+4. User-visible? Same ladder on the frontend: frontend unit, then frontend with its own backend, then end-to-end browser.
 
 **Duplicating coverage upward is a violation.** If a unit test proves the calculation, the integration test proves only that it is reachable and wired correctly.
 
@@ -27,65 +34,68 @@ The reason for escalating must name what stops a lower level proving it:
 | Integration, because it is integration-like | Integration, because a panel's contents are a query, so this only holds against a real database |
 | End to end, because it is user-facing | End to end, because the drag only exists in a browser |
 
-## Dependency restrictions per level
+## What each level may use
 
-**Vertical** = infrastructure this service owns (its DB, queue, storage). **Horizontal** = anything crossing a service boundary (other services, Slack/Notion/Teams/WhatsApp/Mail, the network).
+**Vertical** = infrastructure this service owns (its DB, queue, storage, cache). **Horizontal** = anything crossing a service boundary (other services, Slack/Notion/Teams/WhatsApp/Mail, third-party APIs, the network).
 
 | Level | Vertical | Horizontal | Proves |
 |---|---|---|---|
 | L1 unit | none real | none real | logic: calculations, branching, validation, error paths, edge cases |
-| L2 integration | real | forbidden, fakes only | the service works against its own real infrastructure, entered the way a real caller enters it |
+| L2 integration | real, this service's own | forbidden, fakes only | the service works against its own real infrastructure, entered the way a real caller enters it |
 | L3 system | real | real | services wired together work at the API level; backend only, no browser |
-| F1 frontend unit | none real (replace API client, stores, router, timers) | none real | component / view-model logic |
+| F1 frontend unit | none real (replace API client, stores, router, timers) | none real | component and view-model logic: rendering branches, state transitions, formatting, input validation |
 | F2 frontend + own backend | its own service's backend, or a faithful local fake | nothing else | frontend and its backend agree: contracts, payloads, errors, loading states |
-| F3 end-to-end | everything real | everything real | a user-facing capability works with the whole thing tied together |
+| F3 end-to-end | everything real | everything real (third parties per [references/third-parties.md](references/third-parties.md)) | a user-facing capability works with the whole thing tied together, in a real browser |
 
-**Enter through the real interface, not around it.** For a Worker, the HTTP entry point *is* the service's own infrastructure, exactly like its database. An L2/L3 test calls `SELF.fetch('/v1/...')` so routing, request validation and error-to-status mapping are exercised on the way to the real database. Importing a route handler's internal function skips all of that silently — it still touches real infrastructure and still passes, while the HTTP layer keeps zero coverage anywhere in the pyramid. Same for F2: call the frontend's real HTTP path.
+An L2 test that starts two services is a system test, whatever folder it sits in. L3 is the only backend level allowed to cross a service boundary.
+
+**Levels are roles, not folders to fill.** With one service there is no horizontal boundary except third parties, so L2 and L3 collapse, and `system/` and `service/` are unbuilt. Never invent a test or an empty folder to populate the taxonomy; the levels become distinct the day a second service exists.
+
+**Enter through the real interface, not around it.** For a Worker, the HTTP entry point is the service's own infrastructure, exactly like its database, so an L2/L3 test calls `SELF.fetch('/v1/...')` and routing, request validation and error-to-status mapping run on the way to the real database. Importing an internal function skips all of that silently: the test still passes against real infrastructure while the HTTP layer keeps no coverage anywhere, until a routing or validation bug reaches production. Same for F2: call the frontend's real HTTP path.
 
 | Wrong | Right |
 |---|---|
 | An L2 test `import`s `runCommand()` from the domain/service layer and calls it directly | An L2 test calls `SELF.fetch('/v1/commands/...')`, which runs the real route (validation, `runCommand()`, serialization) for you |
 
-**The one exception: a rule the real interface makes unreachable by construction.** The database constraints (architecture, "The database is the second lock") catch writes the command handlers never validated, but the handlers shape-validate with Zod and check that what a command names exists, so no request can drive an invalid value at them. `apps/api/tests/integration/db/constraints.test.ts` therefore writes to D1 directly — still the service's own real infrastructure. This applies when the interface *cannot* reach the behaviour, never when going through it is merely inconvenient.
+**The one exception: a rule the real interface makes unreachable by construction.** The database constraints (architecture, "The database is the second lock") catch writes the command handlers never validated, but the handlers shape-validate with Zod and check that what a command names exists, so no request can drive an invalid value at them. `apps/api/tests/integration/db/constraints.test.ts` therefore writes to D1 directly, still the service's own real infrastructure. It applies when the interface *cannot* reach the behaviour, never when going through it is merely inconvenient. It cuts the other way too: where a constraint *is* reachable, only a test through the interface can hold the caller-visible answer, so a capture naming a workspace that does not exist must come back 404, not the 500 a raw foreign-key error produces.
 
-It cuts the other way too: where a constraint *is* reachable, only a test through the interface can hold the caller-visible behaviour — a capture naming a workspace that does not exist must come back 404, not the 500 a raw foreign-key error produces.
+**L1/F1 may not touch** the filesystem, the network, a database, environment variables, global state or another process. If a test needs one, move it up a level or refactor.
 
-**L1/F1 may not touch:** filesystem, network, database, environment variables, global state, or another process. If a test needs one, move it up a level or refactor.
+**Every tier injects time.** No `Date.now()` or argument-less `new Date()` in a test, since a real read fails on a Wednesday or under load: `pnpm test:scripts` refuses one on a line a branch adds (`scripts/lib/clock-rule.mjs`), naming file and line. Mark a deliberate read in place with `// clock-ok: <reason>`. Fake time (`vi.useFakeTimers`, `vi.setSystemTime`, `page.clock`) and `performance.now()` pass. The Test job lists every test that took over half its timeout in its step summary, and fails nothing.
 
-**Every tier injects time.** No `Date.now()` or argument-less `new Date()` on a line you add to a test: `pnpm test:scripts` refuses it, naming file and line. Mark a deliberate read in place with `// clock-ok: <reason>`. Fake time (`vi.useFakeTimers`, `vi.setSystemTime`, `page.clock`) and `performance.now()` pass. A test that takes over half its timeout is listed in the Test job's summary.
+**Mocking discipline (L1/F1).** "No real dependencies" is not "mock everything", because a mock-heavy suite stays green while the mocks drift from reality:
 
-**Mocking discipline (L1/F1).** "No real dependencies" is not "mock everything":
-
-- Prefer pure units over mocks. Code needing heavy mocking is a design smell.
+- Prefer pure units over mocks. Code needing heavy mocking is a design smell to fix.
 - Replace a boundary at the edge (the API client, the repository, the clock), not deep inside the code under test.
-- **Assert on outcomes, not interactions** — what the code produced, not the sequence of calls it made. Choreographing mock calls survives real breakage and is a violation.
+- **Assert on outcomes, not interactions**: what the code produced, not the sequence of calls it made. Choreographed mock calls are brittle and survive real breakage, so they are a violation.
 
-**Third parties.** Never at L1/F1. At L2/F2 and per-change L3/F3, use local fakes or fixtures recorded from real responses (not hand-invented shapes), checked in — faked at the *network* boundary, by replacing `fetch`, so the application does its own request against its own client (`apps/api/tests/integration/issuer.ts`, and the model in `tests/integration/http/note-cleanup.test.ts`). Live contract tests run when the prompt they hold changes, weekly, and by hand, never per change otherwise. They verify the fixtures still match reality; a failing one makes updating the fixture priority work, and is never fixed by running it again.
+**Third parties never appear at L1/F1.** Below the contract tier they are faked at the network boundary from recorded real responses; [references/third-parties.md](references/third-parties.md) has the rules.
 
-**A model is a third party whose answer differs every time**, so its behaviour suites hold a *behaviour* rather than a shape: the property the prompt was written to get, and preferably one that has been measured failing. A contract run with no credential is red, never skipped, and so is a Claude key with no `USAGE_RECORDING_TOKEN` to record its calls under.
+## What each level is for
 
-**CI asks a prompt one question; its behaviour suite is by hand.** `apps/api/tests/contract/one-call.test.ts` makes one call per prompt and asserts only that the answer parses into the prompt's result, so a prompt added or moved to a new version needs its check there (`pnpm test:scripts` fails without it). A behaviour suite (`<prompt>.vN.test.ts`) costs about a hundred calls and runs only when named. **Whoever changes a prompt runs that prompt's behaviour suite locally before pushing** - `pnpm --filter @cockpit/api test:contract clean-up-a-note` - and the pull request shows that run among its recorded local runs; nothing in CI gates on it, and a bare `test:contract` never runs one.
-
-**A credential on disk reaches every tier, so every tier below the contract one has to pin it empty.** `apps/api/.dev.vars` is read by the workers pool *and* by the browser tier's own Wrangler, so a real key sitting there for `pnpm dev` silently arms both: the backend suite spends money against the real API, and the browser walks assert on text a model has since rewritten - which is how `filing.test.ts` came to fail on "Chase the invoice…" having become "Chase invoice…". Both are pinned empty where they are started (`apps/api/vitest.config.ts`, `scripts/e2e-stack.mjs`), and the next third party needs the same two lines.
+- **Correctness lives at the bottom.** Exhaustive inputs and outputs, boundary values and failure behaviour belong in L1/F1, and in L2/F2 only where real infrastructure is intrinsic.
+- **The top confirms wiring, nothing more.** L3 and F3 answer one question, whether it works when everything is tied together: the happy path of a capability plus at most one representative cross-layer failure. They never re-test business logic, enumerate edge cases or assert details proven lower down; a large browser suite re-testing logic is a defect of the suite.
+- **If an L3/F3 test fails and the fix is in pure logic, coverage was missing lower down.** Add it there too.
 
 ## Where the test goes
 
-Folders per level, inside the package that owns them — a folder is a boundary that can be policed, a filename is not.
+Folders per level, inside the package that owns them, because a folder is a boundary that can be policed and a filename is not, and each level must run and gate on its own command.
 
 ```
 apps/api/tests/{unit,integration}/
-apps/api/tests/contract/                         the live contract tests: one call per Claude prompt and the free suites on a prompt change, weekly and by hand; a behaviour suite only when named
-apps/web/tests/{unit,service}/
+apps/api/tests/contract/                         the live contract tier (references/third-parties.md)
+apps/web/tests/{unit,service}/                   service/ unbuilt until something needs F2
 packages/shared/tests/unit/
 packages/connectors/*/tests/{unit,contract}/    a connector's own logic, and its own live tier
-tests/e2e/                                       repo root - belongs to no package
+tests/e2e/                                       F3, repo root because it belongs to no package
+apps/android-widget/                             A1 and A2 (references/android-widget.md)
 ```
 
-Mirror the source layout inside `unit/` so an untested module stays visible. Levels with no reason to exist yet stay absent.
+Mirror the source layout inside `unit/` so an untested module stays visible. No test in any `src/` tree.
 
 ## Name it after the product, not the mechanism
 
-The **outer describe is the feature area of the product**; the block inside it is the rule in product language.
+The **outer describe is the feature area of the product**; the block inside it is the rule in product language; the cases are a table inside that body.
 
 ```ts
 describe('Triage', () => {
@@ -95,29 +105,26 @@ describe('Triage', () => {
 });
 ```
 
-The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale.
+The runner then prints the statement list itself, so nothing is stored separately and nothing goes stale. This is a correctness rule and not only a readability one: a list that cannot be read as a description of the product cannot be reviewed for whether the right things are proven, and a rule phrased as what the person sees fails when the wiring is wrong ("State a rule as what the person ends up seeing", under Mandatory coverage).
 
-**A feature area, not an entity and not a function.** `tools/test-explorer/concepts.json` is the list, and it nests the way the product does: `Accounts` (`Sign-in`, `User management`), `Workspaces` (`Inbox` — `Capture`, `Triage`; `Dashboards` — `Panels`, `Focus`; `Workspace management`, `Connector management`), `Across the app` (`Menus`, `Deleting`, `Ordering`, `Selection`, `Live updates`, `Updating`), `Associations`, `Offline`. Capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong for the same reason: they name an object or an operation.
+**A feature area, not an entity, a function or a file.** `tools/test-explorer/concepts.json` is the list, and it nests the way the product does: `Accounts` (`Sign-in`, `User management`), `Workspaces` (`Inbox`: `Capture`, `Triage`; `Dashboards`: `Panels`, `Focus`; `Workspace management`, `Connector management`), `Across the app` (`Menus`, `Deleting`, `Ordering`, `Selection`, `Live updates`, `Updating`), `Associations`, `Offline`. Capitalised and undotted. `item.setStatus`, `command.idempotency` and `item.change` are all wrong, since they name an object or an operation. One file often spans several areas and one area spans several files and levels, so group by what the rule is about.
 
-**The area is not the file.** One file often spans two or three areas, and one area appears in several files at several levels. Group by what the rule is about.
-
-**Everything the runner prints is the statement list** — outer describe, rule, *and* the `it.each` case labels. A table label interpolating an internal name (`$name` printing `set_status`) leaks the mechanism just as badly; give the table a `situation` field in product language and interpolate that.
+**Everything the runner prints is the statement list**: outer describe, rule *and* the `it.each` case labels. A label interpolating an internal name (`$name` printing `set_status`) leaks the mechanism as badly as a mechanism-named describe; give the table a `situation` field in product language and interpolate that.
 
 ### Where the product's words come from
 
-**The Glossary in [docs/product/glossary.md](../../../docs/product/glossary.md) is the binding vocabulary.** Use its nouns exactly as defined. Where a rule needs a word it does not have, prefer one the product docs use in prose; if the word is genuinely missing, **add it to the Glossary in the same change** rather than inventing a private synonym.
+**The Glossary in [docs/product/glossary.md](../../../docs/product/glossary.md) is the binding vocabulary.** Use its nouns exactly as defined. Where a rule needs a word it does not have, prefer one the product docs use in prose; if the word is genuinely missing, **add it to the Glossary in the same change**, since a private synonym invented in a test file is how the two vocabularies drift apart.
 
-[docs/architecture.md](../../../docs/architecture.md) is the mechanism, and its words must never surface in anything the runner prints. The check is mechanical:
+[docs/architecture.md](../../../docs/architecture.md) is the mechanism, and its words must never surface in anything the runner prints. The check is mechanical, a word in the architecture but not the product docs being a mechanism word:
 
 ```bash
-# a word in the architecture but not the product docs is a mechanism word
 grep -rci "command" docs/product/       # 3  -> only the Glossary's own list of implementation words to avoid
 grep -ci "command" docs/architecture.md # 19 -> it is the write path, an implementation
 ```
 
-"Command", "envelope", "tombstone", "snapshot", "idempotency", "last-write-wins" are all in this class. What the product calls the same things: capturing a thought, triaging an item, dismissing it, what a panel shows, a change replayed after reconnecting, a change made against an older version.
+"Command", "envelope", "tombstone", "snapshot", "idempotency" and "last-write-wins" are in this class; they belong inside the test body. What the product calls the same things: capturing a thought, triaging an item, dismissing it, what a panel shows, a change replayed after reconnecting, a change made against an older version.
 
-A rule is **one behaviour in product language and one test body**; its cases are a table inside that body. Never one test per statement.
+A rule is **one behaviour in product language and one test body**; never one test per statement.
 
 | Bad | Why |
 |---|---|
@@ -126,7 +133,7 @@ A rule is **one behaviour in product language and one test body**; its cases are
 | `item.setStatus` | a method name wearing a dot |
 | `item.change`, `item.identity` | invented words dressed as product concepts |
 | `item.process` | still an object-and-operation; the area is `Triage` |
-| every choice on an item asks for the change it names, for that item | circular — restates the label instead of stating what must hold |
+| every choice on an item asks for the change it names, for that item | circular: restates the label instead of stating what must hold |
 | The panel contents query filters on assignment and excludes deleted rows | true, and still a mechanism statement |
 | Actions work correctly | not falsifiable |
 
@@ -136,7 +143,7 @@ Prefer a rule whose **table grows as the product grows**: one "a change to an it
 
 **Frontend rules are about the UI's own behaviour and its wiring, never a restatement of a backend rule.** Bad: a browser test for "removing an action from a panel leaves it on the other panels". Good: "the remove control sends a remove for this panel", plus a browser walk per behaviour.
 
-The shape — one body, tables as data, so adding a situation is one line:
+The shape, one body with tables as data, so adding a situation is one line:
 
 ```ts
 describe.each(situations)('an action $name', (s) => {
@@ -149,66 +156,69 @@ describe.each(situations)('an action $name', (s) => {
 
 ## Mandatory coverage
 
-1. **Every capability has at least one frontend test** (F3, or F2 where F3 genuinely cannot reach it) proving it works for a user. Unit and integration tests never count as that proof.
+1. **Every capability has at least one frontend test** (F3, or F2 where F3 genuinely cannot reach it) proving it works for a user. A capability is a user-facing feature from the functional definition ("snooze an inbox item", "swipe to remove a row"). Unit and integration tests never count as that proof.
 2. **Every bug fix gets a regression test at the lowest level that reproduces the bug.**
 3. **New logic ships with L1/F1 tests in the same change.** Never a follow-up task.
-4. A rule agreed but not yet built is `describe.todo` / `it.todo` in the real test file at the real level. **No todo may survive a merge** — removing one requires, in the same diff, either the test appearing or a comment saying we chose not to test it. A rule blocked on an unanswered product question becomes an issue, not a todo.
-5. **A test that cannot fail is not a test.** See the whole table go red once before the implementation lands, and say so in the pull request; where the implementation landed first, take the behaviour back out and watch it go red then, while the test is still in hand. A test never seen red passes for two indistinguishable reasons — the behaviour works, or it asks nothing. The obvious test for a stream error once passed identically with the fix, without it, and with its guard removed, because the runner could not produce the condition at all.
-6. **A red check expires when the code it points at changes.** Red proves the test could fail against *that* implementation. Reshape the code afterwards — for a review finding, for a bug the browser found — and take the check again. Three tests went vacuous that way in one run while still passing: a migration case once the handler stopped reading the column, a preload case once a hover triggered it (jsdom does not hover), an offline case re-reading a copy too fresh to re-read. A test that survives a rewrite of its subject untouched is the suspicious case.
-7. **State a rule as what the person ends up seeing, not as what the function returns.** Correct logic wired to the wrong thing passes every test of the logic. *The workspace shows the sign-in banner* cannot pass while the wiring is wrong; *diagnose returns signed-out* can.
+4. A rule agreed but not yet built is `describe.todo` / `it.todo` in the real test file at the real level. **No todo may survive a merge**: removing one requires, in the same diff, either the test appearing or a comment saying we chose not to test it. A rule blocked on an unanswered product question becomes an issue, not a todo.
+5. **A test that cannot fail is not a test.** See the whole table go red once before the implementation lands, and say so in the pull request; where the implementation landed first, take the behaviour back out and watch it go red then, while the test is still in hand, where it costs a minute rather than a rewrite. A test never seen red passes for two indistinguishable reasons: the behaviour works, or it asks nothing. On "Recover from an expired sign-in instead of failing silently" (pull request 71) the obvious test for a stream error passed with the fix, without it and with its guard removed, because the runner could not produce the condition at all.
+6. **A red check expires when the code it points at changes.** Red proves the test could fail against *that* implementation, and a test can stop being able to fail without changing a character. Reshape the code afterwards (for a review finding, for a bug the browser found) and take the check again. Three tests went vacuous that way in one run while still passing: a migration case once the handler stopped reading the column it folded, a preload case once a hover triggered it (jsdom does not hover), an offline case re-reading a copy too fresh to re-read. A test that survives a rewrite of its subject untouched is the suspicious case.
+7. **State a rule as what the person ends up seeing, not as what the function returns.** Correct logic wired to the wrong thing passes every test of the logic: two bugs on that same change were a failure diagnosed correctly and announced on a query no screen renders an error for, and a loop guard cleared by the read that is not the one arming it. *The workspace shows the sign-in banner* cannot pass while the wiring is wrong; *diagnose returns signed-out* can.
 
 Tests are for confidence, not for covering everything. Cut a case only when it has **no distinct path** (same data, same query, same parameters) or is **already exercised** by something that would go red if it broke. "It is obvious" is not a reason on its own; if there is a distinct query, branch or decision behind a case, keep it.
 
 ## Definition of done - non-negotiable
 
-**This is the full definition, for a change that touches product code.** CLAUDE.md's Tests section carries a table scaling it down for a change confined to documentation or to tests alone — ask `node scripts/local-changes.mjs` rather than judging which row applies.
+**This is the full definition, for a change that touches product code.** CLAUDE.md's Tests section carries a table scaling it down for a change confined to documentation or to tests alone; ask `node scripts/local-changes.mjs` rather than judging which row applies.
 
 Do not claim something works until **all** of these hold:
 
 1. **Fast tiers (L1, L2, F1, F2) run in full and pass.** No selection.
-2. **Slow tiers (L3, F3): every test covering the capabilities touched.** Select by capability, include when in doubt. "I selected too narrowly" is never a valid explanation for a broken merge.
-3. **The application was actually started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs — this exists to prevent an all-green suite over an app that crashes on startup. Use the F3 suite where one covers it, otherwise start the app and drive it in the browser.
+2. **Slow tiers (L3, F3): every test covering the capabilities touched.** Select by capability, include when in doubt. CI catches a wrong selection on merge, but "I selected too narrowly" is never a valid explanation for a broken merge.
+3. **The application was actually started and the changed behaviour exercised.** Green unit and integration tests are never evidence that the app runs; this exists to prevent an all-green suite over an app that crashes on startup. Use the F3 suite where one covers it, otherwise start the app and drive it in the browser. The home-screen widget, which has no browser, is proven on a real phone instead ([references/android-widget.md](references/android-widget.md)).
 4. **Results reported faithfully.** Failures quoted with their output; any tier skipped or narrowed stated, with why.
 5. **New tests sit at the right level and respect the dependency restrictions.** A misplaced test gets moved, not grandfathered in.
 
-If step 3 reveals a failure the tests missed, add the missing test before finishing — the gap in the pyramid is itself a bug.
+If step 3 reveals a failure the tests missed, add the missing test before finishing: the gap in the pyramid is itself a bug.
 
-**Budget.** The fast tiers stay under 5 minutes locally, L1+F1 in seconds. Exceeding it makes restoring it priority work (push tests down the pyramid, delete redundant ones, parallelize), never resolved by skipping runs. Keep L3/F3 few and thin: before adding one, ask what it proves that nothing below can.
+### Running the tiers
 
-**A browser walk proves one behaviour, and typically takes at most 15 seconds on CI** (`docs/testing-strategy.md`, "Run-time budget"):
+Verify against `package.json` before relying on this; it goes stale.
 
-- **Extend a walk under `tests/e2e/` only with assertions on the behaviour its title names.** A new behaviour gets its own `test()`, under the `describe` of the behaviour it builds on, or its own `describe` where it builds on none.
-- **Arrange through the commands API; assert through the UI.** Put the app in the state the walk needs with `tests/e2e/support/arrange.ts` (`giveToTheInbox`, `giveADashboard`, `giveToAPanel`), which sends the browser's own commands as the signed-in person, then open the page; drive through the UI only what the title names. Capturing through the UI is Capture's alone: `capture(...)` outside the `Capture` area fails `scripts/lib/e2e-conventions.mjs`, except the walks still listed there until they are rewritten. A state the API cannot express is a decision to take, never a seeding route.
-- **Split a walk past 15 seconds; never give it a longer timeout** (`test.slow()`, a raised `timeout`). One near Playwright's 30 seconds fails on a slow runner with nothing broken, and the test explorer lists a walk's title, not its steps.
-- **Before adding any walk, read the F1 rules for that area.** Where the proposition is already stated there, the walk is duplication — and where only part of it is, the rest belongs on a walk that is already standing, not on one of its own.
-- **Each product area has a ceiling**, `browserWalks` in `tools/test-explorer/concepts.json`, held by `pnpm test:e2e:ceilings` in each of CI's `E2E (F3)` shards and counted from `playwright test --list`. Passing it fails the run until a walk goes or the ceiling is raised in the same pull request; an area sitting under its ceiling is reported, which is the prompt to bring the ceiling down. Each shard's walks also have a time budget, `e2eShardBudget` in the same file, held by `pnpm test:e2e:budget` against Playwright's reported duration; raise it in the pull request that needs it, with its `reason` updated.
-- **A walk with no rule around it has no statement to review**, so keep the shape "Name it after the product, not the mechanism" gives above with nothing skipped — an area straight to a case is a missing `describe`, not a badly named one.
+| Command | Runs |
+|---|---|
+| `pnpm dev` | starts the app: migrations, seed and both halves in one command, **printing the addresses** (read them off that line; a worktree derives its own pair, `scripts/lib/ports.mjs`). `pnpm dev:api` and `pnpm dev:web` run one half. Full sequence in [readme.md](../../../readme.md) |
+| `pnpm test:fast` | L1/F1 everywhere, in seconds. It leaves `apps/api`'s L2 out, since that alone takes over three minutes and would push the run near the budget |
+| `pnpm --filter @cockpit/api test:integration` | the API's L2: the API in process through `SELF.fetch(...)` against real local storage, D1 for the account register and a real Durable Object for an account's own data (`@cloudflare/vitest-plugin`, `apps/api/vitest.config.ts`); model in `apps/api/tests/integration/http/item-changes.test.ts` |
+| `pnpm test:e2e` | F3 on its own stack ([references/browser-tests.md](references/browser-tests.md)) |
+| `pnpm test:all` | everything above; CI runs it on merge |
+| `pnpm test` | `-r test` across packages |
+| `test:contract` | the live tier, in neither `test:fast` nor `test:all`, which stay free of anything that costs money or reaches a third party ([references/third-parties.md](references/third-parties.md)) |
 
-**Flakiness.** Never retry-to-green; never weaken assertions, widen tolerances or add sleeps. Fix immediately or quarantine with an owner and an open bug; a test that stays quarantined is deleted. The cause found three times so far is a browser walk acting on what the app has drawn rather than on what it has kept, and it has two answers. Where a gesture sends a change, wait on the server's answer to it (`answerTo`, `tests/e2e/panels.test.ts`). Where the walk navigates, wait for the navigation to have happened: the old workspace stays on screen and usable while the router reads the new one, so **every walk that changes workspace goes through `switchTo`** (`tests/e2e/support/app.ts`) rather than pressing the tab itself. The same check names a walk about anything but signing in that drives the issuer itself: the run signs in once per person per project, and every walk takes that through `signIn` — except one that signs out, which would end the session every later walk loads, so it signs in through Google itself (`signInThroughGoogle`).
+Each level has its own runner command (`test:unit`, `test:integration`, `test:system`, `test:f-unit`, `test:f-service`, `test:e2e`, `test:contract`) where the level exists: `apps/api` has `test:unit`, `test:integration` and `test:contract`; each connector has `test:unit`, plus `test:contract` where it has a live tier; `packages/shared` and `apps/web` have `test:unit`/`test:f-unit` only, having no vertical dependency to integrate against. Vitest runs everything below the browser, Playwright runs F3 (`playwright.config.ts` at the root), Gradle runs the widget.
 
-**This class is invisible on a fast machine and shows at once under a slow API.** Delay every call in the `test` fixture — `page.route('**/v1/**', …)` with a 150ms wait — and run the suite. One pass of that turned up a fourth instance, which was a product bug rather than a walk: an item's form opened on text older than the save just made, because a save finished before the workspace had been read back (fixed by drawing a change over the held copy until a read that began after its answer lands: `apps/web/src/changeQueue.ts`). Pinning to two cores also reproduces contention, but on Windows it mostly reproduces a native `node.exe` crash instead.
+## Budget
 
-## This repo, today
+- **The fast tiers complete in under 5 minutes locally, L1 + F1 in seconds.** A hard gate, because the definition of done runs them in full on every change and that only survives while the run stays cheap. Exceeding it makes restoring it priority work (push tests down the pyramid, delete redundant ones, parallelize), never resolved by skipping runs.
+- **Keep L3/F3 few and thin.** Before adding one, ask what it proves that nothing below can; if nothing, do not add it.
+- **Organize slow-tier tests by capability**, so the selective runs the definition of done allows are possible.
+- **A browser walk proves one behaviour in at most 15 seconds on CI, and each area has a ceiling on its walks.** The rules, the shard budget and how they are measured are in [references/browser-tests.md](references/browser-tests.md).
 
-Verify against `package.json` before relying on this section — it goes stale.
+## Flakiness
 
-- **One service**, so L2 and L3 collapse: the API-in-process tests against real local storage — D1 for the account register, a real Durable Object for an account's own data (`@cloudflare/vitest-plugin`, `apps/api/vitest.config.ts`) — are the backend tests. L3 becomes a real tier the day a second service exists. "API-in-process" means through `SELF.fetch(...)` (see `apps/api/tests/integration/http/item-changes.test.ts`), never by importing a handler function.
-- **Runner:** Vitest below the browser (`apps/api`, `packages/shared`, `apps/web`); **Playwright for F3**, configured at the repo root in `playwright.config.ts`. `pnpm test:e2e` boots its own copy of the stack (`scripts/e2e-stack.mjs`: its own Wrangler and Vite on this checkout's own pair — :8887 and :5273 in the primary checkout, derived from the path in a worktree so two can run at once (`scripts/lib/ports.mjs`) — and its own state directory rebuilt from a template before every run, so it never touches the storage `pnpm dev` uses) and runs every spec under two projects, `desktop` and `phone` — the same walk with a mouse at 1280px and with touch at 480px, because "it works on that device" is a claim about each device. Both are Chromium: a viewport and input matrix, not a browser matrix. Point it at a deployed environment with `E2E_BASE_URL`.
-- **`pnpm test`** runs `-r test` across packages. Today: `apps/api` has `test:unit`, `test:integration` and `test:contract`; `packages/connectors/teams` has `test:unit` and `test:contract`; `packages/shared` and `apps/web` have `test:unit`/`test:f-unit` only, having no vertical dependency to integration-test against. Every package has `test:fast` and `test:all`, mirrored at the root. **`test:fast` runs L1/F1 only, everywhere** — for `apps/api` that leaves its L2 out too, not only F3: measured, `apps/api`'s L2 alone takes over three minutes, and folding it into the root `test:fast` leaves the whole run within a minute of the five-minute budget rather than comfortably under it, so L2 stays a tier run on its own (`pnpm --filter @cockpit/api test:integration`). `test:all` adds that L2 on top, and `pnpm test:e2e` runs F3, which `test:all` includes and `test:fast` does not. **`test:contract` is in neither**, and is excluded from the config the other tiers run under rather than left to a naming convention: `apps/api`'s talks to the real Claude API, so every run costs money and takes as long as the model does, and `@cockpit/connector-teams`'s reaches Microsoft's published signing keys (`apps/api/vitest.contract.config.ts`, `packages/connectors/teams/vitest.contract.config.ts`, `.github/workflows/contract.yml`). `test:f-service` stays unadded until something needs that level.
-- **The per-level folders are populated**: `apps/api/tests/{unit,integration}`, `packages/shared/tests/unit`, `apps/web/tests/unit`, `tests/e2e/`. No stray tests in any `src/` tree. F3 specs must be named `*.test.ts` (not Playwright's `.spec.ts` default) or `tools/test-explorer` will not count them, and must take `test` from `./support/app` rather than `@playwright/test` — one imported from Playwright directly opts out of the guard that tells "the stack went away" from "this walk is broken", silently and in the same way.
-- **The Android widget** (`apps/android-widget`, Kotlin, no pnpm package) has two levels of its own, run by `./gradlew testStagingDebugUnitTest` in its `Widget` job: **A1**, a JVM unit test with no Android and no network, and **A2**, Robolectric running the app's real code against a fake Cockpit at the network boundary, answered from `packages/shared/samples/` (read from the repository, never copied). There is no emulator tier; **its proof for a person is the owner's walk on a real phone**, a `Real device: <device> - <result>` line in the pull request, in place of the browser pass. A test class is the rule, kept short (Windows paths), its doc comment names the area *Home-screen widget*, and each method is a case in product language. `docs/testing-strategy.md`, "The Android widget", has the rest.
-- **Starting the app** (needed by the definition of done): `pnpm dev`, which does the migrations, the seed and both halves in one command and **prints the two addresses** — :8787 and :5173 in the primary checkout, a derived pair in a worktree. Read them off that line rather than assuming; `pnpm dev:api` and `pnpm dev:web` run one half alone, on the same ports. Full sequence in [readme.md](../../../readme.md).
+A test that passes and fails without a code change is a bug in the suite.
+
+- **Never retry-to-green.** It masks either a real intermittent bug or a broken test, and both must be diagnosed, not laundered.
+- **Never weaken an assertion** to fix it: no removed checks, widened tolerances or sleeps.
+- **Fix it at once or quarantine it**, out of the gating run and tracked as an open bug with an owner. A test that stays quarantined is deleted, so a suite holds only tests whose failures mean something.
+
+The cause found every time so far is a browser walk acting on what the app has drawn rather than on what it has kept; [references/browser-tests.md](references/browser-tests.md) has the answers and how to reproduce the class.
 
 ## Reviewing tests
 
 Reject: tests at the wrong level; coverage duplicated upward; L1/F1 tests with real dependencies or interaction-choreography assertions; L2/F2 tests with horizontal dependencies; an L2/L3/F2 test calling an internal function instead of entering through the real interface; a capability with no frontend test; an outer describe that is not a feature area; a rule **or table label** carrying a word the Glossary does not have (run the grep above), or a rule so circular it restates its own label; a surviving todo; a test that still passes once the behaviour it covers is taken back out; a rule stated as what a function returns where the wiring is what could be wrong; a "done" claim not backed by the definition of done.
 
-Prefer making a violation impossible over catching it in review: no network or filesystem in the unit runner, a CI job per level, the time budget checked in CI, and the dependency table as lint rules.
+**Make a violation impossible rather than catch it in review**: no network or filesystem in the unit runner, a CI job per level, the time budget checked in CI, the dependency table as lint rules. Built today:
 
-**The last of those is built.** `eslint.config.mjs`, run by CI's `Lint` job and by `pnpm lint`, fails a filesystem, network or database import under a `tests/unit/` folder, and a focused test (`it.only`, `test.describe.only`) in any test file. So a misplaced dependency is a red check rather than something to spot in a diff — and the fix is to move the test up a level, never to widen the glob.
-
-## When generating a statement list
-
-Read [references/statement-lists.md](references/statement-lists.md) — the passes in order, the collapsing step agents skip, the pruning criterion, the output shape. Worked example: [docs/statements-issue-36-experiment.md](../../../docs/statements-issue-36-experiment.md).
-
-Invoked by the [engineering-plan](../engineering-plan/SKILL.md) skill for every new piece of work, not only work being filed as a GitHub issue.
+- `eslint.config.mjs`, run by CI's `Lint` job and `pnpm lint`, fails a filesystem, network or database import under a `tests/unit/` folder, a focused test (`it.only`, `test.describe.only`) in any test file, and a component formatting a date itself rather than through `apps/web/src/dateFormat.ts`. The API client is not banned, since what F1 tests import from it (the refusal error class and the module they then mock) reaches no network. An import ban is weaker than blocking the runner, which would also catch a global `fetch`. A misplaced dependency is a red check: move the test up a level, never widen the glob.
+- `pnpm test:scripts` holds the clock rule, the outside-services list and the browser-walk conventions; CI's `E2E (F3)` shards hold the walk ceilings and shard budget.
+- `CLAUDE.md` requires following this skill before writing or changing a test, and documents the one-command start, because "the application was started" is only enforceable while starting it is trivial.

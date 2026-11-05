@@ -3,7 +3,7 @@ import { BOT_FRAMEWORK_ISSUER, OPEN_ID_METADATA_URL } from '../../src/index.js';
 
 /**
  * The contract tier: what every level below fakes, asked of Microsoft itself
- * (docs/testing-strategy.md, "Third parties"; architecture, "Connectors:
+ * (.claude/skills/testing/references/third-parties.md; architecture, "Connectors:
  * plugin-shaped, host-blind").
  *
  * **Scheduled rather than run on a change** (.github/workflows/contract.yml):

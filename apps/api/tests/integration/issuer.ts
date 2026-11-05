@@ -11,8 +11,7 @@ import { VERIFY_API, verifyAnswer, verifyIsEmpty } from './verify.js';
  *
  * Signing in is a conversation with an issuer, and an issuer is horizontal -
  * another service, over the network - which L2 may not touch
- * (docs/testing-strategy.md, "Test level definitions and dependency
- * restrictions"). So the issuer is faked at the network boundary and nothing
+ * (.claude/skills/testing/SKILL.md, "What each level may use"). So the issuer is faked at the network boundary and nothing
  * else is: the application does its own redirect, its own code exchange and its
  * own signature check against a key this file publishes, exactly as it does
  * against Google.

@@ -485,7 +485,7 @@ describe('Triage', () => {
   /**
    * The timestamp constraints reject a day no calendar has, and the times on a
    * change come from the client, so this is reachable from outside - which per
-   * the testing strategy is exactly when the caller-visible answer is the thing
+   * the testing skill is exactly when the caller-visible answer is the thing
    * to pin. It is a 400 from request validation rather than the 500 a raw
    * constraint violation would produce, and this is what keeps it that way.
    */

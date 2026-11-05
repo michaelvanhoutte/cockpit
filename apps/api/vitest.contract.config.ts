@@ -7,7 +7,7 @@ import { sessionRunReporter } from '../../scripts/lib/vitest-session-reporter.mj
 
 /**
  * The contract tier: the tests that talk to the real Claude API
- * (docs/testing-strategy.md, "Third parties"). A config of its own, and not the
+ * (.claude/skills/testing/references/third-parties.md). A config of its own, and not the
  * workers pool, for two reasons - these need no binding, no store and no
  * Worker, and they must never be picked up by `pnpm test`, which runs
  * `vitest run` over everything under `tests/` with the other config.

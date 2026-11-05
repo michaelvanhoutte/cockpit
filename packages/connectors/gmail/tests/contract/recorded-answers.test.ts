@@ -23,8 +23,8 @@ import {
 /**
  * The contract tier: the calls the Gmail connector reads, and the one change
  * it writes (undone in the same case), asked of Gmail
- * itself against a dedicated test mailbox (docs/testing-strategy.md, "Third
- * parties"; "Bring in the conversations already labelled Cockpit as tasks",
+ * itself against a dedicated test mailbox
+ * (.claude/skills/testing/references/third-parties.md; "Bring in the conversations already labelled Cockpit as tasks",
  * issue 725), moved into the connector's package ("Build Gmail as a connector
  * package on the SDK, unregistered", issue 943; the core's copy went with
  * Gmail's code, issue 944). **Never per change** (.github/workflows/contract.yml), for

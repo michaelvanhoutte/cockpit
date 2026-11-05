@@ -2,7 +2,7 @@ name: Contract
 
 # The tier that talks to the real third parties - Claude, the Workers AI models
 # that read what a note means and transcribe a recording, and the Bot Framework's published signing keys
-# (docs/testing-strategy.md, "Third parties"):
+# (.claude/skills/testing/references/third-parties.md):
 # everything below it runs against a fake, and this is what says the fake still
 # resembles the thing. The tier runs when the half of the contract we own
 # changes, which is a prompt, weekly, and by hand from the Actions tab. Claude

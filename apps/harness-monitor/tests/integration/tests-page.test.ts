@@ -83,7 +83,7 @@ const paneOf = (html: string) => /<aside class="pane[ "].*?<\/aside>/s.exec(html
 /** A table row of a section, as markup, by the text its first cell starts with. */
 const rowOf = (html: string, id: string, name: string) => [...sectionOf(html, id).matchAll(/<tr[ >].*?<\/tr>/gs)].map((m) => m[0]).find((row) => plain(row).startsWith(name)) ?? '';
 const cellsOf = (row: string) => [...row.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => m[1]!);
-/** The cell a level's count sits in on the Concept area tab: after the area's name, one per level in testing-strategy's order. */
+/** The cell a level's count sits in on the Concept area tab: after the area's name, one per level in the testing skill's order. */
 const levelCell = (row: string, level: string) => cellsOf(row)[1 + ['L1', 'L2', 'L3', 'F1', 'F2', 'F3', 'Contract'].indexOf(level)]!;
 /** An area's Covered cell, the last but one. */
 const coveredCell = (row: string) => cellsOf(row).at(-2)!;

@@ -5,8 +5,8 @@
  * needs the suite to run is a report that stops working the moment the suite
  * breaks (the same reasoning poc/coverage-explorer's actuals pass used).
  *
- * Convention read here (docs/testing-strategy.md §9.1, "Tests are named in
- * the product's language, not the implementation's" — this superseded the
+ * Convention read here (.claude/skills/testing/SKILL.md, "Name it after the
+ * product, not the mechanism" — this superseded the
  * dotted `concept.subaction` convention this file originally shipped with;
  * see docs/test-explorer-spec.md §2a for what changed and why):
  *
@@ -26,9 +26,9 @@
 import ts from 'typescript';
 
 /**
- * Maps a test file's path to one of model.js's LEVEL_IDS. The six testing-strategy
- * levels attach to real, distinct folders (testing-strategy.md §9); Contract is
- * the seventh, scheduled-only tier (§3.3).
+ * Maps a test file's path to one of model.js's LEVEL_IDS. The testing skill's six
+ * levels attach to real, distinct folders ("Where the test goes"); Contract is
+ * the seventh, scheduled-only tier (references/third-parties.md).
  *
  * @param {string} relPath repo-relative test file path
  * @returns {string | null} one of LEVEL_IDS, or null when the path doesn't match any

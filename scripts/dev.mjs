@@ -2,7 +2,7 @@
 //
 // Start Cockpit locally with one command: `pnpm dev`.
 //
-// The testing strategy's definition of done requires that the application be
+// The testing skill's definition of done requires that the application be
 // started and the changed behaviour actually exercised before anything is
 // claimed to work, and its enforcement section asks for the one-command way to
 // do that to be written down. Four steps across two terminals is the kind of

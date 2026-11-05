@@ -1,6 +1,6 @@
 # Architecture (v0.4)
 
-*Status: draft for review. Owner: Michael. Companion to [functional-definition.md](functional-definition.md) (the what) and [testing-strategy.md](testing-strategy.md) (the proof). It records the technical decisions and the arguments behind them, because this repository is published as a worked example of agentic development and a decision without its reasoning is not reusable.*
+*Status: draft for review. Owner: Michael. Companion to [functional-definition.md](functional-definition.md) (the what) and the [testing skill](../.claude/skills/testing/SKILL.md) (the proof). It records the technical decisions and the arguments behind them, because this repository is published as a worked example of agentic development and a decision without its reasoning is not reusable.*
 
 ## 1. Architectural drivers
 
@@ -10,7 +10,7 @@ Five constraints do most of the deciding; check every choice below against them.
 2. **The cold-open latency budget.** The app must open as fast as WhatsApp. Mail, Notion and Slack cost seconds to open, so quick notes migrate to whatever opens instantly; opening and capturing fast are survival criteria, enforced by budgets (§7). Capture must also work where no UI exists — the proven task-creator flow captures by voice in the car and by dictated SMS — so **capture is a backend capability with multiple front doors** (§6.5), not a web-client feature.
 3. **The backend is connector- and job-shaped.** OAuth flows, Slack/Gmail webhooks, Notion polling, scheduled reconciliation, AI calls on ingest. That is a service with real background execution, not a bundle of request handlers.
 4. **More than one user, SaaS-ready tomorrow.** Never hard-code how many accounts there are. Every row is tenant-scoped, and since "Sign in by picking a name, each user in their own account" (issue 86) that scoping is exercised rather than assumed. Auth is real OAuth, per "App login: hand-rolled Google OIDC + own sessions"; secrets are encrypted and workspace scoping is enforced server-side.
-5. **The testing strategy is load-bearing.** [testing-strategy.md](testing-strategy.md) presupposes fast unit runners, integration tests against the service's own real database, thin capability-level end-to-end tests, and contract tests that run when a prompt changes, and weekly for the suites that spend nothing on a model. The stack must make all of that cheap, and the fast-tier 5-minute budget gates the toolchain.
+5. **The testing strategy is load-bearing.** The [testing skill](../.claude/skills/testing/SKILL.md) presupposes fast unit runners, integration tests against the service's own real database, thin capability-level end-to-end tests, and contract tests that run when a prompt changes, and weekly for the suites that spend nothing on a model. The stack must make all of that cheap, and the fast-tier 5-minute budget gates the toolchain.
 
 ## 2. Language and ecosystem: TypeScript end-to-end
 
@@ -597,7 +597,7 @@ Note the reach: this re-derived the backend framework (Fastify → Hono, since F
 
 ### 9.1 CI/CD
 
-GitHub Actions, structured to make the testing strategy and the budgets mechanical:
+GitHub Actions, structured to make the testing skill's rules and budgets mechanical:
 
 - **Per branch, once a pull request is open** (`pull_request`, which tests the merge result and is the only event that checks an open branch — a branch with no open pull request is checked by nothing, an accepted gap since `/build`'s own process already runs these by hand): lint, typecheck, the import rules (`tests/lint/import-rules.test.mjs`); the fast tiers in full, one job per tier so a misplaced test is visible; bundle-size gate; build. Per-branch **preview deployments were removed**: Cloudflare withholds version preview URLs from a Worker that implements a Durable Object, and gating a replacement cost more per branch than previews got for free (deployment, "No branch environments").
 - **On merge to `main`:** the same gate, plus (when they exist) the full suite including L3/F3 against a wrangler-run stack and performance timing checks; then migrate and deploy to **staging**.

@@ -69,7 +69,7 @@ export interface Model {
 /** One area's source lines, keyed `file:line`. */
 export type AreaLines = Record<string, Line[]>;
 
-/** testing-strategy's levels, in its own order, as tools/test-explorer/src/model.js names them. Each takes its own slot of the palette (src/palette.ts), and Contract, which most areas have none of, is grey. */
+/** The testing skill's levels, in its own order, as tools/test-explorer/src/model.js names them. Each takes its own slot of the palette (src/palette.ts), and Contract, which most areas have none of, is grey. */
 export const LEVELS = [
   { id: 'L1', name: 'Unit', description: 'No real dependencies: pure logic, calculations, branching, edge cases.', colour: slot(1) },
   { id: 'L2', name: 'Integration', description: 'Real infrastructure the service owns, its own database, no other service.', colour: slot(2) },

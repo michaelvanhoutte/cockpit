@@ -63,4 +63,4 @@
 
 **Menu**, **Deleting**, **Ordering**, **Live updates**, **Selection**, **Updating**, **Dates** and **Appearance** are shared behaviour, defined once in `docs/product/across-the-app.md` rather than here — a shared behaviour with no word is one nobody can say is tested (`tools/test-explorer/concepts.json`).
 
-This glossary is binding on anything written to be read as a description of the product, test names included (see `docs/testing-strategy.md`, "Tests are named in the product's language"). Words that live only in `docs/architecture.md` — command, envelope, tombstone, idempotency, last-write-wins — are implementation and stay there.
+This glossary is binding on anything written to be read as a description of the product, test names included (see `.claude/skills/testing/SKILL.md`, "Name it after the product, not the mechanism"). Words that live only in `docs/architecture.md` — command, envelope, tombstone, idempotency, last-write-wins — are implementation and stay there.

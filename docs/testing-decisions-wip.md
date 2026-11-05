@@ -2,7 +2,7 @@
 
 **Status:** temporary working note, not authoritative. The log of an ongoing
 discussion about how testing is driven here. Settled parts move into
-`docs/testing-strategy.md` and `docs/coverage-reporting-options.md` when the
+the testing skill (`.claude/skills/testing/`) and `docs/coverage-reporting-options.md` when the
 discussion ends, the rest become issues, and this file is deleted.
 
 Everything under **Settled** was decided by Michael; everything under **Still open**
@@ -112,7 +112,7 @@ makes a list unreviewable.
 
 ## Tests live in folders per level, inside their package
 
-The testing strategy's directory rule stands as written; unit tests move out of the
+The testing skill's directory rule stands as written; unit tests move out of the
 source tree.
 
 ```

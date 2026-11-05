@@ -4,7 +4,7 @@ import { SAYS_THE_SAME_THING, howAlike } from '../../src/domain/duplicates.js';
 
 /**
  * The contract tier: the real Workers AI model, no fake anywhere
- * (docs/testing-strategy.md, "Third parties"). It costs next to nothing, so it runs
+ * (.claude/skills/testing/references/third-parties.md). It costs next to nothing, so it runs
  * on every contract run, the weekly one included.
  *
  * What only this tier can prove: that the model actually reads two notes saying
