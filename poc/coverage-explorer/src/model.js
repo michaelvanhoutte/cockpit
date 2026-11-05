@@ -18,8 +18,9 @@
 
 /**
  * @typedef {'L1'|'L2'|'L3'|'C'|'F1'|'F2'|'F3'} Level
- *   The six levels of docs/testing-strategy.md §2, plus C for the scheduled
- *   contract suite of §3.3.
+ *   The six levels of .claude/skills/testing/SKILL.md ("What each level may
+ *   use"), plus C for the scheduled contract suite
+ *   (.claude/skills/testing/references/third-parties.md).
  *
  * @typedef {'ok'|'thin'|'gap'|'later'|'na'} State
  *   ok    obligation met

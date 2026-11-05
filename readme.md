@@ -1,6 +1,6 @@
 # Cockpit — Unified Inbox & Dashboards
 
-The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/product/](docs/product/) (the what, by area) and [docs/functional-definition.md](docs/functional-definition.md) (its purpose, problems and open decisions), [docs/testing-strategy.md](docs/testing-strategy.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
+The production application for the Unified Inbox & Dashboards concept, built to the recorded decisions in [docs/architecture.md](docs/architecture.md) (the how), [docs/product/](docs/product/) (the what, by area) and [docs/functional-definition.md](docs/functional-definition.md) (its purpose, problems and open decisions), the [testing skill](.claude/skills/testing/SKILL.md) (the proof), and [docs/deployment.md](docs/deployment.md) (the where). Unscheduled ideas are in [docs/ideas.md](docs/ideas.md) (the maybe).
 
 The showcase is this repository rather than a running instance. Both deployed environments are reachable by anyone who knows the URL, with Cockpit's own sign-in the only thing in the way — and it admits any Google account, giving one it has never seen an account of its own, so anybody with one who reaches the URL gets in. No connector has landed, so nothing arrives on its own, but **both hold real data from 7 September 2026** — put there by hand in production, accumulated by use in staging — and nothing re-seeds, wipes or restores over either: see "The environments" in [docs/deployment.md](docs/deployment.md).
 
@@ -17,7 +17,7 @@ cockpit/
 │   ├── connectors/    # one package per source, importing only the SPI: teams/ today
 │   └── config/        # shared tsconfig / prettier
 ├── tools/             # workspace packages that serve the build, not the product: the Test Explorer
-├── docs/              # product docs by area, architecture, testing strategy, deployment, options docs
+├── docs/              # product docs by area, architecture, deployment, options docs
 ├── scripts/           # local dev startup, the browser tier's stack, branch tidying
 ├── .github/           # CI, CodeQL, the Claude workflow, the two deploy workflows, branch protection
 ├── .claude/           # project skills and Claude Code settings every session picks up
@@ -56,7 +56,7 @@ pnpm dev
 
 The first screen is the logon page, and the way in is *Continue with Google*. Locally that goes to a **stub issuer this stack runs** rather than to Google — it prints its address beside the other two — where you pick one of the two people the seed creates and come back signed in. It is the real code flow either way, and no deployed environment has a stub: see "App login" in [docs/architecture.md](docs/architecture.md).
 
-**It stays one command deliberately.** The testing strategy requires the application to be started and the change actually exercised before anything is claimed to work, and four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed".
+**It stays one command deliberately.** The testing skill requires the application to be started and the change actually exercised before anything is claimed to work, and four commands across two terminals is the friction that quietly turns "start the app" into "the tests passed".
 
 **One optional thing, if you want a captured note cleaned up locally.** Copy `apps/api/.dev.vars.example` to `.dev.vars` — gitignored — and put an `ANTHROPIC_API_KEY` in it (and `ANTHROPIC_WORKSPACE_ID` beside it where the key is scoped to an organisation) and the `USAGE_RECORDING_TOKEN` the owner gives you: a key without it counts as no key, because each call's record is sent to production. Without them everything works and each note simply keeps the title you typed; `/health` says which of the two you are in, as `ai`. Wrangler reads that file at startup, so a change to it needs `pnpm dev` restarting.
 
@@ -148,7 +148,7 @@ It keys on the upstream being gone rather than on `git branch --merged`, because
 
 ## Tests
 
-Read [docs/testing-strategy.md](docs/testing-strategy.md) (the reasoning) or `.claude/skills/testing/` (the binding rules, restated so no agent has to open the strategy doc) before adding, moving or reviewing a test. The short version: pick the lowest level that can prove a behaviour, and never claim something works from green tests alone.
+Read the [testing skill](.claude/skills/testing/SKILL.md), the one place the test strategy is written down, before adding, moving or reviewing a test. The short version: pick the lowest level that can prove a behaviour, and never claim something works from green tests alone.
 
 ```bash
 # everything, as CI would: every fast tier, then the browser tier
@@ -188,7 +188,7 @@ One package at a time:
 ```bash
 pnpm --filter @cockpit/shared test:unit       # domain types, schemas, ids — no real dependencies
 pnpm --filter @cockpit/api test:unit          # domain logic — no real dependencies
-pnpm --filter @cockpit/api test:integration   # command handling against real local storage, not in test:fast (.claude/skills/testing/SKILL.md, "This repo, today")
+pnpm --filter @cockpit/api test:integration   # command handling against real local storage, not in test:fast (.claude/skills/testing/SKILL.md, "Running the tiers")
 pnpm --filter @cockpit/web test:f-unit        # component logic, API client mocked at the boundary
 pnpm test:e2e --project=phone                 # the browser walks on one device instead of both
 pnpm test:e2e tests/e2e/capture.test.ts       # one browser walk
@@ -233,7 +233,7 @@ The three workflows that need a toolchain — CI and the two deploys — share [
 | `/build` command | [.claude/commands/build.md](.claude/commands/build.md) | The entry point for issue work: confirm the issue is live, scope it, build, test, prove it runs, review, ship — sequencing CLAUDE.md and its skills rather than restating them. |
 | `scoping` skill | [.claude/skills/scoping/](.claude/skills/scoping/SKILL.md) | Decide whether the work has to be seen first, sharpen it into the whole, unsliced piece of work, and file it as one ticket. Run by product or engineer. |
 | `engineering-plan` skill | [.claude/skills/engineering-plan/](.claude/skills/engineering-plan/SKILL.md) | Trace each action's request path, settle stores, sync or async, which service and the failure modes of irreversible state; then, once the design is agreed, cut the ticket into vertical slices with a model and statement list each, and finish it or split it into children under a parent. Run by the engineer after scoping. |
-| `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The binding test rules, restated in full so no agent has to open the strategy document. |
+| `testing` skill | [.claude/skills/testing/](.claude/skills/testing/SKILL.md) | The test strategy: the binding rules with their reasons, and reference files for browser walks, third parties and the Android widget. |
 | `github-issue` skill | [.claude/skills/github-issue/](.claude/skills/github-issue/SKILL.md) | The issue body template, its length rules, and the `gh` publishing step. |
 | Enabled plugin | [.claude/settings.json](.claude/settings.json) | Records that `mattpocock-skills` should be on. The plugin itself is installed per machine. |
 

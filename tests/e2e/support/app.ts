@@ -18,7 +18,7 @@ import { signInProjectOf } from './projects';
 
 /**
  * Shared arrangement for the F3 walks. Not a page-object layer — F3 is
- * deliberately thin (what each level is for, docs/testing-strategy.md §4) and
+ * deliberately thin ("What each level is for", .claude/skills/testing/SKILL.md) and
  * an abstraction over four locators would hide the thing the tests exist to
  * prove.
  *

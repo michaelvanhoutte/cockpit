@@ -3,7 +3,7 @@
  *
  * Loads concepts.json and matches source files against each area's glob
  * patterns. A file can legitimately match more than one area's patterns now
- * — testing-strategy.md §9.1 made the outer `describe` an undotted **feature
+ * — the testing skill ("Name it after the product, not the mechanism") made the outer `describe` an undotted **feature
  * area** ("Capture", "Triage", "Offline") rather than a dotted entity, and a
  * single file like `apps/api/src/domain/items.ts` backs several of those
  * areas as different rules in the same file (`captureItem` for Capture,

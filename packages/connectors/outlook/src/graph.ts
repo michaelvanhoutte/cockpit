@@ -56,7 +56,7 @@ export interface OutlookConnectorConfig {
   readonly apiOrigin?: string;
   /** The token endpoint, where it is not to be found in the issuer's discovery document. */
   readonly endpoints?: { readonly tokenEndpoint: string };
-  /** Handed in by the tests, which must reach no network (docs/testing-strategy.md, "Third parties"). */
+  /** Handed in by the tests, which must reach no network (.claude/skills/testing/references/third-parties.md). */
   readonly fetch?: typeof fetch;
   /** Read once per use, so a token is judged against the time it is used. */
   readonly now?: () => Date;

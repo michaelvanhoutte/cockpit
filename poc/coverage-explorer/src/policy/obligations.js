@@ -7,7 +7,8 @@
  * stay short enough to read in one sitting, because it is the part a human has
  * to actually agree with.
  *
- * Transcribed from docs/testing-strategy.md §2 and §5, and docs/architecture.md
+ * Transcribed from .claude/skills/testing/SKILL.md ("What each level may use"
+ * and "Mandatory coverage"), and docs/architecture.md
  * §6.1 and §6.2. When those documents change, this file changes; nothing else
  * in the POC should need to.
  */
@@ -45,7 +46,7 @@ export const HIGH_FAN_IN = 4;
  *
  * Without this, no frontend component could ever be obligated (the component
  * layers are tier "wrong" and fan-in is low by nature), which would leave the
- * F1 column permanently amber and quietly contradict strategy §5.1.
+ * F1 column permanently amber and quietly contradict the testing skill's first mandatory-coverage rule.
  */
 export const BRANCHY = 4;
 
@@ -99,22 +100,22 @@ export const REACH_THRESHOLD = 0.8;
  */
 export const KIND_OBLIGATIONS = {
   repo: {
-    L3: { require: 'later', why: 'Strategy §2 collapses L2 and L3 while there is a single service, and Cockpit has one. Becomes due with the second service.' },
-    F3: { require: 'required', why: 'Strategy §5.1: every capability needs a frontend test proving it works for a user. Tracked per capability, not per node.' },
+    L3: { require: 'later', why: 'The testing skill collapses L2 and L3 while there is a single service, and Cockpit has one. Becomes due with the second service.' },
+    F3: { require: 'required', why: 'Testing skill, Mandatory coverage: every capability needs a frontend test proving it works for a user. Tracked per capability, not per node.' },
   },
   // A package with a wrangler config owns real infrastructure, so it owns L2.
   service_backend: {
     L2: { require: 'required', why: 'Owns D1, the queues and the cron triggers. This is the node that owes integration coverage against its own real infrastructure.' },
   },
   service_frontend: {
-    F2: { require: 'required', why: 'Strategy §2 F2: prove the frontend and its own backend agree on payload shapes, error handling and loading states.' },
+    F2: { require: 'required', why: 'Testing skill, F2: prove the frontend and its own backend agree on payload shapes, error handling and loading states.' },
   },
   // Architecture §6.2 writes the connector obligation set out in prose. This is
   // that paragraph, in a form the report can check.
   connector: {
     L1: { require: 'later', why: 'Normalization and sync logic tested in isolation against a fake host, per architecture §6.2.' },
-    L2: { require: 'later', why: 'Recorded fixtures built from real responses, per strategy §3.2. Faithful, never hand-invented.' },
-    C: { require: 'later', why: 'Scheduled run against the live API. Its only job is to prove the fixtures still match reality, per strategy §3.3.' },
+    L2: { require: 'later', why: 'Recorded fixtures built from real responses, per the testing skill on third parties. Faithful, never hand-invented.' },
+    C: { require: 'later', why: 'Scheduled run against the live API. Its only job is to prove the fixtures still match reality, per the testing skill on third parties.' },
   },
 };
 
@@ -148,7 +149,7 @@ export function moduleObligation(signals, ctx) {
       why:
         `Impure (${signals.impureReason || 'reaches a real dependency'}) with ${decisions}, so the behaviour ` +
         `belongs at the integration level. Either test it there, or extract the pure core and test that at the ` +
-        `unit level, per strategy §2.`,
+        `unit level, per the testing skill.`,
     };
   }
 

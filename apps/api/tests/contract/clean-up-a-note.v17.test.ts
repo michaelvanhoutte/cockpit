@@ -11,7 +11,7 @@ import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corre
 
 /**
  * The contract tier: the real Claude API, the real prompt, no fake anywhere
- * (docs/testing-strategy.md, "Third parties"). **A behaviour suite: run
+ * (.claude/skills/testing/references/third-parties.md). **A behaviour suite: run
  * by hand, and only when named** (`pnpm --filter @cockpit/api test:contract clean-up-a-note`), by whoever changes
  * this prompt, before pushing, the pull request showing the run. No CI run selects it, because every case spends money
  * and takes as long as the model does; what CI asks of the prompt is the one call in `one-call.test.ts`. The fakes one tier down are what every other test runs against.

@@ -1,5 +1,5 @@
 {
-  "$comment": "Every outside service the product or the Harness Monitor reaches (docs/testing-strategy.md, \"Third-party dependencies\"). A service claims its hosts and names a live contract suite in `suite`, or has a `gap` saying why there is none yet; a gap comes off when the suite lands. A host in product or Harness Monitor source that nothing here claims fails scripts/lib/outside-services.test.mjs. A service reached through an SDK or a binding has no host to scan, so it is listed here by hand. `notServices` excuses a host that is not a call, with the reason.",
+  "$comment": "Every outside service the product or the Harness Monitor reaches (.claude/skills/testing/references/third-parties.md). A service claims its hosts and names a live contract suite in `suite`, or has a `gap` saying why there is none yet; a gap comes off when the suite lands. A host in product or Harness Monitor source that nothing here claims fails scripts/lib/outside-services.test.mjs. A service reached through an SDK or a binding has no host to scan, so it is listed here by hand. `notServices` excuses a host that is not a call, with the reason.",
   "services": [
     {
       "name": "Gmail",

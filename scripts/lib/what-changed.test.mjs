@@ -362,7 +362,7 @@ describe('localChangeAnswer', () => {
   const mustNotBeCalled = () => assert.fail('localChangeAnswer asked for the workspace on a diff that never needed it');
 
   it("never asks for the workspace on a documentation-only diff - the pnpm -r list a docs-only push has no reason to pay for", () => {
-    const paths = ['docs/deployment.md', 'docs/testing-strategy.md'];
+    const paths = ['docs/deployment.md', 'docs/ideas.md'];
     assert.equal(localChangeAnswer(paths, mustNotBeCalled), 'documentation only');
   });
 

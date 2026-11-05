@@ -18,7 +18,7 @@ import {
 
 /**
  * L1: which connection a save belongs to, against a host that records what was
- * asked of it (docs/testing-strategy.md, "Connectors are tested in isolation
+ * asked of it (docs/architecture.md: "Connectors are tested in isolation
  * against a fake host"). That the host's own answer comes from a real register
  * and a real store is `apps/api/tests/integration/http/teams-ingress.test.ts`'s
  * question, not this file's.

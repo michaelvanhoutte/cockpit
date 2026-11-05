@@ -43,7 +43,7 @@ export interface TeamsConnectorConfig {
   /**
    * Where the signing keys come from. Defaults to the Bot Framework's own
    * published set; handed in by the tests, which mint their own tokens and
-   * must reach no network (docs/testing-strategy.md, "Third parties").
+   * must reach no network (.claude/skills/testing/references/third-parties.md).
    */
   readonly keys?: JWTVerifyGetKey;
   /**

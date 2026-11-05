@@ -16,7 +16,7 @@ import { FakeHost } from './fake-host.js';
 /**
  * Microsoft Graph and Microsoft's token endpoint as a connector meets them over
  * the network, kept in memory and answering in the shapes `graph-payloads.ts`
- * records (docs/testing-strategy.md, "Third parties": faked at the network
+ * records (.claude/skills/testing/references/third-parties.md: faked at the network
  * boundary, by replacing `fetch`, so the connector does its own requests).
  *
  * A mailbox is changed the way a person changes one - `flag`, `complete`,

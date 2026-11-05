@@ -163,11 +163,12 @@ export default [
   },
 
   {
-    // The testing strategy's dependency table for L1/F1, as the one part of it
+    // The testing skill's dependency table for L1/F1, as the one part of it
     // a rule can hold: "L1/F1 may not touch: filesystem, network, database". A
     // folder is what gets policed, which is why the levels are folders. Why the
     // API client is not on the list, and what this misses that a runner-level
-    // block would catch, are in testing-strategy.md under "Enforcement".
+    // block would catch, are in .claude/skills/testing/SKILL.md under
+    // "Reviewing tests".
     //
     // `.js` as well as `.ts`, because `tools/*/tests/unit` is JavaScript and is
     // a unit folder like any other.

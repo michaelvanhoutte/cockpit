@@ -16,7 +16,7 @@ import { categoriesAnswer, deletedItemsAnswer, message, messagesPage } from '../
 /**
  * The contract tier: the calls the Outlook connector reads and writes, asked of Microsoft
  * Graph itself against a dedicated Microsoft 365 test mailbox
- * (docs/testing-strategy.md, "Third parties"; "Build Outlook as a connector
+ * (.claude/skills/testing/references/third-parties.md; "Build Outlook as a connector
  * package on the SDK, unregistered", issue 1046). **Never per change**
  * (.github/workflows/contract.yml): it reaches the network, and what it holds is
  * Microsoft's decision rather than ours.

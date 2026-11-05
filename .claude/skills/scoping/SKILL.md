@@ -12,7 +12,7 @@ Fuzzy scope is where features go wrong, before a line of code or an issue exists
 ### 1. Read the inputs
 
 - The request itself: the conversation, the `ideas.md` entry, the bug report.
-- The existing rules for every part of the product this touches: the relevant file(s) in [docs/product/](../../../docs/product/), [functional-definition.md](../../../docs/functional-definition.md) for purpose, problems and open decisions, [architecture.md](../../../docs/architecture.md), and any topic doc for the area (e.g. [routing-learning.md](../../../docs/routing-learning.md), [testing-strategy.md](../../../docs/testing-strategy.md) for test placement).
+- The existing rules for every part of the product this touches: the relevant file(s) in [docs/product/](../../../docs/product/), [functional-definition.md](../../../docs/functional-definition.md) for purpose, problems and open decisions, [architecture.md](../../../docs/architecture.md), and any topic doc for the area (e.g. [routing-learning.md](../../../docs/routing-learning.md), the [testing](../testing/SKILL.md) skill for test placement).
 - Open and closed issues and pull requests touching the same area (`gh issue list`, `gh pr list`), so this doesn't redo something already decided or in flight.
 
 ### 2. Decide whether it has to be seen first

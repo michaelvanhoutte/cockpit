@@ -18,7 +18,7 @@ import { issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../iss
  * connector asks for one yet - a saved Teams message carries what it saves, so
  * nothing has to be unsealed to file it ("Save a Teams message to Cockpit",
  * issue 486). The HTTP layer cannot reach it by construction, which is the one
- * case the testing strategy allows entering below the interface
+ * case the testing skill allows entering below the interface
  * (tests/integration/db/constraints.test.ts is the other).
  *
  * What it holds is the promise the whole ordering exists for: a credential is

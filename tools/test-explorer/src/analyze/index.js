@@ -25,8 +25,8 @@ export function analyze(repo, { notWorthATest = NOT_WORTH_A_TEST } = {}) {
   const registry = loadConcepts();
 
   // L3 (system) only means anything once a second backend service exists to
-  // wire together at the API level (testing-strategy.md §2: "L2 and L3
-  // largely collapse into each other" with one service) — derived from real
+  // wire together at the API level (the testing skill, "Levels are roles, not
+  // folders to fill": with one service L2 and L3 collapse) — derived from real
   // workspace data (a wrangler config marks a deployable Worker/service),
   // not hardcoded, so it flips on its own the day a second one lands.
   const backendServiceCount = packages.filter((rel) => isBackendService(repo, rel)).length;

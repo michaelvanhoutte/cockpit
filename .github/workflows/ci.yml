@@ -143,7 +143,7 @@ jobs:
         run: pnpm typecheck
       # The lint layer ("Add the lint layer the code is already written against",
       # issue 282): the React Hooks rules, no focused test reaching `main`, and the
-      # testing strategy's L1/F1 dependency table as restricted imports. Its own
+      # testing skill's L1/F1 dependency table as restricted imports. Its own
       # step for the reason every one here is — a failure that names itself — and
       # because it is the only check that fails on a `.only` somebody left in, which
       # otherwise turns `Test` green over a suite that ran one test.
@@ -192,7 +192,7 @@ jobs:
   # grows, not that any one run is faster today ("Run only the affected tests
   # in CI's Test job on a pull request", issue 346).
   #
-  # testing-strategy.md's "Definition of done for agents" section (§6) requires
+  # The testing skill's "Definition of done" requires
   # the fast tiers in full, with no selection - unaffected by this, since that
   # rule is about what an agent runs *locally* before claiming a change works
   # (`pnpm test`, untouched here) and is backstopped by CI regardless of what
@@ -456,8 +456,8 @@ jobs:
   # it reads changed (scripts/lib/what-changed.mjs, `widgetChanged`), so the
   # many pull requests that never touch it pay for no Gradle run. Its own job
   # because it needs Java and the Android SDK where the rest need Node, and
-  # because it is the one place a Kotlin test can run (docs/testing-strategy.md,
-  # "The Android widget").
+  # because it is the one place a Kotlin test can run
+  # (.claude/skills/testing/references/android-widget.md).
   #
   # Runs on anything the classifier could not answer: `widget_changed` is unset
   # then, and also while the base commit's classifier predates the output, which

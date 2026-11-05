@@ -5,8 +5,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
  * A Bot Framework that can be reached from inside a test.
  *
  * Teams is horizontal - another service, over the network - which L2 may not
- * touch (docs/testing-strategy.md, "Test level definitions and dependency
- * restrictions"). So it is faked at the network boundary and nothing else is:
+ * touch (.claude/skills/testing/SKILL.md, "What each level may use"). So it is faked at the network boundary and nothing else is:
  * the application fetches the published metadata itself, builds its own key set
  * from it and checks the signature itself, exactly as it does against
  * Microsoft. Whether Microsoft still publishes what this stands in for is the

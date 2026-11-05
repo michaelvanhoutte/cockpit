@@ -141,7 +141,7 @@ describe('issueNumbersWithoutTitles', () => {
   });
 
   it('is not satisfied by an unrelated link earlier in the block', () => {
-    const source = 'See [the testing strategy](docs/testing-strategy.md) for the reasoning, and issue 244 for the report.';
+    const source = 'See [the deployment](docs/deployment.md) for the reasoning, and issue 244 for the report.';
     assert.deepEqual(issueNumbersWithoutTitles(source).map(({ number }) => number), ['244']);
   });
 

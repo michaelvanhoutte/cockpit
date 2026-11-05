@@ -1,7 +1,7 @@
 # Test Explorer
 
 Answers, without reading the code: which parts of the product own which tests, at which
-testing-strategy level, and which branches nothing exercises. Writes the model from the
+test level (the testing skill's), and which branches nothing exercises. Writes the model from the
 repository as it exists right now; the Harness Monitor's Tests page draws it.
 
 The design rationale — what was tried and rejected, and why it is shaped this way —

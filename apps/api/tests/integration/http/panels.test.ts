@@ -1433,8 +1433,8 @@ describe('Layouts', () => {
      * owned with them", issue 234): 240 real round trips against the workers
      * pool cost ~95s on a clean run, and under heavier CI contention ran past
      * its own 120s timeout and failed outright - passing and failing
-     * intermittently with no code change, which is testing-strategy.md's own
-     * "Flakiness policy" definition of a suite bug that normally asks for
+     * intermittently with no code change, which is the testing skill's own
+     * "Flakiness" definition of a suite bug that normally asks for
      * quarantine before a decision to delete. Skipped here on purpose: the
      * owner made the call directly rather than deferring it, the same way
      * "Delete the two summary-job tests that fail at random" (pull request
