@@ -174,5 +174,7 @@ export function parseDesign(value, { fail, object, array, string }) {
   // What the Design tab shows besides the layers: the words of each call (by `from>to`) and of each rule that is not a call.
   const reasons = isPlain(value.reasons) ? value.reasons : {};
   const rules = Array.isArray(value.rules) ? value.rules : [];
-  return { layers, mayCall, breaks, reasons, rules, callers, noLine, accepted, findLines, extensions, unruled: value.unruled === true };
+  // The calls CI tolerates until they are fixed; the layer-calls check reads them, and the drawing keeps them red.
+  const knownBreaches = Array.isArray(value.knownBreaches) ? value.knownBreaches : [];
+  return { layers, mayCall, breaks, reasons, rules, knownBreaches, callers, noLine, accepted, findLines, extensions, unruled: value.unruled === true };
 }

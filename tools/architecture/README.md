@@ -215,6 +215,11 @@ A red or ✓ circle, and each row's "Scope a fix" or "Reconsider" button, open a
 a `/scoping` prompt to copy. The prompts are built with the page and carried in it as data; copying runs in the browser and
 sends nothing. The page's one inline script serves that dialog, and a page with no deviation carries neither.
 
+**CI fails on every red line not listed as a known breach** (the rule with `check: layer-calls`, `src/layer-calls.js`, run by
+`tests/lint/layer-calls.test.mjs`). The `known breaches` list in `docs/architecture.yml` names, per file, red lines CI tolerates
+until they are fixed; the page still draws them red. An entry in `accepted` or `known breaches` naming a file that no longer
+makes its call fails, and the import check fails a pull request whose known breaches grew against the merge base.
+
 **Evidence** is one import (resolved the way Dependencies resolves it) or one marker match per file, with its line. A
 store's or outside service's `marker` is a regular expression searched in the code of every component; a match on a
 comment line is not evidence.

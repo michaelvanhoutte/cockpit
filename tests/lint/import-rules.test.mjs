@@ -574,3 +574,48 @@ describe('rule 5: a rules file that does not parse fails the check, naming the f
     }
   });
 });
+
+describe('the known breaches can only shrink, and accepted calls may grow, from the first merge base that checks the layers', () => {
+  const layerCheck = { rule: 'layer calls', check: 'layer-calls', reason: 'Checked.', agreed: false };
+  const breach = { from: 'jobs', to: 'queue', files: [api('jobs/enrichment.ts')], question: 'Why?' };
+  /** The rules file with the layer-calls rule, these known breaches and these accepted calls. */
+  const checked = (known, accepted = []) => {
+    const doc = fileDoc();
+    doc.cockpit.rules.push(layerCheck);
+    doc.cockpit['known breaches'] = known;
+    doc.cockpit.accepted = accepted;
+    return doc;
+  };
+  const relaxed = (head, base) => relaxations(rulesFromFile(head, manifestOf), rulesFromFile(base, manifestOf));
+
+  it('passes the layer-calls rule arriving with its known breaches, since the merge base did not check the layers yet', () => {
+    assert.deepEqual(relaxed(checked([breach]), fileDoc()), []);
+  });
+
+  it('passes a known breach removed, or one of its files removed', () => {
+    const two = { ...breach, files: [api('jobs/enrichment.ts'), api('jobs/guest-arrival.ts')] };
+    assert.deepEqual(relaxed(checked([breach]), checked([two])), []);
+    assert.deepEqual(relaxed(checked([]), checked([two])), []);
+  });
+
+  it('fails a known breach the merge base does not have', () => {
+    const failures = relaxed(checked([breach, { from: 'http', to: 'register', files: [api('http/app.ts')], question: 'Why?' }]), checked([breach]));
+    assert.deepEqual(failures, ["known breach is not in the merge base's known breaches, the list may only shrink: http -> register in apps/api/src/http/app.ts"]);
+  });
+
+  it('fails a known breach spreading to one more file', () => {
+    const failures = relaxed(checked([{ ...breach, files: [...breach.files, api('jobs/new.ts')] }]), checked([breach]));
+    assert.deepEqual(failures, ["known breach is not in the merge base's known breaches, the list may only shrink: jobs -> queue in apps/api/src/jobs/new.ts"]);
+  });
+
+  it('passes an accepted call added with its reason, the pull request being its review', () => {
+    const accepted = { from: 'http', to: 'register', files: [api('http/app.ts')], reason: 'Read before an account is known.', agreed: false };
+    assert.deepEqual(relaxed(checked([breach], [accepted]), checked([breach])), []);
+  });
+
+  it('fails the layer-calls rule removed', () => {
+    const head = checked([breach]);
+    head.cockpit.rules = head.cockpit.rules.filter((rule) => rule.check !== 'layer-calls');
+    assert.deepEqual(relaxed(head, checked([breach])), ['the rule with check: layer-calls was removed']);
+  });
+});
