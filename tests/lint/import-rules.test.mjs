@@ -613,6 +613,13 @@ describe('the layer rules can only shrink, from the first merge base that checks
     assert.deepEqual(relaxed(head, checked(skip)), ['the layer call api -> data was added to what a layer may call']);
   });
 
+  it('fails a code folder moved to another layer, which would let its calls through', () => {
+    const head = checked(skip);
+    head.cockpit.layers.data.parts.jobs = head.cockpit.layers.api.parts.jobs;
+    delete head.cockpit.layers.api.parts.jobs;
+    assert.deepEqual(relaxed(head, checked(skip)), ['apps/api/src/jobs moved from the api layer to the data layer']);
+  });
+
   it('fails the layer-calls rule removed', () => {
     const head = checked(skip);
     head.cockpit.rules = head.cockpit.rules.filter((rule) => rule.check !== 'layer-calls');

@@ -18,12 +18,16 @@ const at = (edge, file) => `${file}${edge.at[file] ? `:${edge.at[file]}` : ''}`;
 
 /**
  * Every failure of the layer-calls check over one service's Logical view. Pure.
- * @param {{ bad: object[], accepted: object[], design: { rules: { check?: string }[], accepted: { from: string, to: string, files: string[] }[] } }} logical
+ * @param {{ bad: object[], accepted: object[], placement: { unplaced: string[], doubled: { folder: string, components: string[] }[] }, design: { rules: { check?: string }[], accepted: { from: string, to: string, files: string[] }[] } }} logical
  * @returns {string[]}
  */
 export function layerCallFailures(logical) {
   if (!logical.design.rules.some((rule) => rule.check === CHECK)) return [`docs/architecture.yml: no rule has check: ${CHECK}`];
-  const failures = [];
+  // A file no part holds makes no line at all, so it would escape the check; a folder two parts hold has no one layer.
+  const failures = [
+    ...logical.placement.unplaced.map((folder) => `${folder} is in no part of docs/architecture.yml, so its calls cannot be checked: add it to a part's code`),
+    ...logical.placement.doubled.map(({ folder, components }) => `${folder} is in more than one part (${components.join(', ')}), so its calls have no one layer`),
+  ];
   for (const edge of logical.bad) {
     const files = edge.partly ? edge.newFiles : edge.files;
     const known = edge.partly ? `; the accepted entry ${edge.from} -> ${edge.to} names only ${edge.partly.files.join(', ')}, and may not grow` : '';
@@ -36,7 +40,7 @@ export function layerCallFailures(logical) {
   for (const entry of logical.design.accepted) {
     const still = made.get(`${entry.from}>${entry.to}`) ?? [];
     for (const file of entry.files) {
-      if (!still.includes(file)) failures.push(`accepted entry ${entry.from} -> ${entry.to}: ${file} no longer makes this call, remove it from the entry (or the entry, if it names no other file)`);
+      if (!still.includes(file)) failures.push(`accepted entry ${entry.from} -> ${entry.to}: ${file} no longer makes a call the layers forbid, remove it from the entry (or the entry, if it names no other file)`);
     }
   }
   return failures;

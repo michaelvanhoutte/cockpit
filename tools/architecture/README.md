@@ -208,7 +208,7 @@ A line between two components in one layer is counted on the layer's title and n
 
 **Accepting a deviation** is a pull request to the `accepted` list in `docs/architecture.yml`: each entry names the two components
 (`from`, `to`), the `files` it covers and the `reason`, or a `question` where no reason is written yet. It is judged per file. A
-line is grey and listed under "Accepted, with a reason" when the entry names every file that makes it; a file it does not name
+line is grey and listed under "Accepted, with a reason or a question" when the entry names every file that makes it; a file it does not name
 leaves the line red, its row naming the new files. An entry no deviation on its pair needs any more (the line is gone, a file
 was renamed, or the design now allows it) is listed as "No longer needed"; an entry naming a component the design lacks, or
 giving neither a reason nor a question, fails the run.

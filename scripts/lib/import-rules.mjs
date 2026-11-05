@@ -372,6 +372,10 @@ export function relaxations(rules, base) {
     else {
       for (const call of rules.layers.calls) if (!base.layers.calls.includes(call)) out.push(`the layer call ${call} was added to what a layer may call`);
       for (const call of rules.layers.accepted) if (!base.layers.accepted.includes(call)) out.push(`accepted call is not in the merge base's accepted list, the list may only shrink: ${call}`);
+      for (const [code, layer] of Object.entries(base.layers.layerOf ?? {})) {
+        const now = rules.layers.layerOf[code];
+        if (now !== undefined && now !== layer) out.push(`${code} moved from the ${layer} layer to the ${now} layer`);
+      }
     }
   }
   return out;
@@ -380,7 +384,7 @@ export function relaxations(rules, base) {
 /**
  * @typedef {{ sources: Record<string, { package?: string }>, core: string[], registry: string,
  *   areas: { folder: string, root: string[], sharedRoot: string[], order: string[][] }, allowlist: { from: string, to: string }[],
- *   layers?: { calls: string[], accepted: string[] } | null }} Rules
+ *   layers?: { calls: string[], accepted: string[], layerOf: Record<string, string> } | null }} Rules
  * @typedef {{ importer: string, imported: string, typeOnly: boolean }} Import
  * @typedef {{ from: string, to: string, rule: string }} Breach
  */
@@ -463,6 +467,8 @@ export function rulesFromFile(file, readText = () => null) {
     ? {
         calls: Object.entries(file.cockpit?.layers ?? {}).flatMap(([layer, body]) => Object.keys(body?.calls ?? {}).map((to) => `${layer} -> ${to}`)),
         accepted: (file.cockpit?.accepted ?? []).flatMap((entry) => (entry.files ?? []).map((importer) => `${entry.from} -> ${entry.to} in ${importer}`)),
+        // Each code folder and the layer it sits in: moving one to a layer allowed to make its calls silences them too.
+        layerOf: Object.fromEntries(Object.entries(file.cockpit?.layers ?? {}).flatMap(([layer, body]) => Object.values(body?.parts ?? {}).flatMap((part) => [part?.code ?? []].flat().map((code) => [code, layer])))),
       }
     : null;
   const rank = new Map(declared.areas.order.flatMap((tier, index) => tier.map((area) => [area, index])));

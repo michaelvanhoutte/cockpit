@@ -292,7 +292,7 @@ describe('An acceptance the code no longer needs is listed as no longer needed, 
     const logical = code();
     expect(logical.accepted).toEqual([]);
     expect(logical.stale).toEqual([]);
-    expect(renderLogicalPage({ logical, drawnFrom: bare })).toMatch(/Accepted, with a reason<\/h2>.*?<p class="dim">None\.<\/p>/s);
+    expect(renderLogicalPage({ logical, drawnFrom: bare })).toMatch(/Accepted, with a reason or a question<\/h2>.*?<p class="dim">None\.<\/p>/s);
   });
 });
 
@@ -384,7 +384,7 @@ describe('Every red and tick circle, and every row\'s button, opens its own devi
     const page = renderLogicalPage({ logical: code(), drawnFrom });
     expect(page).not.toContain('<dialog');
     expect(page).not.toContain('<script');
-    expect(page).toContain('None: every line in the code is one the design draws, or one accepted with a reason.');
+    expect(page).toContain('None: every line in the code is one the design draws, or one accepted for its files.');
     expect(page).toContain('<p class="dim">None.</p>');
   });
 });

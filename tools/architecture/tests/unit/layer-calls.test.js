@@ -28,7 +28,7 @@ const failuresOf = (files, overrides) =>
     buildLogical({
       design: readDescription({ design: design(overrides) }).design,
       scan: { extensions: ['.ts'] },
-      candidates: ['apps/api/src/http', 'apps/api/src/jobs', 'apps/api/src/accounts', 'apps/api/src/db'].map((path) => folder(path, files[path])),
+      candidates: ['apps/api/src/http', 'apps/api/src/jobs', 'apps/api/src/accounts', 'apps/api/src/db', ...Object.keys(files).filter((path) => path.endsWith('/billing'))].map((path) => folder(path, files[path])),
     }),
   );
 
@@ -58,8 +58,12 @@ describe('the layer-calls check fails on every call the Logical page draws red',
 
   it('fails an accepted entry naming a file that no longer makes its call, so the list shrinks as the code is fixed', () => {
     expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, accepting(['apps/api/src/http/route.ts', 'apps/api/src/http/fixed.ts']))).toEqual([
-      'accepted entry http -> register: apps/api/src/http/fixed.ts no longer makes this call, remove it from the entry (or the entry, if it names no other file)',
+      'accepted entry http -> register: apps/api/src/http/fixed.ts no longer makes a call the layers forbid, remove it from the entry (or the entry, if it names no other file)',
     ]);
+  });
+
+  it('fails a folder no part holds, whose calls would otherwise make no line and escape the check', () => {
+    expect(failuresOf({ 'apps/api/src/billing': { 'charge.ts': SKIPS } })).toEqual(["apps/api/src/billing is in no part of docs/architecture.yml, so its calls cannot be checked: add it to a part's code"]);
   });
 
   it('fails when no rule in the file has check: layer-calls, so removing the rule cannot switch the check off', () => {
