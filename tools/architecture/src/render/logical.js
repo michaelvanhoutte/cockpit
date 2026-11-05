@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { acceptedWhy, accTable, devData, dialog } from './deviations.js';
+import { accTable, devData, dialog } from './deviations.js';
 import { linksFor, linkPaths, commitLineOf } from './links.js';
 import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
 import { crumbTrail, prose, switchNav, trailOf } from './shell.js';
@@ -267,7 +267,7 @@ export function specOf(logical, links) {
     ...logical.miss.map(({ a, b }) => ({ from: boxId(a), to: boxId(b), kind: 'miss', label: 'in the design, not in the code', title: `${layerById.get(a).title} → ${layerById.get(b).title}: the design draws it; no file does it` })),
     ...logical.callers.map((c) => ({ from: c.from, to: c.to, declared: true, kind: c.status === 'notFound' ? 'miss' : 'decl', label: callLabel(c), toName: nameOf(c.to), title: `${c.from} → ${c.to}: ${callLabel(c)}${c.status === 'notFound' ? ' (not found in the code)' : c.addresses.length ? `\nFound in ${c.files.join(', ')}` : ''}` })),
     ...logical.within.map((w) => ({ from: w.from, to: w.to, kind: 'ok', route: 'within', title: `${nameOf(w.from)} → ${nameOf(w.to)}: ${verbOf(w, logical)}, ${plural(w.files.length, 'file')}${logical.findLines ? `\n${files(w.files)}` : ''}` })),
-    ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${acceptedWhy(e.accepted)}\n${files(e.files)}` })),
+    ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${e.accepted.reason}\n${files(e.files)}` })),
     ...logical.bad.map((e) => ({ from: e.from, to: e.to, kind: 'bad', n: e.n, id: e.id, href: `#${e.id}`, title: `${e.n}. ${e.why}${e.partly ? `\nAccepted for ${e.partly.files.join(', ')}; new: ${e.newFiles.join(', ')}` : ''}\n${files(e.files)}\nClick to copy a /scoping prompt` })),
   ];
   return { rows, side: sideLayer ? boxOf(sideLayer) : undefined, sideRow, lines, nameOf, layerById, chipById, logical, links };
@@ -276,13 +276,13 @@ export function specOf(logical, links) {
 export const NLEGEND = `<div class="legend">
 <span><i class="ln" style="border-top-width:2px"></i>In the design and in the code: one line per pair of layers</span>
 <span><i class="ln up"></i>In the code, not in the design: numbered, drawn around what it skips</span>
-<span><i class="ln" style="border-top-color:var(--ink-3)"></i>Off the design, but accepted with a reason or an open question: marked ✓</span>
+<span><i class="ln" style="border-top-color:var(--ink-3)"></i>Off the design, but accepted with a reason: marked ✓</span>
 <span><i class="ln" style="border-top-style:dotted"></i>In the design, not in the code</span>
 <span><i class="ln" style="border-top-color:var(--accent);border-top-style:dashed"></i>How a caller talks to it: declared</span>
 </div><p class="sectionnote">Hover a box or a component to see only its lines. Click a red or ✓ circle for its files and a prompt to scope it, a layer's title for its modules, a store for its tables, and a component marked ↗ for its code on GitHub. Every file listed below opens on GitHub at the line that makes the line in the diagram.</p>`;
 
 function offTable(logical, { nameOf, layerById }, links) {
-  if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws, or one accepted for its files.</p>';
+  if (!logical.bad.length) return '<p class="ok">None: every line in the code is one the design draws, or one accepted with a reason.</p>';
   const cell = (id, layerId) => `${esc(nameOf(id))}<br><span class="dim">${esc(layerById.get(layerId).title)}</span>`;
   return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>What it breaks</th><th>Files</th><th></th></tr>${logical.bad.map((e) => `<tr class="bad" id="${e.id}"><td><span class="num">${e.n}</span></td><td>${cell(e.from, e.a)}</td><td>${cell(e.to, e.b)}</td><td>${esc(e.why)}${e.kind === 'store' || e.how.length ? ` <span class="dim">(${esc(e.how.join(', ') || 'imports it')})</span>` : ''}${e.partly ? `<br><span class="dim">Accepted for ${esc(e.partly.files.map((file) => file.split('/').pop()).join(', '))}, not for ${esc(e.newFiles.map((file) => file.split('/').pop()).join(', '))}, which ${e.newFiles.length === 1 ? 'is' : 'are'} new.</span>` : ''}</td><td>${links.files(e.files, e.at)}</td><td><button class="copy" data-dev="${e.id}">Scope a fix</button></td></tr>`).join('')}</table></div>`;
 }
@@ -331,7 +331,7 @@ export function renderLogicalPage(model, service = {}) {
   const rulesFile = 'docs/architecture.yml';
   const own = service.logical !== undefined && service.id !== 'cockpit';
   const acceptances = !own || logical.accepted.length > 0 || logical.stale.length > 0
-    ? `<h2 id="acc">Accepted, with a reason or a question</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(rulesFile)}, the rules file.</p>${accTable(logical, spec, links)}`
+    ? `<h2 id="acc">Accepted, with a reason</h2><p class="sectionnote">Grey on the diagram. Accepted for the files named; the same line from any other file is red again. Written by hand in ${links.file(rulesFile)}, the rules file.</p>${accTable(logical, spec, links)}`
     : '';
   const callers = !own || logical.callers.some((caller) => caller.status !== 'elsewhere')
     ? `<h2>How each caller talks to it</h2>${callerTable(logical, spec, links)}`

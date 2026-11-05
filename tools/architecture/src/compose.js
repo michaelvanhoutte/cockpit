@@ -67,7 +67,7 @@ function composeCockpit(design, section, fail) {
     return { from: found.from, to: reach.at, how: reach.how, ...(found.code ? { code: found.code } : {}) };
   });
 
-  return { ...design, layers, mayCall, breaks, reasons, rules: section.rules, accepted: section.accepted, callers };
+  return { ...design, layers, mayCall, breaks, reasons, rules: section.rules, accepted: section.accepted, knownBreaches: section.knownBreaches, callers };
 }
 
 /**

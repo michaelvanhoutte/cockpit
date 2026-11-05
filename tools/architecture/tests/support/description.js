@@ -27,12 +27,13 @@ function cockpitRules(design) {
     layers,
     ...(design.rules ? { rules: design.rules } : {}),
     ...(design.accepted ? { accepted: design.accepted } : {}),
+    ...(design.knownBreaches ? { 'known breaches': design.knownBreaches } : {}),
   };
 }
 
 /** The drawing a design written in one piece keeps: everything but the rules, its callers reduced to where each is looked for. */
 function drawnDesign(design, { withNames }) {
-  const { mayCall: _mayCall, breaks: _breaks, accepted: _accepted, reasons: _reasons, rules: _rules, ...drawn } = design;
+  const { mayCall: _mayCall, breaks: _breaks, accepted: _accepted, knownBreaches: _knownBreaches, reasons: _reasons, rules: _rules, ...drawn } = design;
   return { ...drawn, callers: (design.callers ?? []).map((caller) => ({ ...(withNames ? { caller: callerName(caller) } : { ...(caller.how ? { how: caller.how } : {}), to: caller.to }), from: caller.from, ...(caller.code ? { code: caller.code } : {}) })) };
 }
 

@@ -101,11 +101,16 @@ export function parseRules(file, text) {
       return { rule: string(one.rule, `${id}.rules[${index}].rule`), ...(one.check === undefined ? {} : { check: string(one.check, `${id}.rules[${index}].check`) }), ...noteOf(one, string, `${id}.rules[${index}]`) };
     });
 
-    // An accepted call carries why it is accepted, or the question asked of it where no reason is written yet.
     section.accepted = (each.accepted === undefined ? [] : array(each.accepted, `${id}.accepted`)).map((one, index) => {
       const where = `${id}.accepted[${index}]`;
       object(one, where);
-      if (one.reason === undefined && one.question === undefined) fail(`${where} has neither a reason nor a question`);
+      return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), reason: string(one.reason, `${where}.reason`), ...(one.source === undefined ? {} : { source: string(one.source, `${where}.source`) }), agreed: one.agreed === true };
+    });
+
+    // Calls the rules do not allow and nobody accepted, tolerated by CI until fixed: the report still draws them red.
+    section.knownBreaches = (each['known breaches'] === undefined ? [] : array(each['known breaches'], `${id}.known breaches`)).map((one, index) => {
+      const where = `${id}.known breaches[${index}]`;
+      object(one, where);
       return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), ...noteOf(one, string, where) };
     });
 

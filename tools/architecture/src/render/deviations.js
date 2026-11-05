@@ -10,9 +10,6 @@ import { esc } from './svg.js';
 /** A reason as a sentence body: one full stop is added by the caller, so none the text already ends in is kept. */
 const bare = (text) => String(text).replace(/[.\s]+$/, '');
 
-/** Why a deviation is accepted: its reason, or the question asked of it where no reason is written yet. */
-export const acceptedWhy = (acceptance) => acceptance.reason ?? `Open question: ${acceptance.question}`;
-
 /** The prompt a deviation copies: the deviation in the design's words, the rule it breaks and the exact lines, so a fresh session can scope the fix without opening the page. */
 export function devPrompt(e, { logical, nameOf, layerById, links, commit, service = 'Cockpit' }) {
   const allowed = logical.mayCall.filter(([a]) => a === e.a).map(([, b]) => layerById.get(b).title);
@@ -21,9 +18,9 @@ export function devPrompt(e, { logical, nameOf, layerById, links, commit, servic
     return `- ${file}${e.at[file] ? `:${e.at[file]}` : ''}${href ? ` (${href})` : ''}`;
   }).join('\n');
   const head = e.accepted
-    ? `/scoping Reconsider an accepted architecture deviation in ${service}.\n\nIt is accepted today because: ${acceptedWhy(e.accepted)}`
+    ? `/scoping Reconsider an accepted architecture deviation in ${service}.\n\nIt is accepted today because: ${e.accepted.reason}`
     : `/scoping Fix an architecture deviation in ${service}.`;
-  const earlier = e.partly ? `\nAn earlier acceptance covers ${e.partly.files.join(', ')} ("${acceptedWhy(e.partly)}"); ${e.newFiles.join(', ')} ${e.newFiles.length === 1 ? 'is' : 'are'} new.` : '';
+  const earlier = e.partly ? `\nAn earlier acceptance covers ${e.partly.files.join(', ')} ("${e.partly.reason}"); ${e.newFiles.join(', ')} ${e.newFiles.length === 1 ? 'is' : 'are'} new.` : '';
   return `${head}
 
 ${nameOf(e.from)} (${layerById.get(e.a).title}) reaches ${nameOf(e.to)} (${layerById.get(e.b).title}). ${bare(e.why)}.
@@ -40,7 +37,7 @@ export function devData(context) {
   const { logical, nameOf, links } = context;
   return Object.fromEntries([...logical.bad, ...logical.accepted].map((e) => [e.id, {
     title: `${e.accepted ? 'Accepted' : `Deviation ${e.n}`}: ${nameOf(e.from)} → ${nameOf(e.to)}`,
-    why: e.accepted ? `${bare(e.why)}. Accepted: ${acceptedWhy(e.accepted)}` : e.why,
+    why: e.accepted ? `${bare(e.why)}. Accepted: ${e.accepted.reason}` : e.why,
     files: links.files(e.files, e.at),
     prompt: devPrompt(e, context),
   }]));
@@ -48,8 +45,8 @@ export function devData(context) {
 
 /** Deviations accepted with a reason: grey on the diagram, and an acceptance nothing needs any more. */
 export function accTable(logical, { nameOf }, links) {
-  const rows = logical.accepted.map((e, i) => `<tr id="acc-${i + 1}"><td><span class="num num-acc">✓</span></td><td>${esc(nameOf(e.from))}</td><td>${esc(nameOf(e.to))}</td><td>${esc(acceptedWhy(e.accepted))}</td><td>${links.files(e.files, e.at)}</td><td><button class="copy" data-dev="${e.id}">Reconsider</button></td></tr>`);
-  const stale = logical.stale.map((x) => `<tr><td></td><td>${esc(nameOf(x.from))}</td><td>${esc(nameOf(x.to))}</td><td><span class="bad">No longer needed:</span> no file it names makes this line any more. Remove the acceptance, or update its files if the line is still red above.<br><span class="dim">${esc(acceptedWhy(x))}</span></td><td>${x.files.map((file) => `<code>${esc(file)}</code>`).join('<br>')}</td><td></td></tr>`);
+  const rows = logical.accepted.map((e, i) => `<tr id="acc-${i + 1}"><td><span class="num num-acc">✓</span></td><td>${esc(nameOf(e.from))}</td><td>${esc(nameOf(e.to))}</td><td>${esc(e.accepted.reason)}</td><td>${links.files(e.files, e.at)}</td><td><button class="copy" data-dev="${e.id}">Reconsider</button></td></tr>`);
+  const stale = logical.stale.map((x) => `<tr><td></td><td>${esc(nameOf(x.from))}</td><td>${esc(nameOf(x.to))}</td><td><span class="bad">No longer needed:</span> no file it names makes this line any more. Remove the acceptance, or update its files if the line is still red above.<br><span class="dim">${esc(x.reason)}</span></td><td>${x.files.map((file) => `<code>${esc(file)}</code>`).join('<br>')}</td><td></td></tr>`);
   if (!rows.length && !stale.length) return '<p class="dim">None.</p>';
   return `<div class="scroll"><table class="flows"><tr><th></th><th>From</th><th>To</th><th>Why it is allowed</th><th>Accepted for</th><th></th></tr>${[...rows, ...stale].join('')}</table></div>`;
 }

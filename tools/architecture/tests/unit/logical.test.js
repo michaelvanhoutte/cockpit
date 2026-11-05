@@ -292,7 +292,7 @@ describe('An acceptance the code no longer needs is listed as no longer needed, 
     const logical = code();
     expect(logical.accepted).toEqual([]);
     expect(logical.stale).toEqual([]);
-    expect(renderLogicalPage({ logical, drawnFrom: bare })).toMatch(/Accepted, with a reason or a question<\/h2>.*?<p class="dim">None\.<\/p>/s);
+    expect(renderLogicalPage({ logical, drawnFrom: bare })).toMatch(/Accepted, with a reason<\/h2>.*?<p class="dim">None\.<\/p>/s);
   });
 });
 
@@ -301,12 +301,12 @@ describe('An acceptance is checked as the rest of the description file is', () =
   const entry = { from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' };
 
   it('reads a valid acceptance', () => {
-    expect(read([entry]).design.accepted).toEqual([{ ...entry, question: null, source: null, agreed: false }]);
+    expect(read([entry]).design.accepted).toEqual([{ ...entry, source: null, agreed: false }]);
   });
 
   it.each([
     { situation: 'it names a component the design does not have', accepted: [{ ...entry, to: 'ghost' }], message: 'ghost' },
-    { situation: 'it has neither a reason nor a question', accepted: [{ ...entry, reason: undefined }], message: 'neither a reason nor a question' },
+    { situation: 'it has no reason', accepted: [{ ...entry, reason: undefined }], message: 'accepted[0].reason' },
     { situation: 'its reason is blank', accepted: [{ ...entry, reason: '  ' }], message: 'accepted[0].reason' },
     { situation: 'it covers no file', accepted: [{ ...entry, files: [] }], message: 'at least one file' },
     { situation: 'the pair is accepted twice', accepted: [entry, entry], message: 'already accepts' },
@@ -384,7 +384,7 @@ describe('Every red and tick circle, and every row\'s button, opens its own devi
     const page = renderLogicalPage({ logical: code(), drawnFrom });
     expect(page).not.toContain('<dialog');
     expect(page).not.toContain('<script');
-    expect(page).toContain('None: every line in the code is one the design draws, or one accepted for its files.');
+    expect(page).toContain('None: every line in the code is one the design draws, or one accepted with a reason.');
     expect(page).toContain('<p class="dim">None.</p>');
   });
 });

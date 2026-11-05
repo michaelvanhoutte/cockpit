@@ -1,8 +1,9 @@
 //
 // The layer-calls check over the real tree: no call between layers that docs/architecture.yml does not allow, except
-// the accepted calls for the files they name. This is the half that gates; the check itself is the architecture
-// report's own (tools/architecture/src/layer-calls.js), tested there, so the report and CI cannot disagree about what is
-// a red line. Whether the accepted list grew against the merge base is import-rules.test.mjs's "today's tree".
+// the accepted calls and known breaches for the files they name. This is the half that gates; the check itself is the
+// architecture report's own (tools/architecture/src/layer-calls.js), tested there, so the report and CI cannot disagree
+// about what is a red line. Whether the known breaches grew against the merge base is import-rules.test.mjs's
+// "today's tree".
 //
 // Here rather than in `scripts/lib`, whose CI job is checkout-only and could not import the report's YAML reader.
 //

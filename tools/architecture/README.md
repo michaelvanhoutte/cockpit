@@ -207,18 +207,18 @@ A rule's mark is **agreed** when the rules file sets `agreed: true`, a **questio
 A line between two components in one layer is counted on the layer's title and not drawn, unless the layer sets `drawInside`.
 
 **Accepting a deviation** is a pull request to the `accepted` list in `docs/architecture.yml`: each entry names the two components
-(`from`, `to`), the `files` it covers and the `reason`, or a `question` where no reason is written yet. It is judged per file. A
-line is grey and listed under "Accepted, with a reason or a question" when the entry names every file that makes it; a file it does not name
-leaves the line red, its row naming the new files. An entry no deviation on its pair needs any more (the line is gone, a file
-was renamed, or the design now allows it) is listed as "No longer needed"; an entry naming a component the design lacks, or
-giving neither a reason nor a question, fails the run.
-
-**CI fails on every red line** (the rule with `check: layer-calls`, `src/layer-calls.js`, run by `tests/lint/layer-calls.test.mjs`),
-and on an accepted entry naming a file that no longer makes its call, so the report and CI never disagree. The import check
-fails a pull request whose accepted list, or whose layers' `calls`, grew against the merge base.
+(`from`, `to`), the `files` it covers and the `reason`. It is judged per file. A line is grey and listed under "Accepted, with
+a reason" when the entry names every file that makes it; a file it does not name leaves the line red, its row naming the new
+files. An entry no deviation on its pair needs any more (the line is gone, a file was renamed, or the design now allows it) is
+listed as "No longer needed" and fails nothing; an entry naming a component the design lacks, or giving no reason, fails the run.
 A red or ✓ circle, and each row's "Scope a fix" or "Reconsider" button, open a dialog with the files linked to their lines and
 a `/scoping` prompt to copy. The prompts are built with the page and carried in it as data; copying runs in the browser and
 sends nothing. The page's one inline script serves that dialog, and a page with no deviation carries neither.
+
+**CI fails on every red line not listed as a known breach** (the rule with `check: layer-calls`, `src/layer-calls.js`, run by
+`tests/lint/layer-calls.test.mjs`). The `known breaches` list in `docs/architecture.yml` names, per file, red lines CI tolerates
+until they are fixed; the page still draws them red. An entry in `accepted` or `known breaches` naming a file that no longer
+makes its call fails, and the import check fails a pull request whose known breaches grew against the merge base.
 
 **Evidence** is one import (resolved the way Dependencies resolves it) or one marker match per file, with its line. A
 store's or outside service's `marker` is a regular expression searched in the code of every component; a match on a

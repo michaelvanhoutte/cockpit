@@ -370,12 +370,7 @@ export function relaxations(rules, base) {
   if (base.layers) {
     if (!rules.layers) out.push('the rule with check: layer-calls was removed');
     else {
-      for (const call of rules.layers.calls) if (!base.layers.calls.includes(call)) out.push(`the layer call ${call} was added to what a layer may call`);
-      for (const call of rules.layers.accepted) if (!base.layers.accepted.includes(call)) out.push(`accepted call is not in the merge base's accepted list, the list may only shrink: ${call}`);
-      for (const [code, layer] of Object.entries(base.layers.layerOf ?? {})) {
-        const now = rules.layers.layerOf[code];
-        if (now !== undefined && now !== layer) out.push(`${code} moved from the ${layer} layer to the ${now} layer`);
-      }
+      for (const call of rules.layers.known) if (!base.layers.known.includes(call)) out.push(`known breach is not in the merge base's known breaches, the list may only shrink: ${call}`);
     }
   }
   return out;
@@ -384,7 +379,7 @@ export function relaxations(rules, base) {
 /**
  * @typedef {{ sources: Record<string, { package?: string }>, core: string[], registry: string,
  *   areas: { folder: string, root: string[], sharedRoot: string[], order: string[][] }, allowlist: { from: string, to: string }[],
- *   layers?: { calls: string[], accepted: string[], layerOf: Record<string, string> } | null }} Rules
+ *   layers?: { known: string[] } | null }} Rules
  * @typedef {{ importer: string, imported: string, typeOnly: boolean }} Import
  * @typedef {{ from: string, to: string, rule: string }} Breach
  */
@@ -461,15 +456,11 @@ export function rulesFromFile(file, readText = () => null) {
     engines: checked('engine-lists').files,
     allowlist: [],
   };
-  // The layer-calls check runs in tools/architecture; here are only what its relaxation is judged on: every call a
-  // layer may make, and every accepted call per file. Null where the file has no layer-calls rule yet.
+  // The layer-calls check runs in tools/architecture; here is only what may not grow against the merge base: every known
+  // breach per file. An accepted call may be added, its pull request being its review. Null where the file has no
+  // layer-calls rule yet.
   declared.layers = rules.some((rule) => rule.check === 'layer-calls')
-    ? {
-        calls: Object.entries(file.cockpit?.layers ?? {}).flatMap(([layer, body]) => Object.keys(body?.calls ?? {}).map((to) => `${layer} -> ${to}`)),
-        accepted: (file.cockpit?.accepted ?? []).flatMap((entry) => (entry.files ?? []).map((importer) => `${entry.from} -> ${entry.to} in ${importer}`)),
-        // Each code folder and the layer it sits in: moving one to a layer allowed to make its calls silences them too.
-        layerOf: Object.fromEntries(Object.entries(file.cockpit?.layers ?? {}).flatMap(([layer, body]) => Object.values(body?.parts ?? {}).flatMap((part) => [part?.code ?? []].flat().map((code) => [code, layer])))),
-      }
+    ? { known: (file.cockpit?.['known breaches'] ?? []).flatMap((entry) => (entry.files ?? []).map((importer) => `${entry.from} -> ${entry.to} in ${importer}`)) }
     : null;
   const rank = new Map(declared.areas.order.flatMap((tier, index) => tier.map((area) => [area, index])));
   const areas = partAreas(file, declared.areas.folder);

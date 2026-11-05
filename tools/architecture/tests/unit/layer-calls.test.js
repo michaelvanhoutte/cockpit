@@ -33,9 +33,11 @@ const failuresOf = (files, overrides) =>
   );
 
 const SKIPS = "import { createDb } from '../db/client.js';";
-const accepting = (files) => ({ accepted: [{ from: 'http', to: 'register', files, question: 'Should this move behind Business logic?' }] });
+const ROUTE = 'apps/api/src/http/route.ts';
+const accepting = (files) => ({ accepted: [{ from: 'http', to: 'register', files, reason: 'Read before an account is known.' }] });
+const knowing = (files) => ({ knownBreaches: [{ from: 'http', to: 'register', files, question: 'Should this move behind Business logic?' }] });
 
-describe('the layer-calls check fails on every call the Logical page draws red', () => {
+describe('the layer-calls check fails on a call between layers that is neither allowed, accepted nor a known breach', () => {
   it('fails an API file that reaches Data directly, naming the file, the line and the rule it breaks', () => {
     expect(failuresOf({ 'apps/api/src/http': { 'route.ts': `// a comment\n${SKIPS}` } })).toEqual([
       'apps/api/src/http/route.ts:2 calls register from http: The API layer reaches Data directly, past Business logic',
@@ -46,19 +48,29 @@ describe('the layer-calls check fails on every call the Logical page draws red',
     expect(failuresOf({ 'apps/api/src/http': { 'route.ts': "import { run } from '../accounts/store.js';" } })).toEqual([]);
   });
 
-  it('passes a call an accepted entry covers for every file making it, whether it carries a reason or a question', () => {
-    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, accepting(['apps/api/src/http/route.ts']))).toEqual([]);
+  it('passes a call an accepted entry covers for every file making it', () => {
+    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, accepting([ROUTE]))).toEqual([]);
   });
 
-  it('fails a known call spreading to a file its accepted entry does not name, naming only the new file', () => {
-    const failures = failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS, 'other.ts': SKIPS } }, accepting(['apps/api/src/http/route.ts']));
+  it('passes a known breach for the files it names, though the report still draws it red', () => {
+    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, knowing([ROUTE]))).toEqual([]);
+  });
+
+  it('fails a known breach spreading to a file it does not name, naming only the new file', () => {
+    const failures = failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS, 'other.ts': SKIPS } }, knowing([ROUTE]));
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toMatch(/^apps\/api\/src\/http\/other\.ts:1 calls register from http: .*names only apps\/api\/src\/http\/route\.ts, and may not grow$/);
+    expect(failures[0]).toMatch(/^apps\/api\/src\/http\/other\.ts:1 calls register from http: .*the known breach http -> register names only apps\/api\/src\/http\/route\.ts, and may not grow$/);
   });
 
-  it('fails an accepted entry naming a file that no longer makes its call, so the list shrinks as the code is fixed', () => {
-    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, accepting(['apps/api/src/http/route.ts', 'apps/api/src/http/fixed.ts']))).toEqual([
-      'accepted entry http -> register: apps/api/src/http/fixed.ts no longer makes a call the layers forbid, remove it from the entry (or the entry, if it names no other file)',
+  it('fails a known breach naming a file that no longer makes its call, so the list shrinks as the code is fixed', () => {
+    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, knowing([ROUTE, 'apps/api/src/http/fixed.ts']))).toEqual([
+      'known breach http -> register: apps/api/src/http/fixed.ts no longer makes a call the layers forbid, remove it from the entry (or the entry, if it names no other file)',
+    ]);
+  });
+
+  it('fails an accepted entry naming a file that no longer makes its call', () => {
+    expect(failuresOf({ 'apps/api/src/http': { 'route.ts': SKIPS } }, accepting([ROUTE, 'apps/api/src/http/fixed.ts']))).toEqual([
+      'accepted call http -> register: apps/api/src/http/fixed.ts no longer makes a call the layers forbid, remove it from the entry (or the entry, if it names no other file)',
     ]);
   });
 
@@ -70,4 +82,3 @@ describe('the layer-calls check fails on every call the Logical page draws red',
     expect(failuresOf({}, { rules: [] })).toEqual(['docs/architecture.yml: no rule has check: layer-calls']);
   });
 });
-

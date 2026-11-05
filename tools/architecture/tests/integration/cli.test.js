@@ -284,10 +284,9 @@ describe('Logical', () => {
 
   it('draws this repository\'s own design with a numbered circle and a row for each line the design does not allow', () => {
     const { logical } = real.model;
-    // The layer-calls check keeps the real tree free of red lines, so the accepted ones carry the circles here.
-    expect(logical.accepted.length).toBeGreaterThan(0);
+    expect(logical.bad.length).toBeGreaterThan(0);
     expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length + logical.accepted.length);
-    expect(real.logicalPage.match(/<tr class="bad" id="off-/g) ?? []).toHaveLength(logical.bad.length);
+    expect(real.logicalPage.match(/<tr class="bad" id="off-/g)).toHaveLength(logical.bad.length);
     expect(logical.callers.filter((caller) => caller.status === 'found').map((caller) => caller.from)).toEqual(expect.arrayContaining(['web', 'widget']));
   });
 
@@ -398,11 +397,11 @@ describe('Services', () => {
     expect(real.pages['services.html']).toContain('<span class="ok">No store is used by two services.</span>');
   });
 
-  // The badge itself is drawn in services-view.test.js: the real tree has no red line for one to show.
-  it('counts on each service as many lines as are red on its own page', () => {
+  it('puts a badge on each service of as many lines as are red on its own page, linking to them', () => {
     const [monitor, cockpit] = real.model.serviceMap.boxes;
     expect(cockpit.off).toBe(real.model.logical.bad.length);
     expect(monitor.off).toBe(real.model.services.find((each) => each.id === 'harness-monitor').logical.bad.length);
+    expect(real.pages['services.html']).toContain(`<a href="service-cockpit.html#off"><rect class="nb-badge"`);
     expect(real.pages['service-cockpit.html']).toContain('<h2 id="off">');
   });
 
