@@ -69,6 +69,18 @@ export function useOpenItem(): (itemId: string) => void {
 }
 
 /**
+ * How Undo closes the form of the Item it took back ("Open a captured Item's
+ * form from the Captured line", issue 1639): nothing, unless that Item's form
+ * is the one open, so another Item's form stays. A context for the reason
+ * `OpenItem` is one.
+ */
+const CloseItem = createContext<(itemId: string) => void>(() => {});
+
+export function useCloseItem(): (itemId: string) => void {
+  return useContext(CloseItem);
+}
+
+/**
  * The Item shown in a docked form, if one is docked open - what a plain click
  * on a row follows ("Let the item's form dock to the side of the screen instead of opening as a dialog", issue
  * 481). `openId` is null whenever nothing is docked open, which is what tells a
@@ -128,6 +140,10 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
     },
     [navigate],
   );
+  const { close } = useItemForm();
+  const closeIfOpen = (itemId: string) => {
+    if (search.item === itemId) close();
+  };
   // Replacing rather than pushing: following the rows is one open form
   // changing its Item, so Back leaves the page rather than stepping back
   // through every row that was looked at.
@@ -153,13 +169,15 @@ export function OpensItemForms({ children }: { children: ReactNode }) {
   );
   return (
     <OpenItem.Provider value={open}>
-      <ReportDocked.Provider value={setDocked}>
-        <QuietOpening.Provider value={isQuietOpening}>
-          <SettleQuietOpening.Provider value={settleQuietOpening}>
-            <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
-          </SettleQuietOpening.Provider>
-        </QuietOpening.Provider>
-      </ReportDocked.Provider>
+      <CloseItem.Provider value={closeIfOpen}>
+        <ReportDocked.Provider value={setDocked}>
+          <QuietOpening.Provider value={isQuietOpening}>
+            <SettleQuietOpening.Provider value={settleQuietOpening}>
+              <DockedItemContext.Provider value={dock}>{children}</DockedItemContext.Provider>
+            </SettleQuietOpening.Provider>
+          </QuietOpening.Provider>
+        </ReportDocked.Provider>
+      </CloseItem.Provider>
     </OpenItem.Provider>
   );
 }
