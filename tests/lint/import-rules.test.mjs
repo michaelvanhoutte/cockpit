@@ -574,3 +574,48 @@ describe('rule 5: a rules file that does not parse fails the check, naming the f
     }
   });
 });
+describe('the layer rules can only shrink, from the first merge base that checks them', () => {
+  const layerCheck = { rule: 'layer calls', check: 'layer-calls', reason: 'Checked.', agreed: false };
+  const skip = { from: 'jobs', to: 'queue', files: [api('jobs/enrichment.ts')], question: 'Why?', agreed: false };
+  /** The rules file with the layer-calls rule, the API layer calling Business logic, and these accepted calls. */
+  const checked = (...accepted) => {
+    const doc = fileDoc();
+    doc.cockpit.rules.push(layerCheck);
+    doc.cockpit.layers.api.calls = { logic: { reason: 'Thin routes.', agreed: false } };
+    doc.cockpit.accepted = accepted;
+    return doc;
+  };
+  const relaxed = (head, base) => relaxations(rulesFromFile(head, manifestOf), rulesFromFile(base, manifestOf));
+
+  it('passes the layer-calls rule arriving with its accepted calls, since the merge base did not check the layers yet', () => {
+    assert.deepEqual(relaxed(checked(skip), fileDoc()), []);
+  });
+
+  it('passes an accepted call removed, or one of its files removed', () => {
+    const two = { ...skip, files: [api('jobs/enrichment.ts'), api('jobs/guest-arrival.ts')] };
+    assert.deepEqual(relaxed(checked(skip), checked(two)), []);
+    assert.deepEqual(relaxed(checked(), checked(two)), []);
+  });
+
+  it('fails an accepted call the merge base does not have, even with a reason written', () => {
+    const failures = relaxed(checked(skip, { from: 'http', to: 'register', files: [api('http/app.ts')], reason: 'Fast.', agreed: false }), checked(skip));
+    assert.deepEqual(failures, ["accepted call is not in the merge base's accepted list, the list may only shrink: http -> register in apps/api/src/http/app.ts"]);
+  });
+
+  it('fails a known call accepted for one more file', () => {
+    const failures = relaxed(checked({ ...skip, files: [...skip.files, api('jobs/new.ts')] }), checked(skip));
+    assert.deepEqual(failures, ["accepted call is not in the merge base's accepted list, the list may only shrink: jobs -> queue in apps/api/src/jobs/new.ts"]);
+  });
+
+  it('fails a layer allowed to call one more layer, which would silence the check', () => {
+    const head = checked(skip);
+    head.cockpit.layers.api.calls.data = { reason: 'Shortcut.', agreed: false };
+    assert.deepEqual(relaxed(head, checked(skip)), ['the layer call api -> data was added to what a layer may call']);
+  });
+
+  it('fails the layer-calls rule removed', () => {
+    const head = checked(skip);
+    head.cockpit.rules = head.cockpit.rules.filter((rule) => rule.check !== 'layer-calls');
+    assert.deepEqual(relaxed(head, checked(skip)), ['the rule with check: layer-calls was removed']);
+  });
+});

@@ -301,12 +301,12 @@ describe('An acceptance is checked as the rest of the description file is', () =
   const entry = { from: 'http', to: 'd1', files: ['apps/api/src/http/a.ts'], reason: 'Because.' };
 
   it('reads a valid acceptance', () => {
-    expect(read([entry]).design.accepted).toEqual([{ ...entry, source: null, agreed: false }]);
+    expect(read([entry]).design.accepted).toEqual([{ ...entry, question: null, source: null, agreed: false }]);
   });
 
   it.each([
     { situation: 'it names a component the design does not have', accepted: [{ ...entry, to: 'ghost' }], message: 'ghost' },
-    { situation: 'it has no reason', accepted: [{ ...entry, reason: undefined }], message: 'accepted[0].reason' },
+    { situation: 'it has neither a reason nor a question', accepted: [{ ...entry, reason: undefined }], message: 'neither a reason nor a question' },
     { situation: 'its reason is blank', accepted: [{ ...entry, reason: '  ' }], message: 'accepted[0].reason' },
     { situation: 'it covers no file', accepted: [{ ...entry, files: [] }], message: 'at least one file' },
     { situation: 'the pair is accepted twice', accepted: [entry, entry], message: 'already accepts' },

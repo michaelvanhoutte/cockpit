@@ -4,9 +4,9 @@
 # structure, and links here where it would otherwise restate one.
 #
 # A rule with a `check` is enforced by CI and the check's name says which. A rule without one is design only: nothing
-# fails a build on it. The `accepted` list is the one place both kinds meet: an entry the import order forbids lets
-# that import through and may only shrink; an entry the order already allows changes nothing in CI and only greys the
-# line on the report.
+# fails a build on it. The layers' `calls` are enforced by the `layer-calls` rule, which fails on every line the
+# report's Logical page draws red. The `accepted` list lets a call through for the files it names and no others, for
+# both `layer-calls` and `import-order`, and may only shrink.
 #
 # Every rule carries one of:
 #   reason    why the rule exists, in a sentence or two
@@ -161,6 +161,11 @@ cockpit:
 
   # Rules inside and across the layers, finer than the layers above.
   rules:
+    - rule: A layer calls only the layers its `calls` names, except the accepted calls below, for the files they name
+      check: layer-calls
+      reason: The layers say what each part may call; checked only by the nightly report, a call that skips Business logic merges unnoticed.
+      agreed: false
+
     - rule: Every part may read packages/shared and env.ts
       reason: packages/shared is the contract between the web app and the API, and env.ts is the bindings type every API area takes.
       source: System shape ("packages/shared is the contract")
@@ -221,6 +226,50 @@ cockpit:
       to: register
       files: [apps/api/src/auth/register.ts, apps/api/src/auth/sign-in-history.ts]
       reason: 'Sign-in reads and writes the Register directly: every question it asks comes before an account is known, so there is nowhere else to ask it.'
+      agreed: false
+
+    # The calls the report found when the layer-calls check began. Each is a question until the engineer either
+    # writes its reason or moves the call behind Business logic.
+    - from: auth
+      to: google
+      files: [apps/api/src/auth/issuer.ts]
+      question: 'Sign-in names Google as the issuer and fetches its sign-in endpoints itself, before any account is known, as it reads the Register. Is that the same reason, or should the call move behind Business logic?'
+      agreed: false
+
+    - from: http
+      to: attachments
+      files: [apps/api/src/http/app.ts]
+      question: 'An http route reads the attachments bucket directly (whether an upload already exists). Should that move into the account store or the domain?'
+      agreed: false
+
+    - from: mcp
+      to: oauth-grants
+      files: [apps/api/src/mcp/connected-apps.ts]
+      question: 'The connected-apps code writes the time of a grant''s last capture into the OAuth grants KV directly. Is the grant store part of the OAuth layer by design, or should it sit behind Business logic?'
+      agreed: false
+
+    - from: mcp
+      to: register
+      files: [apps/api/src/mcp/grant.ts]
+      question: 'Granting an app reads the users table of the Register directly. Is that sign-in''s reason (before an account is known), or should it go through Business logic?'
+      agreed: false
+
+    - from: email
+      to: register
+      files: [apps/api/src/email/register.ts]
+      question: 'Email in looks up which account an address belongs to in the Register directly. Is that sign-in''s reason (before an account is known), or should it go through Business logic?'
+      agreed: false
+
+    - from: jobs
+      to: queue
+      files: [apps/api/src/jobs/enrichment.ts, apps/api/src/jobs/guest-arrival.ts]
+      question: 'Jobs put enrichment jobs on the queue directly. The queue is consumed by Jobs; should producing onto it also be allowed to Jobs, or move behind Business logic?'
+      agreed: false
+
+    - from: connectors
+      to: auth
+      files: [apps/api/src/connectors/credential-crypto.ts, apps/api/src/connectors/sign-in.ts]
+      question: 'The connector host reuses sign-in''s key derivation and OIDC code, which sits in the API layer above it. Should that code move down to Business logic, or is it shared code that belongs to neither?'
       agreed: false
 
   # The sources Cockpit knows, each a connector package or an engine.

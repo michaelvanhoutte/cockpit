@@ -98,13 +98,15 @@ export function parseRules(file, text) {
     // The rules inside and across the layers: each says what it is and carries its words; how CI checks it is not the report's.
     section.rules = (each.rules === undefined ? [] : array(each.rules, `${id}.rules`)).map((one, index) => {
       object(one, `${id}.rules[${index}]`);
-      return { rule: string(one.rule, `${id}.rules[${index}].rule`), ...noteOf(one, string, `${id}.rules[${index}]`) };
+      return { rule: string(one.rule, `${id}.rules[${index}].rule`), ...(one.check === undefined ? {} : { check: string(one.check, `${id}.rules[${index}].check`) }), ...noteOf(one, string, `${id}.rules[${index}]`) };
     });
 
+    // An accepted call carries why it is accepted, or the question asked of it where no reason is written yet.
     section.accepted = (each.accepted === undefined ? [] : array(each.accepted, `${id}.accepted`)).map((one, index) => {
       const where = `${id}.accepted[${index}]`;
       object(one, where);
-      return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), reason: string(one.reason, `${where}.reason`), ...(one.source === undefined ? {} : { source: string(one.source, `${where}.source`) }), agreed: one.agreed === true };
+      if (one.reason === undefined && one.question === undefined) fail(`${where} has neither a reason nor a question`);
+      return { from: string(one.from, `${where}.from`), to: string(one.to, `${where}.to`), files: array(one.files, `${where}.files`).map((entry, at) => string(entry, `${where}.files[${at}]`)), ...noteOf(one, string, where) };
     });
 
     if (each.sources !== undefined) section.sources = Object.keys(object(each.sources, `${id}.sources`));

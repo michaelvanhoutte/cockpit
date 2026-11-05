@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { accTable, devData, dialog } from './deviations.js';
+import { acceptedWhy, accTable, devData, dialog } from './deviations.js';
 import { linksFor, linkPaths, commitLineOf } from './links.js';
 import { isOpened, LINES_NOTE, verbOf, partsLegend, partsLines } from './parts.js';
 import { crumbTrail, prose, switchNav, trailOf } from './shell.js';
@@ -267,7 +267,7 @@ export function specOf(logical, links) {
     ...logical.miss.map(({ a, b }) => ({ from: boxId(a), to: boxId(b), kind: 'miss', label: 'in the design, not in the code', title: `${layerById.get(a).title} → ${layerById.get(b).title}: the design draws it; no file does it` })),
     ...logical.callers.map((c) => ({ from: c.from, to: c.to, declared: true, kind: c.status === 'notFound' ? 'miss' : 'decl', label: callLabel(c), toName: nameOf(c.to), title: `${c.from} → ${c.to}: ${callLabel(c)}${c.status === 'notFound' ? ' (not found in the code)' : c.addresses.length ? `\nFound in ${c.files.join(', ')}` : ''}` })),
     ...logical.within.map((w) => ({ from: w.from, to: w.to, kind: 'ok', route: 'within', title: `${nameOf(w.from)} → ${nameOf(w.to)}: ${verbOf(w, logical)}, ${plural(w.files.length, 'file')}${logical.findLines ? `\n${files(w.files)}` : ''}` })),
-    ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${e.accepted.reason}\n${files(e.files)}` })),
+    ...logical.accepted.map((e) => ({ from: e.from, to: e.to, kind: 'acc', n: '✓', id: e.id, href: `#${e.id}`, title: `Accepted: ${acceptedWhy(e.accepted)}\n${files(e.files)}` })),
     ...logical.bad.map((e) => ({ from: e.from, to: e.to, kind: 'bad', n: e.n, id: e.id, href: `#${e.id}`, title: `${e.n}. ${e.why}${e.partly ? `\nAccepted for ${e.partly.files.join(', ')}; new: ${e.newFiles.join(', ')}` : ''}\n${files(e.files)}\nClick to copy a /scoping prompt` })),
   ];
   return { rows, side: sideLayer ? boxOf(sideLayer) : undefined, sideRow, lines, nameOf, layerById, chipById, logical, links };

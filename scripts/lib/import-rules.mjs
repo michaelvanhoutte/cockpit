@@ -366,12 +366,21 @@ export function relaxations(rules, base) {
       if (!holds) out.push(wasAbove ? `${a} no longer stays above ${b}` : wasLevel ? `${a} and ${b} no longer share a tier` : `${b} no longer stays above ${a}`);
     }
   }
+  // The layer rules bind from the first merge base that has the layer-calls rule.
+  if (base.layers) {
+    if (!rules.layers) out.push('the rule with check: layer-calls was removed');
+    else {
+      for (const call of rules.layers.calls) if (!base.layers.calls.includes(call)) out.push(`the layer call ${call} was added to what a layer may call`);
+      for (const call of rules.layers.accepted) if (!base.layers.accepted.includes(call)) out.push(`accepted call is not in the merge base's accepted list, the list may only shrink: ${call}`);
+    }
+  }
   return out;
 }
 
 /**
  * @typedef {{ sources: Record<string, { package?: string }>, core: string[], registry: string,
- *   areas: { folder: string, root: string[], sharedRoot: string[], order: string[][] }, allowlist: { from: string, to: string }[] }} Rules
+ *   areas: { folder: string, root: string[], sharedRoot: string[], order: string[][] }, allowlist: { from: string, to: string }[],
+ *   layers?: { calls: string[], accepted: string[] } | null }} Rules
  * @typedef {{ importer: string, imported: string, typeOnly: boolean }} Import
  * @typedef {{ from: string, to: string, rule: string }} Breach
  */
@@ -448,6 +457,14 @@ export function rulesFromFile(file, readText = () => null) {
     engines: checked('engine-lists').files,
     allowlist: [],
   };
+  // The layer-calls check runs in tools/architecture; here are only what its relaxation is judged on: every call a
+  // layer may make, and every accepted call per file. Null where the file has no layer-calls rule yet.
+  declared.layers = rules.some((rule) => rule.check === 'layer-calls')
+    ? {
+        calls: Object.entries(file.cockpit?.layers ?? {}).flatMap(([layer, body]) => Object.keys(body?.calls ?? {}).map((to) => `${layer} -> ${to}`)),
+        accepted: (file.cockpit?.accepted ?? []).flatMap((entry) => (entry.files ?? []).map((importer) => `${entry.from} -> ${entry.to} in ${importer}`)),
+      }
+    : null;
   const rank = new Map(declared.areas.order.flatMap((tier, index) => tier.map((area) => [area, index])));
   const areas = partAreas(file, declared.areas.folder);
   for (const entry of file.cockpit?.accepted ?? []) {
@@ -467,7 +484,7 @@ export function rulesFromFile(file, readText = () => null) {
  * @returns {Rules}
  */
 export function rulesFromOldJson(json) {
-  return { ...json, allowlist: (json.allowlist ?? []).map((entry) => ({ from: entry.from, to: areaOf(entry.to, json) ?? entry.to })) };
+  return { ...json, layers: null, allowlist: (json.allowlist ?? []).map((entry) => ({ from: entry.from, to: areaOf(entry.to, json) ?? entry.to })) };
 }
 
 /**

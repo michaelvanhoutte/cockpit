@@ -161,7 +161,10 @@ export function parseDesign(value, { fail, object, array, string }) {
     const files = array(each.files, `${where}.files`).map((file, at) => string(file, `${where}.files[${at}]`));
     if (files.length === 0) fail(`${where}.files must name at least one file`);
     if (accepted.some((other) => other.from === from && other.to === to)) fail(`${where} accepts ${from} to ${to}, which an earlier entry already accepts`);
-    accepted.push({ from, to, files, reason: string(each.reason, `${where}.reason`), source: each.source === undefined ? null : string(each.source, `${where}.source`), agreed: each.agreed === true });
+    if (each.reason === undefined && each.question === undefined) fail(`${where} has neither a reason nor a question`);
+    const reason = each.reason === undefined ? null : string(each.reason, `${where}.reason`);
+    const question = each.question === undefined ? null : string(each.question, `${where}.question`);
+    accepted.push({ from, to, files, reason, question, source: each.source === undefined ? null : string(each.source, `${where}.source`), agreed: each.agreed === true });
   });
 
   // How the lines inside a layer are found where the files are not JavaScript with imports to read. `names`: a file that
