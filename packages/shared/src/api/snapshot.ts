@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { additionSchema } from '../domain/addition.js';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
+import { conversationSchema } from '../domain/conversation.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
@@ -67,6 +68,15 @@ export const workspaceSnapshotSchema = z.object({
    * not send it has no additions to show, and reads as `[]`.
    */
   additions: z.array(additionSchema).optional(),
+  /**
+   * The conversation each Item above follows at its source, where it follows
+   * one ("A Gmail starred conversation is one Item whose status follows who
+   * wrote last", issue 1705): what its row's line is drawn from. The same Items'
+   * as `attachments` above, so a finished one older than a day brings none.
+   * Optional, as `additions` is: a copy saved by a release that did not send it
+   * draws each row's source and sender, as before.
+   */
+  conversations: z.array(conversationSchema).optional(),
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,

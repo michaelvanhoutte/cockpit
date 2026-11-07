@@ -3,6 +3,7 @@ import {
   type CompleteListing,
   type Connector,
   type ConnectorHost,
+  type ConversationTurn,
   type EmittedItem,
   type NamesReport,
   type SourceItem,
@@ -135,7 +136,7 @@ async function mirrorWhatWasChanged(
   const refused = named(gaveUp).filter((one) => !held.includes(one));
   // A give-up clears exactly as a confirmation does; it is logged only where
   // it cleared, since a run that lost its connection cleared nothing.
-  const cleared = await run.confirmOpenStates([...held, ...refused]);
+  const cleared = await run.confirmOpenStates(held, refused);
   if (cleared === 'not this run') return;
   // Counted as the store cleared them, so a change a person made again while
   // the connector pushed, which stays waiting, is not counted as sent back.
@@ -227,6 +228,16 @@ function pulledHost(
       const itemId = await derivedUuid(`pulled-item:${named}`);
       // Names only from a connector that declares it reports them (issue 1146).
       const { names, followed, ...itemRest } = item;
+      // The follow's id derives from where the conversation stands and the run,
+      // so a run emitting it twice follows once (issue 1705). Another run's is a
+      // follow of its own - a conversation marked again after the Item stopped
+      // following it stands where it did - which changes nothing where nothing
+      // is new (`follow_conversation`).
+      const followCommandId = itemRest.conversation
+        ? await derivedUuid(
+            `pulled-follow:${JSON.stringify([named, itemRest.conversation.id, itemRest.conversation.latest.at, begun.runId])}`,
+          )
+        : undefined;
       const { answer, named: namedOn } = await run.fileItem(
         {
           ...itemRest,
@@ -234,7 +245,7 @@ function pulledHost(
           ...(reportsNames && names ? { names: [...names] } : {}),
           ...(reportsNames && names && followed ? { followed } : {}),
         },
-        { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
+        { itemId, commandId: await derivedUuid(`pulled-capture:${named}`), ...(followCommandId ? { followCommandId } : {}) },
         forms,
       );
       if (namedOn) (did.named ??= []).push(namedOn);
@@ -274,6 +285,19 @@ function pulledHost(
         forms,
       );
       if (named) (did.named ??= []).push(named);
+    },
+
+    /** The conversations this connection's open Items follow (issue 1705). */
+    followedConversations: () => run.followedConversations(),
+
+    /**
+     * A message in a followed conversation, recorded in the store, which
+     * decides what it does to the Item (issue 1705). Its id derives from the
+     * connection and the message, so a turn reported twice is applied once.
+     */
+    async reportTurn(turn: ConversationTurn): Promise<void> {
+      const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, turn.conversationId, turn.messageId]);
+      await run.recordTurn(turn, await derivedUuid(`pulled-turn:${named}`));
     },
 
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

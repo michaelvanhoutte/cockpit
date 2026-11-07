@@ -67,6 +67,8 @@ import {
   confirmPulledOpenStates,
   endPulledRun,
   filePulledItem,
+  followedPulledConversations,
+  recordPulledTurn,
   reportPulledNames,
   pulledSealedCredential,
   pulledState,
@@ -81,6 +83,7 @@ import {
 } from './pulled.js';
 import type {
   CompleteListing,
+  ConversationTurn,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -152,6 +155,7 @@ import {
   attachmentsOfItems,
   listAttachmentsInWorkspace,
   listAdditionsInWorkspace,
+  listConversationsInWorkspace,
   listSeriesInWorkspace,
   listRunningSeries,
   listDuplicatesInWorkspace,
@@ -297,6 +301,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         associations: listAssociationsForWorkspace(db, accountName, workspaceId, ofTheRead),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, ofTheRead),
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        conversations: listConversationsInWorkspace(db, accountName, workspaceId, ofTheRead),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         followUpDays: getFollowUpDays(db, accountName),
@@ -1237,7 +1242,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
@@ -1255,6 +1260,24 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
       reportPulledNames(db, accountName, sourceAccountId, runId, report, new Date().toISOString(), forms),
+    );
+  }
+
+  /** The conversations a pulled connection's open Items follow, whose turns its connector reads (issue 1705). */
+  followedPulledConversations(accountName: string, sourceAccountId: string, runId: string): Answer<string[]> {
+    return this.#answer(accountName, (db) => followedPulledConversations(db, accountName, sourceAccountId, runId));
+  }
+
+  /** Records a turn a pulled connector reported in a followed conversation, which sets the Item's status (issue 1705). */
+  recordPulledTurn(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    turn: ConversationTurn,
+    commandId: string,
+  ): Answer<'recorded' | 'not followed' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      recordPulledTurn(db, accountName, sourceAccountId, runId, turn, commandId, new Date().toISOString()),
     );
   }
 
@@ -1287,15 +1310,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => pulledOpenStatesWaiting(db, accountName, sourceAccountId, runId));
   }
 
-  /** Clears the open states the connector confirmed (issue 893). */
+  /** Clears the open states the connector confirmed or gave up on (issue 893); a reopen given up on stops the Item following its conversation. */
   confirmPulledOpenStates(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
+    gaveUp: readonly OpenStateWanted[] = [],
   ): Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'> {
     return this.#answer(accountName, (db) =>
-      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed),
+      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed, gaveUp),
     );
   }
 

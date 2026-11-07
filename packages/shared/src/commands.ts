@@ -15,8 +15,10 @@ import {
   itemTitleSchema,
   panelFitSchema,
   prioritySchema,
+  TITLE_LENGTH,
   workspaceNameSchema,
 } from './domain/item.js';
+import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/conversation.js';
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import {
@@ -706,6 +708,70 @@ export const bringBackOccurrenceSchema = commandEnvelopeSchema.extend({
 });
 export type BringBackOccurrenceCommand = z.infer<typeof bringBackOccurrenceSchema>;
 
+/** Where a conversation is, as both conversation changes name it: the connection's connector and account, and the source's own id for it. */
+const conversationAtSchema = {
+  connectorId: z.string().min(1),
+  externalAccountKey: z.string().min(1),
+  conversationId: z.string().min(1).max(500),
+};
+
+/** The latest message of a conversation, as both conversation changes carry it. */
+const latestMessageSchema = {
+  by: conversationTurnBySchema,
+  from: z.string().max(TITLE_LENGTH).nullable(),
+  at: z.iso.datetime(),
+  excerpt: z.string().max(CONVERSATION_EXCERPT_LENGTH),
+};
+
+/**
+ * follow_conversation - an Item comes to follow a conversation at its source
+ * ("A Gmail starred conversation is one Item whose status follows who wrote
+ * last", issue 1705), with where the conversation stands as it is read: the one
+ * change every way in takes, so far a star a pulled check read. Following again
+ * replaces where it stands only with a newer latest message, or where the Item
+ * had stopped following it. **Where it stands is new to an open Item, its latest
+ * message is applied as a turn** (`record_conversation_turn`): status follows who
+ * wrote last from the moment it is followed, so starring a conversation you wrote
+ * last in makes it Waiting for reply. Self-sent, by the account's store on a
+ * pulled check.
+ */
+export const followConversationSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  link: z.url().max(2_000),
+  latest: z.object(latestMessageSchema),
+  messageCount: z.number().int().positive(),
+  startedAt: z.iso.datetime(),
+  withWhom: z.string().max(TITLE_LENGTH).nullable(),
+  /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
+  connectionDays: dueInDaysSchema.nullable(),
+});
+export type FollowConversationCommand = z.infer<typeof followConversationSchema>;
+
+/**
+ * record_conversation_turn - a message in a conversation an Item follows, as its
+ * source reported it (issue 1705). **The core decides what it does to the
+ * Item** (`applyConversationTurn`, apps/api/src/domain/conversations.ts): yours
+ * makes it Waiting for reply, due after the Follow-ups delay; theirs makes it To
+ * do, due after `connectionDays`, else the Follow-ups delay; on a finished or
+ * dismissed Item, nothing. Its id derives from the message, so a turn read twice
+ * is applied once. Self-sent, by the account's store on a pulled check.
+ */
+export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  ...latestMessageSchema,
+  /** The days the connection gives an Item, or null where it gives none. */
+  connectionDays: dueInDaysSchema.nullable(),
+  /**
+   * The conversation's latest message applied again, not a new one: sent as its
+   * source reopens the Item, so it takes the status of whoever wrote last rather
+   * than the one it had. Leaves where the conversation stands as it is.
+   */
+  standing: z.literal(true).optional(),
+});
+export type RecordConversationTurnCommand = z.infer<typeof recordConversationTurnSchema>;
+
 /** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -1102,6 +1168,8 @@ export const commandSchemas = {
   write_recurring_item: writeRecurringItemSchema,
   delete_recurring_item: deleteRecurringItemSchema,
   bring_back_occurrence: bringBackOccurrenceSchema,
+  follow_conversation: followConversationSchema,
+  record_conversation_turn: recordConversationTurnSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
@@ -1144,7 +1212,10 @@ export type SelfSentCommandName =
   // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
   | 'report_claude_run'
   // Sent by the account's store when a series' day comes (see `bringBackOccurrenceSchema` above).
-  | 'bring_back_occurrence';
+  | 'bring_back_occurrence'
+  // Sent by the account's store on a pulled check (see `followConversationSchema` above).
+  | 'follow_conversation'
+  | 'record_conversation_turn';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

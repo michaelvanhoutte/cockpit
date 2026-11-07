@@ -595,6 +595,13 @@ const rowsFor: {
     sql: "INSERT INTO item_additions (id, tenant_id, item_id, message, created_at) VALUES ('ad-before', ?, 'it-before', 'and the boiler', ?)",
     params: (name) => [name, AT],
   },
+  {
+    // The table `0100-item-conversations` creates ("A Gmail starred conversation is one Item whose status follows who wrote last", issue 1705): a conversation an Item follows, for the next update to meet.
+    table: 'item_conversations',
+    sql: `INSERT INTO item_conversations (tenant_id, item_id, connector_id, external_account_key, conversation_id, link, last_by, last_from, last_at, last_excerpt, message_count, started_at, with_whom)
+          VALUES (?, 'it-before', 'gmail', 'google-somebody', 'thread-before', 'https://mail.google.com/mail/#all/thread-before', 'them', 'Steven', ?, 'Friday?', 2, ?, 'Steven')`,
+    params: (name) => [name, AT, AT],
+  },
 ];
 
 /**
@@ -3765,11 +3772,13 @@ describe('Triage', () => {
       // Left out: the change ledger, the Agent that every open converts to a
       // remembered sentence whatever change it applies (`retire-agents.ts`), and
       // the tables later changes add empty on the same open
-      // (`0098-account-email-address`, `0099-item-additions`).
+      // (`0098-account-email-address`, `0099-item-additions`,
+      // `0100-item-conversations`).
       const {
         account_follow_ups: _added,
         account_email_address: _later,
         item_additions: _laterStill,
+        item_conversations: _laterYet,
         account_changes: changesAfter,
         agents: _a,
         remembered_sentences: _r,
@@ -3820,14 +3829,72 @@ describe('Capture', () => {
 
       const after = await everyRowIn(name);
       expect(after.item_additions).toEqual([]);
-      // Left out: the change ledger, and the Agent every open converts to a
-      // remembered sentence whatever change it applies (`retire-agents.ts`).
-      const { item_additions: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      // Left out: the change ledger, the Agent every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`),
+      // and the table a later change adds empty on the same open
+      // (`0100-item-conversations`).
+      const {
+        item_additions: _added,
+        item_conversations: _later,
+        account_changes: changesAfter,
+        agents: _a,
+        remembered_sentences: _r,
+        ...keptAfter
+      } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
       expect(keptAfter).toEqual(keptBefore);
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { additions: [] } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "A Gmail starred conversation is one Item whose status follows who wrote
+ * last" (issue 1705): an account from before it gains an empty table, every
+ * row it already held stays as it was - an Item a star brought in one email at
+ * a time among them - and its Items read following no conversation.
+ */
+describe('Capture', () => {
+  describe('an account already in use reads its Items following no conversation, and keeps everything it held', () => {
+    const CONVERSATIONS = '0100-item-conversations';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', CONVERSATIONS).one().n);
+
+    it('adds the table empty, reads no conversation in its Workspace, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-conversations';
+      await agedTo(name, justBefore(CONVERSATIONS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await everyRowIn(name);
+      expect(before).not.toHaveProperty('item_conversations');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      expect(after.item_conversations).toEqual([]);
+      // Left out: the change ledger, and the Agent every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`).
+      const { item_conversations: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual(keptBefore);
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [] } });
 
       // Opened again, it is not applied a second time and nothing moves.
       await abortAllDurableObjects();

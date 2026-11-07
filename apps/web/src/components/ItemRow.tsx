@@ -13,6 +13,7 @@ import {
   uuidv7,
   workspaceIsDecided,
   type AgentRun,
+  type Conversation,
   type Item,
   type ItemStatus,
   type PanelFit,
@@ -30,7 +31,8 @@ import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTh
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
-import { capturingApp, openableAtSource, sourceOnARow, type SourceNames } from '../itemSource';
+import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type SourceNames } from '../itemSource';
+import { conversationLine, conversationOpensAt, latestText, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -111,6 +113,7 @@ export function ItemRow({
   openRun,
   onSendToClaude,
   recurring,
+  conversation,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
@@ -286,6 +289,14 @@ export function ItemRow({
   onSendToClaude?: (from: HTMLElement | null) => void;
   /** The rule of the recurring item this Item is a copy of, which the row marks with ↻; none for an Item that is no copy ("Point a copy at its master, and retire the Repeats chip", issue 1450). */
   recurring?: RepeatRule | null;
+  /**
+   * The conversation this Item follows at its source, where it follows one ("A
+   * Gmail starred conversation is one Item whose status follows who wrote
+   * last", issue 1705): the row's line then says who wrote last and when, in
+   * place of the source and sender, and *Open ↗* goes to the conversation.
+   * Resolved by the list, as `openRun` is.
+   */
+  conversation?: Conversation | undefined;
 }) {
   const command = useCommand();
   const send = useSendCommand();
@@ -481,6 +492,8 @@ export function ItemRow({
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
   const atSource = openableAtSource(item, sourceNames);
+  /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
+  const conversationAt = conversation ? conversationOpensAt(conversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -1359,19 +1372,45 @@ export function ItemRow({
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </span>
               ))}
-            <span className="truncate">
-              {/* The source by the name its connector gives it - "Gmail",
-                  never the id `gmail` ("Take source names out of the shared
-                  contract", issue 927). */}
-              {sourceOnARow(item, sourceNames)}
-              {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
-            </span>
+            {conversation ? (
+              <>
+                {/* Who wrote last in the conversation this Item follows, in
+                    place of the source and sender, its latest lines on hover
+                    ("A Gmail starred conversation is one Item whose status
+                    follows who wrote last", issue 1705). */}
+                <span className="truncate" title={latestText(conversation)}>
+                  {conversationLine(conversation, sourceNamed(sourceNames, conversation.source), Date.now())}
+                </span>
+                {conversationAt && (
+                  <a
+                    href={conversationAt}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onContextMenu={(event) => event.stopPropagation()}
+                    title={openLabel(sourceNamed(sourceNames, conversation.source))}
+                    aria-label={openLabel(sourceNamed(sourceNames, conversation.source))}
+                    className="shrink-0 underline"
+                  >
+                    Open ↗
+                  </a>
+                )}
+              </>
+            ) : (
+              <span className="truncate">
+                {/* The source by the name its connector gives it - "Gmail",
+                    never the id `gmail` ("Take source names out of the shared
+                    contract", issue 927). */}
+                {sourceOnARow(item, sourceNames)}
+                {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
+              </span>
+            )}
             {/* The way back to the original, where the source gave one ("Open an
                 Item at its source", issue 487). A real link in a new tab, and
                 one of the controls the row's own handlers step aside for -
                 `closest('a, …')` above - so following it neither picks the row
-                nor opens its form. */}
-            {atSource && (
+                nor opens its form. A followed conversation's own *Open ↗* above
+                takes its place where it can open. */}
+            {atSource && !conversationAt && (
               <a
                 href={atSource.link}
                 target="_blank"

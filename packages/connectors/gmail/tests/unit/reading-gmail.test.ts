@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   cockpitLabelIn,
   conversationFrom,
-  emailFrom,
+  conversationReadOf,
   emailHistoryPage,
   emailIdIn,
-  emailIn,
   emailMarked,
   emailSourceId,
   historyPage,
@@ -257,23 +256,7 @@ describe('Capture', () => {
     });
   });
 
-  describe('an email, not its conversation, is what a star brings in', () => {
-    it('is read for its own subject, text and time, and linked by its own id', () => {
-      const thread = threadAnswer('t', [
-        message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', subject: 'Invoice 1', plain: 'Contract one' }),
-        message('t', { id: 'm2', sentAt: '2026-10-02T08:00:00Z', subject: 'Invoice 2', plain: 'Contract two', starred: true }),
-      ]);
-
-      expect(emailFrom(emailIn(thread, 'm2'), 'anna@example.com')).toMatchObject({
-        id: 'm2',
-        threadId: 't',
-        title: 'Invoice 2',
-        text: 'Contract two',
-        sentAt: '2026-10-02T08:00:00.000Z',
-        link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/m2',
-      });
-    });
-
+  describe('an email counts as starred only outside the bin and spam', () => {
     it.each([
       { situation: 'starred', labels: ['INBOX', 'STARRED'], counts: true },
       { situation: 'unstarred', labels: ['INBOX'], counts: false },
@@ -286,6 +269,21 @@ describe('Capture', () => {
     it('is told from a conversation by its source id, which no conversation id can take', () => {
       expect(emailIdIn(emailSourceId('18f0a1b2c3d4e5f1'))).toBe('18f0a1b2c3d4e5f1');
       expect(emailIdIn('18f0a1b2c3d4e5f1')).toBeNull();
+    });
+  });
+
+  describe('a conversation only you have written in is with whom its first message was sent to', () => {
+    it.each([
+      { situation: 'one person', to: 'Steven Noels <steven@example.com>', withWhom: 'Steven Noels' },
+      { situation: 'two people', to: 'Steven Noels <steven@example.com>, Bob <bob@example.com>', withWhom: 'Steven Noels' },
+      { situation: 'a name with a comma in quotes first', to: '"Noels, Steven" <steven@example.com>, Bob <bob@example.com>', withWhom: 'Noels, Steven' },
+    ])('names the first when it was sent to $situation', ({ to, withWhom }) => {
+      const thread = threadAnswer('t', [
+        message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', plain: 'Dinner?', from: 'Anna Peeters <anna@example.com>', to }),
+      ]);
+      thread.messages[0]!.labelIds = ['SENT'];
+
+      expect(conversationReadOf(thread, 'anna@example.com')?.withWhom).toBe(withWhom);
     });
   });
 

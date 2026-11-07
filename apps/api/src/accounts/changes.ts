@@ -185,6 +185,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     ACCOUNT_FOLLOW_UPS,
     ACCOUNT_EMAIL_ADDRESS,
     ITEM_ADDITIONS,
+    ITEM_CONVERSATIONS,
+    ITEM_CONVERSATIONS_STOPPED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1550,6 +1552,91 @@ const ITEM_ADDITIONS: Change = {
     },
     {
       sql: 'CREATE INDEX `item_additions_tenant_item` ON `item_additions` (`tenant_id`,`item_id`)',
+    },
+  ],
+};
+
+/**
+ * The conversations Items follow at their source ("A Gmail starred
+ * conversation is one Item whose status follows who wrote last", issue 1705): a
+ * table of its own beside `items` and `pulled_links`, both untouched;
+ * `schema.ts` says what each column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE TABLE` and its index, and no statement that
+ *   reads or writes a row. It is the whole of the expand; there is no contract
+ *   step. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. The statements commit with the record
+ *   that they ran in one `transactionSync` (store.ts), so a store has the table
+ *   and its index or neither, and the next request retries.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that break the new rule:** none can; the table starts empty. Items a
+ *   star brought in one email at a time stay as they are and never follow.
+ * - **What is in each environment:** real Items and connections in staging and
+ *   production, none of them touched; nothing is written on deploy.
+ * - **Interruptible at:** an account opening mid-change, where the transaction
+ *   rolls back and the account answers as before.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so its rows show each followed Item's source and sender, and a Gmail
+ *   connection following the star reads stars by email again; the rows stay,
+ *   and show again when the release goes forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_CONVERSATIONS: Change = {
+  name: '0100-item-conversations',
+  statements: [
+    {
+      sql: `CREATE TABLE \`item_conversations\` (
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`connector_id\` text NOT NULL,
+	\`external_account_key\` text NOT NULL,
+	\`conversation_id\` text NOT NULL,
+	\`link\` text NOT NULL,
+	\`last_by\` text NOT NULL,
+	\`last_from\` text,
+	\`last_at\` text NOT NULL,
+	\`last_excerpt\` text NOT NULL,
+	\`message_count\` integer NOT NULL,
+	\`started_at\` text NOT NULL,
+	\`with_whom\` text,
+	\`draft_id\` text,
+	\`status_before_draft\` text,
+	PRIMARY KEY(\`item_id\`, \`connector_id\`, \`external_account_key\`, \`conversation_id\`),
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_conversations_last_by_is_known" CHECK(last_by IN ('you', 'them')),
+	CONSTRAINT "item_conversations_message_count_is_positive" CHECK(message_count > 0),
+	CONSTRAINT "item_conversations_last_at_is_timestamp" CHECK(last_at IS NULL OR (datetime(last_at) IS NOT NULL AND substr(last_at, 11, 1) = 'T' AND substr(last_at, -1) = 'Z' AND length(last_at) >= 20 AND date(last_at) = substr(last_at, 1, 10))),
+	CONSTRAINT "item_conversations_started_at_is_timestamp" CHECK(started_at IS NULL OR (datetime(started_at) IS NOT NULL AND substr(started_at, 11, 1) = 'T' AND substr(started_at, -1) = 'Z' AND length(started_at) >= 20 AND date(started_at) = substr(started_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `item_conversations_by_conversation` ON `item_conversations` (`connector_id`,`external_account_key`,`conversation_id`)',
+    },
+  ],
+};
+
+/**
+ * When an Item stopped following its conversation (`item_conversations.stopped_at`,
+ * whose meaning `schema.ts` gives): a nullable column added, nothing else.
+ * A change of its own rather than an edit of `0100-item-conversations`, so a
+ * store that already ran that one gains the column too.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which is "still following" - what every row was.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a stopped Item follows again until the release goes forward.
+ */
+const ITEM_CONVERSATIONS_STOPPED: Change = {
+  name: '0101-item-conversations-stopped',
+  statements: [
+    {
+      sql: `ALTER TABLE \`item_conversations\` ADD COLUMN \`stopped_at\` text ${timestampCheck('item_conversations', 'stopped_at')}`,
     },
   ],
 };

@@ -276,6 +276,27 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     );
   });
 
+  // What a conversation's later messages look like to a check following it
+  // ("A Gmail starred conversation is one Item whose status follows who wrote
+  // last", issue 1705).
+  it('adds a reply from whom it is told, or sent from the mailbox, and reads each one by its id', async () => {
+    const token = await accessTokenFor('replies@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=replies%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread } = await act('star', 'subject=Dinner');
+
+    const theirs = await act('reply', `thread=${thread}&from=${encodeURIComponent('Steven Noels <steven@example.com>')}&text=Friday%3F`);
+    const mine = await act('reply', `thread=${thread}&sent`);
+
+    const header = (message, name) => message.payload.headers.find((one) => one.name === name).value;
+    const theirMessage = await (await read(token, `messages/${theirs.message}?format=full`)).json();
+    const myMessage = await (await read(token, `messages/${mine.message}?format=full`)).json();
+    assert.deepEqual([header(theirMessage, 'From'), theirMessage.labelIds], ['Steven Noels <steven@example.com>', ['INBOX', 'UNREAD']]);
+    assert.equal(Buffer.from(theirMessage.payload.body.data, 'base64url').toString(), 'Friday?');
+    assert.deepEqual([header(myMessage, 'From'), myMessage.labelIds], ['replies@example.com', ['SENT']]);
+    assert.equal((await read(token, 'messages/no-such-message?format=full')).status, 404);
+  });
+
   it('takes the label off, moves to the bin and labels again, each leaving the listing as Gmail would', async () => {
     const token = await accessTokenFor('closing@example.com');
     const act = (what, query) =>

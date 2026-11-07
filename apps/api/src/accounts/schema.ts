@@ -1687,6 +1687,62 @@ export const itemAdditions = sqliteTable(
 );
 
 /**
+ * A conversation an Item follows at its source ("A Gmail starred conversation
+ * is one Item whose status follows who wrote last", issue 1705): one row per
+ * Item, connection and conversation, so a second conversation on one Item fits
+ * later without a redesign. What the row's line is drawn from; the status a
+ * turn sets is the Item's own.
+ *
+ * - **Keyed by Item first**, which is how the Workspace read joins it; the
+ *   index by conversation is how a check finds the Item a turn belongs to.
+ * - **`last_by` is `you` or `them`** as the source sees it (Gmail's Sent label),
+ *   and `last_*` are the latest message's, replaced only by a newer one.
+ * - **`message_count`** counts the messages the source reported, one per turn.
+ * - **`draft_id` and `status_before_draft`** are for *Email…* (a later unit),
+ *   null until then.
+ * - **No CHECK on the texts' lengths**: the caps are product numbers, held by
+ *   the commands' schemas on the way in.
+ */
+export const itemConversations = sqliteTable(
+  'item_conversations',
+  {
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    connectorId: text('connector_id').notNull(),
+    externalAccountKey: text('external_account_key').notNull(),
+    conversationId: text('conversation_id').notNull(),
+    link: text('link').notNull(),
+    lastBy: text('last_by', { enum: ['you', 'them'] }).notNull(),
+    lastFrom: text('last_from'),
+    lastAt: text('last_at').notNull(),
+    lastExcerpt: text('last_excerpt').notNull(),
+    messageCount: integer('message_count').notNull(),
+    startedAt: text('started_at').notNull(),
+    withWhom: text('with_whom'),
+    draftId: text('draft_id'),
+    statusBeforeDraft: text('status_before_draft'),
+    /**
+     * When the Item stopped following it, or null while it follows: reopened in
+     * Cockpit while no message in the conversation carried the mark, which the
+     * source was not asked to put back. Cleared by the conversation followed again.
+     */
+    stoppedAt: text('stopped_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.itemId, t.connectorId, t.externalAccountKey, t.conversationId] }),
+    // What a check finds the Item a turn belongs to by (`recordPulledTurn`, pulled.ts).
+    index('item_conversations_by_conversation').on(t.connectorId, t.externalAccountKey, t.conversationId),
+    check('item_conversations_last_by_is_known', sql.raw("last_by IN ('you', 'them')")),
+    check('item_conversations_message_count_is_positive', sql.raw('message_count > 0')),
+    check('item_conversations_last_at_is_timestamp', isTimestamp('last_at')),
+    check('item_conversations_started_at_is_timestamp', isTimestamp('started_at')),
+    check('item_conversations_stopped_at_is_timestamp', isTimestamp('stopped_at')),
+  ],
+);
+
+/**
  * A recurring item ("Repeat an Item on a schedule, so it comes back every
  * Monday or every quarter", issue 1405): one row per series, its rule and the
  * content each copy is made from, named by every Item that is one of its

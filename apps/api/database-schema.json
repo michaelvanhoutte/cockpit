@@ -2841,6 +2841,172 @@
           ]
         },
         {
+          "name": "item_conversations",
+          "strict": true,
+          "queriedAs": "itemConversations",
+          "columns": [
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "item_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "itemId"
+            },
+            {
+              "name": "connector_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": null,
+              "queriedAs": "connectorId"
+            },
+            {
+              "name": "external_account_key",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 3,
+              "references": null,
+              "queriedAs": "externalAccountKey"
+            },
+            {
+              "name": "conversation_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 4,
+              "references": null,
+              "queriedAs": "conversationId"
+            },
+            {
+              "name": "link",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "link"
+            },
+            {
+              "name": "last_by",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "lastBy"
+            },
+            {
+              "name": "last_from",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "lastFrom"
+            },
+            {
+              "name": "last_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "lastAt"
+            },
+            {
+              "name": "last_excerpt",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "lastExcerpt"
+            },
+            {
+              "name": "message_count",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "messageCount"
+            },
+            {
+              "name": "started_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "startedAt"
+            },
+            {
+              "name": "with_whom",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "withWhom"
+            },
+            {
+              "name": "draft_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "draftId"
+            },
+            {
+              "name": "status_before_draft",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "statusBeforeDraft"
+            },
+            {
+              "name": "stopped_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "stoppedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "item_conversations_by_conversation",
+              "unique": false,
+              "columns": [
+                "connector_id",
+                "external_account_key",
+                "conversation_id"
+              ]
+            }
+          ]
+        },
+        {
           "name": "item_duplicates",
           "strict": true,
           "queriedAs": "itemDuplicates",

@@ -15,6 +15,7 @@ import {
   type AgentRun,
   type Association,
   type Attachment,
+  type Conversation,
   type Dashboard,
   type Filing,
   type Item,
@@ -63,6 +64,7 @@ import {
   decisionHistory,
   duplicateSettlements,
   itemAdditions,
+  itemConversations,
   itemDuplicates,
   itemMeanings,
   items,
@@ -1226,6 +1228,52 @@ export function listAdditionsInWorkspace(
     )
     .orderBy(asc(itemAdditions.createdAt), asc(itemAdditions.id))
     .all();
+}
+
+/**
+ * The conversation each Item of one Workspace follows at its source ("A Gmail
+ * starred conversation is one Item whose status follows who wrote last", issue
+ * 1705): the Items `listAdditionsInWorkspace` above reads notes for, joined by
+ * Item - the table's primary key leads with it - so a Workspace with many
+ * finished followed Items reads none of their rows.
+ */
+export function listConversationsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  of: ItemsOfTheRead = 'every',
+): Conversation[] {
+  return conversationsInWorkspace(db, tenantId, workspaceId, of).all();
+}
+
+/** The statement `listConversationsInWorkspace` runs, apart, so its plan can be read (conversations-in-the-workspace-read.test.ts). */
+export function conversationsInWorkspace(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead) {
+  return db
+    .select({
+      itemId: itemConversations.itemId,
+      source: itemConversations.connectorId,
+      conversationId: itemConversations.conversationId,
+      link: itemConversations.link,
+      lastBy: itemConversations.lastBy,
+      lastFrom: itemConversations.lastFrom,
+      lastAt: itemConversations.lastAt,
+      lastExcerpt: itemConversations.lastExcerpt,
+      messageCount: itemConversations.messageCount,
+      startedAt: itemConversations.startedAt,
+      withWhom: itemConversations.withWhom,
+    })
+    .from(items)
+    .innerJoin(itemConversations, eq(itemConversations.itemId, items.id))
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        eq(itemConversations.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        itemsOfTheRead(of),
+      ),
+    )
+    .orderBy(asc(itemConversations.itemId), asc(itemConversations.lastAt));
 }
 
 /**

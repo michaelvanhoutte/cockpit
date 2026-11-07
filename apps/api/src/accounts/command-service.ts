@@ -1,6 +1,6 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import { CLAUDE_REPORTED_STAGES, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
-import type { CommandName, CommandPayload, CommandResult, Item, PanelKind } from '@cockpit/shared';
+import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
@@ -18,6 +18,7 @@ import {
   DEAD_STATUS_VALUE,
   decisionHistory,
   itemAdditions,
+  itemConversations,
   items,
   layoutRows,
   layouts,
@@ -25,6 +26,7 @@ import {
   panelPlacements,
   panels,
   pulledConnections,
+  pulledLinks,
   series,
   seriesPanels,
   textCorrections,
@@ -40,6 +42,7 @@ import {
   getLayout,
   getPanel,
   getSeries,
+  getFollowUpDays,
   getSourceAccount,
   givenDueDateOf,
   getWorkspace,
@@ -51,6 +54,7 @@ import {
   masterPanelIdsOf,
   listDashboards,
   openAgentRunOn,
+  recentCapturedTimeZones,
   recordClaudeSend,
   rememberSentence,
   editRememberedSentence,
@@ -70,6 +74,7 @@ import {
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
 import { captureDay } from '../domain/capture-day.js';
+import { applyConversationTurn, turnDueDate } from '../domain/conversations.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
@@ -1013,6 +1018,45 @@ function endTheOpenRun(tx: InATransaction, tenantId: string, itemId: string, at:
     .set({ endedAt: at })
     .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
     .run();
+}
+
+/**
+ * The Item as a conversation's message by `by` leaves it (`applyConversationTurn`),
+ * due by the turn's date - or null on a finished or dismissed Item.
+ */
+function turnApplied(
+  db: AccountDb,
+  tenantId: string,
+  item: Item,
+  by: ConversationTurnBy,
+  issuedAt: string,
+  connectionDays: number | null,
+): Item | null {
+  if (item.completedAt !== null || item.deletedAt !== null) return null;
+  const dueDate = turnDueDate(by, issuedAt, recentCapturedTimeZones(db, tenantId), {
+    connectionDays,
+    followUpDays: getFollowUpDays(db, tenantId),
+  });
+  return applyConversationTurn(item, { by, recordedAt: issuedAt }, dueDate);
+}
+
+/**
+ * Writes what a conversation's message did to its Item, in the caller's
+ * transaction: the Item, its date recorded as the connection's on its link -
+ * the date is the source's, as a reopen's fresh one is (`givenAFreshDate`), so a
+ * later reopen moves it on and a reading may still replace it - and, on their
+ * message, the end of an open run, as To do ends one.
+ */
+function writeTurnStatus(tx: InATransaction, tenantId: string, updated: Item, by: ConversationTurnBy, at: string): void {
+  tx.update(items)
+    .set(asStored(updated))
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, updated.id)))
+    .run();
+  tx.update(pulledLinks)
+    .set({ givenDueDate: updated.dueDate })
+    .where(and(eq(pulledLinks.tenantId, tenantId), eq(pulledLinks.itemId, updated.id)))
+    .run();
+  if (by === 'them') endTheOpenRun(tx, tenantId, updated.id, at);
 }
 
 /**
@@ -2550,6 +2594,128 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'follow_conversation': {
+      // An Item comes to follow a conversation at its source ("A Gmail starred
+      // conversation is one Item whose status follows who wrote last", issue
+      // 1705): the row is made, or where the Item already follows it, where it
+      // stands is replaced only by a newer latest message - a turn may already
+      // have recorded one the read that sent this did not see - or where it had
+      // stopped following, which this ends. Where that is new to an open Item,
+      // its latest message is applied as a turn, so the status follows who wrote
+      // last from the start.
+      const cmd = payload as CommandPayload<'follow_conversation'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const standing = {
+        link: cmd.link,
+        lastBy: cmd.latest.by,
+        lastFrom: cmd.latest.from,
+        lastAt: cmd.latest.at,
+        lastExcerpt: cmd.latest.excerpt,
+        messageCount: cmd.messageCount,
+        startedAt: cmd.startedAt,
+        withWhom: cmd.withWhom,
+        stoppedAt: null,
+      };
+      const held = db
+        .select({ lastAt: itemConversations.lastAt, stoppedAt: itemConversations.stoppedAt })
+        .from(itemConversations)
+        .where(
+          and(
+            eq(itemConversations.tenantId, tenantId),
+            eq(itemConversations.itemId, cmd.itemId),
+            eq(itemConversations.connectorId, cmd.connectorId),
+            eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+            eq(itemConversations.conversationId, cmd.conversationId),
+          ),
+        )
+        .get();
+      // Nothing new where the row already holds this latest message or a newer
+      // one: logged, and nothing else, so open tabs read nothing again.
+      if (held && held.stoppedAt === null && held.lastAt >= cmd.latest.at) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const updated = turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays);
+      if (updated && !existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.insert(itemConversations)
+          .values({
+            tenantId,
+            itemId: cmd.itemId,
+            connectorId: cmd.connectorId,
+            externalAccountKey: cmd.externalAccountKey,
+            conversationId: cmd.conversationId,
+            ...standing,
+          })
+          .onConflictDoUpdate({
+            target: [
+              itemConversations.itemId,
+              itemConversations.connectorId,
+              itemConversations.externalAccountKey,
+              itemConversations.conversationId,
+            ],
+            set: standing,
+          })
+          .run();
+        if (updated) writeTurnStatus(tx, tenantId, updated, cmd.latest.by, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'record_conversation_turn': {
+      // A message in a conversation the Item follows (issue 1705). The
+      // conversation's row takes it as its latest where it is newer than what
+      // the row holds, and the Item's status follows who wrote it
+      // (`applyConversationTurn`), both in one transaction with the log entry.
+      // A turn no newer than the row's latest - read already by the follow
+      // that made the row - changes neither. On a finished or dismissed Item it
+      // changes nothing at all: Done ended the following. A `standing` turn is
+      // the row's own latest applied again as the source reopens the Item: the
+      // status only, the row as it is.
+      const cmd = payload as CommandPayload<'record_conversation_turn'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const where = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+        eq(itemConversations.conversationId, cmd.conversationId),
+      );
+      const followed = db
+        .select({ lastAt: itemConversations.lastAt, messageCount: itemConversations.messageCount })
+        .from(itemConversations)
+        .where(where)
+        .get();
+      const newer = followed !== undefined && (cmd.standing === true || cmd.at > followed.lastAt);
+      const updated = newer ? turnApplied(db, tenantId, existing, cmd.by, cmd.issuedAt, cmd.connectionDays) : null;
+      if (!followed || updated === null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (cmd.standing !== true) {
+          tx.update(itemConversations)
+            .set({
+              lastBy: cmd.by,
+              lastFrom: cmd.from,
+              lastAt: cmd.at,
+              lastExcerpt: cmd.excerpt,
+              messageCount: followed.messageCount + 1,
+              ...(cmd.by === 'them' && cmd.from ? { withWhom: cmd.from } : {}),
+            })
+            .where(where)
+            .run();
+        }
+        writeTurnStatus(tx, tenantId, updated, cmd.by, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'set_repeat': {

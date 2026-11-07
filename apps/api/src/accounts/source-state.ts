@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { SourceStateChange } from '@cockpit/connector-sdk';
 import type { Item } from '@cockpit/shared';
 import type { AccountDb } from './client.js';
 import { runCommand } from './command-service.js';
 import { getItem, recentCapturedTimeZones } from './repo.js';
-import { connectorAccounts, pulledLinks } from './schema.js';
+import { connectorAccounts, itemConversations, pulledLinks } from './schema.js';
 import { dueDateIsTheConnections, dueDateOnArrival } from '../domain/due-in-days.js';
 
 /** The source-state changes the host applies to an Item; `removed` is not yet one. */
@@ -23,7 +23,8 @@ export type AppliedSourceChange = Exclude<SourceStateChange['change'], 'removed'
  * label off in Gmail when its task is done in Cockpit", issue 728).
  *
  * **A reopen also gives a date still the connection's a fresh one**, in the
- * same transaction (`givenAFreshDate`; issue 1409).
+ * same transaction (`givenAFreshDate`; issue 1409), and an Item following a
+ * conversation the status of whoever wrote last in it (`whoWroteLastAgain`).
  *
  * **Only what differs is written**: done on a done Item, or reopen on an open
  * and undismissed one, sends nothing, so applying the same change again adds
@@ -45,7 +46,9 @@ export function applySourceStateChange(
   const envelope = { issuedAt, workspaceId: item.workspaceId, itemId };
   const asTheSource = { fromTheSource: true };
   if (change === 'resolved') {
-    if (item.completedAt !== null) return 'unchanged';
+    // An Item that stopped following its conversation is no longer the
+    // source's to close: reopened in Cockpit while unmarked there, it stays open.
+    if (item.completedAt !== null || stoppedFollowing(db, accountName, itemId)) return 'unchanged';
     runCommand(db, accountName, 'set_done', { ...envelope, commandId: crypto.randomUUID(), done: true }, asTheSource);
     return 'changed';
   }
@@ -66,8 +69,103 @@ export function applySourceStateChange(
     // Counted from when the source said so, not from the Item's own clock,
     // which a device running fast can have put ahead of today.
     givenAFreshDate(db, accountName, item, issuedAt, observedAt);
+    whoWroteLastAgain(db, accountName, item, observedAt);
   });
   return 'changed';
+}
+
+/** Whether the Item follows conversations only where it has stopped following them (`item_conversations.stopped_at`). */
+function stoppedFollowing(db: AccountDb, accountName: string, itemId: string): boolean {
+  const rows = db
+    .select({ stoppedAt: itemConversations.stoppedAt })
+    .from(itemConversations)
+    .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, itemId)))
+    .all();
+  return rows.length > 0 && rows.every((row) => row.stoppedAt !== null);
+}
+
+/** The days a connection gives an Item it brings in, or null where it gives none or is gone. */
+function daysTheConnectionGives(
+  db: AccountDb,
+  accountName: string,
+  at: { workspaceId: string; connectorId: string; externalAccountKey: string },
+): number | null {
+  return (
+    db
+      .select({ dueInDays: connectorAccounts.dueInDays })
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, accountName),
+          eq(connectorAccounts.workspaceId, at.workspaceId),
+          eq(connectorAccounts.connectorId, at.connectorId),
+          eq(connectorAccounts.externalAccountKey, at.externalAccountKey),
+        ),
+      )
+      .get()?.dueInDays ?? null
+  );
+}
+
+/**
+ * A reopened Item that follows a conversation takes the status of whoever wrote
+ * last in it, not the one it had ("A Gmail starred conversation is one Item
+ * whose status follows who wrote last", issue 1705): its latest message applied
+ * again, through `record_conversation_turn`, which also gives its due date -
+ * counted from when the source said so, as `givenAFreshDate`'s is, by the days
+ * of the connection the Item's link names. Nothing for an Item that follows
+ * none, or stopped following it.
+ */
+function whoWroteLastAgain(db: AccountDb, accountName: string, item: Item, issuedAt: string): void {
+  const latest = db
+    .select()
+    .from(itemConversations)
+    .where(
+      and(
+        eq(itemConversations.tenantId, accountName),
+        eq(itemConversations.itemId, item.id),
+        isNull(itemConversations.stoppedAt),
+      ),
+    )
+    .orderBy(desc(itemConversations.lastAt))
+    .limit(1)
+    .get();
+  if (!latest) return;
+  const link = db
+    .select({ workspaceId: pulledLinks.workspaceId })
+    .from(pulledLinks)
+    .where(
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.itemId, item.id),
+        eq(pulledLinks.connectorId, latest.connectorId),
+        eq(pulledLinks.externalAccountKey, latest.externalAccountKey),
+      ),
+    )
+    .get();
+  const days = link
+    ? daysTheConnectionGives(db, accountName, { ...link, connectorId: latest.connectorId, externalAccountKey: latest.externalAccountKey })
+    : null;
+  runCommand(
+    db,
+    accountName,
+    'record_conversation_turn',
+    {
+      commandId: crypto.randomUUID(),
+      issuedAt,
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      connectorId: latest.connectorId,
+      externalAccountKey: latest.externalAccountKey,
+      conversationId: latest.conversationId,
+      by: latest.lastBy,
+      from: latest.lastFrom,
+      at: latest.lastAt,
+      excerpt: latest.lastExcerpt,
+      connectionDays: days,
+      standing: true,
+    },
+    { fromTheSource: true },
+  );
 }
 
 /**
@@ -94,19 +192,8 @@ function givenAFreshDate(db: AccountDb, accountName: string, item: Item, issuedA
     .where(and(eq(pulledLinks.tenantId, accountName), eq(pulledLinks.itemId, item.id)))
     .get();
   if (!link || !dueDateIsTheConnections(item, link.givenDueDate)) return;
-  const days = db
-    .select({ dueInDays: connectorAccounts.dueInDays })
-    .from(connectorAccounts)
-    .where(
-      and(
-        eq(connectorAccounts.tenantId, accountName),
-        eq(connectorAccounts.workspaceId, link.workspaceId),
-        eq(connectorAccounts.connectorId, link.connectorId),
-        eq(connectorAccounts.externalAccountKey, link.externalAccountKey),
-      ),
-    )
-    .get()?.dueInDays;
-  if (days === null || days === undefined) return;
+  const days = daysTheConnectionGives(db, accountName, link);
+  if (days === null) return;
   const fresh = dueDateOnArrival(reopenedAt, recentCapturedTimeZones(db, accountName), days);
   const result = runCommand(
     db,

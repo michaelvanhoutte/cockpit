@@ -452,5 +452,15 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
   }
   const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
   if (thread) return Response.json(thread.answer);
+  // `users.messages.get`: one message of whichever conversation holds it, as
+  // the conversation's own answer carries it (issue 1705).
+  const email = /^messages\/([^/]+)$/.exec(path);
+  if (email) {
+    const id = decodeURIComponent(email[1]!);
+    const found = mailbox.threads
+      .flatMap((one) => ((one.answer as { messages?: { id?: string }[] }).messages ?? []))
+      .find((message) => message.id === id);
+    if (found) return Response.json(found);
+  }
   return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
 }

@@ -283,7 +283,56 @@ export type SourceItem = Pick<
    * line, that it was not filed by (issue 1197).
    */
   followed?: string;
+  /**
+   * The conversation this Item follows at the source, and where it stands as
+   * read, for a connector whose Items follow one (a Gmail thread under the
+   * star). The host has the Item follow it, whether the Item was just made or
+   * was already known, and then hands the connector its later messages to
+   * report as turns (`followedConversations`, `reportTurn`). Absent: the Item
+   * follows nothing.
+   */
+  conversation?: ConversationRead;
 };
+
+/**
+ * One message of a conversation as the source holds it: who sent it - `you`
+ * where the source says it was sent from the connected account, `them`
+ * otherwise - when, and its first lines.
+ */
+export interface ConversationMessage {
+  by: 'you' | 'them';
+  /** Who sent it, as its source names them; null where it names nobody. */
+  from: string | null;
+  at: string;
+  /** Its first lines, plain text; the host keeps the first 280 characters. */
+  excerpt: string;
+}
+
+/** A conversation as a connector read it whole: where it is, and where it stands. */
+export interface ConversationRead {
+  /** The source's own id for the conversation, unique within the connected account. */
+  id: string;
+  /** Where the source shows it. */
+  link: string;
+  latest: ConversationMessage;
+  messageCount: number;
+  /** When its first message was sent. */
+  startedAt: string;
+  /** Who it is with: the latest sender who is not the connected account, where there is one. */
+  withWhom: string | null;
+}
+
+/**
+ * A message added to a conversation an Item follows, reported by the connector
+ * ("A Gmail starred conversation is one Item whose status follows who wrote
+ * last", issue 1705). **The connector only says who wrote; the host decides
+ * what that does to the Item**, the same rule for every source. `messageId` is
+ * what makes reporting the same message twice change nothing.
+ */
+export interface ConversationTurn extends ConversationMessage {
+  conversationId: string;
+  messageId: string;
+}
 
 /**
  * An Item's names as the source holds them now, reported whenever the set
@@ -433,6 +482,20 @@ export interface ConnectorHost extends ConnectedAccountHost {
    * them and files nothing.
    */
   reportNames(report: NamesReport): Promise<void>;
+
+  /**
+   * The ids of the conversations this connection's open Items follow, as this
+   * run starts: the ones whose later messages the connector reads and reports.
+   * A finished or dismissed Item's conversation is not among them.
+   */
+  followedConversations(): Promise<string[]>;
+
+  /**
+   * Reports a message added to a conversation an open Item follows. The host
+   * decides what it does to the Item, and changes nothing for a conversation
+   * no open Item of this connection follows, or a message already reported.
+   */
+  reportTurn(turn: ConversationTurn): Promise<void>;
 
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;
