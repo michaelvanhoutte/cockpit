@@ -227,6 +227,21 @@ export class GmailWorld {
     this.#changeEmail(emailId, 'TRASH', true);
   }
 
+  /** One email taken back out of the bin, with the labels it kept there. */
+  unbinEmail(emailId: string): void {
+    this.#changeEmail(emailId, 'TRASH', false);
+  }
+
+  /**
+   * A draft sent where it stands, keeping its id: the Draft label taken off and
+   * Sent put on, a record each - the history a draft that is not replaced by a
+   * new message on sending would leave.
+   */
+  sendsDraft(draftId: string): void {
+    this.#changeEmail(draftId, 'DRAFT', false);
+    this.#changeEmail(draftId, 'SENT', true);
+  }
+
   /** One email deleted for good: gone from its conversation, which goes with its last. */
   deleteEmail(emailId: string): void {
     const thread = this.#threads.find((one) => one.messages.some((email) => email.id === emailId));

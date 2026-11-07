@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
-import { CONVERSATION_EXCERPT_LENGTH, TITLE_LENGTH } from '@cockpit/shared';
+import { CONVERSATION_EXCERPT_LENGTH, TITLE_LENGTH, cutTo } from '@cockpit/shared';
 import type {
   CompleteListing,
   ConversationTurn,
@@ -485,8 +485,9 @@ function followTheConversation(
   );
 }
 
+/** `cutTo`, which never splits a character in two, passing a missing text through. */
 function cut<T extends string | null>(text: T, limit: number): T {
-  return (text === null ? null : text.slice(0, limit)) as T;
+  return (text === null ? null : cutTo(text, limit)) as T;
 }
 
 /**

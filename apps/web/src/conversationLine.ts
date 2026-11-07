@@ -13,22 +13,35 @@ import { whereALinkOpens } from './itemSource';
 const DAY_MS = 86_400_000;
 const MINUTE_MS = 60_000;
 
-/** How long ago, as the line says it: *just now*, *12 min ago*, *today*, *yesterday*, *3 days ago*. */
+/**
+ * How long ago, as the line says it: *just now* and *12 min ago* within the
+ * hour, then by calendar day on this device - *today*, *yesterday*, *3 days ago*.
+ */
 export function agoLabel(at: string, now: number): string {
-  const since = now - Date.parse(at);
-  const days = Math.floor(since / DAY_MS);
-  if (days <= 0) {
-    const minutes = Math.floor(since / MINUTE_MS);
-    return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : 'today';
-  }
+  const sent = Date.parse(at);
+  const minutes = Math.floor((now - sent) / MINUTE_MS);
+  if (minutes < 60) return minutes < 1 ? 'just now' : `${minutes} min ago`;
+  const days = Math.round((startOfDay(now) - startOfDay(sent)) / DAY_MS);
+  if (days <= 0) return 'today';
   return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
-/** Who wrote last, by first name: *You*, or the first word of whom the source names. */
+/** Midnight of a moment's local calendar day. */
+function startOfDay(at: number): number {
+  const day = new Date(at);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/**
+ * Who wrote last, by first name: *You*, or the first word of whom the source
+ * names - the word after the comma of a *Last, First* name.
+ */
 function whoWroteLast(conversation: Conversation): string {
   if (conversation.lastBy === 'you') return 'You';
   const name = (conversation.lastFrom ?? conversation.withWhom ?? '').trim();
-  return name.split(/\s+/)[0] || 'They';
+  const lastFirst = /^[^\s,]+,\s*(\S+)/.exec(name);
+  return lastFirst?.[1] ?? (name.split(/\s+/)[0] || 'They');
 }
 
 /**

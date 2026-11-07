@@ -101,9 +101,17 @@ export interface GmailState {
   historyId: string | null;
   history: {
     pageToken: string | null;
+    /** How many conversations of this page are done: a connection following the label's. */
     done: number;
     /** The messages of this page already reported as turns, by id: a connection following the star's. */
     turns: string[];
+    /**
+     * The conversations of this page already read, by id: a connection following
+     * the star's. By id rather than a count, since which of a page's records
+     * concern the star depends on the conversations followed, which a run that
+     * resumes the page may find changed.
+     */
+    read: string[];
   };
   /** The complete listing under way, or null when none is. */
   listing: {
@@ -126,7 +134,7 @@ function freshState(choice: string, address: string | null = null): GmailState {
 
 /** A place at the start of a history page: its token, nothing of it done. */
 function pageStart(pageToken: string | null = null): GmailState['history'] {
-  return { pageToken, done: 0, turns: [] };
+  return { pageToken, done: 0, turns: [], read: [] };
 }
 
 /**
@@ -146,6 +154,8 @@ export function stateIn(saved: unknown, choice: string): GmailState {
   const listing = held.listing;
   const count = (value: unknown) => (typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0);
   const token = (value: unknown) => (typeof value === 'string' && value ? value : null);
+  const ids = (value: unknown) =>
+    current && Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
   return {
     version: STATE_VERSION,
     choice,
@@ -157,7 +167,8 @@ export function stateIn(saved: unknown, choice: string): GmailState {
       // position, every page of which is safe to read twice.
       pageToken: !current && choice === 'star' ? null : token(history?.pageToken),
       done: current ? count(history?.done) : 0,
-      turns: current && Array.isArray(history?.turns) ? history.turns.filter((id): id is string => typeof id === 'string') : [],
+      turns: ids(history?.turns),
+      read: ids(history?.read),
     },
     listing:
       listing && typeof listing === 'object' && Array.isArray(listing.seen)
@@ -380,7 +391,8 @@ class Reading {
           page.historyId !== state.historyId ||
           state.history.pageToken !== null ||
           state.history.done > 0 ||
-          state.history.turns.length > 0
+          state.history.turns.length > 0 ||
+          state.history.read.length > 0
         ) {
           this.#unsaved = true;
         }
@@ -429,15 +441,19 @@ class Reading {
       this.#unsaved = true;
     }
     const page = emailHistoryPage(answer, markId, followed);
-    for (let index = state.history.done; index < page.conversations.length; index++) {
-      await this.#followEmailsOf(page.conversations[index]!, markId, followed);
-      state.history.done = index + 1;
+    for (const changes of page.conversations) {
+      if (state.history.read.includes(changes.threadId)) continue;
+      await this.#followEmailsOf(changes, markId, followed);
+      state.history.read.push(changes.threadId);
       this.#unsaved = true;
     }
     return page;
   }
 
-  /** The conversations this connection's open Items follow, asked of the host once a run. */
+  /**
+   * The conversations this connection's open Items follow, asked of the host
+   * once a run, and joined by each this run brings in or reopens.
+   */
   async #followed(): Promise<ReadonlySet<string>> {
     this.#following ??= new Set(await this.host.followedConversations());
     return this.#following;
@@ -460,6 +476,7 @@ class Reading {
    *   Item, which follows it - or, where the host already knew it, reopens it
    *   and follows it again. A second email starred in it adds nothing new.
    * - **No email left starred** (unstarred, in the bin or gone) closes it.
+   * - **A starred email taken back out of the bin or spam** reopens it.
    * - **A label changed** on one of its emails reports its names again.
    *
    * An Item from before, made of one email (`message:`), is left as it was: it
@@ -481,6 +498,12 @@ class Reading {
       return;
     }
     if (!gained) {
+      // An email whose change leaves it starred - taken back out of the bin or
+      // spam - puts the star back on the conversation as gaining it would.
+      if (changes.changed.some((emailId) => emailMarked(emailIn(thread, emailId), markId))) {
+        await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
+        this.#following?.add(threadId);
+      }
       if (changes.relabelled.length > 0) await this.#say(threadId, thread, markId);
       return;
     }
@@ -504,6 +527,9 @@ class Reading {
     if (filing === 'already-known') {
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
     }
+    // Followed from here on, so a message added to it on a later page of this
+    // run is read as a turn too.
+    this.#following?.add(threadId);
   }
 
   /** Reports the names of a conversation read, whole; the host works out what is new. */

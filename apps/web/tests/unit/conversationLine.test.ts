@@ -50,6 +50,18 @@ describe('Triage', () => {
       expect(agoLabel(minutesAgo(minutes), NOW)).toBe(says);
     });
 
+    it.each([
+      { situation: 'late last night, read this morning', sent: new Date(2026, 9, 8, 23, 30), seen: new Date(2026, 9, 9, 9, 0), says: 'yesterday' },
+      { situation: 'late two nights back, read just after midnight', sent: new Date(2026, 9, 7, 23, 0), seen: new Date(2026, 9, 9, 1, 0), says: '2 days ago' },
+      { situation: 'early this morning, read tonight', sent: new Date(2026, 9, 9, 0, 30), seen: new Date(2026, 9, 9, 23, 0), says: 'today' },
+    ])('counts by calendar day on this device: $says for $situation', ({ sent, seen, says }) => {
+      expect(agoLabel(sent.toISOString(), seen.getTime())).toBe(says);
+    });
+
+    it('names a *Last, First* sender by the first name', () => {
+      expect(conversationLine(aConversation({ lastFrom: 'Noels, Steven' }), 'Gmail', NOW)).toBe('Gmail · Steven replied yesterday');
+    });
+
     it('shows the latest message’s first lines, and who wrote it, on hover', () => {
       expect(latestText(aConversation())).toBe('Steven Noels: Thursday is tricky, how about Friday?');
       expect(latestText(aConversation({ lastBy: 'you', lastExcerpt: 'Sure!' }))).toBe('You: Sure!');

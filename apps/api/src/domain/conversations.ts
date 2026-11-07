@@ -1,6 +1,5 @@
 import type { ConversationTurnBy, Item } from '@cockpit/shared';
 import { dueDateOnArrival } from './due-in-days.js';
-import { isStale } from './items.js';
 
 /**
  * Who moved last in a conversation decides an Item's status ("A Gmail starred
@@ -38,8 +37,11 @@ export function turnDueDate(by: ConversationTurnBy, recordedAt: string, zones: r
  *   source's, not the person's choice, so the marker that a reading may not
  *   replace it is left as it was.
  * - **A finished or dismissed Item, nothing**: Done ended the following.
- * - **Older than the Item's last change, nothing**, by the last-write-wins rule
- *   every change keeps: a status set by hand after the turn was recorded wins.
+ * - **Never refused as stale**: the turn is recorded on the store's clock as it
+ *   arrives, so it is the latest change, and the later wins. An Item last
+ *   changed "after" it was so only by a device clock running fast, as a
+ *   source's own change is clamped for (`applySourceStateChange`); its
+ *   `updatedAt` is kept rather than moved back.
  */
 export function applyConversationTurn(
   item: Item,
@@ -47,8 +49,8 @@ export function applyConversationTurn(
   dueDate: string,
 ): Item | null {
   if (item.completedAt !== null || item.deletedAt !== null) return null;
-  if (isStale(item, turn.recordedAt)) return null;
-  const due = { dueDate, dueDateSetAt: turn.recordedAt, updatedAt: turn.recordedAt };
+  const updatedAt = turn.recordedAt < item.updatedAt ? item.updatedAt : turn.recordedAt;
+  const due = { dueDate, dueDateSetAt: turn.recordedAt, updatedAt };
   return turn.by === 'you'
     ? { ...item, ...due, waitingSince: item.waitingSince ?? turn.recordedAt }
     : { ...item, ...due, startedAt: null, waitingSince: null };

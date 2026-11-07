@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   cockpitLabelIn,
   conversationFrom,
-  emailFrom,
   emailHistoryPage,
   emailIdIn,
-  emailIn,
   emailMarked,
   emailSourceId,
   historyPage,
@@ -257,23 +255,7 @@ describe('Capture', () => {
     });
   });
 
-  describe('an email, not its conversation, is what a star brings in', () => {
-    it('is read for its own subject, text and time, and linked by its own id', () => {
-      const thread = threadAnswer('t', [
-        message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', subject: 'Invoice 1', plain: 'Contract one' }),
-        message('t', { id: 'm2', sentAt: '2026-10-02T08:00:00Z', subject: 'Invoice 2', plain: 'Contract two', starred: true }),
-      ]);
-
-      expect(emailFrom(emailIn(thread, 'm2'), 'anna@example.com')).toMatchObject({
-        id: 'm2',
-        threadId: 't',
-        title: 'Invoice 2',
-        text: 'Contract two',
-        sentAt: '2026-10-02T08:00:00.000Z',
-        link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/m2',
-      });
-    });
-
+  describe('an email counts as starred only outside the bin and spam', () => {
     it.each([
       { situation: 'starred', labels: ['INBOX', 'STARRED'], counts: true },
       { situation: 'unstarred', labels: ['INBOX'], counts: false },

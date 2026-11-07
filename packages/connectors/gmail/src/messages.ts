@@ -121,13 +121,6 @@ export function namesOf(answer: unknown, userLabels: ReadonlyMap<string, string>
   return names;
 }
 
-/** One email's names: the user labels on it alone, the mark left out - what an Item brought in by star carries. */
-export function namesOfEmail(message: unknown, userLabels: ReadonlyMap<string, string>, markId: string): string[] {
-  const names: string[] = [];
-  addNamesOf(message as GmailMessage | null, userLabels, markId, names);
-  return names;
-}
-
 function addNamesOf(
   message: GmailMessage | null | undefined,
   userLabels: ReadonlyMap<string, string>,
@@ -200,11 +193,11 @@ interface Scanned {
 
 /**
  * Which records of a history page read without a label filter concern the
- * mark: a label change on a message that carries the mark or moves it, and any
- * change in a conversation an Item follows. Absent for a page Gmail already
- * filtered by the mark, where every record does.
+ * mark: a label change on a message that carries the mark or moves it, and a
+ * deletion, which says no labels, in a conversation an Item follows. Absent for
+ * a page Gmail already filtered by the mark, where every record does.
  */
-type Concerns = (threadId: string, messageLabels: unknown, moved: unknown) => boolean;
+type Concerns = (threadId: string, messageLabels: unknown, moved: unknown, deleted: boolean) => boolean;
 
 function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'email', concerns?: Concerns): Scanned {
   const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
@@ -232,8 +225,8 @@ function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'emai
         changed.set(subject.key, subject.threadId);
       }
     }
-    const concerned = (entry: HistoryEntry, subject: { threadId: string }) =>
-      !concerns || concerns(subject.threadId, entry.message?.labelIds, entry.labelIds);
+    const concerned = (entry: HistoryEntry, subject: { threadId: string }, deleted = false) =>
+      !concerns || concerns(subject.threadId, entry.message?.labelIds, entry.labelIds, deleted);
     for (const added of entries('labelsAdded')) {
       const subject = subjectOf(added);
       if (!subject || !concerned(added, subject)) continue;
@@ -250,7 +243,7 @@ function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'emai
     }
     for (const deleted of entries('messagesDeleted')) {
       const subject = subjectOf(deleted);
-      if (subject && concerned(deleted, subject)) changed.set(subject.key, subject.threadId);
+      if (subject && concerned(deleted, subject, true)) changed.set(subject.key, subject.threadId);
     }
   }
   return {
@@ -319,13 +312,19 @@ export function emailHistoryPage(
 ): EmailHistoryPage {
   // Read without a label filter where `followed` is given, since a reply in a
   // followed conversation arrives without the star: only the records that
-  // concern the star, or a followed conversation, are about this connection.
+  // concern the star are about this connection - a label change on a starred
+  // message or of the star itself, and a deletion in a followed conversation,
+  // which says no labels and may be its starred email's. A label change on
+  // another of its messages is not: read, it would close an Item reopened in
+  // Cockpit, whose star is not put back.
   const holds = (labels: unknown) => Array.isArray(labels) && labels.includes(markId);
   const page = scanHistory(
     answer,
     markId,
     'email',
-    followed && ((threadId, messageLabels, moved) => holds(messageLabels) || holds(moved) || followed.has(threadId)),
+    followed &&
+      ((threadId, messageLabels, moved, deleted) =>
+        holds(messageLabels) || holds(moved) || (deleted && followed.has(threadId))),
   );
   const groups = new Map<string, { gained: string[]; changed: string[]; relabelled: string[] }>();
   const group = (threadId: string) => {
@@ -435,18 +434,6 @@ export function conversationFrom(answer: unknown, markId: string, mailboxAddress
   return { threadId: id, ...describe(message, id, mailboxAddress) };
 }
 
-/** What one email brings in as its Item. */
-export interface GmailEmail {
-  readonly id: string;
-  readonly threadId: string;
-  readonly title: string;
-  readonly text: string;
-  readonly sender: string | null;
-  /** Where Gmail shows the email, in the connected mailbox. */
-  readonly link: string;
-  readonly sentAt: string | null;
-}
-
 /** Whether an email, as `threads.get` carries it, has the mark outside the bin and spam. */
 export function emailMarked(message: unknown, markId: string): boolean {
   const { labelIds } = (message ?? {}) as GmailMessage;
@@ -457,16 +444,6 @@ export function emailMarked(message: unknown, markId: string): boolean {
 export function emailIn(answer: unknown, emailId: string): unknown {
   const { messages } = (answer ?? {}) as { messages?: unknown };
   return (Array.isArray(messages) ? (messages as { id?: unknown }[]) : []).find((one) => one?.id === emailId) ?? null;
-}
-
-/**
- * One email, as `threads.get` carries it in full, made into what its Item says:
- * its own subject, plain text, sender and time, and a link that names it.
- */
-export function emailFrom(message: unknown, mailboxAddress: string): GmailEmail | null {
-  const { id, threadId } = (message ?? {}) as { id?: unknown; threadId?: unknown };
-  if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !threadId) return null;
-  return { id, threadId, ...describe(message as GmailMessage, id, mailboxAddress) };
 }
 
 /** The title, text, sender, link and time of one message, the link naming `linkId`. */
@@ -576,7 +553,9 @@ export function plainTextOf(html: string): string {
 
 /**
  * Gmail's label on every message sent from the mailbox, whatever address it was
- * sent as: what makes a message yours (issue 1705, decision 6).
+ * sent as: what makes a message yours ("A Gmail starred conversation is one
+ * Item whose status follows who wrote last", issue 1705, whose design counts
+ * a message sent from this mailbox as yours rather than one From this address).
  */
 export const SENT = 'SENT';
 
@@ -589,14 +568,23 @@ const EXCERPT_LENGTH = 280;
 /**
  * The messages a history page says were added to a conversation an Item
  * follows, in the order the page names them, each once: the turns to read. A
- * draft is not one, nor is a message arriving in the bin or spam.
+ * draft is not one, nor is a message arriving in the bin or spam. **A draft
+ * sent where it stands** - the Draft label taken off, or Sent put on, the same
+ * message - is one too, since a draft that keeps its id when sent leaves no
+ * added message behind; reading it again says whether it was really sent.
  */
 export function addedToFollowed(answer: unknown, followed: ReadonlySet<string>): { id: string; threadId: string }[] {
   const { history } = (answer ?? {}) as { history?: unknown };
   const added = new Map<string, string>();
+  const has = (labels: unknown, label: string) => Array.isArray(labels) && labels.includes(label);
   for (const record of Array.isArray(history) ? (history as Record<string, unknown>[]) : []) {
-    const entries = Array.isArray(record?.messagesAdded) ? (record.messagesAdded as HistoryEntry[]) : [];
-    for (const entry of entries) {
+    const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
+    const candidates = [
+      ...entries('messagesAdded'),
+      ...entries('labelsAdded').filter((entry) => has(entry?.labelIds, SENT)),
+      ...entries('labelsRemoved').filter((entry) => has(entry?.labelIds, DRAFT)),
+    ];
+    for (const entry of candidates) {
       const { id, threadId, labelIds } = entry?.message ?? {};
       if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !followed.has(threadId)) continue;
       const labels = Array.isArray(labelIds) ? labelIds : [];

@@ -107,14 +107,23 @@ describe('Triage', () => {
     it.each([
       { situation: 'done', item: anItem({ completedAt: '2026-10-06T09:00:00.000Z', updatedAt: '2026-10-06T09:00:00.000Z' }) },
       { situation: 'dismissed', item: anItem({ deletedAt: '2026-10-06T09:00:00.000Z', updatedAt: '2026-10-06T09:00:00.000Z' }) },
-      {
-        situation: 'changed by hand after the message was recorded',
-        item: anItem({ startedAt: '2026-10-07T13:00:00.000Z', updatedAt: '2026-10-07T13:00:00.000Z' }),
-      },
     ])('changes nothing on an Item $situation', ({ item }) => {
       for (const by of ['you', 'them'] as const) {
         expect(applyConversationTurn(item, { by, recordedAt: RECORDED }, '2026-10-10')).toBeNull();
       }
+    });
+
+    it('still applies on an Item a device running fast last changed "after" it, and keeps that Item’s last change', () => {
+      const ahead = '2026-10-07T13:00:00.000Z';
+      const item = anItem({ startedAt: ahead, updatedAt: ahead });
+
+      const after = applyConversationTurn(item, { by: 'them', recordedAt: RECORDED }, '2026-10-10')!;
+
+      expect({ status: itemStatus(after), due: after.dueDate, updatedAt: after.updatedAt }).toEqual({
+        status: 'to_do',
+        due: '2026-10-10',
+        updatedAt: ahead,
+      });
     });
 
     it('counts the days from the day on the account’s own calendar, not the UTC one', () => {

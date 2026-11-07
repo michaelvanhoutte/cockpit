@@ -2653,7 +2653,6 @@ export function runCommand<N extends CommandName>(
           })
           .where(where)
           .run();
-        // Stale against a change made since, the status stays as that change left it.
         if (updated !== null) {
           tx.update(items)
             .set(asStored(updated))

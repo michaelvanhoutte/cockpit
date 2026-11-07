@@ -265,6 +265,30 @@ describe('Capture', () => {
       expect(world.emailReads()).toEqual([]);
     });
 
+    it('reports a draft sent where it stands, keeping its id, as your turn, once', async () => {
+      const { world, host } = await followed();
+      const draft = world.drafts('t-1');
+      world.sendsDraft(draft);
+
+      const next = await checked(world, host);
+
+      expect(next.turns).toEqual([expect.objectContaining({ messageId: draft, by: 'you' })]);
+    });
+
+    it('reports a message added on a later page of the run that brought its conversation in', async () => {
+      const world = new GmailWorld();
+      const first = await connectedByStar(world);
+      world.historyPageSize = 1;
+      conversation(world, 'Dinner');
+      world.star('t-1');
+      const reply = world.replies('t-1');
+
+      const next = await checked(world, first);
+
+      expect([...next.filed.keys()]).toEqual(['t-1']);
+      expect(next.turns.map((turn) => turn.messageId)).toEqual([reply]);
+    });
+
     it('reads every page of the history, saving the position after each', async () => {
       const { world, host } = await followed();
       world.historyPageSize = 1;
@@ -295,6 +319,22 @@ describe('Capture', () => {
 
       expect(reported.map((turn) => turn.messageId)).toEqual(replies);
       expect(new Set(world.emailReads()).size).toBe(world.emailReads().length);
+    });
+
+    it('resumes a page past the conversations it already read, by id, though the page now names another before them', async () => {
+      const { world, host } = await followed();
+      // A deletion in the followed conversation, then another conversation starred:
+      // a run following nothing yet would have named only the second.
+      world.deleteEmail(world.replies('t-1'));
+      world.arrives('t-2', 'Other', 'Another.', []);
+      world.star('t-2');
+      const resumed = host.next();
+      const saved = host.state as { history: Record<string, unknown> };
+      resumed.state = { ...saved, history: { ...saved.history, pageToken: null, done: 0, turns: [], read: ['t-2'] } };
+
+      await world.connector().sync(resumed);
+
+      expect(world.threadReads()).toEqual(['t-1']);
     });
 
     it('lists in full where Gmail no longer keeps the position, then reads the history again', async () => {
@@ -351,6 +391,33 @@ describe('Capture', () => {
 
       expect(reopened.saidOf('t-1')).toEqual(['reopened']);
       expect([...reopened.filed.keys()]).toEqual(['t-1']);
+    });
+
+    it('reopens the same Item when its starred email is taken back out of the bin', async () => {
+      const { world, host } = await followed();
+      world.binEmail('t-1');
+      const closed = await checked(world, host);
+      expect(closed.saidOf('t-1')).toEqual(['resolved']);
+      closed.finished.add('t-1');
+      world.unbinEmail('t-1');
+
+      const restored = await checked(world, closed);
+
+      expect(restored.saidOf('t-1')).toEqual(['reopened']);
+    });
+
+    it('leaves an Item reopened in Cockpit, its star not put back, open when another of its messages is labelled', async () => {
+      const { world, host } = await followed();
+      world.unstar('t-1');
+      // Closed by the unstar, then reopened in Cockpit: open, and still following.
+      const reopenedInCockpit = await checked(world, host);
+      world.replies('t-1', ['Admin']);
+      world.label('t-1', 'Waiting', 1);
+
+      const next = await checked(world, reopenedInCockpit);
+
+      expect(next.saidOf('t-1')).toEqual([]);
+      expect(next.turns).toHaveLength(1);
     });
 
     it('keeps the names a label put on one of its emails gives it', async () => {
