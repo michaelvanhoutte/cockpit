@@ -26,6 +26,7 @@ import {
   panelPlacements,
   panels,
   pulledConnections,
+  pulledLinks,
   series,
   seriesPanels,
   textCorrections,
@@ -2623,19 +2624,15 @@ export function runCommand<N extends CommandName>(
         .from(itemConversations)
         .where(where)
         .get();
-      const updated =
+      const dueDate =
         followed && cmd.at > followed.lastAt
-          ? applyConversationTurn(
-              existing,
-              { by: cmd.by, recordedAt: cmd.issuedAt },
-              turnDueDate(cmd.by, cmd.issuedAt, recentCapturedTimeZones(db, tenantId), {
-                connectionDays: cmd.connectionDays,
-                followUpDays: getFollowUpDays(db, tenantId),
-              }),
-            )
+          ? turnDueDate(cmd.by, cmd.issuedAt, recentCapturedTimeZones(db, tenantId), {
+              connectionDays: cmd.connectionDays,
+              followUpDays: getFollowUpDays(db, tenantId),
+            })
           : null;
-      const open = existing.completedAt === null && existing.deletedAt === null;
-      if (!followed || cmd.at <= followed.lastAt || !open) {
+      const updated = followed && dueDate !== null ? applyConversationTurn(existing, { by: cmd.by, recordedAt: cmd.issuedAt }, dueDate) : null;
+      if (!followed || updated === null) {
         db.insert(commands).values(commandRow).run();
         applied = false;
         break;
@@ -2653,14 +2650,19 @@ export function runCommand<N extends CommandName>(
           })
           .where(where)
           .run();
-        if (updated !== null) {
-          tx.update(items)
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
-          // To do ends a run, as `set_started` taking a start back does.
-          if (cmd.by === 'them') endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
-        }
+        tx.update(items)
+          .set(asStored(updated))
+          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+          .run();
+        // The date is the source's, so it is recorded as the connection's, as a
+        // reopen's fresh date is (`givenAFreshDate`): a later reopen moves it on,
+        // and a reading may still replace it.
+        tx.update(pulledLinks)
+          .set({ givenDueDate: updated.dueDate })
+          .where(and(eq(pulledLinks.tenantId, tenantId), eq(pulledLinks.itemId, cmd.itemId)))
+          .run();
+        // To do ends a run, as `set_started` taking a start back does.
+        if (cmd.by === 'them') endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;

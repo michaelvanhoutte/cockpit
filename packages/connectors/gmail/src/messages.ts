@@ -657,8 +657,14 @@ export function conversationReadOf(answer: unknown, mailboxAddress: string): Gma
     latest,
     messageCount: turns.length,
     startedAt: turns[0]!.turn.at,
-    withWhom: theirs ? theirs.turn.from : senderIn(headerOf(turns[0]!.message.payload, 'To')),
+    withWhom: theirs ? theirs.turn.from : senderIn(firstRecipientIn(headerOf(turns[0]!.message.payload, 'To'))),
   };
+}
+
+/** The first of the addresses a To header lists, a comma inside quotes or angle brackets kept. */
+function firstRecipientIn(to: string | null): string | null {
+  if (!to) return null;
+  return /^(?:"[^"]*"|<[^>]*>|[^,])*/.exec(to)![0].trim() || null;
 }
 
 /** Where Gmail shows a conversation, or one email, in the connected mailbox. */

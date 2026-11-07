@@ -31,6 +31,8 @@ export class FakeHost implements ConnectorHost {
   readonly statesSaved: unknown[] = [];
   /** Every turn reported, in order. */
   readonly turns: ConversationTurn[] = [];
+  /** Every Item this run emitted, in order, already known or not. */
+  readonly emitted: SourceItem[] = [];
   /** Conversations an open Item already follows, as the host's store holds them. */
   readonly following = new Set<string>();
   /** Conversations whose Item is finished, which the host no longer hands over. */
@@ -70,6 +72,7 @@ export class FakeHost implements ConnectorHost {
   }
 
   async emitItem(item: SourceItem): Promise<EmittedItem> {
+    this.emitted.push(item);
     const id = item.sourceId ?? '';
     if (this.filed.has(id)) return 'already-known';
     this.filed.set(id, item);

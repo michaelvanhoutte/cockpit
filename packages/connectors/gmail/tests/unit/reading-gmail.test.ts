@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cockpitLabelIn,
   conversationFrom,
+  conversationReadOf,
   emailHistoryPage,
   emailIdIn,
   emailMarked,
@@ -268,6 +269,21 @@ describe('Capture', () => {
     it('is told from a conversation by its source id, which no conversation id can take', () => {
       expect(emailIdIn(emailSourceId('18f0a1b2c3d4e5f1'))).toBe('18f0a1b2c3d4e5f1');
       expect(emailIdIn('18f0a1b2c3d4e5f1')).toBeNull();
+    });
+  });
+
+  describe('a conversation only you have written in is with whom its first message was sent to', () => {
+    it.each([
+      { situation: 'one person', to: 'Steven Noels <steven@example.com>', withWhom: 'Steven Noels' },
+      { situation: 'two people', to: 'Steven Noels <steven@example.com>, Bob <bob@example.com>', withWhom: 'Steven Noels' },
+      { situation: 'a name with a comma in quotes first', to: '"Noels, Steven" <steven@example.com>, Bob <bob@example.com>', withWhom: 'Noels, Steven' },
+    ])('names the first when it was sent to $situation', ({ to, withWhom }) => {
+      const thread = threadAnswer('t', [
+        message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', plain: 'Dinner?', from: 'Anna Peeters <anna@example.com>', to }),
+      ]);
+      thread.messages[0]!.labelIds = ['SENT'];
+
+      expect(conversationReadOf(thread, 'anna@example.com')?.withWhom).toBe(withWhom);
     });
   });
 

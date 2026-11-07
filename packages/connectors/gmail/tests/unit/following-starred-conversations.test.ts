@@ -393,17 +393,22 @@ describe('Capture', () => {
       expect([...reopened.filed.keys()]).toEqual(['t-1']);
     });
 
-    it('reopens the same Item when its starred email is taken back out of the bin', async () => {
+    it('reopens the same Item when its starred email is taken back out of the bin, with where the conversation now stands', async () => {
       const { world, host } = await followed();
       world.binEmail('t-1');
       const closed = await checked(world, host);
       expect(closed.saidOf('t-1')).toEqual(['resolved']);
       closed.finished.add('t-1');
+      // A reply while the Item was closed, which no turn reported.
+      world.replies('t-1');
       world.unbinEmail('t-1');
 
       const restored = await checked(world, closed);
 
       expect(restored.saidOf('t-1')).toEqual(['reopened']);
+      expect(restored.emitted.map((item) => item.conversation)).toEqual([
+        expect.objectContaining({ messageCount: 2, latest: expect.objectContaining({ by: 'them' }) }),
+      ]);
     });
 
     it('leaves an Item reopened in Cockpit, its star not put back, open when another of its messages is labelled', async () => {

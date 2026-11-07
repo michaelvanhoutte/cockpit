@@ -476,7 +476,8 @@ class Reading {
    *   Item, which follows it - or, where the host already knew it, reopens it
    *   and follows it again. A second email starred in it adds nothing new.
    * - **No email left starred** (unstarred, in the bin or gone) closes it.
-   * - **A starred email taken back out of the bin or spam** reopens it.
+   * - **A starred email taken back out of the bin or spam** brings it back as
+   *   gaining the star does, where no open Item follows it.
    * - **A label changed** on one of its emails reports its names again.
    *
    * An Item from before, made of one email (`message:`), is left as it was: it
@@ -497,22 +498,23 @@ class Reading {
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'resolved', observedAt });
       return;
     }
-    if (!gained) {
-      // An email whose change leaves it starred - taken back out of the bin or
-      // spam - puts the star back on the conversation as gaining it would.
-      if (changes.changed.some((emailId) => emailMarked(emailIn(thread, emailId), markId))) {
-        await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
-        this.#following?.add(threadId);
-      }
+    // An email whose change leaves it starred - taken back out of the bin or
+    // spam - brings the conversation back as starring it would, read again for
+    // where it stands, unless an open Item follows it already.
+    const restored =
+      !gained && !followed.has(threadId) && changes.changed.some((emailId) => emailMarked(emailIn(thread, emailId), markId));
+    if (!gained && !restored) {
       if (changes.relabelled.length > 0) await this.#say(threadId, thread, markId);
       return;
     }
+    const full = gained ? thread : await this.mailbox.get(`threads/${encodeURIComponent(threadId)}?format=full`);
+    if (full === null) return;
     const address = await this.#address();
-    const conversation = conversationFrom(thread, markId, address);
+    const conversation = conversationFrom(full, markId, address);
     if (!conversation) return;
     // Where things stand, only for a conversation no open Item follows yet: one
     // that is followed already hears of each message as a turn.
-    const read = followed.has(threadId) ? null : conversationReadOf(thread, address);
+    const read = followed.has(threadId) ? null : conversationReadOf(full, address);
     const filing = await this.host.emitItem({
       sourceId: threadId,
       sourceLink: conversation.link,
@@ -521,15 +523,15 @@ class Reading {
       capturedMessage: conversation.text,
       title: conversation.title,
       choice: this.choice,
-      names: namesOf(thread, await this.#labelNames(), markId),
+      names: namesOf(full, await this.#labelNames(), markId),
       ...(read ? { conversation: read } : {}),
     });
     if (filing === 'already-known') {
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
     }
-    // Followed from here on, so a message added to it on a later page of this
-    // run is read as a turn too.
-    this.#following?.add(threadId);
+    // Followed from here on where it now is, so a message added to it on a
+    // later page of this run is read as a turn too.
+    if (read) this.#following?.add(threadId);
   }
 
   /** Reports the names of a conversation read, whole; the host works out what is new. */

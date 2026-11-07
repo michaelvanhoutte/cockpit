@@ -1409,8 +1409,8 @@ export function ItemRow({
                 one of the controls the row's own handlers step aside for -
                 `closest('a, …')` above - so following it neither picks the row
                 nor opens its form. A followed conversation's own *Open ↗* above
-                takes its place. */}
-            {atSource && !conversation && (
+                takes its place where it can open. */}
+            {atSource && !conversationAt && (
               <a
                 href={atSource.link}
                 target="_blank"

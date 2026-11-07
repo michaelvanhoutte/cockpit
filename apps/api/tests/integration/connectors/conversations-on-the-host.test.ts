@@ -373,6 +373,20 @@ describe('Triage', () => {
       );
     });
 
+    it('records the date a turn gives as the connection’s, so a later reopen or reading may still move it', async () => {
+      mailbox = await aFollowedConversation();
+
+      mailbox.replies('t-1');
+      await nextCheckRuns();
+
+      const after = await theItem('t-1');
+      expect(after.dueDate).not.toBeNull();
+      const given = await inTheStore((sql) =>
+        sql.exec('SELECT given_due_date AS given FROM pulled_links WHERE item_id = ?', after.id).toArray(),
+      );
+      expect(given).toEqual([{ given: after.dueDate }]);
+    });
+
     it('makes the Item Waiting for reply on a message sent from the mailbox', async () => {
       mailbox = await aFollowedConversation();
 
