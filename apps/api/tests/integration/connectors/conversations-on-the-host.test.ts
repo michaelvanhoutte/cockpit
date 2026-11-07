@@ -171,10 +171,19 @@ async function firstCheckRuns(): Promise<void> {
   throw new Error('no check was ever queued');
 }
 
-/** The alarm firing, and each check it queued delivered: the next check of every connection. */
+/**
+ * The alarm firing, and each check it queued delivered: the next check of every
+ * connection. Fired again while it queues none, since another job's alarm (set
+ * by a change the case made) can come before the check's own.
+ */
 async function nextCheckRuns(): Promise<void> {
-  await runDurableObjectAlarm(storeNamed(ACCOUNT_NAME));
-  for (const check of takeQueuedChecks()) await deliver(check);
+  for (let fired = 0; fired < 5; fired += 1) {
+    await runDurableObjectAlarm(storeNamed(ACCOUNT_NAME));
+    const checks = takeQueuedChecks();
+    if (checks.length === 0) continue;
+    for (const check of checks) await deliver(check);
+    return;
+  }
 }
 
 /** Connect on the Gmail card of a Workspace, picking the star - the whole trip through Google - and its first check. */

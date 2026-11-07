@@ -154,7 +154,10 @@ describe('Dashboards', () => {
       const read = await opened();
 
       expect((read.conversations ?? []).map((one) => one.conversationId)).toEqual(['thread-0']);
-    });
+      // Filing and closing 200 Items through the host takes most of the default
+      // 20 seconds alone, and more under the whole suite's load; the case is
+      // about what the read carries, not how fast they are made.
+    }, 60_000);
 
     it('joins the conversations by the Item, the leading column of their primary key', async () => {
       await inTheStore(() => undefined);
