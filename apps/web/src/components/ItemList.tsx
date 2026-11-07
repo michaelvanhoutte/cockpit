@@ -2,6 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, 
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
+  conversationOf,
   itemLabel,
   recurringOriginOf,
   uuidv7,
@@ -1008,6 +1009,7 @@ export function ItemList({
           })}
       onOpen={() => openItem(item.id)}
       openRun={runsByItem.get(item.id)}
+      conversation={conversationOf(data?.conversations, item.id)}
       onSendToClaude={(from: HTMLElement | null) => {
         openedFrom.current = from;
         setSendingToClaude(item);

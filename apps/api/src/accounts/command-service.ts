@@ -18,6 +18,7 @@ import {
   DEAD_STATUS_VALUE,
   decisionHistory,
   itemAdditions,
+  itemConversations,
   items,
   layoutRows,
   layouts,
@@ -40,6 +41,7 @@ import {
   getLayout,
   getPanel,
   getSeries,
+  getFollowUpDays,
   getSourceAccount,
   givenDueDateOf,
   getWorkspace,
@@ -51,6 +53,7 @@ import {
   masterPanelIdsOf,
   listDashboards,
   openAgentRunOn,
+  recentCapturedTimeZones,
   recordClaudeSend,
   rememberSentence,
   editRememberedSentence,
@@ -70,6 +73,7 @@ import {
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
 import { captureDay } from '../domain/capture-day.js';
+import { applyConversationTurn, turnDueDate } from '../domain/conversations.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
@@ -2550,6 +2554,116 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'follow_conversation': {
+      // An Item comes to follow a conversation at its source ("A Gmail starred
+      // conversation is one Item whose status follows who wrote last", issue
+      // 1705): the row is made, or where the Item already follows it, where it
+      // stands is replaced only by a newer latest message - a turn may already
+      // have recorded one the read that sent this did not see. No status changes.
+      const cmd = payload as CommandPayload<'follow_conversation'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const standing = {
+        link: cmd.link,
+        lastBy: cmd.latest.by,
+        lastFrom: cmd.latest.from,
+        lastAt: cmd.latest.at,
+        lastExcerpt: cmd.latest.excerpt,
+        messageCount: cmd.messageCount,
+        startedAt: cmd.startedAt,
+        withWhom: cmd.withWhom,
+      };
+      db.transaction((tx) => {
+        tx.insert(itemConversations)
+          .values({
+            tenantId,
+            itemId: cmd.itemId,
+            connectorId: cmd.connectorId,
+            externalAccountKey: cmd.externalAccountKey,
+            conversationId: cmd.conversationId,
+            ...standing,
+          })
+          .onConflictDoUpdate({
+            target: [
+              itemConversations.itemId,
+              itemConversations.connectorId,
+              itemConversations.externalAccountKey,
+              itemConversations.conversationId,
+            ],
+            set: standing,
+            setWhere: sql`${itemConversations.lastAt} < ${cmd.latest.at}`,
+          })
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'record_conversation_turn': {
+      // A message in a conversation the Item follows (issue 1705). The
+      // conversation's row takes it as its latest where it is newer than what
+      // the row holds, and the Item's status follows who wrote it
+      // (`applyConversationTurn`), both in one transaction with the log entry.
+      // A turn no newer than the row's latest - read already by the follow
+      // that made the row - changes neither. On a finished or dismissed Item it
+      // changes nothing at all: Done ended the following.
+      const cmd = payload as CommandPayload<'record_conversation_turn'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const where = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+        eq(itemConversations.conversationId, cmd.conversationId),
+      );
+      const followed = db
+        .select({ lastAt: itemConversations.lastAt, messageCount: itemConversations.messageCount })
+        .from(itemConversations)
+        .where(where)
+        .get();
+      const updated =
+        followed && cmd.at > followed.lastAt
+          ? applyConversationTurn(
+              existing,
+              { by: cmd.by, recordedAt: cmd.issuedAt },
+              turnDueDate(cmd.by, cmd.issuedAt, recentCapturedTimeZones(db, tenantId), {
+                connectionDays: cmd.connectionDays,
+                followUpDays: getFollowUpDays(db, tenantId),
+              }),
+            )
+          : null;
+      const open = existing.completedAt === null && existing.deletedAt === null;
+      if (!followed || cmd.at <= followed.lastAt || !open) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.update(itemConversations)
+          .set({
+            lastBy: cmd.by,
+            lastFrom: cmd.from,
+            lastAt: cmd.at,
+            lastExcerpt: cmd.excerpt,
+            messageCount: followed.messageCount + 1,
+            ...(cmd.by === 'them' && cmd.from ? { withWhom: cmd.from } : {}),
+          })
+          .where(where)
+          .run();
+        // Stale against a change made since, the status stays as that change left it.
+        if (updated !== null) {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          // To do ends a run, as `set_started` taking a start back does.
+          if (cmd.by === 'them') endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'set_repeat': {

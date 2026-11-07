@@ -101,6 +101,12 @@ export class GmailWorld {
     if (modify) return this.#modify(decodeURIComponent(modify[1]!), JSON.parse(String(init?.body)));
     const modifyEmail = /^messages\/([^/]+)\/modify$/.exec(path);
     if (modifyEmail) return this.#modifyEmail(decodeURIComponent(modifyEmail[1]!), JSON.parse(String(init?.body)));
+    const readEmail = /^messages\/([^/]+)$/.exec(path);
+    if (readEmail) {
+      const id = decodeURIComponent(readEmail[1]!);
+      const found = this.#threads.flatMap((thread) => thread.messages).find((one) => one.id === id);
+      return found ? json(found) : json({ error: { code: 404 } }, 404);
+    }
     const read = /^threads\/([^/]+)$/.exec(path);
     if (read) {
       const thread = this.#threads.find((one) => one.id === decodeURIComponent(read[1]!));
@@ -139,13 +145,46 @@ export class GmailWorld {
     for (const [id, name] of this.#userLabels) if (name === from) this.#userLabels.set(id, to);
   }
 
-  /** A reply in a conversation, carrying the labels given by name and not the mark. */
-  replies(threadId: string, labels: readonly string[] = []): void {
+  /**
+   * A reply in a conversation, carrying the labels given by name and not the
+   * mark - from Pieter unless said, or `sent` from this mailbox, which Gmail
+   * labels Sent and not Inbox. Answers the reply's id.
+   */
+  replies(
+    threadId: string,
+    labels: readonly string[] = [],
+    { from, sent = false, text = 'A reply.', sentAt = '2026-10-02T08:30:00Z' }: { from?: string; sent?: boolean; text?: string; sentAt?: string } = {},
+  ): string {
     const thread = this.#thread(threadId);
-    const reply = message(threadId, { id: `${threadId}-r${thread.messages.length}`, sentAt: '2026-10-02T08:30:00Z', plain: 'A reply.', labelled: false });
-    reply.labelIds = [...reply.labelIds, ...labels.map((name) => this.#idOfLabel(name))];
+    const reply = message(threadId, {
+      id: `${threadId}-r${thread.messages.length}`,
+      sentAt,
+      plain: text,
+      labelled: false,
+      ...(sent ? { from: `Anna Peeters <${ADDRESS}>` } : from ? { from } : {}),
+    });
+    reply.labelIds = [
+      ...(sent ? ['SENT'] : reply.labelIds),
+      ...labels.map((name) => this.#idOfLabel(name)),
+    ];
     thread.messages.push(reply);
     this.#record({ added: reply.id, threadId, labelIds: reply.labelIds });
+    return reply.id;
+  }
+
+  /** A draft being written in a conversation, which Gmail records as a message added with the Draft label. */
+  drafts(threadId: string): string {
+    const thread = this.#thread(threadId);
+    const draft = message(threadId, { id: `${threadId}-d${thread.messages.length}`, sentAt: '2026-10-03T08:30:00Z', plain: 'Half a reply', labelled: false });
+    draft.labelIds = ['DRAFT'];
+    thread.messages.push(draft);
+    this.#record({ added: draft.id, threadId, labelIds: draft.labelIds });
+    return draft.id;
+  }
+
+  /** The messages read one by one, in order - what a run spent on reading turns. */
+  emailReads(): string[] {
+    return this.requests.filter((one) => /GET .*messages\/[^/?]+\?format=/.test(one)).map((one) => /messages\/([^/?]+)/.exec(one)![1]!);
   }
 
   /**
@@ -352,7 +391,20 @@ export class GmailWorld {
     const start = Number(url.searchParams.get('startHistoryId'));
     if (start < this.#oldestKept) return json({ error: { code: 404 } }, 404);
     const offset = Number(url.searchParams.get('pageToken') ?? 0);
-    const wanted = this.#records.filter((one) => one.at > start);
+    // Asked for one label, Gmail answers only the records of messages carrying
+    // it or moving it - which is why a reply, arriving without the star, is
+    // absent from a history read by the star. A deletion says no labels, and is kept.
+    const labelId = url.searchParams.get('labelId');
+    const concerns = (record: ReturnType<typeof historyRecord>) => {
+      if (labelId === null || 'messagesDeleted' in record) return true;
+      const entries = [
+        ...('messagesAdded' in record ? record.messagesAdded : []),
+        ...('labelsAdded' in record ? record.labelsAdded : []),
+        ...('labelsRemoved' in record ? record.labelsRemoved : []),
+      ] as { message: { labelIds: readonly string[] }; labelIds?: readonly string[] }[];
+      return entries.some((entry) => entry.message.labelIds.includes(labelId) || (entry.labelIds ?? []).includes(labelId));
+    };
+    const wanted = this.#records.filter((one) => one.at > start && concerns(one.record));
     const page = wanted.slice(offset, offset + this.historyPageSize);
     return json(
       historyAnswer(

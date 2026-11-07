@@ -9,10 +9,11 @@ import {
 } from './mailbox.js';
 import {
   STARRED,
+  addedToFollowed,
   cockpitLabelIn,
   conversationFrom,
   conversationPage,
-  emailFrom,
+  conversationReadOf,
   emailHistoryPage,
   emailIdIn,
   emailIn,
@@ -22,8 +23,8 @@ import {
   historyPage,
   labelChange,
   namesOf,
-  namesOfEmail,
   stillMarked,
+  turnFrom,
   userLabelsIn,
   type EmailChanges,
 } from './messages.js';
@@ -40,9 +41,11 @@ import {
  * 3. **Then the history since the saved position**, a page at a time.
  *
  * A connection following the label brings in a conversation as an Item. One
- * following the star brings in each email starred as an Item of its own - a
- * star belongs to one email - and keeps closing the conversation Items it
- * brought in before that, which are never reopened.
+ * following the star brings in the conversation of an email starred as one
+ * Item that follows it (issue 1705): every message added to it later is
+ * reported as a turn, starred or not, and the host decides the status. An Item
+ * a release before made of one starred email is left as it was, closing when
+ * that email's star comes off.
  *
  * A run that reaches its call budget saves where it was and answers that there
  * is more to do; the next run resumes inside the page it stopped in.
@@ -59,12 +62,14 @@ const PAGE_SIZE = 50;
 const STAR_PAGE_SIZE = 500;
 
 /**
- * What the saved state's `history.done` means. Raised when it changes meaning
- * - from conversations of a page done to conversations grouping the emails of
- * a page done - so a place saved under the old one is read again from the
- * page's start, which is safe because everything emitted is idempotent.
+ * What the saved state's `history` means. Raised when it changes meaning - from
+ * conversations of a page done to conversations grouping the emails of a page
+ * done (2), then, by star, pages read without the star's filter so a reply is
+ * seen (3) - so a place saved under the old one is read again from the page's
+ * start, or by star from the position, which is safe because everything
+ * emitted is idempotent.
  */
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 /** How many history records Gmail is asked for at a time (its ceiling is 500). */
 const HISTORY_PAGE_SIZE = 100;
@@ -94,7 +99,12 @@ export interface GmailState {
   /** The mailbox's address, which is what a conversation's link names. */
   address: string | null;
   historyId: string | null;
-  history: { pageToken: string | null; done: number };
+  history: {
+    pageToken: string | null;
+    done: number;
+    /** The messages of this page already reported as turns, by id: a connection following the star's. */
+    turns: string[];
+  };
   /** The complete listing under way, or null when none is. */
   listing: {
     pageToken: string | null;
@@ -111,7 +121,12 @@ function freshListing(): NonNullable<GmailState['listing']> {
 }
 
 function freshState(choice: string, address: string | null = null): GmailState {
-  return { version: STATE_VERSION, choice, address, historyId: null, history: { pageToken: null, done: 0 }, listing: null };
+  return { version: STATE_VERSION, choice, address, historyId: null, history: pageStart(), listing: null };
+}
+
+/** A place at the start of a history page: its token, nothing of it done. */
+function pageStart(pageToken: string | null = null): GmailState['history'] {
+  return { pageToken, done: 0, turns: [] };
 }
 
 /**
@@ -136,7 +151,14 @@ export function stateIn(saved: unknown, choice: string): GmailState {
     choice,
     address,
     historyId: typeof held.historyId === 'string' && held.historyId ? held.historyId : null,
-    history: { pageToken: token(history?.pageToken), done: current ? count(history?.done) : 0 },
+    history: {
+      // By star, a page token saved before the history was read without the
+      // star's filter asked for another query: that page is read again from the
+      // position, every page of which is safe to read twice.
+      pageToken: !current && choice === 'star' ? null : token(history?.pageToken),
+      done: current ? count(history?.done) : 0,
+      turns: current && Array.isArray(history?.turns) ? history.turns.filter((id): id is string => typeof id === 'string') : [],
+    },
     listing:
       listing && typeof listing === 'object' && Array.isArray(listing.seen)
         ? !current && choice === 'star'
@@ -183,6 +205,8 @@ class Reading {
   /** Gmail's list of labels, once read this run: the connection following the label reads it to find the mark. */
   #labelList: unknown;
   #userLabels: Map<string, string> | undefined;
+  /** The conversations open Items follow, once asked this run: a connection following the star reads their turns. */
+  #following: Set<string> | undefined;
 
   constructor(
     private readonly host: ConnectorHost,
@@ -199,7 +223,7 @@ class Reading {
       if ((await this.#readHistory(markId)) === 'caught up') return;
       // The position lapsed: the complete listing, from a fresh position.
       this.state.historyId = null;
-      this.state.history = { pageToken: null, done: 0 };
+      this.state.history = pageStart();
       this.state.listing = null;
       this.#unsaved = true;
     }
@@ -247,7 +271,7 @@ class Reading {
       }
       if (typeof profile?.emailAddress === 'string' && profile.emailAddress) state.address = profile.emailAddress;
       state.historyId = String(historyId);
-      state.history = { pageToken: null, done: 0 };
+      state.history = pageStart();
       state.listing = freshListing();
       // The position first, so whatever is marked while the listing runs is
       // after it, and the history reads it.
@@ -331,12 +355,13 @@ class Reading {
    */
   async #readHistory(markId: string): Promise<'caught up' | 'lapsed'> {
     const state = this.state;
+    const byStar = this.choice === 'star';
     for (;;) {
-      const query = new URLSearchParams({
-        startHistoryId: state.historyId!,
-        labelId: markId,
-        maxResults: String(HISTORY_PAGE_SIZE),
-      });
+      const query = new URLSearchParams({ startHistoryId: state.historyId!, maxResults: String(HISTORY_PAGE_SIZE) });
+      // By star, every message added is read, since a reply in a followed
+      // conversation arrives without the star (issue 1705); by label, only
+      // what the label changed, which is all that connection follows.
+      if (!byStar) query.set('labelId', markId);
       for (const type of ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']) {
         query.append('historyTypes', type);
       }
@@ -344,18 +369,23 @@ class Reading {
       const answer = await this.mailbox.get(`history?${query}`);
       if (answer === null) return 'lapsed';
 
-      const page = this.choice === 'star' ? await this.#followEmails(answer, markId) : await this.#followConversations(answer, markId);
+      const page = byStar ? await this.#followEmails(answer, markId) : await this.#followConversations(answer, markId);
 
       if (page.nextPageToken) {
-        state.history = { pageToken: page.nextPageToken, done: 0 };
+        state.history = pageStart(page.nextPageToken);
         this.#unsaved = true;
       } else {
         if (page.historyId === null) throw new NotAnswering('Gmail gave no history position');
-        if (page.historyId !== state.historyId || state.history.pageToken !== null || state.history.done > 0) {
+        if (
+          page.historyId !== state.historyId ||
+          state.history.pageToken !== null ||
+          state.history.done > 0 ||
+          state.history.turns.length > 0
+        ) {
           this.#unsaved = true;
         }
         state.historyId = page.historyId;
-        state.history = { pageToken: null, done: 0 };
+        state.history = pageStart();
       }
       await this.keep();
       if (!page.nextPageToken) return 'caught up';
@@ -382,75 +412,97 @@ class Reading {
   }
 
   /**
-   * One history page of a connection following the star: each conversation it
-   * names, read once, whatever number of its emails changed.
+   * One history page of a connection following the star, read without the
+   * star's filter: first each message added to a conversation an open Item
+   * follows, reported as a turn, each once; then each conversation the star's
+   * own changes name, read once, whatever number of its emails changed.
+   * Turns first, so a reply that arrives starred moves the status before the
+   * star's read of the conversation records it as where things stand.
    */
   async #followEmails(answer: unknown, markId: string): Promise<{ nextPageToken: string | null; historyId: string | null }> {
     const state = this.state;
-    const page = emailHistoryPage(answer, markId);
+    const followed = await this.#followed();
+    for (const added of addedToFollowed(answer, followed)) {
+      if (state.history.turns.includes(added.id)) continue;
+      await this.#reportTurn(added.id, added.threadId);
+      state.history.turns.push(added.id);
+      this.#unsaved = true;
+    }
+    const page = emailHistoryPage(answer, markId, followed);
     for (let index = state.history.done; index < page.conversations.length; index++) {
-      await this.#followEmailsOf(page.conversations[index]!, markId);
+      await this.#followEmailsOf(page.conversations[index]!, markId, followed);
       state.history.done = index + 1;
       this.#unsaved = true;
     }
     return page;
   }
 
+  /** The conversations this connection's open Items follow, asked of the host once a run. */
+  async #followed(): Promise<ReadonlySet<string>> {
+    this.#following ??= new Set(await this.host.followedConversations());
+    return this.#following;
+  }
+
   /**
-   * Reads one conversation and says what became of each email of it the page
-   * names, and of the conversation Item an earlier release made of it:
-   *
-   * - **An email** still starred is brought in where it gained the star (and
-   *   `reopened` where the host already knew it), and otherwise only
-   *   `reopened`, or has its names read again; one no longer starred, in the
-   *   bin or gone is `resolved`.
-   * - **A conversation Item from before** only closes, once no email in the
-   *   conversation is starred: reopening it would star the whole conversation.
+   * Reads one message added to a followed conversation and reports it as a
+   * turn - unless it is gone by now, a draft, or in the bin or spam.
    */
-  async #followEmailsOf(changes: EmailChanges, markId: string): Promise<void> {
+  async #reportTurn(messageId: string, conversationId: string): Promise<void> {
+    const turn = turnFrom(await this.mailbox.get(`messages/${encodeURIComponent(messageId)}?format=full`));
+    if (turn) await this.host.reportTurn({ conversationId, messageId, ...turn });
+  }
+
+  /**
+   * Reads one conversation the star's changes name and says what became of it
+   * (issue 1705):
+   *
+   * - **An email that gained the star** brings the conversation in as one
+   *   Item, which follows it - or, where the host already knew it, reopens it
+   *   and follows it again. A second email starred in it adds nothing new.
+   * - **No email left starred** (unstarred, in the bin or gone) closes it.
+   * - **A label changed** on one of its emails reports its names again.
+   *
+   * An Item from before, made of one email (`message:`), is left as it was: it
+   * only closes when that email's star comes off, and never follows.
+   */
+  async #followEmailsOf(changes: EmailChanges, markId: string, followed: ReadonlySet<string>): Promise<void> {
     const { threadId } = changes;
-    const gained = new Set(changes.gained);
-    const changed = new Set(changes.changed);
-    const thread = await this.mailbox.get(
-      `threads/${encodeURIComponent(threadId)}?format=${gained.size > 0 ? 'full' : 'minimal'}`,
-    );
+    const gained = changes.gained.length > 0;
+    const thread = await this.mailbox.get(`threads/${encodeURIComponent(threadId)}?format=${gained ? 'full' : 'minimal'}`);
     const observedAt = this.now().toISOString();
-    for (const emailId of new Set([...changes.changed, ...changes.gained, ...changes.relabelled])) {
-      const sourceId = emailSourceId(emailId);
-      const message = thread === null ? null : emailIn(thread, emailId);
-      if (!emailMarked(message, markId)) {
-        // Only a read of the email says which way a change went; one only
-        // relabelled that is no longer starred has nothing to say.
-        if (gained.has(emailId) || changed.has(emailId)) {
-          await this.host.emitSourceStateChange({ sourceId, change: 'resolved', observedAt });
-        }
-        continue;
-      }
-      const names = namesOfEmail(message, await this.#labelNames(), markId);
-      if (gained.has(emailId)) {
-        const email = emailFrom(message, await this.#address());
-        if (!email) continue;
-        const filing = await this.host.emitItem({
-          sourceId,
-          sourceLink: email.link,
-          sender: email.sender,
-          sourceTimestamp: email.sentAt,
-          capturedMessage: email.text,
-          title: email.title,
-          choice: this.choice,
-          names,
-        });
-        if (filing === 'already-known') await this.host.emitSourceStateChange({ sourceId, change: 'reopened', observedAt });
-      } else {
-        await this.host.reportNames({ sourceId, names });
-        if (changed.has(emailId)) await this.host.emitSourceStateChange({ sourceId, change: 'reopened', observedAt });
+    for (const emailId of new Set(changes.changed)) {
+      // Only a read of the email says which way a change went.
+      if (!emailMarked(thread === null ? null : emailIn(thread, emailId), markId)) {
+        await this.host.emitSourceStateChange({ sourceId: emailSourceId(emailId), change: 'resolved', observedAt });
       }
     }
     if (thread === null || !stillMarked(thread, markId)) {
       await this.host.emitSourceStateChange({ sourceId: threadId, change: 'resolved', observedAt });
-    } else if (changes.relabelled.length > 0) {
-      // The conversation Item from before is still open, and keeps its names.
-      await this.#say(threadId, thread, markId);
+      return;
+    }
+    if (!gained) {
+      if (changes.relabelled.length > 0) await this.#say(threadId, thread, markId);
+      return;
+    }
+    const address = await this.#address();
+    const conversation = conversationFrom(thread, markId, address);
+    if (!conversation) return;
+    // Where things stand, only for a conversation no open Item follows yet: one
+    // that is followed already hears of each message as a turn.
+    const read = followed.has(threadId) ? null : conversationReadOf(thread, address);
+    const filing = await this.host.emitItem({
+      sourceId: threadId,
+      sourceLink: conversation.link,
+      sender: conversation.sender,
+      sourceTimestamp: conversation.sentAt,
+      capturedMessage: conversation.text,
+      title: conversation.title,
+      choice: this.choice,
+      names: namesOf(thread, await this.#labelNames(), markId),
+      ...(read ? { conversation: read } : {}),
+    });
+    if (filing === 'already-known') {
+      await this.host.emitSourceStateChange({ sourceId: threadId, change: 'reopened', observedAt });
     }
   }
 
@@ -530,11 +582,11 @@ function labelMarkIn(labels: unknown): string {
 /**
  * Puts the mark on, or takes it off, each conversation whose Item a person
  * opened or closed in Cockpit - the mark followed alone, on the whole
- * conversation, and nothing else of the mailbox. **By star the Item is an
- * email's, and the star goes on or off that email alone.** An Item from before
- * that, which is a conversation's, only closes - by taking the star off the
- * whole conversation; reopening it is given up on, since starring the
- * conversation would star every email in it and bring each in as an Item.
+ * conversation, and nothing else of the mailbox. **By star, Done takes the star
+ * off every email of the conversation**, so a later message in it reopens
+ * nothing; reopening such an Item in Cockpit is given up on, since starring the
+ * whole conversation would star emails nobody chose. An Item a release before
+ * made of one email has the star put on or taken off that email alone.
  *
  * **Confirmed only once Gmail has answered**, so a run that stops between the
  * call and the host's record pushes it again, which changes nothing at Gmail. A
@@ -558,7 +610,7 @@ export async function mirrorOpenStates(
     for (const one of wanted) {
       const emailId = choice === 'star' ? emailIdIn(one.sourceId) : null;
       if (choice === 'star' && emailId === null && one.open) {
-        host.log('info', 'a starred conversation brought in before emails came in one by one is not starred again', {});
+        host.log('info', 'a starred conversation reopened in Cockpit is not starred again in Gmail', {});
         gaveUp.push(one.sourceId);
         continue;
       }

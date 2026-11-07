@@ -1,0 +1,121 @@
+import { resolve } from 'node:path';
+import type { Page } from '@playwright/test';
+import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
+import {
+  chooseRowAction,
+  closeSettings,
+  deleteWorkspace,
+  expect,
+  itemRow,
+  makeWorkspace,
+  openFirstWorkspace,
+  openSettings,
+  press,
+  switchTo,
+  test,
+  uniqueTitle,
+} from './support/app';
+
+const root = resolve(__dirname, '..', '..');
+/** The stub the stack runs, which stands in for Gmail's mailbox as well as for Google's sign-in. */
+const issuer = `http://127.0.0.1:${portsFor(root, { linked: isLinkedWorktree(root), env: process.env }).e2eIssuer}`;
+const MAILBOX = 'michael@example.com';
+
+/**
+ * F3: a Gmail conversation starred after connecting is one Item whose row says
+ * who wrote last, and whose status follows ("A Gmail starred conversation is
+ * one Item whose status follows who wrote last", issue 1705). Only the sign-in,
+ * the check, the store and the row together make the line appear. The line's
+ * wording is apps/web/tests/unit/conversationLine.test.ts's; which message is a
+ * turn, the Gmail connector's own tests'; what a turn does to the status,
+ * apps/api/tests/unit/domain/conversations.test.ts's.
+ *
+ * **It makes its own workspace and puts it back**, as connections.test.ts does.
+ */
+
+/** Something done in the stand-in mailbox, as a person does it in Gmail: answers what the stub says it made. */
+async function inGmail(what: 'star' | 'reply', query: Record<string, string>): Promise<{ thread: string; message: string }> {
+  const answer = await fetch(`${issuer}/gmail-stub/${what}?${new URLSearchParams({ email: MAILBOX, ...query })}`, { method: 'POST' });
+  return (await answer.json()) as { thread: string; message: string };
+}
+
+/** Every call the mailbox was asked, oldest first. */
+async function askedOfGmail(): Promise<string[]> {
+  return (await (await fetch(`${issuer}/gmail-stub/asked?email=${encodeURIComponent(MAILBOX)}`)).json()) as string[];
+}
+
+/**
+ * The connection checked once more after what the mailbox just took: *Check
+ * now*, through the route the row's own menu sends, until a check starts that
+ * reads the history again - one already running may have read it before.
+ */
+async function checkedAgain(page: Page): Promise<void> {
+  const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+  const listed = (await (await page.request.get(`/v1/workspaces/${workspaceId}/connections`)).json()) as {
+    sourceAccounts: { id: string; connectorId: string }[];
+  };
+  const gmail = listed.sourceAccounts.find((one) => one.connectorId === 'gmail')!;
+  const before = (await askedOfGmail()).length;
+  await expect
+    .poll(async () => {
+      const pressed = await page.request.post(`/v1/workspaces/${workspaceId}/connections/${gmail.id}/check-now`);
+      return ((await pressed.json()) as { status: string }).status;
+    })
+    .not.toBe('running');
+  await expect.poll(async () => (await askedOfGmail()).slice(before).some((call) => call.startsWith('history'))).toBe(true);
+}
+
+test.describe('Triage', () => {
+  test.describe('a followed Gmail conversation’s row says who wrote last, and its status follows', () => {
+    test('reads Steven replied on his reply, To do, then You wrote with Waiting since on yours, and opens the conversation', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Followed');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      // Connected by the star, and starred once the first check has read where the mailbox stands.
+      const window = await openSettings(page, 'Connections', isMobile);
+      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+      const asked = page.getByRole('dialog', { name: 'Connect Gmail' });
+      await press(asked.getByText('Starred (flagged in Outlook)'), isMobile);
+      await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
+      const askedBefore = (await askedOfGmail()).length;
+      await press(page.getByRole('link', { name: MAILBOX, exact: true }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Checked /)).toBeVisible();
+      await expect.poll(async () => (await askedOfGmail()).slice(askedBefore)).toContain('profile');
+      await closeSettings(page, isMobile);
+
+      const purpose = uniqueTitle('Dinner with Steven');
+      const { thread } = await inGmail('star', { subject: purpose, text: 'Shall we have dinner one of these weeks?' });
+      await checkedAgain(page);
+      const row = itemRow(page, purpose);
+      await expect(row).toBeVisible();
+
+      // Steven answers, starred or not: the row says so, and the Item is to do.
+      await inGmail('reply', { thread, from: 'Steven Noels <steven@example.com>', text: 'Thursday is tricky, how about Friday?' });
+      await checkedAgain(page);
+      await expect(row.getByText('Gmail · Steven replied just now')).toBeVisible();
+      await expect(row.getByText('Gmail · Steven replied just now')).toHaveAttribute('title', 'Steven Noels: Thursday is tricky, how about Friday?');
+      await expect(row.getByText(/^Waiting since/)).toHaveCount(0);
+      const open = row.getByRole('link', { name: 'Open the latest email in Gmail' });
+      await expect(open).toHaveAttribute('href', new RegExp(`#all/${thread}$`));
+
+      // Your reply arrives: the same row, now waiting for his.
+      await inGmail('reply', { thread, sent: '' });
+      await checkedAgain(page);
+      await expect(row.getByText('Gmail · You wrote just now')).toBeVisible();
+      await expect(row.getByText(/^Waiting since/)).toBeVisible();
+
+      await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: `Yes, disconnect ${MAILBOX}` }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
+});

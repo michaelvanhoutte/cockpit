@@ -29,6 +29,7 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
+  ConversationTurn,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -469,9 +470,17 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Awaitable<Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>>;
+  followedPulledConversations(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<string[]>>;
+  recordPulledTurn(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    turn: ConversationTurn,
+    commandId: string,
+  ): Awaitable<Answer<'recorded' | 'not followed' | 'disconnected'>>;
   reportPulledNames(
     accountName: string,
     sourceAccountId: string,

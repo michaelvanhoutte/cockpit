@@ -39,6 +39,7 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
+  ConversationTurn,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -387,9 +388,13 @@ export interface PulledRun {
   ): Promise<'saved' | 'not saved'>;
   fileItem(
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Promise<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>;
+  /** The conversations the connection's open Items follow, whose turns its connector reads (issue 1705). */
+  followedConversations(): Promise<string[]>;
+  /** Records a turn in a followed conversation under the caller's derived id, which sets the Item's status (issue 1705). */
+  recordTurn(turn: ConversationTurn, commandId: string): Promise<'recorded' | 'not followed' | 'disconnected'>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
   reportNames(report: NamesReport, forms: NameForms): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
@@ -515,6 +520,10 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids, forms)),
       reportNames: async (report, forms) =>
         unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report, forms)),
+      followedConversations: async () =>
+        unwrap(await store.followedPulledConversations(accountName, sourceAccountId, runId)),
+      recordTurn: async (turn, commandId) =>
+        unwrap(await store.recordPulledTurn(accountName, sourceAccountId, runId, turn, commandId)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>

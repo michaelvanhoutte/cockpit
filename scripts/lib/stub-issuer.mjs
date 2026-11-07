@@ -107,7 +107,10 @@ export async function startStubIssuer({ port, seedPath }) {
    * email, so `/gmail-stub/star?email=&message=` and `/gmail-stub/unstar` with a
    * `message` change that email alone, as starring one email in Gmail does
    * ("Bring in each email you star in Gmail as its own Item", issue 1398);
-   * `/gmail-stub/reply` answers the id of the email it adds, to star it.
+   * `/gmail-stub/reply` answers the id of the email it adds, to star it, and
+   * takes `from=` for who sent it, `text=` for what it says, or `sent` for a
+   * reply sent from this mailbox ("A Gmail starred conversation is one Item
+   * whose status follows who wrote last", issue 1705).
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
@@ -189,7 +192,18 @@ export async function startStubIssuer({ port, seedPath }) {
     const thread = mailbox.threads.find((one) => one.id === url.searchParams.get('thread'));
     if (!thread) return json(response, { error: 'no such thread' }, 404);
     const id = `reply-${at}`;
-    const reply = messageOf(id, thread.id, ['INBOX', 'UNREAD'], 'Re:', 'pieter@example.com', 'A reply, arriving without the label.');
+    // `sent` is a reply sent from this mailbox, which Gmail labels Sent; `from`
+    // names who else sent it ("A Gmail starred conversation is one Item whose
+    // status follows who wrote last", issue 1705).
+    const sent = url.searchParams.has('sent');
+    const reply = messageOf(
+      id,
+      thread.id,
+      sent ? ['SENT'] : ['INBOX', 'UNREAD'],
+      'Re:',
+      sent ? email : (url.searchParams.get('from') ?? 'pieter@example.com'),
+      url.searchParams.get('text') ?? 'A reply, arriving without the label.',
+    );
     thread.messages.push(reply);
     mailbox.history.push({
       id: at,
@@ -504,6 +518,10 @@ export async function startStubIssuer({ port, seedPath }) {
     if (foundEmail && request.method === 'POST') return modifyThread(mailbox, foundEmail.thread, request, response, foundEmail.message);
     const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
     if (thread) return json(response, thread);
+    // `users.messages.get`: one email, read for the turn it is in a followed conversation (issue 1705).
+    const readEmail = path.match(/^messages\/([^/]+)$/);
+    const foundRead = readEmail && findMessage(mailbox, decodeURIComponent(readEmail[1]));
+    if (foundRead) return json(response, foundRead.message);
     json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
   }
 

@@ -174,7 +174,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 16,
+      "browserWalks": 17,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -197,7 +197,10 @@
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
         "apps/web/src/undo.tsx",
-        "apps/web/src/swipe.ts"
+        "apps/web/src/swipe.ts",
+        "apps/api/src/domain/conversations.ts",
+        "packages/shared/src/domain/conversation.ts",
+        "apps/web/src/conversationLine.ts"
       ]
     },
     {

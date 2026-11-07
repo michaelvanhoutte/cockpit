@@ -1,6 +1,8 @@
 import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
+import { CONVERSATION_EXCERPT_LENGTH, TITLE_LENGTH } from '@cockpit/shared';
 import type {
   CompleteListing,
+  ConversationTurn,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -18,7 +20,7 @@ import {
   listPanels,
   recentCapturedTimeZones,
 } from './repo.js';
-import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
+import { connectionFailures, connectorAccounts, itemConversations, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
 import {
@@ -337,21 +339,24 @@ export function filePulledItem(
   sourceAccountId: string,
   runId: string,
   item: SourceItem & { sourceId: string },
-  ids: { itemId: string; commandId: string },
+  ids: { itemId: string; commandId: string; followCommandId?: string },
   at: string,
   forms: NameForms = NO_FORMS,
 ): { answer: EmittedItem | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return { answer: 'disconnected', named: null };
-  // One transaction for the Item, its filings and its link, so a check that
-  // fails partway leaves no Item and the next one makes and files it once
-  // (issue 1146). What each name did is decided in it, and answered with it
-  // (issue 1197).
+  // One transaction for the Item, its filings, its link and the conversation it
+  // follows, so a check that fails partway leaves no Item and the next one makes
+  // and files it once (issue 1146). What each name did is decided in it, and
+  // answered with it (issue 1197).
   return db.transaction((): { answer: EmittedItem; named: NamedOn | null } => {
     const link = linkOf(db, accountName, holds, item.sourceId);
     if (link) {
-      // An Item emitted again still says what its names are now.
+      // An Item emitted again still says what its names are now, and follows
+      // the conversation it says it follows: a label's Item for the same thread
+      // is the same Item, which starts following it here (issue 1705).
       const outcomes = item.names ? recordNames(db, accountName, holds, link, item.names, item.followed, at, forms) : [];
+      followTheConversation(db, accountName, holds, link.itemId, item, ids.followCommandId, at);
       return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
     }
     const message = item.capturedMessage ?? item.title;
@@ -426,8 +431,167 @@ export function filePulledItem(
       })
       .onConflictDoNothing()
       .run();
+    followTheConversation(db, accountName, holds, ids.itemId, item, ids.followCommandId, at);
     return { answer: 'filed', named: namedOn(ids.itemId, outcomesWithMark(decided.outcomes, item.followed)) };
   });
+}
+
+/** How much of a message a conversation keeps (`CONVERSATION_EXCERPT_LENGTH`), and of a name. */
+const EXCERPT_LENGTH = CONVERSATION_EXCERPT_LENGTH;
+const NAME_LENGTH = TITLE_LENGTH;
+
+/**
+ * Has the Item follow the conversation the connector says it does, through
+ * `follow_conversation`, the one change every way an Item comes to follow one
+ * takes ("A Gmail starred conversation is one Item whose status follows who
+ * wrote last", issue 1705). Nothing where the connector names none. Inside the
+ * caller's transaction.
+ */
+function followTheConversation(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  itemId: string,
+  item: SourceItem,
+  commandId: string | undefined,
+  at: string,
+): void {
+  const read = item.conversation;
+  if (!read || !commandId) return;
+  runCommand(
+    db,
+    accountName,
+    'follow_conversation',
+    {
+      commandId,
+      issuedAt: at,
+      workspaceId: holds.workspaceId,
+      itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: read.id,
+      link: read.link,
+      latest: {
+        by: read.latest.by,
+        from: cut(read.latest.from, NAME_LENGTH),
+        at: read.latest.at,
+        excerpt: cut(read.latest.excerpt, EXCERPT_LENGTH) ?? '',
+      },
+      messageCount: Math.max(1, Math.trunc(read.messageCount)),
+      startedAt: read.startedAt,
+      withWhom: cut(read.withWhom, NAME_LENGTH),
+    },
+    { fromTheSource: true },
+  );
+}
+
+function cut<T extends string | null>(text: T, limit: number): T {
+  return (text === null ? null : text.slice(0, limit)) as T;
+}
+
+/**
+ * The conversations this connection's open Items follow, by the source's id -
+ * what a run hands its connector to read turns for (issue 1705). Only the
+ * Items this connection filed in its own Workspace, so another Workspace's
+ * Item following the same mailbox's conversation is never this run's.
+ */
+export function followedPulledConversations(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+): string[] {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return [];
+  return [
+    ...new Set(
+      followedBy(db, accountName, holds)
+        .all()
+        .map((row) => row.conversationId),
+    ),
+  ];
+}
+
+/**
+ * Records a turn the connector reported in a conversation an open Item of
+ * this connection follows, through `record_conversation_turn`, which decides
+ * what it does to the Item (issue 1705). Its id is the caller's, derived from
+ * the message, so a turn reported twice is applied once. Answers `not followed`
+ * for a conversation no open Item of this connection's Workspace follows.
+ */
+export function recordPulledTurn(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  turn: ConversationTurn,
+  commandId: string,
+  at: string,
+): 'recorded' | 'not followed' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  const followed = followedBy(db, accountName, holds, turn.conversationId).get();
+  if (!followed) return 'not followed';
+  runCommand(
+    db,
+    accountName,
+    'record_conversation_turn',
+    {
+      commandId,
+      issuedAt: at,
+      workspaceId: holds.workspaceId,
+      itemId: followed.itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: turn.conversationId,
+      by: turn.by,
+      from: cut(turn.from, NAME_LENGTH),
+      at: turn.at,
+      excerpt: cut(turn.excerpt, EXCERPT_LENGTH),
+      connectionDays: holds.dueInDays,
+    },
+    { fromTheSource: true },
+  );
+  return 'recorded';
+}
+
+/**
+ * The open Items of this connection's Workspace that follow a conversation at
+ * its account, by the Items' own links to the connection - one, or all of
+ * them where no conversation is named.
+ */
+function followedBy(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  conversationId?: string,
+) {
+  return db
+    .select({ itemId: itemConversations.itemId, conversationId: itemConversations.conversationId })
+    .from(itemConversations)
+    .innerJoin(
+      pulledLinks,
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.itemId, itemConversations.itemId),
+        eq(pulledLinks.workspaceId, holds.workspaceId),
+        eq(pulledLinks.connectorId, holds.connectorId),
+        eq(pulledLinks.externalAccountKey, holds.externalAccountKey),
+      ),
+    )
+    .innerJoin(items, and(eq(items.tenantId, accountName), eq(items.id, itemConversations.itemId)))
+    .where(
+      and(
+        eq(itemConversations.tenantId, accountName),
+        eq(itemConversations.connectorId, holds.connectorId),
+        eq(itemConversations.externalAccountKey, holds.externalAccountKey),
+        ...(conversationId === undefined ? [] : [eq(itemConversations.conversationId, conversationId)]),
+        // Open, as `isOpen` has it: neither done nor dismissed.
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+      ),
+    )
+    .orderBy(asc(itemConversations.itemId));
 }
 
 /** An Item's outcomes for a check's line, or null where it has none to say. */

@@ -7,6 +7,7 @@ export * from './domain/attachment.js';
 export * from './domain/claude-prompt.js';
 export * from './domain/claude-send.js';
 export * from './domain/claude-proposal.js';
+export * from './domain/conversation.js';
 export * from './domain/remembered-sentence.js';
 export * from './domain/demo-address.js';
 export * from './domain/dashboard-filter.js';

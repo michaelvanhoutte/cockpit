@@ -76,6 +76,15 @@ export class FakeHost implements ConnectorHost {
     this.namesReported.push({ ...report, names: [...report.names] });
   }
 
+  /** Outlook follows no conversation yet: none is ever handed over. */
+  async followedConversations(): Promise<string[]> {
+    return [];
+  }
+
+  async reportTurn(): Promise<void> {
+    throw new Error('Outlook follows no conversation yet, so it has no turn to report');
+  }
+
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
     this.logged.push({ level, message, data });
   }

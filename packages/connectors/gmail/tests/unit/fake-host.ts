@@ -1,6 +1,7 @@
 import type {
   CompleteListing,
   ConnectorHost,
+  ConversationTurn,
   EmittedItem,
   NamesReport,
   SourceItem,
@@ -26,6 +27,14 @@ export class FakeHost implements ConnectorHost {
   readonly namesReported: NamesReport[] = [];
   readonly credentialsSaved: Record<string, string>[] = [];
   readonly logged: { level: string; message: string; data?: unknown }[] = [];
+  /** Every state this run saved, in order. */
+  readonly statesSaved: unknown[] = [];
+  /** Every turn reported, in order. */
+  readonly turns: ConversationTurn[] = [];
+  /** Conversations an open Item already follows, as the host's store holds them. */
+  readonly following = new Set<string>();
+  /** Conversations whose Item is finished, which the host no longer hands over. */
+  readonly finished = new Set<string>();
 
   constructor(options: { choice?: string | null; credential: Record<string, string> }) {
     this.choice = options.choice === undefined ? 'label' : options.choice;
@@ -37,6 +46,8 @@ export class FakeHost implements ConnectorHost {
     const next = new FakeHost({ choice: this.choice, credential: this.credential });
     next.state = this.state;
     for (const [id, item] of this.filed) next.filed.set(id, item);
+    for (const id of this.following) next.following.add(id);
+    for (const id of this.finished) next.finished.add(id);
     return next;
   }
 
@@ -55,6 +66,7 @@ export class FakeHost implements ConnectorHost {
 
   async setState(state: unknown): Promise<void> {
     this.state = structuredClone(state);
+    this.statesSaved.push(structuredClone(state));
   }
 
   async emitItem(item: SourceItem): Promise<EmittedItem> {
@@ -74,6 +86,22 @@ export class FakeHost implements ConnectorHost {
 
   async reportNames(report: NamesReport): Promise<void> {
     this.namesReported.push({ sourceId: report.sourceId, names: [...report.names] });
+  }
+
+  /**
+   * The conversations this connection's open Items follow: each one an emitted
+   * Item said it follows, as a real host answers, less those a case marks
+   * `finished` - plus any a case says the host already holds.
+   */
+  async followedConversations(): Promise<string[]> {
+    const followed = new Set(this.following);
+    for (const item of this.filed.values()) if (item.conversation) followed.add(item.conversation.id);
+    for (const id of this.finished) followed.delete(id);
+    return [...followed];
+  }
+
+  async reportTurn(turn: ConversationTurn): Promise<void> {
+    this.turns.push(turn);
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {

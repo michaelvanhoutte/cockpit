@@ -3,6 +3,7 @@ import {
   type CompleteListing,
   type Connector,
   type ConnectorHost,
+  type ConversationTurn,
   type EmittedItem,
   type NamesReport,
   type SourceItem,
@@ -227,6 +228,11 @@ function pulledHost(
       const itemId = await derivedUuid(`pulled-item:${named}`);
       // Names only from a connector that declares it reports them (issue 1146).
       const { names, followed, ...itemRest } = item;
+      // The follow's id derives from where the conversation stands, so the same
+      // read twice follows once (issue 1705).
+      const followCommandId = itemRest.conversation
+        ? await derivedUuid(`pulled-follow:${JSON.stringify([named, itemRest.conversation.id, itemRest.conversation.latest.at])}`)
+        : undefined;
       const { answer, named: namedOn } = await run.fileItem(
         {
           ...itemRest,
@@ -234,7 +240,7 @@ function pulledHost(
           ...(reportsNames && names ? { names: [...names] } : {}),
           ...(reportsNames && names && followed ? { followed } : {}),
         },
-        { itemId, commandId: await derivedUuid(`pulled-capture:${named}`) },
+        { itemId, commandId: await derivedUuid(`pulled-capture:${named}`), ...(followCommandId ? { followCommandId } : {}) },
         forms,
       );
       if (namedOn) (did.named ??= []).push(namedOn);
@@ -274,6 +280,19 @@ function pulledHost(
         forms,
       );
       if (named) (did.named ??= []).push(named);
+    },
+
+    /** The conversations this connection's open Items follow (issue 1705). */
+    followedConversations: () => run.followedConversations(),
+
+    /**
+     * A message in a followed conversation, recorded in the store, which
+     * decides what it does to the Item (issue 1705). Its id derives from the
+     * connection and the message, so a turn reported twice is applied once.
+     */
+    async reportTurn(turn: ConversationTurn): Promise<void> {
+      const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, turn.conversationId, turn.messageId]);
+      await run.recordTurn(turn, await derivedUuid(`pulled-turn:${named}`));
     },
 
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
