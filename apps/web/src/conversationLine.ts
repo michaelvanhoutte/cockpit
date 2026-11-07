@@ -50,8 +50,13 @@ function whoWroteLast(conversation: Conversation): string {
  * theirs after it.
  */
 export function conversationLine(conversation: Conversation, sourceName: string, now: number): string {
+  return `${sourceName} · ${whoWroteWhen(conversation, now)}`;
+}
+
+/** The line without its source: *Steven replied yesterday*. */
+export function whoWroteWhen(conversation: Conversation, now: number): string {
   const verb = conversation.messageCount === 1 || conversation.lastBy === 'you' ? 'wrote' : 'replied';
-  return `${sourceName} · ${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
+  return `${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
 }
 
 /** The line's hover: who wrote the latest message, and its first lines. */

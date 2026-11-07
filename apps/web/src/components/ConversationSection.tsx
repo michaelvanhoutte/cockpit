@@ -1,5 +1,5 @@
 import type { Conversation } from '@cockpit/shared';
-import { conversationCountLine, conversationLine, conversationOpensAt, openLabel } from '../conversationLine';
+import { conversationCountLine, conversationOpensAt, openLabel, whoWroteWhen } from '../conversationLine';
 
 /**
  * The conversation an Item follows, under its description ("Show the
@@ -21,14 +21,13 @@ export function ConversationSection({
   now: number;
 }) {
   const opensAt = conversationOpensAt(conversation);
-  const afterSource = conversationLine(conversation, sourceName, now).slice(sourceName.length + 3);
   return (
     <section aria-label="Conversation" className="flex flex-col gap-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Conversation</h3>
       <div className="flex flex-col gap-2 rounded-md border border-shade/10 bg-field p-3">
         <div className="flex items-baseline justify-between gap-3">
           <p className="min-w-0 text-sm text-ink">
-            <span className="font-semibold">{sourceName}</span> · {afterSource}
+            <span className="font-semibold">{sourceName}</span> · {whoWroteWhen(conversation, now)}
           </p>
           {opensAt && (
             <a
