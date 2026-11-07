@@ -677,7 +677,18 @@ describe('Connector management', () => {
       expect(world.labelsOfEmail('m-2')).toEqual(labels.filter((one) => one !== STARRED));
     });
 
-    it('is given up on when reopened, and nothing is sent to Gmail', async () => {
+    it('is confirmed when reopened while an email in it is still starred, and nothing is sent to Gmail', async () => {
+      const world = new GmailWorld();
+      conversation(world, 'Invoice for contract 1', 'Invoice for contract 2');
+      world.star('m-2');
+
+      const answer = await world.connector().mirrorOpenState!(signedInHost({ choice: 'star' }), [{ sourceId: 't-1', open: true }]);
+
+      expect(answered(answer)).toEqual({ confirmed: ['t-1'], gaveUp: [] });
+      expect(world.requests.filter((one) => one.startsWith('POST'))).toEqual([]);
+    });
+
+    it('is given up on when reopened while no email in it is starred, and nothing is sent to Gmail', async () => {
       const world = new GmailWorld();
       conversation(world, 'Invoice for contract 1', 'Invoice for contract 2');
 

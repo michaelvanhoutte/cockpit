@@ -32,8 +32,9 @@ out of the core", issue 944).
   `threads.get`); a second one starred adds nothing. A label Item for the same
   thread is the same Item. The conversation is marked done once no email in it
   is starred; Done in Cockpit unstars the whole conversation (`threads.modify`),
-  and reopening one in Cockpit is given up on, since starring the whole
-  conversation stars emails nobody chose.
+  and reopening one in Cockpit while no email in it is starred is given up on
+  (a `threads.get` says which), since starring the whole conversation stars
+  emails nobody chose; the host then has the Item stop following it.
 - **A reply arrives without the star, so by star the history is read unfiltered**
   for every message added to a conversation an open Item follows, which the
   host names each run (`followedConversations`). Each is read with

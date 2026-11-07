@@ -510,6 +510,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
+    gaveUp?: readonly OpenStateWanted[],
   ): Awaitable<Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>>;
   endPulledRun(
     accountName: string,

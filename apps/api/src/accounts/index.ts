@@ -402,9 +402,13 @@ export interface PulledRun {
   closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;
   /** Every open state a person set that the source has not confirmed (issue 893). */
   openStatesWaiting(): Promise<OpenStateWanted[]>;
-  /** Clears the ones the source confirmed, each only where still what was handed over, answering the Item of each cleared (issues 893, 1141). */
+  /**
+   * Clears the ones the source confirmed or the connector gave up on, each only where still what was handed over,
+   * answering the Item of each cleared (issues 893, 1141); a reopen given up on stops the Item following its conversation.
+   */
   confirmOpenStates(
     confirmed: readonly OpenStateWanted[],
+    gaveUp?: readonly OpenStateWanted[],
   ): Promise<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>;
   /**
    * `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957).
@@ -529,8 +533,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       closeItemsNotListed: async (listing) =>
         unwrap(await store.closePulledItemsNotListed(accountName, sourceAccountId, runId, listing)),
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
-      confirmOpenStates: async (confirmed) =>
-        unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
+      confirmOpenStates: async (confirmed, gaveUp = []) =>
+        unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed, gaveUp)),
       end: async (failing, moreToDo, did, status) =>
         unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did, status)),
     }),

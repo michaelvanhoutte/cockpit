@@ -1310,15 +1310,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => pulledOpenStatesWaiting(db, accountName, sourceAccountId, runId));
   }
 
-  /** Clears the open states the connector confirmed (issue 893). */
+  /** Clears the open states the connector confirmed or gave up on (issue 893); a reopen given up on stops the Item following its conversation. */
   confirmPulledOpenStates(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
+    gaveUp: readonly OpenStateWanted[] = [],
   ): Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'> {
     return this.#answer(accountName, (db) =>
-      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed),
+      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed, gaveUp),
     );
   }
 

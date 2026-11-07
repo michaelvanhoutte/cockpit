@@ -450,7 +450,7 @@ const NAME_LENGTH = TITLE_LENGTH;
 function followTheConversation(
   db: AccountDb,
   accountName: string,
-  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string; dueInDays: number | null },
   itemId: string,
   item: SourceItem,
   commandId: string | undefined,
@@ -480,6 +480,7 @@ function followTheConversation(
       messageCount: Math.max(1, Math.trunc(read.messageCount)),
       startedAt: read.startedAt,
       withWhom: cut(read.withWhom, NAME_LENGTH),
+      connectionDays: holds.dueInDays,
     },
     { fromTheSource: true },
   );
@@ -587,6 +588,8 @@ function followedBy(
         eq(itemConversations.connectorId, holds.connectorId),
         eq(itemConversations.externalAccountKey, holds.externalAccountKey),
         ...(conversationId === undefined ? [] : [eq(itemConversations.conversationId, conversationId)]),
+        // Not stopped: reopened in Cockpit while unmarked at the source.
+        isNull(itemConversations.stoppedAt),
         // Open, as `isOpen` has it: neither done nor dismissed.
         isNull(items.completedAt),
         isNull(items.deletedAt),
@@ -812,6 +815,12 @@ export function pulledOpenStatesWaiting(
  * Clears the open states the connector confirmed, while the run still holds its
  * connection (issue 893), and answers the Item of each it cleared - not one a
  * person changed again meanwhile, which stays waiting (issue 1141).
+ *
+ * **An Item the connector gave up reopening stops following** its conversation
+ * at this connection: reopened in Cockpit while unmarked at the source, which is
+ * not asked to mark it again, so the source's changes to it are no longer the
+ * Item's. It stays open with its last line; marking the conversation again
+ * follows it again (`follow_conversation`).
  */
 export function confirmPulledOpenStates(
   db: AccountDb,
@@ -819,10 +828,30 @@ export function confirmPulledOpenStates(
   sourceAccountId: string,
   runId: string,
   confirmed: readonly OpenStateWanted[],
+  gaveUp: readonly OpenStateWanted[] = [],
+  at = new Date().toISOString(),
 ): { cleared: { sourceId: string; itemId: string }[] } | 'not this run' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'not this run';
-  return { cleared: confirmOpenStates(db, accountName, holds, confirmed) };
+  return db.transaction(() => {
+    const cleared = confirmOpenStates(db, accountName, holds, [...confirmed, ...gaveUp]);
+    const reopenedUnmarked = new Set(gaveUp.filter((one) => one.open).map((one) => one.sourceId));
+    const stopping = cleared.filter((one) => reopenedUnmarked.has(one.sourceId)).map((one) => one.itemId);
+    if (stopping.length > 0) {
+      db.update(itemConversations)
+        .set({ stoppedAt: at })
+        .where(
+          and(
+            eq(itemConversations.tenantId, accountName),
+            inArray(itemConversations.itemId, stopping),
+            eq(itemConversations.connectorId, holds.connectorId),
+            eq(itemConversations.externalAccountKey, holds.externalAccountKey),
+          ),
+        )
+        .run();
+    }
+    return { cleared };
+  });
 }
 
 /**

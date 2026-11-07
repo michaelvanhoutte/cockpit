@@ -75,6 +75,14 @@ class Mailbox {
     return reply.id;
   }
 
+  /** A message deleted for good - as each autosave of a draft reply deletes the draft before it. */
+  deletes(messageId: string): void {
+    const thread = this.threads.find((one) => one.answer.messages.some((message) => message.id === messageId));
+    if (!thread) throw new Error(`no email ${messageId}`);
+    thread.answer.messages = thread.answer.messages.filter((message) => message.id !== messageId);
+    this.#record({ deleted: messageId, threadId: thread.id });
+  }
+
   star(messageId: string): void {
     this.#label(messageId, true);
   }
@@ -367,8 +375,9 @@ describe('Triage', () => {
     it('records one turn for a reply without a star, changing the status and the conversation together', async () => {
       mailbox = await aFollowedConversation();
       const item = await theItem('t-1');
-      await change('wait_for_reply', item.id, { days: 3, timeZone: 'Europe/Brussels' });
-      expect(statusOf(await theItem('t-1'))).toBe('waiting');
+      await change('wait_for_reply', item.id, { days: 7, timeZone: 'Europe/Brussels' });
+      const waiting = await theItem('t-1');
+      expect(statusOf(waiting)).toBe('waiting');
 
       mailbox.replies('t-1');
       await nextCheckRuns();
@@ -376,7 +385,8 @@ describe('Triage', () => {
       const after = await theItem('t-1');
       expect(await turnsLogged()).toHaveLength(1);
       expect(statusOf(after)).toBe('to do');
-      expect(after.dueDate).not.toBe(item.dueDate);
+      // Due after the Follow-ups delay, replacing the week Wait for reply gave.
+      expect(after.dueDate).not.toBe(waiting.dueDate);
       expect(after.conversation).toEqual(
         expect.objectContaining({ lastBy: 'them', lastFrom: 'Steven Noels', messageCount: 2, lastExcerpt: 'Thursday is tricky, how about Friday?' }),
       );
@@ -491,6 +501,86 @@ describe('Triage', () => {
       await nextCheckRuns();
 
       expect(statusOf(await theItem('t-1'))).toBe('done');
+    });
+
+    it('gives a Done conversation starred again the status of its latest message, not the one it had', async () => {
+      mailbox = await aFollowedConversation();
+      const item = await theItem('t-1');
+      await change('wait_for_reply', item.id, { days: 3, timeZone: 'Europe/Brussels' });
+      await change('set_done', item.id, { done: true });
+      await nextCheckRuns();
+
+      mailbox.replies('t-1');
+      mailbox.star('t-1');
+      await nextCheckRuns();
+
+      const after = await theItem('t-1');
+      expect(statusOf(after)).toBe('to do');
+      expect(after.conversation).toEqual(expect.objectContaining({ lastBy: 'them', lastFrom: 'Steven Noels' }));
+    });
+  });
+
+  describe('status follows who wrote last from the moment a conversation is followed', () => {
+    it('makes the Item Waiting for reply where your reply came before the check that brought it in', async () => {
+      mailbox = new Mailbox();
+      await connectedByStar();
+      mailbox.arrives('t-1', 'Dinner one of these weeks?');
+      mailbox.star('t-1');
+      mailbox.replies('t-1', { sent: true, text: 'Sure! Does Thursday work?' });
+
+      await nextCheckRuns();
+
+      const item = await theItem('t-1');
+      expect(statusOf(item)).toBe('waiting');
+      expect(item.dueDate).not.toBeNull();
+      expect(item.conversation).toEqual(expect.objectContaining({ lastBy: 'you', messageCount: 2 }));
+    });
+
+    it('keeps To do where they wrote last when it was starred', async () => {
+      mailbox = await aFollowedConversation();
+
+      expect(statusOf(await theItem('t-1'))).toBe('to do');
+    });
+  });
+
+  describe('an Item reopened in Cockpit with no star left stops following its conversation', () => {
+    /** Followed, Done in Cockpit (the star comes off), then reopened in Cockpit: open, with no star in Gmail. */
+    async function reopenedInCockpit(): Promise<{ id: string }> {
+      mailbox = await aFollowedConversation();
+      const item = await theItem('t-1');
+      await change('set_done', item.id, { done: true });
+      await nextCheckRuns();
+      await change('set_done', item.id, { done: false });
+      await nextCheckRuns();
+      return item;
+    }
+
+    it('stays open with its last line whatever then happens in the conversation, and records no turn', async () => {
+      await reopenedInCockpit();
+      const before = await theItem('t-1');
+
+      // A reply, then a message deleted, as a draft's autosave does.
+      mailbox.replies('t-1');
+      mailbox.deletes(mailbox.replies('t-1', { sent: true, text: 'Half a reply' }));
+      await nextCheckRuns();
+
+      const after = await theItem('t-1');
+      expect(statusOf(after)).toBe('to do');
+      expect(after.conversation).toEqual(before.conversation);
+      expect(await turnsLogged()).toEqual([]);
+      expect(gmailModifies).toEqual([{ threadId: 't-1', removeLabelIds: ['STARRED'] }]);
+    });
+
+    it('follows it again once an email in it is starred again', async () => {
+      await reopenedInCockpit();
+
+      mailbox.star('t-1');
+      await nextCheckRuns();
+      mailbox.replies('t-1', { sent: true });
+      await nextCheckRuns();
+
+      expect(statusOf(await theItem('t-1'))).toBe('waiting');
+      expect(await turnsLogged()).toHaveLength(1);
     });
   });
 });

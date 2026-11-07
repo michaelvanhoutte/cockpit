@@ -612,9 +612,10 @@ function labelMarkIn(labels: unknown): string {
  * opened or closed in Cockpit - the mark followed alone, on the whole
  * conversation, and nothing else of the mailbox. **By star, Done takes the star
  * off every email of the conversation**, so a later message in it reopens
- * nothing; reopening such an Item in Cockpit is given up on, since starring the
- * whole conversation would star emails nobody chose. An Item a release before
- * made of one email has the star put on or taken off that email alone.
+ * nothing; reopening such an Item in Cockpit while no email of it is starred is
+ * given up on, since starring the whole conversation would star emails nobody
+ * chose, and the host then has the Item stop following it. An Item a release
+ * before made of one email has the star put on or taken off that email alone.
  *
  * **Confirmed only once Gmail has answered**, so a run that stops between the
  * call and the host's record pushes it again, which changes nothing at Gmail. A
@@ -638,8 +639,15 @@ export async function mirrorOpenStates(
     for (const one of wanted) {
       const emailId = choice === 'star' ? emailIdIn(one.sourceId) : null;
       if (choice === 'star' && emailId === null && one.open) {
-        host.log('info', 'a starred conversation reopened in Cockpit is not starred again in Gmail', {});
-        gaveUp.push(one.sourceId);
+        // Still starred, there is nothing to put back. Otherwise it is given up
+        // on, and the host has the Item stop following the conversation.
+        const thread = await mailbox.get(`threads/${encodeURIComponent(one.sourceId)}?format=minimal`);
+        if (thread !== null && stillMarked(thread, markId)) {
+          confirmed.push(one.sourceId);
+        } else {
+          host.log('info', 'a starred conversation reopened in Cockpit is not starred again in Gmail', {});
+          gaveUp.push(one.sourceId);
+        }
         continue;
       }
       try {

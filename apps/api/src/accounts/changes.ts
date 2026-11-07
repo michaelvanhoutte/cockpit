@@ -186,6 +186,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ACCOUNT_EMAIL_ADDRESS,
     ITEM_ADDITIONS,
     ITEM_CONVERSATIONS,
+    ITEM_CONVERSATIONS_STOPPED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1614,6 +1615,28 @@ const ITEM_CONVERSATIONS: Change = {
     },
     {
       sql: 'CREATE INDEX `item_conversations_by_conversation` ON `item_conversations` (`connector_id`,`external_account_key`,`conversation_id`)',
+    },
+  ],
+};
+
+/**
+ * When an Item stopped following its conversation (`item_conversations.stopped_at`,
+ * whose meaning `schema.ts` gives): a nullable column added, nothing else.
+ * A change of its own rather than an edit of `0100-item-conversations`, so a
+ * store that already ran that one gains the column too.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which is "still following" - what every row was.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a stopped Item follows again until the release goes forward.
+ */
+const ITEM_CONVERSATIONS_STOPPED: Change = {
+  name: '0101-item-conversations-stopped',
+  statements: [
+    {
+      sql: 'ALTER TABLE `item_conversations` ADD COLUMN `stopped_at` text CONSTRAINT "item_conversations_stopped_at_is_timestamp" CHECK(stopped_at IS NULL OR (datetime(stopped_at) IS NOT NULL AND substr(stopped_at, 11, 1) = \'T\' AND substr(stopped_at, -1) = \'Z\' AND length(stopped_at) >= 20 AND date(stopped_at) = substr(stopped_at, 1, 10)))',
     },
   ],
 };

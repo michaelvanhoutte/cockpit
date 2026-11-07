@@ -1723,6 +1723,12 @@ export const itemConversations = sqliteTable(
     withWhom: text('with_whom'),
     draftId: text('draft_id'),
     statusBeforeDraft: text('status_before_draft'),
+    /**
+     * When the Item stopped following it, or null while it follows: reopened in
+     * Cockpit while no message in the conversation carried the mark, which the
+     * source was not asked to put back. Cleared by the conversation followed again.
+     */
+    stoppedAt: text('stopped_at'),
   },
   (t) => [
     primaryKey({ columns: [t.itemId, t.connectorId, t.externalAccountKey, t.conversationId] }),
@@ -1732,6 +1738,7 @@ export const itemConversations = sqliteTable(
     check('item_conversations_message_count_is_positive', sql.raw('message_count > 0')),
     check('item_conversations_last_at_is_timestamp', isTimestamp('last_at')),
     check('item_conversations_started_at_is_timestamp', isTimestamp('started_at')),
+    check('item_conversations_stopped_at_is_timestamp', isTimestamp('stopped_at')),
   ],
 );
 

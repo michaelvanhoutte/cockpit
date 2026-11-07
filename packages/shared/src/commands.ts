@@ -728,8 +728,12 @@ const latestMessageSchema = {
  * ("A Gmail starred conversation is one Item whose status follows who wrote
  * last", issue 1705), with where the conversation stands as it is read: the one
  * change every way in takes, so far a star a pulled check read. Following again
- * replaces where it stands only with a newer latest message. It sets no status:
- * the turns after it do. Self-sent, by the account's store on a pulled check.
+ * replaces where it stands only with a newer latest message, or where the Item
+ * had stopped following it. **Where it stands is new to an open Item, its latest
+ * message is applied as a turn** (`record_conversation_turn`): status follows who
+ * wrote last from the moment it is followed, so starring a conversation you wrote
+ * last in makes it Waiting for reply. Self-sent, by the account's store on a
+ * pulled check.
  */
 export const followConversationSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -739,6 +743,8 @@ export const followConversationSchema = commandEnvelopeSchema.extend({
   messageCount: z.number().int().positive(),
   startedAt: z.iso.datetime(),
   withWhom: z.string().max(TITLE_LENGTH).nullable(),
+  /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
+  connectionDays: dueInDaysSchema.nullable(),
 });
 export type FollowConversationCommand = z.infer<typeof followConversationSchema>;
 
@@ -757,6 +763,12 @@ export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
   ...latestMessageSchema,
   /** The days the connection gives an Item, or null where it gives none. */
   connectionDays: dueInDaysSchema.nullable(),
+  /**
+   * The conversation's latest message applied again, not a new one: sent as its
+   * source reopens the Item, so it takes the status of whoever wrote last rather
+   * than the one it had. Leaves where the conversation stands as it is.
+   */
+  standing: z.literal(true).optional(),
 });
 export type RecordConversationTurnCommand = z.infer<typeof recordConversationTurnSchema>;
 

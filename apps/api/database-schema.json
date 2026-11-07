@@ -2983,6 +2983,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "statusBeforeDraft"
+            },
+            {
+              "name": "stopped_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "stoppedAt"
             }
           ],
           "indexes": [
