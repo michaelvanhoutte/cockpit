@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '@cockpit/shared';
-import { agoLabel, conversationLine, conversationOpensAt, latestText, openLabel } from '../../src/conversationLine';
+import { agoLabel, conversationCountLine, conversationLine, conversationOpensAt, latestText, openLabel } from '../../src/conversationLine';
+import { deviceIsIn, deviceSpeaks } from './support/timeZone';
 
 /**
  * F1: what a row says of the conversation its Item follows ("A Gmail starred
@@ -30,6 +31,8 @@ function aConversation(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 describe('Triage', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   describe('a followed conversation’s row says who wrote last, and how long ago', () => {
     it.each([
       { situation: 'their reply yesterday', conversation: aConversation(), line: 'Gmail · Steven replied yesterday' },
@@ -65,6 +68,16 @@ describe('Triage', () => {
     it('shows the latest message’s first lines, and who wrote it, on hover', () => {
       expect(latestText(aConversation())).toBe('Steven Noels: Thursday is tricky, how about Friday?');
       expect(latestText(aConversation({ lastBy: 'you', lastExcerpt: 'Sure!' }))).toBe('You: Sure!');
+    });
+
+    it.each([
+      { situation: 'four emails', conversation: aConversation({ messageCount: 4, startedAt: '2026-10-04T10:00:00.000Z' }), line: 'With Steven Noels · 4 emails since 4 Oct' },
+      { situation: 'one email', conversation: aConversation({ messageCount: 1, startedAt: '2026-10-04T10:00:00.000Z' }), line: 'With Steven Noels · 1 email on 4 Oct' },
+      { situation: 'nobody else yet', conversation: aConversation({ withWhom: null, startedAt: '2026-10-04T10:00:00.000Z' }), line: '2 emails since 4 Oct' },
+    ])('counts $situation for the form: $line', ({ conversation, line }) => {
+      deviceIsIn('Europe/Brussels');
+      deviceSpeaks('nl-BE');
+      expect(conversationCountLine(conversation, NOW)).toBe(line);
     });
 
     it('opens the latest email at its source, and only a web address', () => {

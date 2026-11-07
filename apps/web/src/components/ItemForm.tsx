@@ -17,6 +17,7 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   TITLE_LENGTH,
   additionsOf,
+  conversationOf,
   dayOf,
   daysOnFrom,
   itemHasOpenReadings,
@@ -48,6 +49,7 @@ import { useItemPanels } from '../useItemPanels';
 import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
+import { ConversationSection } from './ConversationSection';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -347,6 +349,7 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
+  const followed = conversationOf(data?.conversations, itemId);
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -2186,6 +2189,17 @@ function TheForm({
                           onAPage={onAPage}
                         />
                       </div>
+
+                      {/* The conversation this Item follows, from the row the Workspace
+                        read carries ("Show the conversation an Item follows in its
+                        form", issue 1706); none for an Item that follows none. */}
+                      {followed && (
+                        <ConversationSection
+                          conversation={followed}
+                          sourceName={sourceNamed(data?.sourceNames, followed.source)}
+                          now={Date.now()}
+                        />
+                      )}
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
                       <div>

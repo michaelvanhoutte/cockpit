@@ -117,6 +117,17 @@ export function shortDayLabel(day: string, now: Date): string | null {
   return onTheDay(date.getUTCFullYear() === thisYear ? 'dayAndMonth' : 'dayAndMonthAndYear', day);
 }
 
+/**
+ * The day a moment falls on in the device's zone as day and month (*4 Nov*),
+ * with a two-digit year only when it is not in `now`'s year.
+ */
+export function momentDayMonthLabel(instant: string | number | Date, now: Date): string {
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return String(instant);
+  const sameYear = deviceCalendar(date).getUTCFullYear() === deviceCalendar(now).getUTCFullYear();
+  return at(sameYear ? 'dayAndMonth' : 'dayAndMonthAndYear', date);
+}
+
 /** A day heading with its weekday (*Thursday 22 October*), the year only where `withYear`. */
 export const weekdayDateLabel = (instant: Date, withYear: boolean) =>
   at(withYear ? 'weekdayAndDateAndYear' : 'weekdayAndDate', instant);
