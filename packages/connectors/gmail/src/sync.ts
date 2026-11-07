@@ -512,9 +512,10 @@ class Reading {
     const address = await this.#address();
     const conversation = conversationFrom(full, markId, address);
     if (!conversation) return;
-    // Where things stand, only for a conversation no open Item follows yet: one
-    // that is followed already hears of each message as a turn.
-    const read = followed.has(threadId) ? null : conversationReadOf(full, address);
+    // Where things stand, from the read already made: the host takes it only
+    // where it is new to the Item - messages a followed Item heard of as turns
+    // change nothing, and ones it missed (while it was done) are caught up.
+    const read = conversationReadOf(full, address);
     const filing = await this.host.emitItem({
       sourceId: threadId,
       sourceLink: conversation.link,

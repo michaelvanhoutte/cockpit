@@ -2632,8 +2632,14 @@ export function runCommand<N extends CommandName>(
           ),
         )
         .get();
-      const isNew = !held || held.stoppedAt !== null || held.lastAt < cmd.latest.at;
-      const updated = isNew ? turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays) : null;
+      // Nothing new where the row already holds this latest message or a newer
+      // one: logged, and nothing else, so open tabs read nothing again.
+      if (held && held.stoppedAt === null && held.lastAt >= cmd.latest.at) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const updated = turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays);
       if (updated && !existing.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         tx.insert(itemConversations)
@@ -2653,7 +2659,6 @@ export function runCommand<N extends CommandName>(
               itemConversations.conversationId,
             ],
             set: standing,
-            setWhere: sql`${itemConversations.lastAt} < ${cmd.latest.at} OR ${itemConversations.stoppedAt} IS NOT NULL`,
           })
           .run();
         if (updated) writeTurnStatus(tx, tenantId, updated, cmd.latest.by, cmd.issuedAt);

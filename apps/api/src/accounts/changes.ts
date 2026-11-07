@@ -1636,7 +1636,7 @@ const ITEM_CONVERSATIONS_STOPPED: Change = {
   name: '0101-item-conversations-stopped',
   statements: [
     {
-      sql: 'ALTER TABLE `item_conversations` ADD COLUMN `stopped_at` text CONSTRAINT "item_conversations_stopped_at_is_timestamp" CHECK(stopped_at IS NULL OR (datetime(stopped_at) IS NOT NULL AND substr(stopped_at, 11, 1) = \'T\' AND substr(stopped_at, -1) = \'Z\' AND length(stopped_at) >= 20 AND date(stopped_at) = substr(stopped_at, 1, 10)))',
+      sql: `ALTER TABLE \`item_conversations\` ADD COLUMN \`stopped_at\` text ${timestampCheck('item_conversations', 'stopped_at')}`,
     },
   ],
 };

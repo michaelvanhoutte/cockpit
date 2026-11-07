@@ -124,13 +124,21 @@ class Mailbox {
     this.#publish();
   }
 
+  #lapsed = false;
+
+  /** Gmail no longer keeping the history from the saved position, so the next check lists in full. */
+  lapses(): void {
+    this.#lapsed = true;
+    this.#publish();
+  }
+
   #publish(): void {
     gmailHolds({
       labels: labelsAnswer(),
       historyId: String(this.#position),
       threads: this.threads,
       history: this.history,
-      historyLapsed: false,
+      historyLapsed: this.#lapsed,
     });
   }
 }
@@ -569,6 +577,15 @@ describe('Triage', () => {
       expect(after.conversation).toEqual(before.conversation);
       expect(await turnsLogged()).toEqual([]);
       expect(gmailModifies).toEqual([{ threadId: 't-1', removeLabelIds: ['STARRED'] }]);
+    });
+
+    it('stays open through a full read of what is starred, which no longer closes it', async () => {
+      await reopenedInCockpit();
+
+      mailbox.lapses();
+      await nextCheckRuns();
+
+      expect(statusOf(await theItem('t-1'))).toBe('to do');
     });
 
     it('follows it again once an email in it is starred again', async () => {
