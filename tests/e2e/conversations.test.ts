@@ -308,4 +308,53 @@ test.describe('Triage', () => {
       await deleteWorkspace(page, workspace, isMobile);
     });
   });
+
+  test.describe('Email… with an Outlook connection opens the draft it made in a new tab, and the row follows the draft', () => {
+    test('opens a tab at the mailbox’s draft and reads Outlook · Draft started, then Waiting for reply once the draft is sent', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Emailed in Outlook');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      const window = await openSettings(page, 'Connections', isMobile);
+      await press(window.getByRole('button', { name: 'Connect Outlook' }), isMobile);
+      const asked = page.getByRole('dialog', { name: 'Connect Outlook' });
+      await expect(asked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
+      await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: MAILBOX, exact: true }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Checked /)).toBeVisible();
+      await closeSettings(page, isMobile);
+      // The draft's own page is Outlook's, which no walk may reach: answered here, so only its address is checked.
+      await page.context().route('https://outlook.office365.com/**', (route) => route.fulfill({ body: 'the draft' }));
+
+      const purpose = uniqueTitle('Plan a dinner with Steven Noels');
+      await giveToTheInbox(page, [purpose]);
+      const row = itemRow(page, purpose);
+      await expect(row).toBeVisible();
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      const [tab] = await Promise.all([page.waitForEvent('popup'), press(page.getByRole('menuitem', { name: 'Email…' }), isMobile)]);
+
+      await expect(tab).toHaveURL(/ItemID=AAkALgStubDraft\d+/);
+      await expect(row.getByText('Outlook · Draft started')).toBeVisible();
+      await expect(row.getByText('In progress')).toBeVisible();
+      const drafts = (await (await fetch(`${issuer}/graph-stub/drafts?email=${encodeURIComponent(MAILBOX)}`)).json()) as { id: string; subject: string }[];
+      const draft = drafts.find((one) => one.subject === purpose);
+      expect(draft).toBeDefined();
+      await tab.close();
+
+      // The draft sent from Outlook: waiting for his reply.
+      await fetch(`${issuer}/graph-stub/send-draft?email=${encodeURIComponent(MAILBOX)}&id=${draft!.id}`, { method: 'POST' });
+      await outlookCheckedAgain(page);
+      await expect(row.getByText('Outlook · You wrote just now')).toBeVisible();
+      await expect(row.getByText(/^Waiting since/)).toBeVisible();
+
+      await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: `Yes, disconnect ${MAILBOX}` }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { conversationKey } from '../../src/messages.js';
 import {
   ARCHIVE_ID,
   DELETED_ITEMS_ID,
+  DRAFTS_ID,
   SENT_ITEMS_ID,
   VERSION_CHANGED,
   categoriesAnswer,
@@ -81,7 +82,10 @@ export class GraphWorld {
     const path = url.pathname.replace('/v1.0/me/', '');
     if (path === 'mailFolders/deleteditems') return json(deletedItemsAnswer());
     if (path === 'mailFolders/sentitems') return json(sentItemsAnswer());
+    if (path === 'messages' && method === 'POST') return this.#makeDraft(null, init?.body);
     if (path === 'messages') return this.#list(url, headers.get('prefer')?.includes('ImmutableId') ?? false);
+    const replying = /^messages\/(.+)\/createReply$/.exec(path);
+    if (replying && method === 'POST') return this.#makeDraft(decodeURIComponent(replying[1]!), init?.body);
     const read = /^messages\/(.+)$/.exec(path);
     if (read && method === 'PATCH') return this.#write(decodeURIComponent(read[1]!), headers.get('if-match'), init?.body);
     if (read) {
@@ -93,6 +97,52 @@ export class GraphWorld {
     }
     return json({}, 404);
   };
+
+  /** Every draft Graph was asked to make, in order: its subject, and the message it replies to (null for a new conversation). */
+  readonly draftsAsked: { subject: string | null; replyTo: string | null; body: unknown }[] = [];
+  /** The clock the world stamps what it makes with; a case moves it. */
+  madeAt = '2026-10-09T12:30:00Z';
+
+  /**
+   * `POST /me/messages` (a new draft) and `POST /me/messages/{id}/createReply`
+   * (a reply draft), answered as Graph's documentation shows: the draft,
+   * `isDraft` true, in the Drafts folder, in a conversation of its own or the
+   * message's.
+   */
+  #makeDraft(replyTo: string | null, body: BodyInit | null | undefined): Response {
+    const asked = JSON.parse(String(body ?? '{}')) as { subject?: string };
+    const original = replyTo === null ? undefined : this.#find(replyTo);
+    if (replyTo !== null && !original) return json({ error: { code: 'ErrorItemNotFound' } }, 404);
+    const n = this.draftsAsked.length + 1;
+    this.draftsAsked.push({ subject: asked.subject ?? null, replyTo, body: asked });
+    const draft: Stored = {
+      id: `draft-${n}`,
+      version: 'W/"v1"',
+      draft: true,
+      folder: DRAFTS_ID,
+      from: { name: 'Anna', address: 'anna@example.com' },
+      subject: replyTo === null ? (asked.subject ?? '') : `RE: ${message(original!).subject}`,
+      text: '',
+      receivedAt: this.madeAt,
+      conversation: replyTo === null ? `conversation-of-draft-${n}` : message(original!).conversationId,
+    };
+    this.#messages.unshift(draft);
+    return json(message(draft), 201);
+  }
+
+  /** The draft sent from Outlook where it stands: it is a message in Sent Items now, with the id it had. */
+  sends(id: string, at = '2026-10-09T13:00:00Z'): void {
+    const one = this.#get(id);
+    one.draft = false;
+    one.folder = SENT_ITEMS_ID;
+    one.receivedAt = at;
+    this.#changed(one);
+  }
+
+  /** The draft deleted unsent: Outlook moves it to Deleted Items. */
+  deletes(id: string): void {
+    this.moveTo(id, DELETED_ITEMS_ID);
+  }
 
   /** Something the person does to a message between the connector reading its categories and writing them back. */
   beforeWrite: (id: string) => void = () => {};
@@ -284,7 +334,7 @@ export function signedInHost(options: { choice?: string | null; expiresAt?: stri
   });
 }
 
-export { ARCHIVE_ID, DELETED_ITEMS_ID, SENT_ITEMS_ID };
+export { ARCHIVE_ID, DELETED_ITEMS_ID, DRAFTS_ID, SENT_ITEMS_ID };
 
 /** The source id of the Item following the conversation `message` was in, where each message is its own conversation. */
 export function itemOf(messageId: string): string {

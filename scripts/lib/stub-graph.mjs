@@ -13,13 +13,16 @@
 // (`$filter=receivedDateTime ge`, `$orderby=receivedDateTime`, "Outlook follows
 // the flagged conversation as Gmail does", issue 1707), one message in full, and
 // a `PATCH` of its flag or categories, conditional on `If-Match` as Exchange
-// makes it. Nothing here ships.
+// makes it, and the drafts *Email…* makes (`POST /me/messages`, `POST
+// /me/messages/{id}/createReply`, "Email… makes an Outlook draft the Item then
+// follows", issue 1709). Nothing here ships.
 //
 
 /** The folders a stand-in mailbox holds a message in. */
 const INBOX = 'stub-inbox-folder';
 const DELETED_ITEMS = 'stub-deleteditems-folder';
 const SENT_ITEMS = 'stub-sentitems-folder';
+const DRAFTS = 'stub-drafts-folder';
 
 /**
  * What every stand-in mailbox starts with: two flagged messages, one plain text
@@ -92,7 +95,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
   /** Kept for the life of the issuer, so what is done to a mailbox is still there when the next check reads it. */
   const mailboxes = new Map();
   function heldMailbox(email) {
-    if (!mailboxes.has(email)) mailboxes.set(email, { messages: seededMessages(), asked: [], counter: 0 });
+    if (!mailboxes.has(email)) mailboxes.set(email, { messages: seededMessages(), asked: [], counter: 0, email });
     return mailboxes.get(email);
   }
 
@@ -138,6 +141,37 @@ export function createStubGraph({ mailboxOfToken, json }) {
     };
   }
 
+  /**
+   * `POST /me/messages` and `POST /me/messages/{id}/createReply`: a draft in the
+   * Drafts folder, in a conversation of its own or the message's, answered as
+   * Graph answers it (id, conversationId, webLink). A person then sends it
+   * (`/graph-stub/send-draft`) or deletes it (`/graph-stub/delete-draft`).
+   */
+  async function makeDraft(mailbox, replyTo, request, response) {
+    let asked;
+    try {
+      asked = JSON.parse((await body(request)) || '{}');
+    } catch {
+      return json(response, { error: { code: 'ErrorInvalidRequest', message: 'The request body is not valid JSON.' } }, 400);
+    }
+    const original = replyTo === null ? undefined : mailbox.messages.find((one) => one.id === replyTo);
+    if (replyTo !== null && !original) {
+      return json(response, { error: { code: 'ErrorItemNotFound', message: 'The specified object was not found in the store.' } }, 404);
+    }
+    mailbox.counter += 1;
+    const draft = message(`AAkALgStubDraft${mailbox.counter}`, {
+      subject: original ? `RE: ${original.subject}` : (asked.subject ?? ''),
+      from: { name: 'Michael', address: mailbox.email },
+      text: '',
+      at: new Date().toISOString(),
+      folder: DRAFTS,
+      conversation: original?.conversationId,
+    });
+    draft.isDraft = true;
+    mailbox.messages.push(draft);
+    json(response, shown(draft), 201);
+  }
+
   /** Answers a call under `/v1.0/me/`. */
   async function graph(url, request, response, origin) {
     const email = mailboxOfToken((request.headers.authorization ?? '').replace(/^Bearer /, ''));
@@ -152,6 +186,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
     if (path === 'mailFolders/deleteditems') return json(response, { id: DELETED_ITEMS });
     if (path === 'mailFolders/sentitems') return json(response, { id: SENT_ITEMS });
     if (path === 'messages' && request.method === 'GET') return json(response, listing(mailbox, url, origin));
+    if (path === 'messages' && request.method === 'POST') return makeDraft(mailbox, null, request, response);
+    const replying = /^messages\/([^/]+)\/createReply$/.exec(path);
+    if (replying && request.method === 'POST') return makeDraft(mailbox, decodeURIComponent(replying[1]), request, response);
 
     const one = /^messages\/(.+)$/.exec(path);
     const held = one && mailbox.messages.find((candidate) => candidate.id === decodeURIComponent(one[1]));
@@ -189,12 +226,19 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * to start in one; `POST /graph-stub/refuse?email=&status=403` makes
    * every later call of that mailbox answer that status (`status=0` ends it), to
    * see a failed check's status in its connection's history; and `/graph-stub/asked?email=` lists every call
-   * the mailbox was asked, oldest first, so a walk can wait for a check.
+   * the mailbox was asked, oldest first, so a walk can wait for a check; `POST
+   * /graph-stub/send-draft?email=&id=` sends a draft Cockpit had the mailbox make
+   * where it stands (a message in Sent Items now, with the id it had), `POST
+   * /graph-stub/delete-draft?email=&id=` deletes it unsent (to Deleted Items), and
+   * `GET /graph-stub/drafts?email=` lists the drafts the mailbox holds.
    */
   function act(action, url, request, response) {
     const email = url.searchParams.get('email') ?? '';
     const mailbox = heldMailbox(email);
     if (action === 'asked') return json(response, mailbox.asked);
+    if (action === 'drafts') {
+      return json(response, mailbox.messages.filter((one) => one.isDraft).map((one) => ({ id: one.id, subject: one.subject, conversationId: one.conversationId })));
+    }
     if (action === 'message') {
       const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
       if (!held) return json(response, { error: 'no such message' }, 404);
@@ -204,6 +248,19 @@ export function createStubGraph({ mailboxOfToken, json }) {
     if (action === 'refuse') {
       mailbox.refusing = Number(url.searchParams.get('status') ?? 0) || null;
       return json(response, { refusing: mailbox.refusing });
+    }
+    if (action === 'send-draft' || action === 'delete-draft') {
+      const draft = mailbox.messages.find((one) => one.id === url.searchParams.get('id') && one.isDraft);
+      if (!draft) return json(response, { error: 'no such draft' }, 404);
+      if (action === 'send-draft') {
+        draft.isDraft = false;
+        draft.parentFolderId = SENT_ITEMS;
+        draft.receivedDateTime = new Date().toISOString();
+      } else {
+        draft.parentFolderId = DELETED_ITEMS;
+      }
+      draft.version = ++versions;
+      return json(response, { id: draft.id, folder: draft.parentFolderId });
     }
     const extra = url.searchParams.getAll('category');
     if (action === 'tag') {
@@ -250,7 +307,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         void graph(url, request, response, origin);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply|drafts|send-draft|delete-draft)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

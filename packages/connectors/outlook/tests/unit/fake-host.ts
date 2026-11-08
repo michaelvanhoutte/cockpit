@@ -6,6 +6,7 @@ import type {
   SourceItem,
   SourceStateChange,
   ConversationTurn,
+  DraftWaiting,
 } from '@cockpit/connector-sdk';
 
 /**
@@ -28,6 +29,10 @@ export class FakeHost implements ConnectorHost {
   /** The conversations an open Item follows, by the source's id for them: those emitted with one, unless a case ends them. */
   readonly following = new Set<string>();
   readonly turns: ConversationTurn[] = [];
+  /** Drafts Email… made that the host's store waits on, as a case says. */
+  readonly draftsMade: DraftWaiting[] = [];
+  /** Every draft reported gone, in order. */
+  readonly draftsGone: { conversationId: string; draftId: string }[] = [];
   readonly credentialsSaved: Record<string, string>[] = [];
   readonly logged: { level: string; message: string; data?: unknown }[] = [];
 
@@ -42,6 +47,7 @@ export class FakeHost implements ConnectorHost {
     next.state = this.state;
     for (const [id, item] of this.filed) next.filed.set(id, item);
     for (const id of this.following) next.following.add(id);
+    next.draftsMade.push(...this.draftsMade);
     return next;
   }
 
@@ -91,12 +97,16 @@ export class FakeHost implements ConnectorHost {
     this.turns.push(turn);
   }
 
-  /** Outlook makes no draft yet (issue 1709): nothing is ever waited on. */
-  async draftsWaiting(): Promise<[]> {
-    return [];
+  /** The drafts still waited on: as a real host does, less those whose conversation this run reported a turn of yours in. */
+  async draftsWaiting(): Promise<DraftWaiting[]> {
+    return this.draftsMade.filter(
+      (draft) => !this.turns.some((turn) => turn.conversationId === draft.conversationId && turn.by === 'you'),
+    );
   }
 
-  async reportDraftGone(): Promise<void> {}
+  async reportDraftGone(draft: { conversationId: string; draftId: string }): Promise<void> {
+    this.draftsGone.push({ conversationId: draft.conversationId, draftId: draft.draftId });
+  }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
     this.logged.push({ level, message, data });

@@ -24,6 +24,7 @@ export const DELETED_ITEMS_ID = 'AAMkADdeleteditemsFolderIdAAA=';
 export const INBOX_ID = 'AAMkADinboxFolderIdAAAA=';
 export const ARCHIVE_ID = 'AAMkADarchiveFolderIdAAA=';
 export const SENT_ITEMS_ID = 'AAMkADsentitemsFolderIdAAA=';
+export const DRAFTS_ID = 'AAMkADdraftsFolderIdAAAAA=';
 
 /** `GET /me/mailFolders/sentitems?$select=id`. */
 export function sentItemsAnswer() {

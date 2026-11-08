@@ -1,5 +1,6 @@
 import type { ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
 import { NotAnswering, OutOfCalls, mailboxOf, type Mailbox, type OutlookConnectorConfig } from './graph.js';
+import { checkDrafts } from './drafts.js';
 import { OVERLAP_MS, conversationMessages, foldersOf, reportTurnsSince, standingOf, type Folders } from './conversations.js';
 import {
   COCKPIT_CATEGORY,
@@ -42,8 +43,9 @@ import {
  * `conversation:` and the conversation's id, following it. Between the listing
  * and that, one read of the mail received since the last run (every folder,
  * `conversations.ts`) reports each message in a followed conversation as a
- * turn. An Item made of one message before stays as it was (`seen`), and never
- * follows.
+ * turn, and each draft *Email…* made that is still waited on is read once
+ * (`drafts.ts`, issue 1709). An Item made of one message before stays as it was
+ * (`seen`), and never follows.
  */
 
 /** How many messages Graph is asked for at a time: a listing reads only ids, so a page costs one call whatever its size. */
@@ -186,6 +188,17 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
         if (turns.moreToDo) {
           moreToDo = true;
           turnsOutOfCalls = true;
+        } else {
+          // Once the turns are reported, so a draft sent and read as a turn this run is no longer waited on.
+          // A draft that could not be read this time is read next run, and must not stop the flagged mail being brought in.
+          try {
+            await checkDrafts(host, mailbox, listing.deletedItems, foldersNow);
+          } catch (error) {
+            if (error instanceof OutOfCalls) moreToDo = true;
+            else if (error instanceof NotAnswering) {
+              host.log('warn', 'an Outlook connection could not check its drafts this time', { cause: error.message });
+            } else throw error;
+          }
         }
       } else {
         turnsSince = new Date(runStart.getTime() - OVERLAP_MS).toISOString();

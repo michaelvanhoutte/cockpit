@@ -241,7 +241,7 @@ export function plainTextOf(html: string): string {
     .trim();
 }
 
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim();
 }
 
@@ -250,7 +250,7 @@ function oneLine(text: string): string {
  * outside the BMP is two code units, and a cut between them leaves a lone
  * surrogate that renders as a replacement box.
  */
-function cutTo(text: string, limit: number): string {
+export function cutTo(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);
