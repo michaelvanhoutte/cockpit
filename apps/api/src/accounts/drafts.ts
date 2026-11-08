@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, workspaceIsDecided } from '@cockpit/shared';
 import type { DraftMade } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
@@ -50,6 +50,8 @@ export type DraftWantedAnswer =
 export const LINKEDIN_HAS_NO_DRAFT = 'A LinkedIn conversation is answered in LinkedIn.';
 /** Refused: one conversation per Item, and this one follows a conversation another connection reads. */
 export const FOLLOWS_ELSEWHERE = 'This item already follows a conversation in another mailbox.';
+/** Refused: a draft made for this conversation is still unsent. */
+export const DRAFT_ALREADY_STARTED = 'A draft is already started in this conversation. Send or delete it first.';
 
 export function wantDraft(
   db: AccountDb,
@@ -69,10 +71,17 @@ export function wantDraft(
   if (recorded) return typeof recorded.draft?.link === 'string' ? { status: 'recorded', link: recorded.draft.link } : { status: 'failed' };
   if (loggedPayload(db, accountName, ask.droppedId)) return { status: 'failed' };
 
+  // Stopped ones too: the form still shows one and offers Reply… in it, and the
+  // draft recorded follows it again.
   const followed = db
-    .select({ connectorId: itemConversations.connectorId, externalAccountKey: itemConversations.externalAccountKey, conversationId: itemConversations.conversationId })
+    .select({
+      connectorId: itemConversations.connectorId,
+      externalAccountKey: itemConversations.externalAccountKey,
+      conversationId: itemConversations.conversationId,
+      draftId: itemConversations.draftId,
+    })
     .from(itemConversations)
-    .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, ask.itemId), isNull(itemConversations.stoppedAt)))
+    .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, ask.itemId)))
     .orderBy(desc(itemConversations.lastAt))
     .all()
     .filter((one) => !isDraftStarting(one));
@@ -81,6 +90,9 @@ export function wantDraft(
     (one) => one.connectorId === connection.connectorId && one.externalAccountKey === connection.externalAccountKey,
   );
   if (!here && followed.length > 0) throw new DraftRefusedError(FOLLOWS_ELSEWHERE);
+  // A recorded draft still unsent is the one to finish: a second would leave
+  // the first untracked, and one that started the conversation has nothing to reply to.
+  if (here && here.draftId !== null) throw new DraftRefusedError(DRAFT_ALREADY_STARTED);
   const replyIn = here?.conversationId ?? null;
 
   runCommand(db, accountName, 'start_draft', {

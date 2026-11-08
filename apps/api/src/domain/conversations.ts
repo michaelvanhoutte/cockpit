@@ -27,23 +27,6 @@ export function turnDueDate(by: ConversationTurnBy, recordedAt: string, zones: r
 }
 
 /**
- * What a turn does to the Item following the conversation, or null where it
- * does nothing:
- *
- * - **Yours**: Waiting for reply, as *Wait for reply…* makes it - waiting since
- *   it first started waiting, so a second message of yours moves only the date.
- * - **Theirs**: To do, the wait and any start taken back.
- * - **Either replaces the due date**, one set by hand included. The date is the
- *   source's, not the person's choice, so the marker that a reading may not
- *   replace it is left as it was.
- * - **A finished or dismissed Item, nothing**: Done ended the following.
- * - **Never refused as stale**: the turn is recorded on the store's clock as it
- *   arrives, so it is the latest change, and the later wins. An Item last
- *   changed "after" it was so only by a device clock running fast, as a
- *   source's own change is clamped for (`applySourceStateChange`); its
- *   `updatedAt` is kept rather than moved back.
- */
-/**
  * The status an Item had when *Email…* or *Reply…* was pressed on it, kept on
  * its conversation's row (`status_before_draft`) until the draft is sent or
  * gone ("Email… makes a Gmail draft the Item then follows", issue 1708), and
@@ -104,6 +87,23 @@ export function applyDropDraft(item: Item, before: StatusBeforeDraft, at: string
   };
 }
 
+/**
+ * What a turn does to the Item following the conversation, or null where it
+ * does nothing:
+ *
+ * - **Yours**: Waiting for reply, as *Wait for reply…* makes it - waiting since
+ *   it first started waiting, so a second message of yours moves only the date.
+ * - **Theirs**: To do, the wait and any start taken back.
+ * - **Either replaces the due date**, one set by hand included. The date is the
+ *   source's, not the person's choice, so the marker that a reading may not
+ *   replace it is left as it was.
+ * - **A finished or dismissed Item, nothing**: Done ended the following.
+ * - **Never refused as stale**: the turn is recorded on the store's clock as it
+ *   arrives, so it is the latest change, and the later wins. An Item last
+ *   changed "after" it was so only by a device clock running fast, as a
+ *   source's own change is clamped for (`applySourceStateChange`); its
+ *   `updatedAt` is kept rather than moved back.
+ */
 export function applyConversationTurn(
   item: Item,
   turn: { by: ConversationTurnBy; recordedAt: string },

@@ -218,7 +218,18 @@ export async function makeADraft(
   if (res.ok) return draftMadeSchema.parse(await res.json()).link;
   if (res.status === 401) throw refusal('making the draft', res.status);
   const said = (await res.json().catch(() => null)) as { error?: unknown } | null;
-  throw new Error(typeof said?.error === 'string' ? said.error : `Couldn't make the draft (${res.status})`);
+  throw new DraftRefused(typeof said?.error === 'string' ? said.error : `Couldn't make the draft (${res.status})`, res.status);
+}
+
+/** Why a draft was not made, with the status it was answered with: below 500, or the source's 502, the Item has its status back. */
+export class DraftRefused extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'DraftRefused';
+  }
 }
 
 /** One sender per command; adding a command extends this map and nothing else. */

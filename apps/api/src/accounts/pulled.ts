@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, isNotNull, isNull, like, lte, min, not, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, like, lte, min, not, notExists, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import { CONVERSATION_EXCERPT_LENGTH, DRAFT_STARTING_PREFIX, TITLE_LENGTH, cutTo } from '@cockpit/shared';
 import type {
   CompleteListing,
@@ -361,6 +362,12 @@ export function filePulledItem(
       followTheConversation(db, accountName, holds, link.itemId, item, ids.followCommandId, at);
       return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
     }
+    // A mark on a conversation an open Item follows already - one Email… made
+    // follow it, which no link names (issue 1708) - adds to that Item rather
+    // than making another.
+    if (item.conversation && followedBy(db, accountName, holds, item.conversation.id).get()) {
+      return { answer: 'already-known', named: null };
+    }
     const message = item.capturedMessage ?? item.title;
     if (!message) throw new Error('a pulled item carries neither a message nor a title');
     const names = item.names ? namesToRecord(item.names) : null;
@@ -495,9 +502,11 @@ function cut<T extends string | null>(text: T, limit: number): T {
 
 /**
  * The conversations this connection's open Items follow, by the source's id -
- * what a run hands its connector to read turns for (issue 1705). Only the
- * Items this connection filed in its own Workspace, so another Workspace's
- * Item following the same mailbox's conversation is never this run's.
+ * what a run hands its connector to read turns for (issue 1705). Of the Items
+ * a connection brought in, only those this one filed in its own Workspace, so
+ * another Workspace's Item following the same mailbox's conversation is never
+ * this run's; an Item Email… made follow one (issue 1708) is every run's at
+ * that mailbox, a turn read twice being applied once.
  */
 export function followedPulledConversations(
   db: AccountDb,
@@ -621,10 +630,14 @@ export function reportPulledDraftGone(
   return 'dropped';
 }
 
+/** The links checked for an Item no connection to a mailbox brought in (`followedBy`). */
+const broughtIn = alias(pulledLinks, 'brought_in');
+
 /**
  * The open Items that follow a conversation at this connection's account -
  * one, or all of them where no conversation is named: those it brought in,
- * by their links to it, and its Workspace's whose Email… started one there.
+ * by their links to it, and those no connection to this mailbox brought in,
+ * whose Email… started or replied in one there.
  */
 function followedBy(
   db: AccountDb,
@@ -657,9 +670,26 @@ function followedBy(
         eq(itemConversations.tenantId, accountName),
         eq(itemConversations.connectorId, holds.connectorId),
         eq(itemConversations.externalAccountKey, holds.externalAccountKey),
-        // Brought in by this connection, or an Item of its Workspace whose
-        // Email… started the conversation here (issue 1708), which no link names.
-        or(isNotNull(pulledLinks.itemId), eq(items.workspaceId, holds.workspaceId)),
+        // Brought in by this connection, or an Item no connection to this
+        // mailbox brought in, whose Email… started or replied in the
+        // conversation here (issue 1708): whatever Workspace it is in now, an
+        // undecided Inbox Item or one moved since included.
+        or(
+          isNotNull(pulledLinks.itemId),
+          notExists(
+            db
+              .select({ itemId: broughtIn.itemId })
+              .from(broughtIn)
+              .where(
+                and(
+                  eq(broughtIn.tenantId, accountName),
+                  eq(broughtIn.itemId, itemConversations.itemId),
+                  eq(broughtIn.connectorId, holds.connectorId),
+                  eq(broughtIn.externalAccountKey, holds.externalAccountKey),
+                ),
+              ),
+          ),
+        ),
         // Not a conversation Email… is still starting, which the source has not named.
         not(like(itemConversations.conversationId, `${DRAFT_STARTING_PREFIX}%`)),
         ...(conversationId === undefined ? [] : [eq(itemConversations.conversationId, conversationId)]),

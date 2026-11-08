@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Conversation, type Item, type Mailbox } from '@cockpit/shared';
-import { CommandRefused, makeADraft } from '../../../src/api/client';
+import { CommandRefused, DraftRefused, makeADraft } from '../../../src/api/client';
 import { ItemRow } from '../../../src/components/ItemRow';
 import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
@@ -2782,6 +2782,9 @@ describe('Triage', () => {
       withWhom: 'Steven Noels',
     };
     let opened: { location: { href: string }; opener: unknown; close: ReturnType<typeof vi.fn> };
+    /** Drafts still being made when a case ends, answered after it so the next case's press is not taken for a second one. */
+    let making: ((link: string) => void)[] = [];
+    const stillMaking = () => new Promise<string>((resolve) => making.push(resolve));
 
     beforeEach(() => {
       opened = { location: { href: '' }, opener: {}, close: vi.fn() };
@@ -2789,7 +2792,10 @@ describe('Triage', () => {
       mockMakeADraft.mockReset();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      for (const answer of making) answer('https://mail.google.com/mail/#drafts');
+      making = [];
+      await new Promise((resolve) => setTimeout(resolve, 0));
       vi.restoreAllMocks();
       localStorage.clear();
     });
@@ -2806,7 +2812,7 @@ describe('Triage', () => {
 
     it('uses the one mailbox as it is, opening a tab at the click and drawing In progress and Draft started before any answer', async () => {
       const user = userEvent.setup();
-      mockMakeADraft.mockReturnValue(new Promise<never>(() => {}));
+      mockMakeADraft.mockReturnValue(stillMaking());
       aRow({ extra: { mailboxes: [WORK] } });
 
       await user.click(screen.getByLabelText('Item actions'));
@@ -2832,7 +2838,9 @@ describe('Triage', () => {
 
     it('closes the tab, and says why beside the Item put back, where the draft was not made', async () => {
       const user = userEvent.setup();
-      mockMakeADraft.mockRejectedValue(new Error("Couldn't make the draft: Google no longer accepts the sign-in. Connect again."));
+      mockMakeADraft.mockRejectedValue(
+        new DraftRefused("Couldn't make the draft: Google no longer accepts the sign-in. Connect again.", 502),
+      );
       aRow({ extra: { mailboxes: [WORK] } });
 
       await user.click(screen.getByLabelText('Item actions'));
@@ -2843,10 +2851,36 @@ describe('Triage', () => {
       expect(screen.queryByText('Gmail · Draft started')).toBeNull();
     });
 
+    it('says why without claiming the Item is back where the request failed in a way that may have left it In progress', async () => {
+      const user = userEvent.setup();
+      mockMakeADraft.mockRejectedValue(new DraftRefused('Something went wrong', 500));
+      aRow({ extra: { mailboxes: [WORK] } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
+
+      expect(await screen.findByText(/Something went wrong/)).toBeInTheDocument();
+      expect(screen.queryByText(/is back as it was/)).toBeNull();
+    });
+
+    it('makes no second draft for a second press while the first is still being made', async () => {
+      const user = userEvent.setup();
+      mockMakeADraft.mockReturnValue(stillMaking());
+      aRow({ extra: { mailboxes: [WORK] } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
+
+      expect(mockMakeADraft).toHaveBeenCalledTimes(1);
+      expect(window.open).toHaveBeenCalledTimes(1);
+    });
+
     it('asks which of two mailboxes, the last used first', async () => {
       const user = userEvent.setup();
       localStorage.setItem('cockpit.lastMailbox', JSON.stringify({ 'ws-work': 'sa-home' }));
-      mockMakeADraft.mockReturnValue(new Promise<never>(() => {}));
+      mockMakeADraft.mockReturnValue(stillMaking());
       aRow({ extra: { mailboxes: [WORK, HOME] } });
 
       await user.click(screen.getByLabelText('Item actions'));

@@ -127,7 +127,8 @@ export function rawDraft(draft: ReplyTo): string {
     ...(draft.to ? [`To: ${draft.to}`] : []),
     `Subject: ${encodedWord(oneHeader(draft.subject) ?? '')}`,
     ...(draft.inReplyTo ? [`In-Reply-To: ${draft.inReplyTo}`] : []),
-    ...(draft.references ? [`References: ${draft.references}`] : []),
+    // One message id a line, so a long conversation's stays inside RFC 5322's 998.
+    ...(draft.references ? [`References: ${draft.references.split(/\s+/).filter(Boolean).join('\r\n ')}`] : []),
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     '',

@@ -73,6 +73,13 @@ class Mailbox {
     this.#record({ deleted: draft.id, threadId: draft.threadId });
   }
 
+  /** The email the draft Email… made became, starred in Gmail once sent. */
+  stars(draftId: string): void {
+    const sent = this.#draftMessage(draftId);
+    sent.labelIds = [...sent.labelIds, 'STARRED'];
+    this.#record({ labelled: sent.id, threadId: sent.threadId, with: ['STARRED'], labelIds: sent.labelIds });
+  }
+
   #draftMessage(draftId: string): GmailMessage {
     const made = gmailDrafts.find((one) => one.id === draftId)!;
     return this.threads.flatMap((one) => one.answer.messages).find((one) => one.id === made.messageId)!;
@@ -338,6 +345,36 @@ describe('Triage', () => {
       const item = await theItem(itemId);
       expect(statusOf(item)).toBe('to do');
       expect(item.conversation).toBeUndefined();
+    });
+
+    it('refuses a second draft while the first is still unsent, the first still waited on', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection)).status).toBe(200);
+
+      const again = await emailed(itemId, connection);
+
+      expect(again.status).toBe(400);
+      expect(await again.json()).toEqual({ error: 'A draft is already started in this conversation. Send or delete it first.' });
+      expect(gmailDrafts).toHaveLength(1);
+      expect((await theItem(itemId)).conversation).toEqual(expect.objectContaining({ draftStarted: true }));
+      mailbox.deletes(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+      expect(statusOf(await theItem(itemId))).toBe('to do');
+    });
+
+    it('adds a star on the conversation the draft started to its Item rather than making another', async () => {
+      const itemId = await aDraftStarted();
+      mailbox.sends(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+      const before = (await opened()).items.length;
+
+      mailbox.stars(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+
+      const read = await opened();
+      expect(read.items).toHaveLength(before);
+      expect((read.conversations ?? []).filter((one) => one.conversationId === 'draft-m-1').map((one) => one.itemId)).toEqual([itemId]);
     });
 
     it('changes nothing while the draft is still unsent', async () => {

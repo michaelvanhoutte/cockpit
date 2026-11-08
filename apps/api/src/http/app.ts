@@ -803,11 +803,11 @@ const connectionHistoryRoute = createRoute({
 });
 
 /**
- * *Check now* on one pulled connection ("Check a pulled connection now, from
- * its row or its history", issue 1143): its check made due at once through the
- * path a person's change takes, labelled *Check now*. A POST to the
- * connection and not a command - it changes no Item or setting, only when the
- * next check runs, and pressing it twice makes one check.
+ * *Email…* and *Reply…* on an Item ("Email… makes a Gmail draft the Item then
+ * follows", issue 1708) are this route: a POST to the Item and not a
+ * command, since the source is asked during it and its answer is the draft's
+ * link the tab opened at the click is pointed at. Its changes are logged as
+ * commands on the way (`start_draft`, `follow_conversation`, `drop_draft`).
  */
 const draftRoute = createRoute({
   method: 'post',
@@ -841,11 +841,11 @@ const draftRoute = createRoute({
 });
 
 /**
- * *Email…* and *Reply…* on an Item ("Email… makes a Gmail draft the Item then
- * follows", issue 1708) are `draftRoute` above: a POST to the Item and not a
- * command, since the source is asked during it and its answer is the draft's
- * link the tab opened at the click is pointed at. Its changes are logged as
- * commands on the way (`start_draft`, `follow_conversation`, `drop_draft`).
+ * *Check now* on one pulled connection ("Check a pulled connection now, from
+ * its row or its history", issue 1143): its check made due at once through the
+ * path a person's change takes, labelled *Check now*. A POST to the
+ * connection and not a command - it changes no Item or setting, only when the
+ * next check runs, and pressing it twice makes one check.
  */
 const checkConnectionNowRoute = createRoute({
   method: 'post',

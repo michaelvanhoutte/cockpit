@@ -52,7 +52,7 @@ import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { ConversationSection } from './ConversationSection';
 import { EmailButton } from './EmailButton';
-import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
+import { draftBeingStarted, draftNotMadeLine, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { conversationSourceName } from '../conversationLine';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
@@ -362,7 +362,7 @@ function TheForm({
   const emailEntry = item && !item.completedAt ? emailEntryFor(heldConversation, data?.mailboxes, lastMailboxIn(workspaceId)) : null;
   const emailWith = (mailbox: Mailbox) => {
     void emailFromItem(queryClient, { workspaceId, itemId, mailbox }).then((answer) => {
-      if (!answer.made && item) offerToUndo({ what: `“${itemLabel(item)}” is back as it was. ${answer.why}` });
+      if (!answer.made && item) offerToUndo({ what: draftNotMadeLine(itemLabel(item), answer) });
     });
   };
   /**
@@ -2213,7 +2213,9 @@ function TheForm({
                           conversation={followed}
                           sourceName={conversationSourceName(followed, data?.sourceNames)}
                           now={Date.now()}
-                          reply={emailEntry?.label === 'Reply…' && <EmailButton entry={emailEntry} onEmail={emailWith} />}
+                          // Reply… in a followed conversation, or Email… again on
+                          // one a click left starting, which only a new draft mends.
+                          reply={emailEntry && heldConversation && <EmailButton entry={emailEntry} onEmail={emailWith} />}
                         />
                       ) : (
                         // An Item following nothing offers Email… where the section would be (issue 1708).

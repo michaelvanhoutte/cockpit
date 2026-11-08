@@ -1,7 +1,12 @@
 import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, uuidv7, type Conversation, type Mailbox } from '@cockpit/shared';
-import { makeADraft } from './api/client';
+import { DraftRefused, makeADraft } from './api/client';
+
+/** What the row or form says beside a draft not made: the Item back as it was only where it is. */
+export function draftNotMadeLine(label: string, answer: { why: string; putBack: boolean }): string {
+  return answer.putBack ? `“${label}” is back as it was. ${answer.why}` : `“${label}”: ${answer.why}`;
+}
 
 /**
  * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
@@ -114,7 +119,9 @@ export function useDraftStarting(itemId: string): string | null {
 export async function emailFromItem(
   queryClient: QueryClient | undefined,
   { workspaceId, itemId, mailbox }: { workspaceId: string; itemId: string; mailbox: Mailbox },
-): Promise<{ made: true } | { made: false; why: string }> {
+): Promise<{ made: true } | { made: false; why: string; putBack: boolean }> {
+  // A second press while the first is still making its draft makes no second draft.
+  if (starting.has(itemId)) return { made: true };
   const tab = window.open('', '_blank');
   // The draft's page gets no hold on this one, as a link's `noopener` gives none.
   if (tab) tab.opener = null;
@@ -130,7 +137,13 @@ export async function emailFromItem(
   } catch (failure) {
     tab?.close();
     await queryClient?.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
-    return { made: false, why: failure instanceof Error ? failure.message : "Couldn't make the draft" };
+    return {
+      made: false,
+      why: failure instanceof Error ? failure.message : "Couldn't make the draft",
+      // Refused, or the source would not: the Item has its status back. Anything
+      // else may have stopped after the click was logged, leaving it In progress.
+      putBack: failure instanceof DraftRefused && (failure.status < 500 || failure.status === 502),
+    };
   } finally {
     starting.delete(itemId);
     changed();

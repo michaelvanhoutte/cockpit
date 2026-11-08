@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { ADDRESS, GmailWorld, signedInHost } from './gmail-world.js';
+import { rawDraft } from '../../src/drafts.js';
 
 /**
  * L1, against a fake host and Gmail faked at the network: *Email…* and
@@ -73,6 +74,16 @@ describe('Triage', () => {
       expect(headerOfDraft(asked!.text, 'In-Reply-To')).toBe('<t-1-r1@mail.example.com>');
       expect(headerOfDraft(asked!.text, 'References')).toBe('<t-1-r1@mail.example.com>');
       expect(made.conversationId).toBe('t-1');
+    });
+
+    it('folds a long conversation’s References one message id a line, inside the line length mail allows', () => {
+      const ids = Array.from({ length: 40 }, (_, n) => `<message-${n}-of-a-long-conversation@mail.example.com>`);
+
+      const raw = rawDraft({ subject: 'Re: Dinner', to: null, inReplyTo: ids.at(-1)!, references: ids.join(' ') });
+
+      const text = new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+      expect(text).toContain(`References: ${ids.join('\r\n ')}\r\n`);
+      expect(Math.max(...text.split('\r\n').map((line) => line.length))).toBeLessThanOrEqual(998);
     });
 
     it('addresses a reply to whom your own latest message went', async () => {
