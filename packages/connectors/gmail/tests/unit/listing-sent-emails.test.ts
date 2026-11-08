@@ -51,6 +51,19 @@ describe('Triage', () => {
       ]);
     });
 
+    it('links a reply sent in a conversation to the reply, and lists what it adds, not the email it quotes', async () => {
+      const world = new GmailWorld();
+      world.arrives('t-1', 'Dinner?', 'Shall we?', []);
+      const reply = world.replies('t-1', [], { sent: true, text: 'Yes, Friday.\r\nOn Mon, 2 Nov 2026, Pieter wrote:\r\n> Shall we?' });
+
+      const [listed] = await world.connector().listRecentSent!(onDemand(signedInHost({ choice: 'star' })), 10);
+
+      // The conversation's id is its first email's, which Gmail opens with conversation view off (issue 1720).
+      expect(listed).toEqual(
+        expect.objectContaining({ link: `https://mail.google.com/mail/?authuser=anna%40example.com#all/${reply}`, excerpt: 'Yes, Friday.' }),
+      );
+    });
+
     it('asks for thirty in the Sent label alone, keeps ten conversations, reads each once, and changes nothing', async () => {
       const world = new GmailWorld();
       for (let n = 1; n <= 12; n += 1) {

@@ -1193,11 +1193,14 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Promise<Answer<CheckedNow>> {
-    const answer = this.#answer(accountName, (db) =>
-      checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), new Date()),
-    );
-    if (answer.status === 'ok' && answer.value === 'queued') await this.#arm(accountName);
+  ): Promise<Answer<{ status: CheckedNow; at: string }>> {
+    const now = new Date();
+    const answer = this.#answer(accountName, (db) => ({
+      status: checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), now),
+      // On the clock the check's history line is stamped by, which is how the press knows the check ended (issue 1720).
+      at: now.toISOString(),
+    }));
+    if (answer.status === 'ok' && answer.value.status === 'queued') await this.#arm(accountName);
     return answer;
   }
 
@@ -1208,7 +1211,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   wantDraft(
     accountName: string,
-    ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick,
+    ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick,
   ): Answer<DraftWantedAnswer> {
     return this.#answer(accountName, (db) => wantDraft(db, accountName, ask, new Date().toISOString()));
   }

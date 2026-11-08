@@ -40,7 +40,10 @@ out of the core", issue 944).
   host names each run (`followedConversations`). Each is read with
   `messages.get` (`format=full`) and reported as a turn: **yours where Gmail
   labels it `SENT`**, whatever address it was sent as, else theirs, named by its
-  From. A draft (`DRAFT`), and a message in the bin or spam, is no turn. Turns
+  From, with the message's own link (`#all/<message id>`), which Open then goes
+  to, and an excerpt cut where quoted earlier mail starts (an underscore line,
+  `From:`/`Van:` then `Sent:`/`Verzonden:`, `On … wrote:`/`Op … schreef …:`, a `>` line).
+  A draft (`DRAFT`), and a message in the bin or spam, is no turn. Turns
   are read before the star's changes on the same page, and the page's turns
   already reported are kept in the state by message id (`history.turns`), so a
   run that stops mid-page reports none twice. The star's own changes are read
@@ -221,13 +224,20 @@ turns:
   to its To where it was yours. One metadata read of the conversation first.
 - **At most four calls**: a refresh, the profile where no check saved the address
   yet, that read, and the draft. Never retried: a draft made twice is two drafts.
-- **The link** opens the draft for writing, `#drafts?compose=<message id>`, in the
-  connected mailbox.
+- **The link** opens the draft, `#drafts/<message id>`, in the connected mailbox.
+  `#drafts?compose=` takes Gmail's own token for a draft, not the API's id, and
+  opens a blank message given the id. The conversation's link, until the draft
+  is sent, names the message replied to, or the draft where it starts the
+  conversation.
+- **Reply… with a draft already waited on** asks `drafts.get` first
+  (`findDraft`): still there outside the bin, its link is the answer and nothing
+  is made; gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
 - **A check** reads a draft's conversation as any followed one: the draft sent,
   whether its message keeps its id (Draft off, Sent on) or comes back as a new
   one, is a turn of yours. Once the history is read to the end, each draft the
   host still waits on is asked for (`drafts.get`); gone, with no message sent
-  from the mailbox in its conversation since, it is reported gone.
+  from the mailbox in its conversation since, it is reported gone. A draft whose
+  message carries `TRASH` counts as gone: Gmail keeps it until the bin is emptied.
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 
@@ -243,14 +253,14 @@ turns:
 - A message that is a draft, in the bin, or has no conversation or time is not
   listed. A `To` header is shown as a person reads it: a name where there is one,
   else the address.
-- The link is the conversation's, in the connected mailbox, as a followed one's is.
+- The link names the email listed, not its conversation, as a followed one's does.
 
 
 
 ## Not yet known
 
 - **Whether a draft made, opened and sent in real Gmail behaves as the stand-in
-  does**: the `#drafts?compose=` link opening a reply draft, the draft's id
+  does**: the `#drafts/<message id>` link opening a draft (if it does not, the fallback is `#drafts`, the folder), the draft's id
   staying the same while it is edited, and how long the call takes ("Measure
   Email… and Follow a sent email… on test mailboxes", issue 1704, was skipped).
 

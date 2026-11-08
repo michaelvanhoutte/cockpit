@@ -320,7 +320,7 @@ export interface ConversationMessage {
 export interface ConversationRead {
   /** The source's own id for the conversation, unique within the connected account. */
   id: string;
-  /** Where the source shows it. */
+  /** Where the source shows it: its latest message, which a link to the conversation as a whole does not open where the source shows one message at a time. */
   link: string;
   latest: ConversationMessage;
   messageCount: number;
@@ -340,6 +340,12 @@ export interface ConversationRead {
 export interface ConversationTurn extends ConversationMessage {
   conversationId: string;
   messageId: string;
+  /**
+   * Where the source shows this message, which then opens the conversation in
+   * place of the link it had. Absent: the conversation keeps its link, as one
+   * whose messages have no address of their own does (a LinkedIn conversation).
+   */
+  link?: string;
 }
 
 /**
@@ -362,6 +368,15 @@ export interface DraftMade {
   draftLink: string;
   /** Where the source shows the conversation once the draft is sent. */
   conversationLink: string;
+}
+
+/**
+ * A draft `makeDraft` made that is still there unsent ("Conversation follow-up:
+ * Open, previews, drafts and Check now misbehave on real Gmail and Outlook
+ * mailboxes", issue 1720): where the source opens it.
+ */
+export interface DraftFound {
+  draftLink: string;
 }
 
 /**
@@ -713,6 +728,15 @@ export interface Connector {
    * draft made cannot be taken back**, so it is called once per click.
    */
   makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
+
+  /**
+   * Asks the source whether a draft `makeDraft` made is still there unsent, on
+   * demand while a person waits (issue 1720): where it opens, or null where it
+   * is gone, sent, or in the bin, which counts as deleted unsent. Throws
+   * `SourceError`, worded for the person, where the source would not answer.
+   * Changes nothing at the source. Every connector that makes drafts has it.
+   */
+  findDraft?(host: OnDemandHost, draftId: string): Promise<DraftFound | null>;
 
   /**
    * Lists the newest `limit` emails sent, one for each conversation (its newest), from the mailbox, newest first, on

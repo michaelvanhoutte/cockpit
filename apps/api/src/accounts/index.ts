@@ -371,7 +371,7 @@ export interface Account {
    */
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
   /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
-  checkNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow>;
+  checkNow(workspaceId: string, sourceAccountId: string): Promise<{ status: CheckedNow; at: string }>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
   /**
@@ -380,7 +380,7 @@ export interface Account {
    * to make the draft, then the draft recorded or dropped, and a credential the
    * source rotated meanwhile saved while the stored one is still the one opened.
    */
-  wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick): Promise<DraftWantedAnswer>;
+  wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick): Promise<DraftWantedAnswer>;
   recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick): Promise<null>;
   dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */

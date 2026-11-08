@@ -10,13 +10,14 @@ import {
 import { api, refusal } from '../api/client';
 import { snapshotQuery, useCheckConnectionNow, whyNotDone } from '../api/queries';
 import { useChangeConnection, useSourceAccounts } from '../api/sourceAccounts';
+import type { CheckAsked } from '../connectionHistory';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { dateTimeLabel } from '../dateFormat';
 import { whenCaptured } from '../duplicates';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { useUndo } from '../undo';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
-import { ConnectionHistory } from './ConnectionHistory';
+import { ConnectionHistory, useCheckEnding } from './ConnectionHistory';
 import { ConnectPhone, type PhoneConnector } from './ConnectPhone';
 import { DeleteQuestion } from './DeleteQuestion';
 import { EmailToCockpit } from './EmailToCockpit';
@@ -315,6 +316,12 @@ export default function ManageConnections({
   const checkNow = useCheckConnectionNow(workspaceId);
   /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
   const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
+  /** The check *Check now* asked for, until its history line says it ended, and the note says so (issue 1720). */
+  const [checking, setChecking] = useState<CheckAsked | null>(null);
+  useCheckEnding(workspaceId, checking, (note) => {
+    setCheckNowNote(note);
+    setChecking(null);
+  });
 
   const registered = (registry.data?.connectors ?? []).map((connector): Card => ({
       id: connector.id,
@@ -356,13 +363,17 @@ export default function ManageConnections({
   };
 
   /**
-   * Asks for the connection's check at once, and says so at the click; the line it
-   * writes arrives over the stream, so nothing here waits for it. A request that
-   * did not reach the server takes the note back and says so in its place.
+   * Asks for the connection's check at once, and says so at the click. A request
+   * that did not reach the server takes the note back and says so in its place;
+   * one that did leaves the note until the check ends (`useCheckEnding`).
    */
   const pressCheckNow = (account: SourceAccount) => {
     setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` });
+    setChecking(null);
     checkNow.mutate(account.id, {
+      onSuccess: (answer) => {
+        if (answer.at) setChecking({ sourceAccountId: account.id, name: account.displayName, since: answer.at });
+      },
       onError: () => setCheckNowNote({ ok: false, text: 'That did not reach the server. Try again.' }),
     });
   };
@@ -380,6 +391,7 @@ export default function ManageConnections({
     setConnectingPhone(null);
     setHistoryOf(null);
     setCheckNowNote(null);
+    setChecking(null);
     onClose();
   };
 

@@ -107,6 +107,8 @@ export async function reportTurnsSince(
             from: turn.from,
             at: turn.at,
             excerpt: turn.excerpt,
+            // The conversation's link moves to the newest message, which Open then shows (issue 1720).
+            ...(turn.link ? { link: turn.link } : {}),
           });
         }
         cursor = turn.at;

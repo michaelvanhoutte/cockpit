@@ -31,6 +31,10 @@ import { historyRecord, labelsAnswer, message } from '../../../../../packages/co
 
 const ANNA = { email: 'anna@example.com', subject: 'google-anna' };
 
+/** Where Gmail opens the first draft made, and shows a message of the mailbox. */
+const DRAFT_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts/draft-m-1';
+const MESSAGE_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
+
 /** The store stamps its own changes on the real clock, which a case's changes must not be older than. */
 const now = () => new Date(); // clock-ok: the store stamps the Items on the real clock
 
@@ -71,6 +75,13 @@ class Mailbox {
     thread.answer.messages = thread.answer.messages.filter((one) => one.id !== draft.id);
     if (thread.answer.messages.length === 0) this.threads.splice(this.threads.indexOf(thread), 1);
     this.#record({ deleted: draft.id, threadId: draft.threadId });
+  }
+
+  /** The draft Email… made, moved to the bin unsent: Gmail keeps it, labelled Bin, until the bin is emptied. */
+  bins(draftId: string): void {
+    const draft = this.#draftMessage(draftId);
+    draft.labelIds = [...draft.labelIds, 'TRASH'];
+    this.#record({ labelled: draft.id, threadId: draft.threadId, with: ['TRASH'], labelIds: draft.labelIds });
   }
 
   /** The email the draft Email… made became, starred in Gmail once sent. */
@@ -243,7 +254,7 @@ describe('Triage', () => {
       expect((await opened()).mailboxes).toEqual([expect.objectContaining({ sourceAccountId: connection, connectorId: 'gmail' })]);
       expect(gmailDrafts).toHaveLength(1);
       expect(gmailDrafts[0]!.text).toMatch(/^Subject: Plan a dinner with Steven Noels\r$/m);
-      expect(await res.json()).toEqual({ link: 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts?compose=draft-m-1' });
+      expect(await res.json()).toEqual({ link: DRAFT_LINK });
       const item = await theItem(itemId);
       expect(statusOf(item)).toBe('in progress');
       expect(item.conversation).toEqual(
@@ -289,7 +300,7 @@ describe('Triage', () => {
       const res = await emailed(itemId, connection);
 
       expect(res.status).toBe(502);
-      expect(await res.json()).toEqual({ error: "Couldn't make the draft: Google no longer accepts the sign-in. Connect again." });
+      expect(await res.json()).toEqual({ error: "Couldn't make the draft: Google no longer accepts the sign-in. Connect again.", putBack: true });
       const item = await theItem(itemId);
       expect(statusOf(item)).toBe('waiting');
       expect(item.conversation).toBeUndefined();
@@ -347,20 +358,74 @@ describe('Triage', () => {
       expect(item.conversation).toBeUndefined();
     });
 
-    it('refuses a second draft while the first is still unsent, the first still waited on', async () => {
+    it('makes no second draft while the first is still unsent: the click opens the first, and nothing changes', async () => {
       const connection = await connected();
       const itemId = await captured('Plan a dinner with Steven Noels');
       expect((await emailed(itemId, connection)).status).toBe(200);
+      const before = await theItem(itemId);
 
       const again = await emailed(itemId, connection);
 
-      expect(again.status).toBe(400);
-      expect(await again.json()).toEqual({ error: 'A draft is already started in this conversation. Send or delete it first.' });
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ link: DRAFT_LINK });
       expect(gmailDrafts).toHaveLength(1);
-      expect((await theItem(itemId)).conversation).toEqual(expect.objectContaining({ draftStarted: true }));
+      expect(await theItem(itemId)).toEqual(before);
       mailbox.deletes(gmailDrafts[0]!.id);
       await nextCheckRuns();
       expect(statusOf(await theItem(itemId))).toBe('to do');
+    });
+
+    it.each([
+      { situation: 'deleted from Gmail', happens: (draftId: string) => mailbox.deletes(draftId) },
+      { situation: 'in the bin', happens: (draftId: string) => mailbox.bins(draftId) },
+    ])('makes a new draft where the first is $situation before any check saw it', async ({ happens }) => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      await waitingForReply(itemId);
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      happens(gmailDrafts[0]!.id);
+
+      const again = await emailed(itemId, connection);
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ link: DRAFT_LINK.replace('draft-m-1', 'draft-m-2') });
+      expect(gmailDrafts).toHaveLength(2);
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('in progress');
+      expect(item.conversation).toEqual(expect.objectContaining({ conversationId: 'draft-m-2', draftStarted: true }));
+      // The first is dropped as deleted unsent, so the second deleted puts back the status from before either.
+      mailbox.deletes(gmailDrafts[1]!.id);
+      await nextCheckRuns();
+      expect(statusOf(await theItem(itemId))).toBe('waiting');
+    });
+
+    it('makes one new draft for a click sent twice where the first draft is gone', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      mailbox.deletes(gmailDrafts[0]!.id);
+      const clickId = crypto.randomUUID();
+
+      const first = await (await emailed(itemId, connection, clickId)).json();
+      const again = await emailed(itemId, connection, clickId);
+
+      expect(await again.json()).toEqual(first);
+      expect(gmailDrafts).toHaveLength(2);
+    });
+
+    it('changes nothing, and says nothing was put back, where Gmail does not answer whether the first is still there', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      const before = await theItem(itemId);
+      gmailAnswersWith(503, (call) => call.startsWith('drafts/'), { once: false });
+
+      const again = await emailed(itemId, connection);
+
+      expect(again.status).toBe(502);
+      expect(await again.json()).toEqual({ error: "Couldn't make the draft: Gmail did not answer. Try again in a moment.", putBack: false });
+      expect(gmailDrafts).toHaveLength(1);
+      expect(await theItem(itemId)).toEqual(before);
     });
 
     it('adds a star on the conversation the draft started to its Item rather than making another', async () => {
@@ -385,6 +450,57 @@ describe('Triage', () => {
 
       expect(await theItem(itemId)).toEqual(before);
       expect(await inTheStore((sql) => sql.exec("SELECT count(*) AS n FROM commands WHERE name = 'drop_draft'").one().n)).toBe(0);
+    });
+  });
+  describe('Open on an Item goes to its draft while the draft is unsent, and to the conversation’s latest email otherwise', () => {
+    /** A conversation starred, brought in and followed, and Reply… pressed on its Item. */
+    async function aReplyStarted(): Promise<string> {
+      const connection = await connected();
+      mailbox.starred('t-1', 'Dinner one of these weeks?');
+      await nextCheckRuns();
+      const itemId = (await opened()).items.find((one) => one.sourceId === 't-1')!.id;
+      expect((await theItem(itemId)).conversation?.link).toBe(`${MESSAGE_LINK}t-1`);
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      return itemId;
+    }
+
+    it('opens the draft once Email… or Reply… made it', async () => {
+      const connection = await connected();
+      const started = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(started, connection)).status).toBe(200);
+      const replying = await aReplyStarted();
+
+      expect((await theItem(started)).conversation?.link).toBe(DRAFT_LINK);
+      expect((await theItem(replying)).conversation?.link).toBe(DRAFT_LINK.replace('draft-m-1', 'draft-m-2'));
+    });
+
+    it('opens the email the draft became once it is sent', async () => {
+      const itemId = await aReplyStarted();
+
+      mailbox.sends(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+
+      expect((await theItem(itemId)).conversation?.link).toBe(`${MESSAGE_LINK}draft-m-1`);
+    });
+
+    it('opens the conversation’s latest email again once the draft is deleted unsent', async () => {
+      const itemId = await aReplyStarted();
+
+      mailbox.deletes(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+
+      expect((await theItem(itemId)).conversation?.link).toBe(`${MESSAGE_LINK}t-1`);
+    });
+
+    it('opens the conversation where the draft was recorded before its link was kept', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      await inTheStore((sql) => sql.exec('UPDATE item_conversations SET draft_link = NULL'));
+
+      expect((await theItem(itemId)).conversation).toEqual(
+        expect.objectContaining({ link: `${MESSAGE_LINK}draft-m-1`, draftStarted: true }),
+      );
     });
   });
 });

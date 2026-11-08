@@ -76,6 +76,8 @@ describe('Capture', () => {
         title: 'Invoice for contract 2',
         sourceTimestamp: '2026-10-02T08:30:00.000Z',
         messages: 2,
+        opens: 'm-2',
+        latest: 'm-2',
       },
       {
         situation: 'one email starred in a conversation of three, not the latest',
@@ -86,6 +88,8 @@ describe('Capture', () => {
         title: 'Re: Contract',
         sourceTimestamp: '2026-10-02T08:30:00.000Z',
         messages: 3,
+        opens: 'm-2',
+        latest: 'm-3',
       },
       {
         situation: 'an email arriving already starred, as a filter or Outlook’s flag does it',
@@ -96,6 +100,8 @@ describe('Capture', () => {
         title: 'Flagged on arrival',
         sourceTimestamp: '2026-10-02T08:30:00.000Z',
         messages: 2,
+        opens: 'm-2',
+        latest: 'm-2',
       },
       {
         situation: 'a conversation arriving starred',
@@ -103,8 +109,10 @@ describe('Capture', () => {
         title: 'Quarterly figures',
         sourceTimestamp: '2026-10-01T08:30:00.000Z',
         messages: 1,
+        opens: 't-1',
+        latest: 't-1',
       },
-    ])('$situation', async ({ happens, title, sourceTimestamp, messages }) => {
+    ])('$situation', async ({ happens, title, sourceTimestamp, messages, opens, latest }) => {
       const world = new GmailWorld();
       const first = await connectedByStar(world);
       happens(world);
@@ -118,11 +126,12 @@ describe('Capture', () => {
           capturedMessage: `The text of ${title}.`,
           sender: 'Pieter Claes',
           sourceTimestamp,
-          sourceLink: `${LINK}t-1`,
+          // The email starred, and the conversation's latest: never the conversation's own id (issue 1720).
+          sourceLink: `${LINK}${opens}`,
           choice: 'star',
           conversation: expect.objectContaining({
             id: 't-1',
-            link: `${LINK}t-1`,
+            link: `${LINK}${latest}`,
             messageCount: messages,
             startedAt: '2026-10-01T08:30:00.000Z',
             withWhom: 'Pieter Claes',
@@ -142,7 +151,7 @@ describe('Capture', () => {
 
       expect(second.filed.get('t-1')?.conversation).toEqual({
         id: 't-1',
-        link: `${LINK}t-1`,
+        link: `${LINK}t-1-r1`,
         latest: { by: 'you', from: 'Anna Peeters', at: '2026-10-03T09:00:00.000Z', excerpt: 'Sure! Does Thursday the 19th work for you?' },
         messageCount: 2,
         startedAt: '2026-10-01T08:30:00.000Z',
@@ -238,6 +247,8 @@ describe('Capture', () => {
           from: 'Steven Noels',
           at: '2026-10-02T08:30:00.000Z',
           excerpt: 'Thursday is tricky, how about Friday?',
+          // Open then shows this message, the newest (issue 1720).
+          link: `${LINK}${reply}`,
         },
       ]);
       expect(world.emailReads()).toEqual([reply]);

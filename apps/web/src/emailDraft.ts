@@ -122,7 +122,7 @@ export async function emailFromItem(
   } catch {
     // The chunk could not be fetched (offline, or a deploy since): nothing was asked of the server.
     tab?.close();
-    line = `“${ask.label}” is back as it was. Couldn't make the draft. Try again.`;
+    line = `“${ask.label}”: Couldn't make the draft. Try again.`;
   } finally {
     starting.delete(itemId);
     changed();

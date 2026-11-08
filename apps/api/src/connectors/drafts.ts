@@ -18,9 +18,16 @@ import { connectors, getConnector } from './registry.js';
  * is unproven; built to the design as it stands.
  */
 
-/** Why a draft was not made, said to the person beside the Item put back. */
+/**
+ * Why a draft was not made, said to the person: beside the Item put back where
+ * `putBack`, and alone where nothing had changed - the source not answering
+ * whether the draft recorded before is still there (issue 1720).
+ */
 export class DraftNotMadeError extends Error {
-  constructor(why: string) {
+  constructor(
+    why: string,
+    readonly putBack = true,
+  ) {
     super(`Couldn't make the draft: ${why}`);
     this.name = 'DraftNotMadeError';
   }
@@ -28,6 +35,14 @@ export class DraftNotMadeError extends Error {
 
 /** What a click resent after its draft failed is told. */
 export const DRAFT_FAILED_BEFORE = 'This draft was not made. Try again.';
+
+/** What a click is told where another click recorded a draft while this one looked for the one before. */
+export const DRAFT_RECORDED_MEANWHILE = 'Another draft was started meanwhile. Try again to open it.';
+
+/** The sealed credential a store's answer carries. */
+function sealedIn(answer: Sealed): Sealed {
+  return { sealedCredential: answer.sealedCredential, credentialNonce: answer.credentialNonce };
+}
 
 /** Whether a connection may take an on-demand mail action (`method`: making a draft, or listing sent mail): its connector has it, under the choice it follows. */
 export function startsConversations(
@@ -55,6 +70,12 @@ export function mailboxesOf(
  * own id makes resending it safe: a draft already recorded is answered as it
  * is; one asked for and never recorded is asked for again, the worst case
  * being one draft the mailbox holds that Cockpit does not know of.
+ *
+ * **A draft an earlier click recorded, still waited on, is looked for first**
+ * ("Conversation follow-up: Open, previews, drafts and Check now misbehave on
+ * real Gmail and Outlook mailboxes", issue 1720): still there unsent, its link
+ * is the answer and nothing changes; gone or in the bin, the store drops it as
+ * deleted unsent and a new one is made.
  */
 export async function makeTheDraft(
   env: Env,
@@ -72,13 +93,31 @@ export async function makeTheDraft(
     clickId: ask.clickId,
     recordedId: await derivedUuid(`draft-recorded:${named}`),
     droppedId: await derivedUuid(`draft-dropped:${named}`),
+    replacedId: await derivedUuid(`draft-replaced:${named}`),
   };
-  const wanted = await account.wantDraft({ ...ask, ...click });
+  let wanted = await account.wantDraft({ ...ask, ...click });
+  if (wanted.status === 'look') {
+    const look = wanted;
+    const lookHost = onDemandHost(env, account, ask.sourceAccountId, sealedIn(look), look.state, look.connectorId);
+    let found;
+    try {
+      if (!connector!.findDraft) throw new SourceError('this mailbox cannot be asked for the draft started before');
+      found = await connector!.findDraft(lookHost, look.draftId);
+    } catch (error) {
+      // Nothing was changed, so nothing is put back.
+      if (error instanceof SourceError) throw new DraftNotMadeError(error.message, false);
+      logged(look.connectorId, 'error', 'a draft could not be looked for', error instanceof Error ? error.message : String(error));
+      throw new DraftNotMadeError('something went wrong', false);
+    }
+    if (found) return found.draftLink;
+    wanted = await account.wantDraft({ ...ask, ...click, replacing: look.draftId });
+    // Only a draft recorded meanwhile by another click could be looked for again: that one is not this click's to replace.
+    if (wanted.status === 'look') throw new ConflictInAccountError(DRAFT_RECORDED_MEANWHILE);
+  }
   if (wanted.status === 'recorded') return wanted.link;
   if (wanted.status === 'failed') throw new ConflictInAccountError(DRAFT_FAILED_BEFORE);
 
-  const sealed: Sealed = { sealedCredential: wanted.sealedCredential, credentialNonce: wanted.credentialNonce };
-  const host = onDemandHost(env, account, ask.sourceAccountId, sealed, wanted.state, wanted.connectorId);
+  const host = onDemandHost(env, account, ask.sourceAccountId, sealedIn(wanted), wanted.state, wanted.connectorId);
   const where = { workspaceId: ask.workspaceId, itemId: ask.itemId, sourceAccountId: ask.sourceAccountId, ...click };
   let draft;
   try {

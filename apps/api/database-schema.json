@@ -2992,6 +2992,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "stoppedAt"
+            },
+            {
+              "name": "draft_link",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "draftLink"
             }
           ],
           "indexes": [

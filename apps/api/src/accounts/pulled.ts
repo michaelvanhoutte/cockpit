@@ -448,6 +448,8 @@ export function filePulledItem(
 /** How much of a message a conversation keeps (`CONVERSATION_EXCERPT_LENGTH`), and of a name. */
 const EXCERPT_LENGTH = CONVERSATION_EXCERPT_LENGTH;
 const NAME_LENGTH = TITLE_LENGTH;
+/** The longest link a conversation keeps, as `record_conversation_turn` takes it. */
+const LINK_LENGTH = 2_000;
 
 /**
  * Has the Item follow the conversation the connector says it does, through
@@ -564,6 +566,9 @@ export function recordPulledTurn(
       at: turn.at,
       excerpt: cut(turn.excerpt, EXCERPT_LENGTH),
       connectionDays: holds.dueInDays,
+      // Where the source shows the message, which Open goes to once it is the latest (issue 1720);
+      // one too long to keep leaves the link as it was rather than refusing the turn.
+      ...(turn.link && turn.link.length <= LINK_LENGTH ? { link: turn.link } : {}),
     },
     { fromTheSource: true },
   );

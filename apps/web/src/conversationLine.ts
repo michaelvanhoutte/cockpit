@@ -81,11 +81,14 @@ export function conversationSourceName(conversation: Conversation, names: Source
   return isLinkedInConversation(conversation) ? 'LinkedIn' : sourceNamed(names, conversation.source);
 }
 
-/** What *Open ↗* says it does: a LinkedIn conversation opens as a conversation, not as the email that told of it. */
+/**
+ * What *Open ↗* says it does: a LinkedIn conversation opens as a conversation,
+ * not as the email that told of it, and a draft started and unsent opens the
+ * draft (issue 1720).
+ */
 export function openLabel(conversation: Conversation, sourceName: string): string {
-  return isLinkedInConversation(conversation)
-    ? 'Open the conversation in LinkedIn'
-    : `Open the latest email in ${sourceName}`;
+  if (isLinkedInConversation(conversation)) return 'Open the conversation in LinkedIn';
+  return conversation.draftStarted ? `Open the draft in ${sourceName}` : `Open the latest email in ${sourceName}`;
 }
 
 /**

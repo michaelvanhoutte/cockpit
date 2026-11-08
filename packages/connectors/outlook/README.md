@@ -155,7 +155,9 @@ Following the category is per message, as before.
 - **A turn is any message received since the last run**, one read of the whole
   mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
   with `$select` of the id, conversation, folder, sender, time and
-  `bodyPreview`. Each message in a followed conversation is reported once the
+  `bodyPreview`, cut where quoted earlier mail starts (an underscore line,
+  `From:`/`Van:` then `Sent:`/`Verzonden:`, `On … wrote:`/`Op … schreef …:`), and
+  its `webLink`, which Open then goes to. Each message in a followed conversation is reported once the
   host asks (`reportTurn`; it changes nothing for one already reported). **Yours
   is a message in Sent Items** (the folder id from `mailFolders/sentitems`), not
   a From comparison, so a send-as alias still counts. Drafts and Deleted Items
@@ -211,6 +213,9 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
   your turn, reported here since the read of received mail may never show it
   (sent while the Item was done, or before the cursor); none, and the draft is
   reported gone.
+- **Reply… with a draft already waited on** reads it the same way first
+  (`findDraft`): still a draft outside Deleted Items, its `webLink` is the
+  answer and nothing is made; otherwise a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 

@@ -157,6 +157,9 @@ let sent: ReturnType<typeof vi.fn>;
 /** The connections a press on Check now asked for (issue 1143), and whether the request reaches the server. */
 let checkedNow: string[] = [];
 let checkNowReaches = true;
+/** When the server says the press was taken, on its own clock (issue 1720). */
+let pressedAt = '2026-10-16T12:00:00.000Z';
+let client: QueryClient;
 
 function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode) {
   sent = vi.fn();
@@ -166,14 +169,14 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
     return Promise.resolve({ ok: true, applied: true });
   });
   vi.mocked(useCheckConnectionNow).mockReturnValue({
-    mutate: (id: string, opts: { onSuccess?: () => void; onError?: () => void }) => {
+    mutate: (id: string, opts: { onSuccess?: (answer: { status: string; at: string }) => void; onError?: () => void }) => {
       checkedNow.push(id);
-      if (checkNowReaches) opts.onSuccess?.();
+      if (checkNowReaches) opts.onSuccess?.({ status: 'queued', at: pressedAt });
       else opts.onError?.();
     },
     isPending: false,
   } as unknown as ReturnType<typeof useCheckConnectionNow>);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <ManageConnections
@@ -1489,6 +1492,56 @@ describe('Connector management', () => {
       await userEvent.click(within(history).getByRole('button', { name: 'Check now' }));
 
       expect(await within(history).findByRole('alert')).toHaveTextContent('That did not reach the server. Try again.');
+    });
+  });
+
+  describe('the note at Check now ends when the check it asked for ends, on the list and on the history', () => {
+    /** The check's line arriving: written by its end, and announced over the stream, which reads the history again. */
+    async function theCheckEnds(over: Record<string, unknown>) {
+      held.history = [line({ reason: 'check-now', firstAt: '2026-10-16T12:00:05.000Z', lastAt: '2026-10-16T12:00:05.000Z', ...over }), ...held.history];
+      await client.invalidateQueries({ queryKey: ['connectionHistory', 'ws-work', 'account-anna'] });
+    }
+
+    const places = [
+      {
+        where: 'the list',
+        press: async () => {
+          await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
+          await userEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }));
+          return document.body;
+        },
+      },
+      {
+        where: 'the history',
+        press: async () => {
+          const history = await openHistory();
+          await userEvent.click(within(history).getByRole('button', { name: 'Check now' }));
+          return history;
+        },
+      },
+    ];
+
+    it.each(places)('says Checked just now on $where once the check worked', async ({ press }) => {
+      held.sourceAccounts = [ANNA];
+      // A check that ended before the press says nothing of this one.
+      held.history = [line({ lastAt: '2026-10-16T11:55:00.000Z', firstAt: '2026-10-16T11:55:00.000Z' })];
+      showWindow();
+      const place = await press();
+      expect(await within(place).findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+
+      await theCheckEnds({});
+
+      await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+    });
+
+    it.each(places)('says why on $where once the check failed', async ({ press }) => {
+      held.sourceAccounts = [ANNA];
+      showWindow();
+      const place = await press();
+
+      await theCheckEnds({ outcome: 'failed', message: 'Gmail did not answer.' });
+
+      expect(await within(place).findByRole('alert')).toHaveTextContent('Checking anna@example.com failed: Gmail did not answer.');
     });
   });
 

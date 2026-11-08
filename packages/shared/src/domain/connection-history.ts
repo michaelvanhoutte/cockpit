@@ -92,5 +92,13 @@ export type ConnectionHistory = z.infer<typeof connectionHistorySchema>;
  */
 export const checkedNowSchema = z.object({
   status: z.enum(['queued', 'already queued', 'running']),
+  /**
+   * When it was pressed, on the store's clock: the check it leaves ends with a
+   * history line last run at or after it, which is how the note at the press
+   * knows the check is done ("Conversation follow-up: Open, previews, drafts
+   * and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+   * Absent from a release before it.
+   */
+  at: z.iso.datetime().optional(),
 });
 export type CheckedNow = z.infer<typeof checkedNowSchema>;
