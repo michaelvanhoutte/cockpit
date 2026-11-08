@@ -136,10 +136,27 @@ describe('Triage', () => {
       const next = host.next();
       await world.connector().sync(next);
 
+      // Each with where Outlook shows it, which Open then goes to as the newest (issue 1720).
+      const link = (id: string) => `https://outlook.office365.com/owa/?ItemID=${id}&exvsurl=1&viewmodel=ReadMessageItem`;
       expect(next.turns).toEqual([
-        { conversationId: 'c-1', messageId: 'm-2', by: 'them', from: 'Pieter Claes', at: '2026-10-09T12:10:00.000Z', excerpt: 'Friday suits me.' },
-        { conversationId: 'c-1', messageId: 'm-3', by: 'you', from: 'Anna', at: '2026-10-09T12:30:00.000Z', excerpt: 'Great.' },
+        { conversationId: 'c-1', messageId: 'm-2', by: 'them', from: 'Pieter Claes', at: '2026-10-09T12:10:00.000Z', excerpt: 'Friday suits me.', link: link('m-2') },
+        { conversationId: 'c-1', messageId: 'm-3', by: 'you', from: 'Anna', at: '2026-10-09T12:30:00.000Z', excerpt: 'Great.', link: link('m-3') },
       ]);
+    });
+
+    it('previews what a reply adds, not the earlier email its preview runs on into', async () => {
+      const { world, host } = await aFollowedConversation();
+      // Graph's bodyPreview is already on one line, as the production reply's was (issue 1720).
+      world.arrives('m-2', {
+        conversation: 'c-1',
+        receivedAt: '2026-10-09T12:10:00Z',
+        text: 'Ja, ik ben thuis. ________________________________ Van: Michael Vanhoutte <michael@example.com> Verzonden: zondag 8 november 2026 17:53 Aan: Anna Onderwerp: Re: test2 ik kan morgen',
+      });
+
+      const next = host.next();
+      await world.connector().sync(next);
+
+      expect(next.turns.map((turn) => turn.excerpt)).toEqual(['Ja, ik ben thuis.']);
     });
 
     it('asks for the mail received since, ordered by it, across folders in one read', async () => {

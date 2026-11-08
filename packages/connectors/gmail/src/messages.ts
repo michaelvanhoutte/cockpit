@@ -448,7 +448,11 @@ export function emailIn(answer: unknown, emailId: string): unknown {
   return (Array.isArray(messages) ? (messages as { id?: unknown }[]) : []).find((one) => one?.id === emailId) ?? null;
 }
 
-/** The title, text, sender, link and time of one message, the link naming `linkId`. */
+/**
+ * The title, text, sender, link and time of one message. The link names the
+ * message itself, `linkId` standing in where it has no id: a conversation's id
+ * is its first message's, which Gmail opens with conversation view off.
+ */
 function describe(message: GmailMessage, linkId: string, mailboxAddress: string) {
   const subject = oneLine(headerOf(message.payload, 'Subject') ?? '');
   const title = cutTo(subject, TITLE_LENGTH) || NO_SUBJECT;
@@ -458,7 +462,7 @@ function describe(message: GmailMessage, linkId: string, mailboxAddress: string)
     title,
     text,
     sender: senderIn(headerOf(message.payload, 'From')),
-    link: conversationLink(linkId, mailboxAddress),
+    link: conversationLink(typeof message.id === 'string' && message.id ? message.id : linkId, mailboxAddress),
     sentAt: at > 0 ? new Date(at).toISOString() : null,
   };
 }
@@ -656,11 +660,13 @@ export function conversationReadOf(answer: unknown, mailboxAddress: string): Gma
     .filter((one): one is { message: GmailMessage; turn: GmailTurn } => one.turn !== null)
     .sort((a, b) => sentAt(a.message) - sentAt(b.message));
   if (turns.length === 0) return null;
-  const latest = turns[turns.length - 1]!.turn;
+  const { message: latestMessage, turn: latest } = turns[turns.length - 1]!;
   const theirs = [...turns].reverse().find((one) => one.turn.by === 'them');
   return {
     id,
-    link: conversationLink(id, mailboxAddress),
+    // The latest message's own id: the conversation's is its first message's,
+    // which Gmail opens with conversation view off.
+    link: conversationLink(typeof latestMessage.id === 'string' && latestMessage.id ? latestMessage.id : id, mailboxAddress),
     latest,
     messageCount: turns.length,
     startedAt: turns[0]!.turn.at,
@@ -674,14 +680,48 @@ function firstRecipientIn(to: string | null): string | null {
   return /^(?:"[^"]*"|<[^>]*>|[^,])*/.exec(to)![0].trim() || null;
 }
 
-/** Where Gmail shows a conversation, or one email, in the connected mailbox. */
+/**
+ * Where Gmail shows one email in the connected mailbox, and with conversation
+ * view on, the conversation it is in. Given an email's id, never a
+ * conversation's: that is its first email's, which is what Gmail opens with
+ * conversation view off.
+ */
 export function conversationLink(id: string, mailboxAddress: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(id)}`;
 }
 
-/** A message's first lines, on one line, as long as a turn carries. */
+/** A message's first lines, on one line, as long as a turn carries: what it adds, the earlier email it quotes left out. */
 function excerptOf(message: GmailMessage): string {
-  return cutTo(oneLine(textOf(message.payload)), EXCERPT_LENGTH);
+  return cutTo(oneLine(withoutQuotedText(textOf(message.payload))), EXCERPT_LENGTH);
+}
+
+/**
+ * Where an earlier email quoted below a reply starts: a line of underscores
+ * (Outlook's separator), a `From:`/`Van:` header followed by its
+ * `Sent:`/`Verzonden:`, Gmail's own `On … wrote:` / `Op … schreef …:`, or a
+ * line starting `>`. Each holds in text still on its lines and in text already
+ * on one, but the `>` line, which only a line can start.
+ */
+const QUOTE_STARTS: readonly RegExp[] = [
+  /_{10,}/,
+  /\b(?:From|Van):[\s\S]{0,300}?\b(?:Sent|Verzonden):/,
+  /\bOn\s[\s\S]{1,200}?\swrote:/,
+  /\bOp\s[\s\S]{1,200}?\sschreef\s[\s\S]{0,100}?:/,
+  /^[ \t]*>/m,
+];
+
+/**
+ * A message's text up to where it quotes an earlier email (`QUOTE_STARTS`) -
+ * what the message itself adds. A message that is nothing but a quote is kept
+ * whole, so the row still says something.
+ */
+export function withoutQuotedText(text: string): string {
+  let at = text.length;
+  for (const start of QUOTE_STARTS) {
+    const found = start.exec(text);
+    if (found && found.index < at) at = found.index;
+  }
+  return text.slice(0, at).trim() || text;
 }
 
 export function oneLine(text: string): string {

@@ -1,4 +1,4 @@
-import { SourceError, type ConnectorHost, type DraftMade, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type ConnectorHost, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   Changed,
@@ -11,7 +11,7 @@ import {
   type OutlookConnectorConfig,
 } from './graph.js';
 import { conversationMessages, foldersOf, type Folders } from './conversations.js';
-import { TITLE_LENGTH, cutTo, oneLine } from './messages.js';
+import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, type MailTurn } from './messages.js';
 
 /**
  * *Email…* and *Reply…* ("Email… makes an Outlook draft the Item then follows",
@@ -75,25 +75,77 @@ async function latestIn(mailbox: Mailbox, conversationId: string): Promise<strin
 export function draftIn(answer: unknown): { id: string; conversationId: string; link: string } | null {
   const { id, conversationId, webLink } = (answer ?? {}) as { id?: unknown; conversationId?: unknown; webLink?: unknown };
   if (typeof id !== 'string' || !id || typeof conversationId !== 'string' || !conversationId) return null;
-  return {
-    id,
-    conversationId,
-    link: typeof webLink === 'string' && webLink ? webLink : `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(id)}`,
-  };
+  return { id, conversationId, link: linkOf(id, webLink) };
+}
+
+/**
+ * The calls one look for a draft may spend: a refresh, the draft, Deleted
+ * Items, and where the draft is no longer there Sent Items and a page or two
+ * of its conversation.
+ */
+const CALLS_PER_LOOK = 7;
+
+/** What a draft is read for, to tell it is still there unsent and where it opens. */
+const DRAFT_FIELDS = 'id,isDraft,parentFolderId,webLink';
+
+/**
+ * What became of a draft *Email…* made ("Conversation follow-up: Open,
+ * previews, drafts and Check now misbehave on real Gmail and Outlook
+ * mailboxes", issue 1720), told as the draft watch tells it (`checkDrafts`):
+ * still a draft outside Deleted Items, and where it opens; sent, its
+ * conversation holding a message in Sent Items since `after`; or null for one
+ * gone or in Deleted Items, which counts as deleted unsent.
+ */
+export async function findOutlookDraft(host: OnDemandHost, config: OutlookConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
+    const read = await mailbox.get(`messages/${encodeURIComponent(draft.draftId)}?$select=${DRAFT_FIELDS}`);
+    const deletedItems = deletedItemsIn(await mailbox.get('mailFolders/deleteditems?$select=id'));
+    if (!deletedItems) throw new SourceError('Outlook gave no Deleted Items folder for this mailbox');
+    const link = draftStillThere(read, deletedItems);
+    if (link !== null) return { draftLink: link };
+    const whole = await conversationMessages(mailbox, draft.conversationId, await foldersOf(mailbox, deletedItems));
+    return sentSince(whole, draft.after) ? { sent: true } : null;
+  } catch (error) {
+    throw inTheirWords(error, 'Outlook could not look for the draft');
+  }
+}
+
+/** The newest message of yours in a conversation after `after` - every one where `after` is null: what tells a draft sent from one deleted. */
+function sentSince(whole: readonly MailTurn[], after: string | null): MailTurn | undefined {
+  const since = after === null ? Number.NEGATIVE_INFINITY : Date.parse(after);
+  return whole.filter((one) => one.by === 'you' && Date.parse(one.at) > since).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+}
+
+/**
+ * Where a draft opens, read as `messages/{id}` answers it, while it is a draft
+ * outside Deleted Items - or null for one sent, or deleted unsent.
+ */
+export function draftStillThere(answer: unknown, deletedItems: string): string | null {
+  const { id, isDraft, parentFolderId, webLink } = (answer ?? {}) as Record<string, unknown>;
+  if (typeof id !== 'string' || !id || isDraft !== true || parentFolderId === deletedItems) return null;
+  return linkOf(id, webLink);
+}
+
+/** Where Outlook on the web opens a message: its `webLink`, else the deep link to its id. */
+function linkOf(id: string, webLink: unknown): string {
+  return typeof webLink === 'string' && webLink ? webLink : `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(id)}`;
 }
 
 /**
  * Why the draft was not made, in words for the person: what they can do about a
  * lost sign-in, and Outlook's status otherwise - never the request's address.
  */
-function inTheirWords(error: unknown): Error {
+function inTheirWords(error: unknown, otherwise = 'Outlook could not make the draft'): Error {
   if (error instanceof SignInLost) return new SourceError(error.message);
   if (error instanceof Refused) return new SourceError(`Outlook refused the draft (${error.status})`, error.status);
   if (error instanceof Changed) return new SourceError('Outlook could not make the draft this time. Try again in a moment.', error.status);
   if (error instanceof NotAnswering) return new SourceError('Outlook did not answer. Try again in a moment.', error.status);
   if (error instanceof OutOfCalls) return new SourceError('Outlook could not be asked this time. Try again in a moment.');
   if (error instanceof SourceError) return error;
-  return new SourceError('Outlook could not make the draft');
+  return new SourceError(otherwise);
 }
 
 /**
@@ -118,12 +170,8 @@ export async function checkDrafts(
       isDraft?: unknown;
       parentFolderId?: unknown;
     } | null;
-    if (read?.isDraft === true && read.parentFolderId !== deletedItems) continue;
-    const whole = await conversationMessages(mailbox, draft.conversationId, await foldersNow());
-    const since = draft.after === null ? Number.NEGATIVE_INFINITY : Date.parse(draft.after);
-    const sent = whole
-      .filter((one) => one.by === 'you' && Date.parse(one.at) > since)
-      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    if (draftStillThere(read, deletedItems) !== null) continue;
+    const sent = sentSince(await conversationMessages(mailbox, draft.conversationId, await foldersNow()), draft.after);
     if (sent) {
       await host.reportTurn({
         conversationId: sent.conversationId,
@@ -132,6 +180,7 @@ export async function checkDrafts(
         from: sent.from,
         at: sent.at,
         excerpt: sent.excerpt,
+        ...(sent.link ? { link: sent.link } : {}),
       });
     } else {
       await host.reportDraftGone({ conversationId: draft.conversationId, draftId: draft.draftId });

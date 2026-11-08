@@ -2848,7 +2848,7 @@ describe('Triage', () => {
     it('closes the tab, and says why beside the Item put back, where the draft was not made', async () => {
       const user = userEvent.setup();
       mockMakeADraft.mockRejectedValue(
-        new DraftRefused("Couldn't make the draft: Google no longer accepts the sign-in. Connect again.", 502),
+        new DraftRefused("Couldn't make the draft: Google no longer accepts the sign-in. Connect again.", 502, true),
       );
       aRow({ extra: { mailboxes: [WORK] } });
 
@@ -2860,15 +2860,23 @@ describe('Triage', () => {
       expect(screen.queryByText('Gmail · Draft started')).toBeNull();
     });
 
-    it('says why without claiming the Item is back where the request failed in a way that may have left it In progress', async () => {
+    it.each([
+      { situation: 'the request failed in a way that may have left it In progress', failure: new DraftRefused('Something went wrong', 500) },
+      // Nothing had changed, so nothing was put back (issue 1720).
+      {
+        situation: 'the mailbox would not say whether the draft started before is still there',
+        failure: new DraftRefused("Couldn't make the draft: Gmail did not answer. Try again in a moment.", 502, false),
+      },
+      { situation: 'the draft was refused before anything changed', failure: new DraftRefused('A LinkedIn conversation is answered in LinkedIn.', 400) },
+    ])('says why without claiming the Item is back where $situation', async ({ failure }) => {
       const user = userEvent.setup();
-      mockMakeADraft.mockRejectedValue(new DraftRefused('Something went wrong', 500));
+      mockMakeADraft.mockRejectedValue(failure);
       aRow({ extra: { mailboxes: [WORK] } });
 
       await user.click(screen.getByLabelText('Item actions'));
       await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
 
-      expect(await screen.findByText(/Something went wrong/)).toBeInTheDocument();
+      expect(await screen.findByText(new RegExp(failure.message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument();
       expect(screen.queryByText(/is back as it was/)).toBeNull();
     });
 

@@ -1,5 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
-import { makeOutlookDraft } from './drafts.js';
+import { findOutlookDraft, makeOutlookDraft } from './drafts.js';
 import { listOutlookSent } from './sent.js';
 import type { OutlookConnectorConfig } from './graph.js';
 import { outlookAccountFrom, outlookSignIn } from './sign-in.js';
@@ -57,6 +57,8 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
     mirrorOpenState: (host, wanted) => mirrorOpenStates(host, config, wanted),
 
     makeDraft: (host, wanted) => makeOutlookDraft(host, config, wanted),
+
+    findDraft: (host, draft) => findOutlookDraft(host, config, draft),
 
     listRecentSent: (host, limit) => listOutlookSent(host, config, limit),
 

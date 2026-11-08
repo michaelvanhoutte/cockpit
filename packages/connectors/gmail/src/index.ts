@@ -1,6 +1,6 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { refreshTokenToRevoke } from './credential.js';
-import { makeGmailDraft } from './drafts.js';
+import { findGmailDraft, makeGmailDraft } from './drafts.js';
 import { listGmailSent } from './sent.js';
 import { endpointsOf, type GmailConnectorConfig } from './mailbox.js';
 import { gmailAccountFrom, gmailSignIn } from './sign-in.js';
@@ -62,6 +62,8 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
     mirrorOpenState: (host, wanted) => mirrorOpenStates(host, config, wanted),
 
     makeDraft: (host, wanted) => makeGmailDraft(host, config, wanted),
+
+    findDraft: (host, draft) => findGmailDraft(host, config, draft),
 
     listRecentSent: (host, limit) => listGmailSent(host, config, limit),
 

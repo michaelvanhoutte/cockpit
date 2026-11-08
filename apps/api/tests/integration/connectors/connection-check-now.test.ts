@@ -110,12 +110,12 @@ async function checkNow(id: string, workspaceId = WORKSPACE_ID) {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/connections/${id}/check-now`, {
     method: 'POST',
   });
-  return { status: res.status, body: res.status === 200 ? ((await res.json()) as { status: string }) : null };
+  return { status: res.status, body: res.status === 200 ? ((await res.json()) as { status: string; at: string }) : null };
 }
 
-async function historyOf(id: string): Promise<{ reason: string; count: number; outcome: string }[]> {
+async function historyOf(id: string): Promise<{ reason: string; count: number; outcome: string; lastAt: string }[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${id}/history`);
-  return ((await res.json()) as { lines: { reason: string; count: number; outcome: string }[] }).lines;
+  return ((await res.json()) as { lines: { reason: string; count: number; outcome: string; lastAt: string }[] }).lines;
 }
 
 const pulledRow = (id: string) =>
@@ -157,7 +157,8 @@ describe('Connector management', () => {
       const id = await connectedAndChecked();
       expect(Date.parse((await pulledRow(id)).due_at)).toBeGreaterThan(Date.now() + 3 * 60_000);
 
-      expect(await checkNow(id)).toEqual({ status: 200, body: { status: 'queued' } });
+      const pressed = await checkNow(id);
+      expect(pressed).toEqual({ status: 200, body: { status: 'queued', at: expect.any(String) } });
       // Due now, and the alarm armed for it: a check is queued without the test firing anything.
       await waitForQueued(1);
       expect((await pulledRow(id)).check_reason).toBe('check-now');
@@ -167,17 +168,21 @@ describe('Connector management', () => {
         expect.objectContaining({ reason: 'check-now', count: 1 }),
         expect.objectContaining({ reason: 'scheduled', count: 1 }),
       ]);
+      // Last run at or after the press, which is what ends the note at the press (issue 1720).
+      expect((await historyOf(id))[0]!.lastAt >= pressed.body!.at).toBe(true);
     });
 
     it('a connection with a check queued queues nothing more, and that check takes the label', async () => {
       const id = await connect();
       await waitForQueued(1);
 
-      expect(await checkNow(id)).toEqual({ status: 200, body: { status: 'already queued' } });
+      const pressed = await checkNow(id);
+      expect(pressed).toEqual({ status: 200, body: { status: 'already queued', at: expect.any(String) } });
       expect(queuedChecks()).toHaveLength(1);
       await queuedChecksRun();
 
       expect(await historyOf(id)).toEqual([expect.objectContaining({ reason: 'check-now', count: 1 })]);
+      expect((await historyOf(id))[0]!.lastAt >= pressed.body!.at).toBe(true);
     });
 
     it('a connection whose check is running queues nothing, and that check keeps its own label', async () => {
@@ -191,8 +196,10 @@ describe('Connector management', () => {
       await waitForQueued(1);
       await queuedChecksRun();
 
-      expect(pressed).toEqual({ status: 200, body: { status: 'running' } });
+      expect(pressed).toEqual({ status: 200, body: { status: 'running', at: expect.any(String) } });
       expect(await historyOf(id)).toEqual([expect.objectContaining({ reason: 'scheduled' })]);
+      // The run under way is the check the press waits on, and it ended after the press.
+      expect((await historyOf(id))[0]!.lastAt >= pressed!.body!.at).toBe(true);
       expect(queuedChecks()).toHaveLength(0);
       expect((await pulledRow(id)).check_reason).toBeNull();
     });

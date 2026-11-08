@@ -41,9 +41,11 @@ export async function makeTheDraft(
     tab?.close();
     await queryClient?.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
     const why = failure instanceof Error ? failure.message : "Couldn't make the draft";
-    // Refused, or the source would not: the Item has its status back. Anything
-    // else may have stopped after the click was logged, leaving it In progress.
-    const putBack = failure instanceof DraftRefused && (failure.status < 500 || failure.status === 502);
+    // Said back as it was only where the server put it back: the source would
+    // not make the draft after the click was logged. A refusal changed nothing,
+    // and anything else may have stopped after the click was logged, leaving it
+    // In progress (issue 1720).
+    const putBack = failure instanceof DraftRefused && failure.putBack;
     return putBack ? `“${label}” is back as it was. ${why}` : `“${label}”: ${why}`;
   }
 }

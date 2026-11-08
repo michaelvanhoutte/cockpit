@@ -247,3 +247,24 @@ export function olderDaysNote(olderRemain: boolean, now: Date): string | null {
   const date = dateInFullLabel(keptFrom, keptFrom.getFullYear() !== now.getFullYear());
   return `Older days follow, back to ${date}`;
 }
+
+/** A *Check now* the server took, until the check it left ends: whose, and when it was pressed on the server's clock. */
+export interface CheckAsked {
+  sourceAccountId: string;
+  name: string;
+  since: string;
+}
+
+/**
+ * What the note at *Check now* says once the check it asked for has ended -
+ * the first history line last run at or after the press - or null while none
+ * has ("Conversation follow-up: Open, previews, drafts and Check now misbehave
+ * on real Gmail and Outlook mailboxes", issue 1720): *Checked just now*, or why
+ * it failed. A check already running at the press is the one that ends it.
+ */
+export function checkEndedNote(lines: readonly ConnectionHistoryLine[], asked: CheckAsked): { ok: boolean; text: string } | null {
+  const ended = lines.find((line) => line.lastAt >= asked.since);
+  if (!ended) return null;
+  if (ended.outcome === 'worked') return { ok: true, text: `Checked ${asked.name} just now.` };
+  return { ok: false, text: `Checking ${asked.name} failed${ended.message ? `: ${ended.message}` : '.'}` };
+}

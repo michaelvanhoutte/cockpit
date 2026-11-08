@@ -442,7 +442,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Awaitable<Answer<CheckedNow>>;
+  ): Awaitable<Answer<{ status: CheckedNow; at: string }>>;
   /**
    * The calls a run of one pulled connection's check makes, each naming the
    * run so the store can refuse one that no longer holds its connection
@@ -494,7 +494,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   wantDraft(
     accountName: string,
-    ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick,
+    ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick,
   ): Awaitable<Answer<DraftWantedAnswer>>;
   recordDraft(
     accountName: string,

@@ -7,7 +7,7 @@ import {
   type GmailConnectorConfig,
   type Mailbox,
 } from './mailbox.js';
-import { latestSentSince } from './drafts.js';
+import { draftStillThere, latestSentSince } from './drafts.js';
 import { LINKEDIN_PREFIX, NOTIFICATION_SEARCH, linkedInConversationOf, linkedInNotificationIn } from './linkedin.js';
 import {
   STARRED,
@@ -15,6 +15,7 @@ import {
   addedWhere,
   cockpitLabelIn,
   conversationFrom,
+  conversationLink,
   conversationPage,
   conversationReadOf,
   emailHistoryPage,
@@ -472,7 +473,8 @@ class Reading {
    */
   async #reportTurn(messageId: string, conversationId: string): Promise<void> {
     const turn = turnFrom(await this.mailbox.get(`messages/${encodeURIComponent(messageId)}?format=full`));
-    if (turn) await this.host.reportTurn({ conversationId, messageId, ...turn });
+    // The conversation's link moves to the newest message, which Open then shows (issue 1720).
+    if (turn) await this.host.reportTurn({ conversationId, messageId, ...turn, link: conversationLink(messageId, await this.#address()) });
   }
 
   /**
@@ -595,7 +597,8 @@ class Reading {
    */
   async #checkDrafts(): Promise<void> {
     for (const draft of await this.host.draftsWaiting()) {
-      if ((await this.mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`)) !== null) continue;
+      // A draft in the bin is deleted unsent, though Gmail keeps it until the bin is emptied (issue 1720).
+      if (draftStillThere(await this.mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`)) !== null) continue;
       const thread = await this.mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
       const sent = thread === null ? null : latestSentSince(thread, draft.after);
       if (sent !== null) await this.#reportTurn(sent, draft.conversationId);

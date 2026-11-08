@@ -10,7 +10,7 @@ import {
   SignInLost,
   type OutlookConnectorConfig,
 } from './graph.js';
-import { NO_SUBJECT, TITLE_LENGTH, cutTo, oneLine } from './messages.js';
+import { NO_SUBJECT, TITLE_LENGTH, cutTo, oneLine, withoutQuotedText } from './messages.js';
 
 /**
  * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710): the
@@ -62,7 +62,7 @@ export function sentEmailsIn(answer: unknown, limit: number): SentEmail[] {
         typeof message.webLink === 'string' && message.webLink
           ? message.webLink
           : `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(String(message.id ?? ''))}`,
-      excerpt: cutTo(oneLine(typeof message.bodyPreview === 'string' ? message.bodyPreview : ''), EXCERPT_LENGTH),
+      excerpt: cutTo(oneLine(withoutQuotedText(typeof message.bodyPreview === 'string' ? message.bodyPreview : '')), EXCERPT_LENGTH),
     });
   }
   // Newest first, then the newest of each conversation: one written in four times is listed once.

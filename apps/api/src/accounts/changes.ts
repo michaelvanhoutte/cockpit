@@ -187,6 +187,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_ADDITIONS,
     ITEM_CONVERSATIONS,
     ITEM_CONVERSATIONS_STOPPED,
+    ITEM_CONVERSATIONS_DRAFT_LINK,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1639,6 +1640,24 @@ const ITEM_CONVERSATIONS_STOPPED: Change = {
       sql: `ALTER TABLE \`item_conversations\` ADD COLUMN \`stopped_at\` text ${timestampCheck('item_conversations', 'stopped_at')}`,
     },
   ],
+};
+
+/**
+ * Where the draft an Item waits on opens (`item_conversations.draft_link`,
+ * whose meaning `schema.ts` gives): a nullable column added, nothing else.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which links the conversation - what every row did.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so Open goes to the conversation again while a draft is unsent; the
+ *   column's values stay, and a draft recorded meanwhile keeps a link that a
+ *   later release still reads.
+ */
+const ITEM_CONVERSATIONS_DRAFT_LINK: Change = {
+  name: '0102-item-conversations-draft-link',
+  statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `draft_link` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

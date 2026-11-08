@@ -241,6 +241,37 @@ export function plainTextOf(html: string): string {
     .trim();
 }
 
+/**
+ * Where an earlier email quoted below a reply starts: a line of underscores
+ * (Outlook's separator), a `From:`/`Van:` header followed by its
+ * `Sent:`/`Verzonden:`, Gmail's `On … wrote:` / `Op … schreef …:`, or a line
+ * starting `>`. Each holds in text already on one line, as Graph's
+ * `bodyPreview` is, but the `>` line, which only a line can start.
+ */
+const QUOTE_STARTS: readonly RegExp[] = [
+  /_{10,}/,
+  /\b(?:From|Van):[\s\S]{0,300}?\b(?:Sent|Verzonden):/,
+  /\bOn\s[\s\S]{1,200}?\swrote:/,
+  /\bOp\s[\s\S]{1,200}?\sschreef\s[\s\S]{0,100}?:/,
+  /^[ \t]*>/m,
+];
+
+/**
+ * A message's text up to where it quotes an earlier email (`QUOTE_STARTS`) -
+ * what the message itself adds, as its excerpt shows it ("Conversation
+ * follow-up: Open, previews, drafts and Check now misbehave on real Gmail and
+ * Outlook mailboxes", issue 1720). A message that is nothing but a quote is
+ * kept whole, so the row still says something.
+ */
+export function withoutQuotedText(text: string): string {
+  let at = text.length;
+  for (const start of QUOTE_STARTS) {
+    const found = start.exec(text);
+    if (found && found.index < at) at = found.index;
+  }
+  return text.slice(0, at).trim() || text;
+}
+
 export function oneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim();
 }
@@ -308,7 +339,7 @@ export function turnPage(
       by: inSent ? 'you' : 'them',
       from: senderIn(one.from),
       at: new Date(at).toISOString(),
-      excerpt: cutTo(oneLine(typeof one.bodyPreview === 'string' ? one.bodyPreview : ''), 280),
+      excerpt: cutTo(oneLine(withoutQuotedText(typeof one.bodyPreview === 'string' ? one.bodyPreview : '')), 280),
       link: typeof one.webLink === 'string' && one.webLink ? one.webLink : null,
     });
   }

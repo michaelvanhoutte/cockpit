@@ -1729,6 +1729,14 @@ export const itemConversations = sqliteTable(
     draftId: text('draft_id'),
     statusBeforeDraft: text('status_before_draft'),
     /**
+     * Where the draft waited on opens, set with `draft_id` and cleared with it
+     * ("Conversation follow-up: Open, previews, drafts and Check now misbehave
+     * on real Gmail and Outlook mailboxes", issue 1720): what Open goes to
+     * while the draft is unsent. Null on a row recorded before it, which links
+     * the conversation.
+     */
+    draftLink: text('draft_link'),
+    /**
      * When the Item stopped following it, or null while it follows: reopened in
      * Cockpit while no message in the conversation carried the mark, which the
      * source was not asked to put back. Cleared by the conversation followed again.

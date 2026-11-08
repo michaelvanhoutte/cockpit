@@ -2653,13 +2653,17 @@ export function runCommand<N extends CommandName>(
         db.transaction((tx) => {
           const stoodIn = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(standIn).get();
           const followed = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(atConnection(cmd.conversationId)).get();
+          // The draft's link kept beside it, which Open goes to while it is unsent (issue 1720).
           if (stoodIn && !followed) {
             tx.update(itemConversations)
-              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id })
+              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id, draftLink: draft.link })
               .where(standIn)
               .run();
           } else if (followed) {
-            tx.update(itemConversations).set({ draftId: draft.id, stoppedAt: null }).where(atConnection(cmd.conversationId)).run();
+            tx.update(itemConversations)
+              .set({ draftId: draft.id, draftLink: draft.link, stoppedAt: null })
+              .where(atConnection(cmd.conversationId))
+              .run();
           } else {
             // The row that stood in is gone - another click on Email… took it
             // over meanwhile - so this draft's conversation gets one of its own.
@@ -2672,6 +2676,7 @@ export function runCommand<N extends CommandName>(
                 conversationId: cmd.conversationId,
                 ...standing,
                 draftId: draft.id,
+                draftLink: draft.link,
                 statusBeforeDraft: statusBeforeDraftOf(existing, true),
               })
               .run();
@@ -2779,9 +2784,12 @@ export function runCommand<N extends CommandName>(
               messageCount: opening ? 1 : followed.messageCount + 1,
               ...(opening ? { startedAt: cmd.at } : {}),
               ...(cmd.by === 'them' && cmd.from ? { withWhom: cmd.from } : {}),
+              // Open goes to the newest message, where the source says where it is (issue 1720).
+              ...(cmd.link ? { link: cmd.link } : {}),
               // A message in it ends the wait on a draft (issue 1708): yours is
               // the draft sent, and theirs sets the status the draft would put back.
               draftId: null,
+              draftLink: null,
               statusBeforeDraft: null,
             })
             .where(where)
@@ -2834,7 +2842,7 @@ export function runCommand<N extends CommandName>(
           .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
           .run();
         if (cmd.replyIn !== null) {
-          tx.update(itemConversations).set({ statusBeforeDraft: before, draftId: null }).where(row(cmd.replyIn)).run();
+          tx.update(itemConversations).set({ statusBeforeDraft: before, draftId: null, draftLink: null }).where(row(cmd.replyIn)).run();
         } else {
           const standIn = {
             conversationId: `${DRAFT_STARTING_PREFIX}${cmd.commandId}`,
@@ -2847,6 +2855,7 @@ export function runCommand<N extends CommandName>(
             startedAt: cmd.issuedAt,
             withWhom: null,
             draftId: null,
+            draftLink: null,
             statusBeforeDraft: before,
             stoppedAt: null,
           };
@@ -2898,7 +2907,7 @@ export function runCommand<N extends CommandName>(
             .run();
         }
         if (before.opened) tx.delete(itemConversations).where(where).run();
-        else tx.update(itemConversations).set({ draftId: null, statusBeforeDraft: null }).where(where).run();
+        else tx.update(itemConversations).set({ draftId: null, draftLink: null, statusBeforeDraft: null }).where(where).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

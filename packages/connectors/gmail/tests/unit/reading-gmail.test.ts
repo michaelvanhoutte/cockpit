@@ -79,6 +79,7 @@ describe('Capture', () => {
           }),
         ]),
         becomes: { title: 'Re: Contract', text: 'Signed version', sentAt: '2026-10-02T08:00:00.000Z' },
+        opens: 'm2',
       },
       {
         situation: 'no subject',
@@ -99,11 +100,12 @@ describe('Capture', () => {
         ]),
         becomes: { title: 'Garbled', text: 'Garbled' },
       },
-    ])('$situation', ({ thread, becomes }) => {
+    ])('$situation', ({ thread, becomes, opens = 'm1' }: { thread: ReturnType<typeof threadAnswer>; becomes: object; opens?: string }) => {
       const conversation = conversationFrom(thread, COCKPIT_LABEL_ID, address);
 
       expect(conversation).toMatchObject({ threadId: thread.id, ...becomes });
-      expect(conversation!.link).toBe(`https://mail.google.com/mail/?authuser=anna%40example.com#all/${thread.id}`);
+      // The email read, not the conversation, whose id is its first email's (issue 1720).
+      expect(conversation!.link).toBe(`https://mail.google.com/mail/?authuser=anna%40example.com#all/${opens}`);
     });
   });
 });
@@ -284,6 +286,61 @@ describe('Capture', () => {
       thread.messages[0]!.labelIds = ['SENT'];
 
       expect(conversationReadOf(thread, 'anna@example.com')?.withWhom).toBe(withWhom);
+    });
+  });
+
+  describe('Open on a followed conversation shows its latest email, not its first', () => {
+    it('links the latest of three emails, whose conversation’s id is its first’s', () => {
+      // Gmail gives a conversation its first email's id, which with conversation view off opens that email (issue 1720).
+      const thread = threadAnswer('m1', [
+        message('m1', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', plain: 'Dinner?' }),
+        message('m1', { id: 'm2', sentAt: '2026-10-02T08:00:00Z', plain: 'Thursday?' }),
+        message('m1', { id: 'm3', sentAt: '2026-10-03T08:00:00Z', plain: 'Thursday it is.' }),
+      ]);
+
+      expect(conversationReadOf(thread, 'anna@example.com')?.link).toBe('https://mail.google.com/mail/?authuser=anna%40example.com#all/m3');
+    });
+  });
+
+  describe('a followed conversation’s preview shows what its latest email adds, not the earlier email it quotes', () => {
+    const latestOf = (plain: string) =>
+      conversationReadOf(threadAnswer('t', [message('t', { id: 'm1', sentAt: '2026-10-01T08:00:00Z', plain })]), 'anna@example.com')!.latest.excerpt;
+
+    it.each([
+      {
+        situation: 'Outlook’s separator and Dutch header, as a production reply carried it',
+        plain:
+          'Ja, ik ben thuis.\r\n\r\n________________________________\r\nVan: Michael Vanhoutte <michael@example.com>\r\nVerzonden: zondag 8 november 2026 17:53\r\nAan: Anna <anna@example.com>\r\nOnderwerp: Re: test2\r\n\r\nik kan morgen',
+        keeps: 'Ja, ik ben thuis.',
+      },
+      {
+        situation: 'an English From and Sent header with no separator',
+        plain: 'Friday works.\r\nFrom: Steven Noels <steven@example.com>\r\nSent: Monday, 2 November 2026 09:00\r\nTo: Anna\r\nSubject: Dinner\r\n\r\nThursday?',
+        keeps: 'Friday works.',
+      },
+      {
+        situation: 'Gmail’s Dutch reply line',
+        plain: 'Prima.\r\n\r\nOp zo 8 nov 2026 om 17:53 schreef Michael Vanhoutte <michael@example.com>:\r\n> ik kan morgen',
+        keeps: 'Prima.',
+      },
+      {
+        situation: 'Gmail’s English reply line, wrapped over two lines',
+        plain: 'Sounds good.\r\n\r\nOn Sun, 8 Nov 2026 at 17:53, Michael Vanhoutte\r\n<michael@example.com> wrote:\r\n> Tomorrow?',
+        keeps: 'Sounds good.',
+      },
+      { situation: 'quoted lines alone', plain: 'Agreed.\r\n> Shall we say Friday?\r\n> Anna', keeps: 'Agreed.' },
+      {
+        situation: 'nothing but a quote, which is kept rather than left empty',
+        plain: '> Shall we say Friday?',
+        keeps: '> Shall we say Friday?',
+      },
+      {
+        situation: 'a From: in the message’s own words, with no Sent after it',
+        plain: 'From: the desk of Anna. Thursday is fine.',
+        keeps: 'From: the desk of Anna. Thursday is fine.',
+      },
+    ])('$situation', ({ plain, keeps }) => {
+      expect(latestOf(plain)).toBe(keeps);
     });
   });
 

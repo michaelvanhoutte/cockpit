@@ -105,8 +105,12 @@ export class GmailWorld {
     const readDraft = /^drafts\/([^/]+)$/.exec(path);
     if (readDraft) {
       const draft = this.#drafts.get(decodeURIComponent(readDraft[1]!));
-      const held = draft && this.#threads.some((thread) => thread.messages.some((one) => one.id === draft.messageId && one.labelIds.includes('DRAFT')));
-      return held ? json({ id: decodeURIComponent(readDraft[1]!), message: { id: draft.messageId, threadId: draft.threadId } }) : json({ error: { code: 404 } }, 404);
+      const held =
+        draft && this.#threads.flatMap((thread) => thread.messages).find((one) => one.id === draft.messageId && one.labelIds.includes('DRAFT'));
+      // As Gmail answers it, a draft in the bin keeps the Bin's label on its message.
+      return held
+        ? json({ id: decodeURIComponent(readDraft[1]!), message: { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds } })
+        : json({ error: { code: 404 } }, 404);
     }
     const readEmail = /^messages\/([^/]+)$/.exec(path);
     if (readEmail) {
@@ -214,6 +218,11 @@ export class GmailWorld {
   /** A draft deleted from Gmail unsent, by the draft's id. */
   deletesTheDraft(draftId: string): void {
     this.deleteEmail(this.#drafts.get(draftId)!.messageId);
+  }
+
+  /** A draft moved to the bin unsent, by the draft's id: Gmail keeps it, labelled Bin, until the bin is emptied. */
+  binsTheDraft(draftId: string): void {
+    this.binEmail(this.#drafts.get(draftId)!.messageId);
   }
 
   #makeDraft(body: { message: { raw: string; threadId?: string } }): Response {

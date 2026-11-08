@@ -1,4 +1,4 @@
-import { SourceError, type DraftMade, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   ChangeRefused,
@@ -59,7 +59,9 @@ export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorC
       draftId: made.id,
       conversationId: made.threadId,
       draftLink: draftLink(made.messageId, address),
-      conversationLink: conversationLink(made.threadId, address),
+      // The message replied to, or the draft itself where it starts the
+      // conversation: never the conversation's id, which is its first message's.
+      conversationLink: conversationLink(reply?.latestId ?? made.messageId, address),
     };
   } catch (error) {
     throw inTheirWords(error);
@@ -80,6 +82,8 @@ interface ReplyTo {
   to: string | null;
   inReplyTo: string | null;
   references: string | null;
+  /** Gmail's id of the message replied to, which the conversation's link names until the draft is sent. */
+  latestId?: string;
 }
 
 /**
@@ -108,6 +112,7 @@ export function replyToLatestIn(answer: unknown): ReplyTo | null {
     to,
     inReplyTo: messageId,
     references: messageId ? [references, messageId].filter(Boolean).join(' ') : references,
+    ...(typeof latest.id === 'string' && latest.id ? { latestId: latest.id } : {}),
   };
 }
 
@@ -174,22 +179,69 @@ export function draftIn(answer: unknown): { id: string; messageId: string; threa
   return { id, messageId: message.id, threadId: message.threadId };
 }
 
-/** Where Gmail opens a draft for writing, in the connected mailbox. */
+/**
+ * Where Gmail opens a draft, in the connected mailbox: the Drafts folder with
+ * the draft's message open. `#drafts?compose=` takes Gmail's own token for a
+ * draft rather than the API's message id, and opens a blank message given the
+ * id. Only a real mailbox proves Gmail opens this one (issue 1720).
+ */
 export function draftLink(messageId: string, mailboxAddress: string): string {
-  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts?compose=${encodeURIComponent(messageId)}`;
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts/${encodeURIComponent(messageId)}`;
+}
+
+/**
+ * The calls one look for a draft may spend: a refresh, the draft, the mailbox's
+ * address where no run has saved it yet, and the conversation where the draft
+ * is no longer there.
+ */
+const CALLS_PER_LOOK = 4;
+
+/**
+ * What became of a draft *Email…* made (issue 1720), told as the draft watch
+ * tells it (`#checkDrafts`, sync.ts): still there unsent, and where it opens;
+ * sent, its conversation holding a message sent from this mailbox since
+ * `after`; or null for one Gmail no longer has, or has in the bin - which
+ * counts as deleted unsent (`draftStillThere`).
+ */
+export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
+    const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`);
+    const messageId = draftStillThere(answer);
+    if (messageId !== null) return { draftLink: draftLink(messageId, await addressOf(host, mailbox)) };
+    const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
+    return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not look for the draft');
+  }
+}
+
+/**
+ * The id of a draft's message as `users.drafts.get` answers it, while it is a
+ * draft outside the bin - or null for one gone (a 404, read as null), or in
+ * the bin, which Gmail keeps until the bin is emptied and which counts as
+ * deleted unsent.
+ */
+export function draftStillThere(answer: unknown): string | null {
+  const message = (answer as { message?: { id?: unknown; labelIds?: unknown } } | null)?.message;
+  if (typeof message?.id !== 'string' || !message.id) return null;
+  const labels = Array.isArray(message.labelIds) ? (message.labelIds as unknown[]) : [];
+  return labels.includes('TRASH') ? null : message.id;
 }
 
 /**
  * Why the draft was not made, in words for the person: what they can do about a
  * lost sign-in, and Gmail's status otherwise - never the request's address.
  */
-function inTheirWords(error: unknown): Error {
+function inTheirWords(error: unknown, otherwise = 'Gmail could not make the draft'): Error {
   if (error instanceof SignInLost) return new SourceError(error.message);
   if (error instanceof ChangeRefused) return new SourceError(`Gmail refused the draft (${error.status})`, error.status);
   if (error instanceof NotAnswering) return new SourceError('Gmail did not answer. Try again in a moment.', error.status);
   if (error instanceof OutOfCalls) return new SourceError('Gmail could not be asked this time. Try again in a moment.');
   if (error instanceof SourceError) return error;
-  return new SourceError('Gmail could not make the draft');
+  return new SourceError(otherwise);
 }
 
 /**

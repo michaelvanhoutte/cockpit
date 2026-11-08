@@ -161,7 +161,7 @@ import {
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
-import { draftAskedSchema, draftMadeSchema } from '@cockpit/shared/draft';
+import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
@@ -831,12 +831,13 @@ const draftRoute = createRoute({
       content: { 'application/json': { schema: errorSchema } },
     },
     409: {
-      description: 'This click’s draft was not made before',
+      description: 'This click’s draft was not made before, or the draft started before was sent since the last check, which is asked for',
       content: { 'application/json': { schema: errorSchema } },
     },
     502: {
-      description: 'The source would not make the draft, and why: the Item has its status back',
-      content: { 'application/json': { schema: errorSchema } },
+      description:
+        'The source would not make the draft, or say whether the one started before is still there, and why: `putBack` says whether the Item has its status back',
+      content: { 'application/json': { schema: draftNotMadeSchema } },
     },
   },
 });
@@ -1523,7 +1524,7 @@ const routes = app
     } catch (error) {
       // The source's refusal, in its words: a 502, the fault being the source's
       // and not the request's. Everything else is `onError`'s.
-      if (error instanceof DraftNotMadeError) return c.json({ error: error.message }, 502);
+      if (error instanceof DraftNotMadeError) return c.json({ error: error.message, putBack: error.putBack }, 502);
       throw error;
     }
   })
@@ -1548,7 +1549,7 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     // Throws where it is not a live pulled connection of this Workspace,
     // which `onError` answers with the 404 every connection route gives.
-    return c.json({ status: await account.checkNow(workspaceId, sourceAccountId) }, 200);
+    return c.json(await account.checkNow(workspaceId, sourceAccountId), 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and

@@ -806,6 +806,13 @@ export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
   /** The days the connection gives an Item, or null where it gives none. */
   connectionDays: dueInDaysSchema.nullable(),
   /**
+   * Where the source shows this message, which the conversation then links in
+   * place of the one it had, as its latest ("Conversation follow-up: Open,
+   * previews, drafts and Check now misbehave on real Gmail and Outlook
+   * mailboxes", issue 1720). Absent: the link stays.
+   */
+  link: z.url().max(2_000).optional(),
+  /**
    * The conversation's latest message applied again, not a new one: sent as its
    * source reopens the Item, so it takes the status of whoever wrote last rather
    * than the one it had. Leaves where the conversation stands as it is.

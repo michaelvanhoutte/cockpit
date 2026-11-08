@@ -1244,10 +1244,14 @@ export function listConversationsInWorkspace(
   of: ItemsOfTheRead = 'every',
 ): Conversation[] {
   // A draft Email… made still unsent is said only where it is so (issue 1708),
-  // so a row without one reads as it did before.
+  // so a row without one reads as it did before; while it is, Open goes to the
+  // draft where its link is kept (issue 1720), a row from before it linking the
+  // conversation.
   return conversationsInWorkspace(db, tenantId, workspaceId, of)
     .all()
-    .map(({ statusBeforeDraft, ...conversation }) => (statusBeforeDraft === null ? conversation : { ...conversation, draftStarted: true }));
+    .map(({ statusBeforeDraft, draftLink, ...conversation }) =>
+      statusBeforeDraft === null ? conversation : { ...conversation, link: draftLink ?? conversation.link, draftStarted: true },
+    );
 }
 
 /** The statement `listConversationsInWorkspace` runs, apart, so its plan can be read (conversations-in-the-workspace-read.test.ts). */
@@ -1266,6 +1270,7 @@ export function conversationsInWorkspace(db: AccountDb, tenantId: string, worksp
       startedAt: itemConversations.startedAt,
       withWhom: itemConversations.withWhom,
       statusBeforeDraft: itemConversations.statusBeforeDraft,
+      draftLink: itemConversations.draftLink,
     })
     .from(items)
     .innerJoin(itemConversations, eq(itemConversations.itemId, items.id))

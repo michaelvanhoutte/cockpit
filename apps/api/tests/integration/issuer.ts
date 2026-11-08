@@ -328,18 +328,16 @@ function draftMade(body: string): Response {
   return Response.json({ id: `r-${n}`, message: { id: messageId, threadId, labelIds: ['DRAFT'] } });
 }
 
-/** `users.drafts.get`: the draft while its message is still a draft in the mailbox, else not found. */
+/** `users.drafts.get`: the draft while its message is still a draft in the mailbox, with its labels - the Bin's among them once binned - else not found. */
 function draftRead(id: string): Response {
   const draft = gmailDrafts.find((one) => one.id === id);
-  const held =
-    draft &&
-    mailbox.threads.some((thread) =>
-      ((thread.answer as { messages?: { id?: string; labelIds?: string[] }[] }).messages ?? []).some(
-        (message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT'),
-      ),
-    );
+  const held = draft
+    ? mailbox.threads
+        .flatMap((thread) => (thread.answer as { messages?: { id?: string; labelIds?: string[] }[] }).messages ?? [])
+        .find((message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT'))
+    : undefined;
   return held
-    ? Response.json({ id, message: { id: draft.messageId, threadId: draft.threadId, labelIds: ['DRAFT'] } })
+    ? Response.json({ id, message: { id: draft!.messageId, threadId: draft!.threadId, labelIds: held.labelIds } })
     : Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
 }
 

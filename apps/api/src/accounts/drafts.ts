@@ -1,10 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, workspaceIsDecided } from '@cockpit/shared';
-import type { DraftMade } from '@cockpit/connector-sdk';
+import type { DraftMade, DraftWaiting } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { DraftRefusedError, ItemNotFoundError, SourceAccountNotFoundError, runCommand } from './command-service.js';
 import { getItem, getSourceAccount } from './repo.js';
 import { commands, connectorAccounts, itemConversations, pulledConnections } from './schema.js';
+import { statusBeforeDraftIn } from '../domain/conversations.js';
 import { couldStillBeActedOn } from '../domain/duplicates.js';
 
 /**
@@ -22,29 +23,36 @@ import { couldStillBeActedOn } from '../domain/duplicates.js';
  * being asynchronous and every call here synchronous.
  */
 
-/** The ids one click's changes are logged under: its own, and the two derived from it. */
+/** The ids one click's changes are logged under: its own, and the three derived from it. */
 export interface DraftClick {
   clickId: string;
   recordedId: string;
   droppedId: string;
+  /** What a draft recorded before, found gone at the click, is dropped under (issue 1720). */
+  replacedId: string;
 }
 
-/** What `wantDraft` answers: the draft already made, a click that already failed, or what the Worker needs to make one. */
+/** What the Worker needs to ask the connection's source anything: its credential, sealed, and the connector's own state. */
+interface AskingTheSource {
+  connectorId: string;
+  externalAccountKey: string;
+  choice: string | null;
+  sealedCredential: string;
+  credentialNonce: string;
+  /** The connector's private state as its last check saved it, for it to read. */
+  state: unknown;
+}
+
+/**
+ * What `wantDraft` answers: the draft already made, a click that already
+ * failed, a draft recorded before for the Worker to look for at the source
+ * first (issue 1720), or what the Worker needs to make one.
+ */
 export type DraftWantedAnswer =
   | { status: 'recorded'; link: string }
   | { status: 'failed' }
-  | {
-      status: 'make';
-      connectorId: string;
-      externalAccountKey: string;
-      choice: string | null;
-      subject: string;
-      replyIn: string | null;
-      sealedCredential: string;
-      credentialNonce: string;
-      /** The connector's private state as its last check saved it, for it to read. */
-      state: unknown;
-    };
+  | ({ status: 'look'; draft: DraftWaiting } & AskingTheSource)
+  | ({ status: 'make'; subject: string; replyIn: string | null } & AskingTheSource);
 
 /** Refused: a LinkedIn conversation is answered in LinkedIn, which no mailbox reaches. */
 export const LINKEDIN_HAS_NO_DRAFT = 'A LinkedIn conversation is answered in LinkedIn.';
@@ -53,10 +61,24 @@ export const FOLLOWS_ELSEWHERE = 'This item already follows a conversation in an
 /** Refused: a draft made for this conversation is still unsent. */
 export const DRAFT_ALREADY_STARTED = 'A draft is already started in this conversation. Send or delete it first.';
 
+/**
+ * *Email…* or *Reply…* pressed: the draft this click made already, or what the
+ * Worker does next.
+ *
+ * **A draft recorded before and still waited on is looked for first** ("Conversation
+ * follow-up: Open, previews, drafts and Check now misbehave on real Gmail and
+ * Outlook mailboxes", issue 1720): answered `look`, changing nothing, for the
+ * Worker to ask the source what became of it. Still there, the Worker opens it
+ * and nothing changes; sent, the Worker asks for a check and nothing changes
+ * here either. Gone or in the bin, the Worker asks again with
+ * `replacing` naming it: that draft is dropped as deleted unsent, under the
+ * click's derived id, and a new one made as any click makes one - a second
+ * draft beside one still there would leave the first untracked.
+ */
 export function wantDraft(
   db: AccountDb,
   accountName: string,
-  ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick,
+  ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick,
   at: string,
 ): DraftWantedAnswer {
   const connection = getSourceAccount(db, accountName, ask.sourceAccountId);
@@ -71,30 +93,31 @@ export function wantDraft(
   if (recorded) return typeof recorded.draft?.link === 'string' ? { status: 'recorded', link: recorded.draft.link } : { status: 'failed' };
   if (loggedPayload(db, accountName, ask.droppedId)) return { status: 'failed' };
 
-  // Stopped ones too: the form still shows one and offers Reply… in it, and the
-  // draft recorded follows it again.
-  const followed = db
-    .select({
-      connectorId: itemConversations.connectorId,
-      externalAccountKey: itemConversations.externalAccountKey,
-      conversationId: itemConversations.conversationId,
-      draftId: itemConversations.draftId,
-      statusBeforeDraft: itemConversations.statusBeforeDraft,
-    })
-    .from(itemConversations)
-    .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, ask.itemId)))
-    .orderBy(desc(itemConversations.lastAt))
-    .all()
-    .filter((one) => !isDraftStarting(one));
-  if (followed.some((one) => isLinkedInConversation(one))) throw new DraftRefusedError(LINKEDIN_HAS_NO_DRAFT);
-  const here = followed.find(
-    (one) => one.connectorId === connection.connectorId && one.externalAccountKey === connection.externalAccountKey,
-  );
-  if (!here && followed.length > 0) throw new DraftRefusedError(FOLLOWS_ELSEWHERE);
-  // A recorded draft still waited on is the one to finish (not one whose wait a
-  // turn has ended since): a second would leave the first untracked, and one
-  // that started the conversation has nothing to reply to.
-  if (here && here.draftId !== null && here.statusBeforeDraft !== null) throw new DraftRefusedError(DRAFT_ALREADY_STARTED);
+  const place = { connectorId: connection.connectorId, externalAccountKey: connection.externalAccountKey };
+  let here = followedHere(db, accountName, ask.itemId, place);
+  // A recorded draft still waited on (not one whose wait a turn has ended since).
+  const waitedOn = (row: typeof here) => (row && row.draftId !== null && row.statusBeforeDraft !== null ? row.draftId : null);
+  const recordedDraft = waitedOn(here);
+  if (recordedDraft !== null && ask.replacing !== recordedDraft) {
+    // As the draft watch is handed it (`pulledDraftsWaiting`), so the source tells sent from gone the same way.
+    const draft = { conversationId: here!.conversationId, draftId: recordedDraft, after: statusBeforeDraftIn(here!.statusBeforeDraft)?.opened ? null : here!.lastAt };
+    return { status: 'look', draft, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
+  }
+  if (recordedDraft !== null) {
+    // Found gone at the source: deleted unsent, as a check finding it gone drops it.
+    runCommand(db, accountName, 'drop_draft', {
+      commandId: ask.replacedId,
+      issuedAt: at,
+      workspaceId: ask.workspaceId,
+      itemId: ask.itemId,
+      ...place,
+      conversationId: here!.conversationId,
+      draftId: recordedDraft,
+    });
+    here = followedHere(db, accountName, ask.itemId, place);
+    // Another draft recorded meanwhile is the one to finish.
+    if (waitedOn(here) !== null) throw new DraftRefusedError(DRAFT_ALREADY_STARTED);
+  }
   const replyIn = here?.conversationId ?? null;
 
   runCommand(db, accountName, 'start_draft', {
@@ -102,27 +125,60 @@ export function wantDraft(
     issuedAt: at,
     workspaceId: ask.workspaceId,
     itemId: ask.itemId,
-    connectorId: connection.connectorId,
-    externalAccountKey: connection.externalAccountKey,
+    ...place,
     replyIn,
   });
+  return { status: 'make', subject: item.title, replyIn, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
+}
+
+/**
+ * The conversation an Item follows at this connection, or none - refused where
+ * it follows a LinkedIn conversation or one another connection reads. Stopped
+ * ones too: the form still shows one and offers Reply… in it, and the draft
+ * recorded follows it again.
+ */
+function followedHere(db: AccountDb, accountName: string, itemId: string, at: { connectorId: string; externalAccountKey: string }) {
+  const followed = db
+    .select({
+      connectorId: itemConversations.connectorId,
+      externalAccountKey: itemConversations.externalAccountKey,
+      conversationId: itemConversations.conversationId,
+      draftId: itemConversations.draftId,
+      statusBeforeDraft: itemConversations.statusBeforeDraft,
+      lastAt: itemConversations.lastAt,
+    })
+    .from(itemConversations)
+    .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, itemId)))
+    .orderBy(desc(itemConversations.lastAt))
+    .all()
+    .filter((one) => !isDraftStarting(one));
+  if (followed.some((one) => isLinkedInConversation(one))) throw new DraftRefusedError(LINKEDIN_HAS_NO_DRAFT);
+  const here = followed.find((one) => one.connectorId === at.connectorId && one.externalAccountKey === at.externalAccountKey);
+  if (!here && followed.length > 0) throw new DraftRefusedError(FOLLOWS_ELSEWHERE);
+  return here;
+}
+
+/** The connection's sealed credential and its connector's state, which the Worker asks the source with. */
+function askingTheSource(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  connection: { connectorId: string; externalAccountKey: string; choice: string | null },
+): AskingTheSource {
   const sealed = db
     .select({ sealedCredential: connectorAccounts.encryptedCredential, credentialNonce: connectorAccounts.credentialNonce })
     .from(connectorAccounts)
-    .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, ask.sourceAccountId)))
+    .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
     .get()!;
   const state = db
     .select({ state: pulledConnections.state })
     .from(pulledConnections)
-    .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, ask.sourceAccountId)))
+    .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
     .get()?.state;
   return {
-    status: 'make',
     connectorId: connection.connectorId,
     externalAccountKey: connection.externalAccountKey,
     choice: connection.choice,
-    subject: item.title,
-    replyIn,
     ...sealed,
     state: state == null ? null : JSON.parse(state),
   };

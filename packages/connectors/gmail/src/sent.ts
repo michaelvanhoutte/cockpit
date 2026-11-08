@@ -9,7 +9,7 @@ import {
   SignInLost,
   type GmailConnectorConfig,
 } from './mailbox.js';
-import { EXCERPT_LENGTH, NO_SUBJECT, SENT, TITLE_LENGTH, conversationLink, cutTo, headerOf, oneLine, sentAt, type GmailMessage } from './messages.js';
+import { EXCERPT_LENGTH, NO_SUBJECT, SENT, TITLE_LENGTH, conversationLink, cutTo, headerOf, oneLine, sentAt, withoutQuotedText, type GmailMessage } from './messages.js';
 
 /**
  * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710): the
@@ -98,8 +98,9 @@ export function sentEmailIn(answer: unknown, mailboxAddress: string): SentEmail 
     subject,
     to,
     sentAt: new Date(at).toISOString(),
-    link: conversationLink(message.threadId, mailboxAddress),
-    excerpt: cutTo(oneLine(unescaped(typeof message.snippet === 'string' ? message.snippet : '')), EXCERPT_LENGTH),
+    // The email itself, the newest sent of its conversation, rather than the conversation's first.
+    link: conversationLink(message.id, mailboxAddress),
+    excerpt: cutTo(oneLine(withoutQuotedText(unescaped(typeof message.snippet === 'string' ? message.snippet : ''))), EXCERPT_LENGTH),
   };
 }
 
