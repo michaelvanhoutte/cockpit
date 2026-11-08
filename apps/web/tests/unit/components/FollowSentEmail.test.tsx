@@ -61,6 +61,7 @@ function theList(options: { decided?: boolean; panelIds?: string[] } = {}) {
 
 const rows = () => within(screen.getByRole('list')).getAllByRole('button');
 
+describe('Capture', () => {
 describe('Follow a sent email…', () => {
   beforeEach(() => {
     vi.mocked(fetchSentEmails).mockReset();
@@ -171,4 +172,5 @@ describe('Follow a sent email…', () => {
 
     expect(onBack).toHaveBeenCalledTimes(1);
   });
+});
 });
