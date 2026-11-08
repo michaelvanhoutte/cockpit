@@ -32,7 +32,7 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type SourceNames } from '../itemSource';
-import { conversationLine, conversationOpensAt, latestText, openLabel } from '../conversationLine';
+import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -1379,7 +1379,7 @@ export function ItemRow({
                     ("A Gmail starred conversation is one Item whose status
                     follows who wrote last", issue 1705). */}
                 <span className="truncate" title={latestText(conversation)}>
-                  {conversationLine(conversation, sourceNamed(sourceNames, conversation.source), Date.now())}
+                  {conversationLine(conversation, conversationSourceName(conversation, sourceNames), Date.now())}
                 </span>
                 {conversationAt && (
                   <a
@@ -1387,8 +1387,8 @@ export function ItemRow({
                     target="_blank"
                     rel="noopener noreferrer"
                     onContextMenu={(event) => event.stopPropagation()}
-                    title={openLabel(sourceNamed(sourceNames, conversation.source))}
-                    aria-label={openLabel(sourceNamed(sourceNames, conversation.source))}
+                    title={openLabel(conversation, conversationSourceName(conversation, sourceNames))}
+                    aria-label={openLabel(conversation, conversationSourceName(conversation, sourceNames))}
                     className="shrink-0 underline"
                   >
                     Open ↗

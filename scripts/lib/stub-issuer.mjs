@@ -111,6 +111,11 @@ export async function startStubIssuer({ port, seedPath }) {
    * takes `from=` for who sent it, `text=` for what it says, or `sent` for a
    * reply sent from this mailbox ("A Gmail starred conversation is one Item
    * whose status follows who wrote last", issue 1705).
+   * `POST /gmail-stub/linkedin?email=` delivers a LinkedIn message notification
+   * in a conversation of its own, as LinkedIn sends one: `name=` for who wrote,
+   * `text=` for what, `subject=`, `conversation=` for LinkedIn's thread id, and `starred`
+   * for one that arrives starred ("Follow the LinkedIn conversation instead of
+   * the notification", issue 1711). Reconstructed, not captured.
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
@@ -118,7 +123,7 @@ export async function startStubIssuer({ port, seedPath }) {
     const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
     const starring = action === 'star' || action === 'unstar';
     // Starring needs no label, as a mailbox followed by star needs none.
-    if (!cockpit && !starring) return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
+    if (!cockpit && !starring && action !== 'linkedin') return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
     mailbox.historyId += 1;
     const at = String(mailbox.historyId);
     const messageOf = (id, threadId, labelIds, subject, from, words) => ({
@@ -136,6 +141,33 @@ export async function startStubIssuer({ port, seedPath }) {
         body: { size: words.length, data: base64url(words) },
       },
     });
+    if (action === 'linkedin') {
+      const id = `linkedin-${at}`;
+      const name = url.searchParams.get('name') ?? 'Steven Noels';
+      const thread = url.searchParams.get('conversation') ?? '2-c3R1Yi10aHJlYWQtMQ==';
+      const text = url.searchParams.get('text') ?? 'Shall we have dinner on Thursday?';
+      const labelIds = ['INBOX', 'UNREAD', ...(url.searchParams.has('starred') ? ['STARRED'] : [])];
+      const notification = messageOf(
+        id,
+        id,
+        labelIds,
+        url.searchParams.get('subject') ?? `${name} sent you a message`,
+        `${name} via LinkedIn <messages-noreply@linkedin.com>`,
+        [
+          name,
+          '',
+          text,
+          '',
+          `View message: https://www.linkedin.com/comm/messaging/thread/${thread}/?trk=eml`,
+          '',
+          '---',
+          'You are receiving LinkedIn notification emails.',
+        ].join('\n'),
+      );
+      mailbox.threads.push({ id, historyId: at, messages: [notification] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId: id }], messagesAdded: [{ message: { id, threadId: id, labelIds } }] });
+      return json(response, { thread: id, message: id, historyId: at });
+    }
     const named = url.searchParams.get('thread');
     const emailId = url.searchParams.get('message');
     const removing = action === 'unlabel' || action === 'unstar';
@@ -292,7 +324,7 @@ export async function startStubIssuer({ port, seedPath }) {
     if (graph.handle(url, request, response, issuer)) return;
     if (verify.handle(url, request, response)) return;
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
-    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar)$/);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar|linkedin)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
     // What a walk reads back of a conversation Cockpit changed (issue 728):
     // whether it is labelled Cockpit now, or starred (issue 823), and every
@@ -477,6 +509,16 @@ export async function startStubIssuer({ port, seedPath }) {
         ...(from + size < after.length ? { nextPageToken: String(from + size) } : {}),
         historyId: String(mailbox.historyId),
       });
+    }
+    if (path === 'messages' && /^from:\S+$/.test(url.searchParams.get('q') ?? '')) {
+      // `users.messages.list` by sender, which finds a LinkedIn notification among the mail a page of history added.
+      const sender = url.searchParams.get('q').slice('from:'.length).toLowerCase();
+      const sentBy = mailbox.threads.flatMap((thread) =>
+        thread.messages
+          .filter((message) => JSON.stringify(message.payload.headers).toLowerCase().includes(`<${sender}>`) && !message.labelIds.includes('TRASH'))
+          .map((message) => ({ id: message.id, threadId: thread.id })),
+      );
+      return json(response, { messages: sentBy, resultSizeEstimate: sentBy.length });
     }
     if (path === 'messages') {
       // `users.messages.list`: the emails carrying a label, the bin left out as

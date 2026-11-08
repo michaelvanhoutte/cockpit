@@ -213,6 +213,17 @@ export class GmailWorld {
     this.#record({ added: email.id, threadId, labelIds: email.labelIds });
   }
 
+  /**
+   * An email arriving as it was built (`linkedin-notifications.ts`), in the
+   * conversation it names: a new one, or the existing one it joins.
+   */
+  receives(email: ReturnType<typeof message>): void {
+    const thread = this.#threads.find((one) => one.id === email.threadId);
+    if (thread) thread.messages.push(email);
+    else this.#threads.unshift({ id: email.threadId, messages: [email] });
+    this.#record({ added: email.id, threadId: email.threadId, labelIds: email.labelIds });
+  }
+
   /** One email starred, as a person does it in Gmail's list of messages: the others of its conversation are not. */
   star(emailId: string): void {
     this.#changeEmail(emailId, STARRED, true);
@@ -377,8 +388,22 @@ export class GmailWorld {
     return json(threadsPage(page, offset + size < all.length ? String(offset + size) : undefined));
   }
 
-  /** `messages.list` by label: the emails carrying it, newest first, the bin and spam left out as Gmail leaves them. */
+  /**
+   * `messages.list` by label, or by `q=from:<address>`: the emails carrying
+   * the label, or sent from the address, newest first, the bin and spam left out
+   * as Gmail leaves them.
+   */
   #listEmails(url: URL): Response {
+    const search = /^from:(\S+)$/.exec(url.searchParams.get('q') ?? '')?.[1];
+    if (search) {
+      const sentBy = this.#threads.flatMap((thread) =>
+        [...thread.messages]
+          .reverse()
+          .filter((one) => !one.labelIds.includes('TRASH') && JSON.stringify(one.payload.headers).toLowerCase().includes(`<${search.toLowerCase()}>`))
+          .map((one) => ({ id: one.id, threadId: thread.id })),
+      );
+      return json(messagesPage(sentBy.slice(0, Number(url.searchParams.get('maxResults')))));
+    }
     const markId = url.searchParams.get('labelIds')!;
     const size = Math.min(Number(url.searchParams.get('maxResults')), this.emailPageSize);
     const offset = Number(url.searchParams.get('pageToken') ?? 0);

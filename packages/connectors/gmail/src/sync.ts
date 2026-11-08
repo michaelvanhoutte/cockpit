@@ -7,9 +7,11 @@ import {
   type GmailConnectorConfig,
   type Mailbox,
 } from './mailbox.js';
+import { LINKEDIN_PREFIX, NOTIFICATION_SEARCH, linkedInConversationOf, linkedInNotificationIn } from './linkedin.js';
 import {
   STARRED,
   addedToFollowed,
+  addedWhere,
   cockpitLabelIn,
   conversationFrom,
   conversationPage,
@@ -440,6 +442,7 @@ class Reading {
       state.history.turns.push(added.id);
       this.#unsaved = true;
     }
+    await this.#reportLinkedInTurns(answer, followed);
     const page = emailHistoryPage(answer, markId, followed);
     for (const changes of page.conversations) {
       if (state.history.read.includes(changes.threadId)) continue;
@@ -466,6 +469,42 @@ class Reading {
   async #reportTurn(messageId: string, conversationId: string): Promise<void> {
     const turn = turnFrom(await this.mailbox.get(`messages/${encodeURIComponent(messageId)}?format=full`));
     if (turn) await this.host.reportTurn({ conversationId, messageId, ...turn });
+  }
+
+  /**
+   * The LinkedIn message notifications added on this page, reported as turns of
+   * the LinkedIn conversations open Items follow ("Follow the LinkedIn
+   * conversation instead of the notification", issue 1711). A notification
+   * arrives in a Gmail thread of its own, starred or not, so which conversation
+   * it is about is known only from its body.
+   *
+   * **Mail is read in full only if it is from LinkedIn's notification sender**,
+   * and only while an Item follows a LinkedIn conversation: Gmail's history
+   * names no sender, so one search for that sender's mail stands between a page
+   * of added messages and the few worth reading.
+   */
+  async #reportLinkedInTurns(answer: unknown, followed: ReadonlySet<string>): Promise<void> {
+    if (![...followed].some((id) => id.startsWith(LINKEDIN_PREFIX))) return;
+    const state = this.state;
+    const added = addedWhere(answer, () => true).filter((one) => !state.history.turns.includes(one.id));
+    if (added.length === 0) return;
+    const query = new URLSearchParams({ q: NOTIFICATION_SEARCH, maxResults: String(HISTORY_PAGE_SIZE) });
+    const notifications = new Set(emailPage(await this.mailbox.get(`messages?${query}`)).emails.map((email) => email.id));
+    for (const one of added) {
+      if (!notifications.has(one.id)) continue;
+      const notification = linkedInNotificationIn(
+        await this.mailbox.get(`messages/${encodeURIComponent(one.id)}?format=full`),
+      );
+      if (notification && followed.has(notification.conversationId)) {
+        await this.host.reportTurn({
+          conversationId: notification.conversationId,
+          messageId: one.id,
+          ...notification.turn,
+        });
+      }
+      state.history.turns.push(one.id);
+      this.#unsaved = true;
+    }
   }
 
   /**
@@ -515,7 +554,12 @@ class Reading {
     // Where things stand, from the read already made: the host takes it only
     // where it is new to the Item - messages a followed Item heard of as turns
     // change nothing, and ones it missed (while it was done) are caught up.
-    const read = conversationReadOf(full, address);
+    // A thread of LinkedIn message notifications is the LinkedIn conversation
+    // they are about (issue 1711); already followed by an open Item, a star on
+    // another notification of it adds to that Item rather than making another.
+    const linkedIn = linkedInConversationOf(full);
+    if (linkedIn && followed.has(linkedIn.id)) return;
+    const read = linkedIn ?? conversationReadOf(full, address);
     const filing = await this.host.emitItem({
       sourceId: threadId,
       sourceLink: conversation.link,
@@ -532,7 +576,7 @@ class Reading {
     }
     // Followed from here on where it now is, so a message added to it on a
     // later page of this run is read as a turn too.
-    if (read) this.#following?.add(threadId);
+    if (read) this.#following?.add(read.id);
   }
 
   /** Reports the names of a conversation read, whole; the host works out what is new. */

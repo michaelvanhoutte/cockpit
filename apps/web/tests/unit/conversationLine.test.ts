@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '@cockpit/shared';
-import { agoLabel, conversationCountLine, conversationLine, conversationOpensAt, latestText, openLabel } from '../../src/conversationLine';
+import {
+  agoLabel,
+  conversationCountLine,
+  conversationLine,
+  conversationOpensAt,
+  conversationSourceName,
+  latestText,
+  openLabel,
+} from '../../src/conversationLine';
 import { deviceIsIn, deviceSpeaks } from './support/timeZone';
 
 /**
@@ -81,9 +89,35 @@ describe('Triage', () => {
     });
 
     it('opens the latest email at its source, and only a web address', () => {
-      expect(openLabel('Gmail')).toBe('Open the latest email in Gmail');
+      expect(openLabel(aConversation(), 'Gmail')).toBe('Open the latest email in Gmail');
       expect(conversationOpensAt(aConversation())).toBe('https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1');
       expect(conversationOpensAt(aConversation({ link: 'javascript:alert(1)' }))).toBeNull();
+    });
+  });
+
+  describe('a LinkedIn conversation is known by its notifications only', () => {
+    const linkedIn = aConversation({
+      conversationId: 'linkedin:2-ZmFrZXRocmVhZA==',
+      link: 'https://www.linkedin.com/messaging/thread/2-ZmFrZXRocmVhZA==/',
+      messageCount: 1,
+      lastAt: minutesAgo(60 * 72),
+    });
+
+    it('names LinkedIn as the source, whatever connector brought the notification', () => {
+      const names = { gmail: 'Gmail' };
+      expect(conversationSourceName(linkedIn, names)).toBe('LinkedIn');
+      expect(conversationSourceName(aConversation(), names)).toBe('Gmail');
+      expect(conversationLine(linkedIn, conversationSourceName(linkedIn, names), NOW)).toBe('LinkedIn · Steven wrote 3 days ago');
+    });
+
+    it('opens the conversation in LinkedIn, not the latest email', () => {
+      expect(openLabel(linkedIn, 'LinkedIn')).toBe('Open the conversation in LinkedIn');
+      expect(conversationOpensAt(linkedIn)).toBe('https://www.linkedin.com/messaging/thread/2-ZmFrZXRocmVhZA==/');
+    });
+
+    it('gives no count of messages, only who it is with', () => {
+      expect(conversationCountLine({ ...linkedIn, messageCount: 4 }, NOW)).toBe('With Steven Noels');
+      expect(conversationCountLine({ ...linkedIn, withWhom: null }, NOW)).toBe('');
     });
   });
 });

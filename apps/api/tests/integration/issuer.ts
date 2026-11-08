@@ -440,6 +440,17 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
       resultSizeEstimate: labelled.length,
     });
   }
+  // `users.messages.list` by sender (`q=from:<address>`), which finds a
+  // LinkedIn notification among the mail a page of history added (issue 1711).
+  const sender = path === 'messages' ? /^from:(\S+)$/.exec(url.searchParams.get('q') ?? '')?.[1] : undefined;
+  if (sender) {
+    const sentBy = mailbox.threads.flatMap((one) =>
+      ((one.answer as { messages?: { id: string; payload?: { headers?: unknown } }[] }).messages ?? [])
+        .filter((message) => JSON.stringify(message.payload?.headers ?? []).toLowerCase().includes(`<${sender.toLowerCase()}>`))
+        .map((message) => ({ id: message.id, threadId: one.id })),
+    );
+    return Response.json({ messages: sentBy, resultSizeEstimate: sentBy.length });
+  }
   const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
   if (modified && init?.method === 'POST') {
     const change = JSON.parse(String(init.body)) as { addLabelIds?: string[]; removeLabelIds?: string[] };
