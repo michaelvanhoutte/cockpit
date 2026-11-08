@@ -17,7 +17,6 @@ import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   TITLE_LENGTH,
   additionsOf,
-  conversationOf,
   dayOf,
   daysOnFrom,
   itemHasOpenReadings,
@@ -29,7 +28,6 @@ import {
   type AttachmentContentType,
   type Item,
   type ItemFormPresentation,
-  type Mailbox,
   type ItemStatus,
   type Priority,
   filingsThatFile,
@@ -50,10 +48,6 @@ import { useItemPanels } from '../useItemPanels';
 import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
-import { ConversationSection } from './ConversationSection';
-import { EmailButton } from './EmailButton';
-import { draftBeingStarted, draftNotMadeLine, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
-import { conversationSourceName } from '../conversationLine';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -103,6 +97,8 @@ const KeepWhichNote = lazy(() => import('./KeepWhichNote').then((loaded) => ({ d
 
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
+/** The conversation an Item follows (issue 1706), with Reply…, or Email… where it follows none (issue 1708): fetched the first time a form opens. */
+const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((loaded) => ({ default: loaded.ItemFormConversation })));
 
 const DESCRIPTION_LIMIT = 60_000;
 
@@ -353,18 +349,6 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
-  const draftingAt = useDraftStarting(itemId);
-  const heldConversation = conversationOf(data?.conversations, itemId);
-  /** The conversation the section draws: *Draft started* from a click on *Email…* or *Reply…* on (issue 1708). */
-  const followed =
-    draftingAt && !heldConversation?.draftStarted ? draftBeingStarted(itemId, draftingAt, heldConversation) : heldConversation;
-  /** *Email…* or *Reply…*, where a mailbox of the Workspace can make the draft (issue 1708). */
-  const emailEntry = item && !item.completedAt ? emailEntryFor(heldConversation, data?.mailboxes, lastMailboxIn(workspaceId)) : null;
-  const emailWith = (mailbox: Mailbox) => {
-    void emailFromItem(queryClient, { workspaceId, itemId, mailbox }).then((answer) => {
-      if (!answer.made && item) offerToUndo({ what: draftNotMadeLine(itemLabel(item), answer) });
-    });
-  };
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -2207,24 +2191,18 @@ function TheForm({
 
                       {/* The conversation this Item follows, from the row the Workspace
                         read carries ("Show the conversation an Item follows in its
-                        form", issue 1706); none for an Item that follows none. */}
-                      {followed ? (
-                        <ConversationSection
-                          conversation={followed}
-                          sourceName={conversationSourceName(followed, data?.sourceNames)}
-                          now={Date.now()}
-                          // Reply… in a followed conversation, or Email… again on
-                          // one a click left starting, which only a new draft mends.
-                          reply={emailEntry && heldConversation && <EmailButton entry={emailEntry} onEmail={emailWith} />}
+                        form", issue 1706); none for an Item that follows none, which
+                        offers Email… there instead (issue 1708). */}
+                      <Suspense fallback={null}>
+                        <ItemFormConversation
+                          item={item}
+                          itemId={itemId}
+                          workspaceId={workspaceId}
+                          conversations={data?.conversations}
+                          mailboxes={data?.mailboxes}
+                          sourceNames={data?.sourceNames}
                         />
-                      ) : (
-                        // An Item following nothing offers Email… where the section would be (issue 1708).
-                        emailEntry && (
-                          <div className="flex justify-end">
-                            <EmailButton entry={emailEntry} onEmail={emailWith} />
-                          </div>
-                        )
-                      )}
+                      </Suspense>
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
                       <div>

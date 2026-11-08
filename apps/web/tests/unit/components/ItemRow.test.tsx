@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Conversation, type Item, type Mailbox } from '@cockpit/shared';
-import { CommandRefused, DraftRefused, makeADraft } from '../../../src/api/client';
+import { CommandRefused } from '../../../src/api/client';
+import { DraftRefused, makeADraft } from '../../../src/api/drafts';
 import { ItemRow } from '../../../src/components/ItemRow';
 import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
@@ -22,8 +23,8 @@ vi.mock('../../../src/api/queries', () => ({
 }));
 
 // The draft's request, replaced at the client's edge: the row's part is which mailbox it names and what it draws meanwhile.
-vi.mock('../../../src/api/client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../src/api/client')>()),
+vi.mock('../../../src/api/drafts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/api/drafts')>()),
   makeADraft: vi.fn(),
 }));
 const mockMakeADraft = vi.mocked(makeADraft);

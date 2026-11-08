@@ -1,12 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, uuidv7, type Conversation, type Mailbox } from '@cockpit/shared';
-import { DraftRefused, makeADraft } from './api/client';
-
-/** What the row or form says beside a draft not made: the Item back as it was only where it is. */
-export function draftNotMadeLine(label: string, answer: { why: string; putBack: boolean }): string {
-  return answer.putBack ? `“${label}” is back as it was. ${answer.why}` : `“${label}”: ${answer.why}`;
-}
+import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, type Conversation, type Mailbox } from '@cockpit/shared';
 
 /**
  * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
@@ -70,7 +64,8 @@ export function draftBeingStarted(itemId: string, connectorId: string, followed:
   };
 }
 
-const LAST_USED_KEY = 'cockpit.lastMailbox';
+/** Where this browser keeps the mailbox it last made a draft in, per Workspace. */
+export const LAST_USED_KEY = 'cockpit.lastMailbox';
 
 /** The mailbox this browser last made a draft in, for one Workspace: a per-viewer convenience, so lost storage only loses the order. */
 export function lastMailboxIn(workspaceId: string): string | null {
@@ -79,15 +74,6 @@ export function lastMailboxIn(workspaceId: string): string | null {
     return typeof held[workspaceId] === 'string' ? held[workspaceId] : null;
   } catch {
     return null;
-  }
-}
-
-function rememberMailbox(workspaceId: string, sourceAccountId: string): void {
-  try {
-    const held = JSON.parse(localStorage.getItem(LAST_USED_KEY) ?? '{}') as Record<string, unknown>;
-    localStorage.setItem(LAST_USED_KEY, JSON.stringify({ ...held, [workspaceId]: sourceAccountId }));
-  } catch {
-    // Not remembered: the next question offers the mailboxes in their own order.
   }
 }
 
@@ -113,39 +99,33 @@ export function useDraftStarting(itemId: string): string | null {
 /**
  * The click: a blank tab opened now, while the click still allows it, the
  * draft asked for, and the tab pointed at it. Refused, the tab closes and the
- * reason is answered for the row to say; the Workspace is read again either
- * way, so the row draws what the server holds.
+ * line the row or form says is offered with Undo. The Workspace is read again
+ * either way, so the row draws what the server holds.
  */
 export async function emailFromItem(
   queryClient: QueryClient | undefined,
-  { workspaceId, itemId, mailbox }: { workspaceId: string; itemId: string; mailbox: Mailbox },
-): Promise<{ made: true } | { made: false; why: string; putBack: boolean }> {
+  ask: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string },
+  offer: (undo: { what: string }) => void,
+): Promise<void> {
+  const { itemId, mailbox } = ask;
   // A second press while the first is still making its draft makes no second draft.
-  if (starting.has(itemId)) return { made: true };
+  if (starting.has(itemId)) return;
   const tab = window.open('', '_blank');
   // The draft's page gets no hold on this one, as a link's `noopener` gives none.
   if (tab) tab.opener = null;
   starting.set(itemId, mailbox.connectorId);
   changed();
+  let line: string | null;
   try {
-    const link = await makeADraft(workspaceId, itemId, { clickId: uuidv7(), sourceAccountId: mailbox.sourceAccountId });
-    rememberMailbox(workspaceId, mailbox.sourceAccountId);
-    if (tab) tab.location.href = link;
-    else window.open(link, '_blank', 'noopener');
-    await queryClient?.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
-    return { made: true };
-  } catch (failure) {
+    const { makeTheDraft } = await import('./emailDraftClick');
+    line = await makeTheDraft(queryClient, ask, tab);
+  } catch {
+    // The chunk could not be fetched (offline, or a deploy since): nothing was asked of the server.
     tab?.close();
-    await queryClient?.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
-    return {
-      made: false,
-      why: failure instanceof Error ? failure.message : "Couldn't make the draft",
-      // Refused, or the source would not: the Item has its status back. Anything
-      // else may have stopped after the click was logged, leaving it In progress.
-      putBack: failure instanceof DraftRefused && (failure.status < 500 || failure.status === 502),
-    };
+    line = `“${ask.label}” is back as it was. Couldn't make the draft. Try again.`;
   } finally {
     starting.delete(itemId);
     changed();
   }
+  if (line) offer({ what: line });
 }

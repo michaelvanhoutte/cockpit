@@ -67,22 +67,6 @@ export const mailboxSchema = z.object({
 export type Mailbox = z.infer<typeof mailboxSchema>;
 
 /**
- * *Email…* or *Reply…* asking for a draft (issue 1708). `clickId` is the
- * click's own id, so the same click resent after a timeout answers the draft
- * already made rather than making a second. Stamped on the store's clock, not
- * the device's.
- */
-export const draftAskedSchema = z.object({
-  clickId: z.uuid(),
-  sourceAccountId: z.string().min(1),
-});
-export type DraftAsked = z.infer<typeof draftAskedSchema>;
-
-/** Where the draft made opens at its source, for the tab opened at the click. */
-export const draftMadeSchema = z.object({ link: z.string() });
-export type DraftMadeAnswer = z.infer<typeof draftMadeSchema>;
-
-/**
  * What the id of a LinkedIn conversation starts with ("Follow the LinkedIn
  * conversation instead of the notification", issue 1711). LinkedIn has no
  * connector of its own: the Gmail connector reads a LinkedIn message

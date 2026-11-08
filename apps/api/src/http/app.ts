@@ -38,8 +38,6 @@ import {
   DUE_IN_DAYS_MIN,
   connectionHistorySchema,
   checkedNowSchema,
-  draftAskedSchema,
-  draftMadeSchema,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -163,6 +161,7 @@ import {
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { draftAskedSchema, draftMadeSchema } from '@cockpit/shared/draft';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
 import { forgetAddressAfterLettingGo, holdAddress } from '../email/register.js';
 import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';

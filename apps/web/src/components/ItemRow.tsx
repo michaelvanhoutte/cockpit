@@ -23,7 +23,7 @@ import {
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
-import { draftBeingStarted, draftNotMadeLine, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
+import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
@@ -360,9 +360,7 @@ export function ItemRow({
   /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
   const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
   const emailWith = (mailbox: Mailbox) => {
-    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox }).then((answer) => {
-      if (!answer.made) offerToUndo({ what: draftNotMadeLine(itemLabel(item), answer) });
-    });
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item) }, offerToUndo);
   };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
