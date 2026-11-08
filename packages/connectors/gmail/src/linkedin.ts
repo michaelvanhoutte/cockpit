@@ -67,8 +67,8 @@ function isLinkedIn(hostname: string): boolean {
   return host === 'linkedin.com' || host.endsWith('.linkedin.com');
 }
 
-/** What LinkedIn's thread ids are made of: letters, digits and the few signs a base64 id and its prefix carry. */
-const THREAD_ID = /^[A-Za-z0-9_=.-]{1,200}$/;
+/** What LinkedIn's thread ids are made of: letters, digits and the few signs a base64 id carries, never starting with one, so `.` and `..` are no id. */
+const THREAD_ID = /^[A-Za-z0-9][A-Za-z0-9_=.-]{0,199}$/;
 
 /** The messaging address's path, direct or through LinkedIn's `comm` tracking prefix. */
 const THREAD_PATH = /^\/(?:comm\/)?messaging\/thread\/([^/?#]+)/i;

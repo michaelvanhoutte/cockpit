@@ -135,6 +135,7 @@ describe('Capture', () => {
       { situation: 'a LinkedIn redirect that leaves LinkedIn', address: `https://www.linkedin.com/e/v2?e=fake&url=${encodeURIComponent(`https://evil.example/messaging/thread/${LINKEDIN_THREAD}/`)}` },
       { situation: 'a redirect through another site', address: `https://evil.example/r?url=${encodeURIComponent(LINKEDIN_LINK)}` },
       { situation: 'a plain-http link', address: `http://www.linkedin.com/messaging/thread/${LINKEDIN_THREAD}/` },
+      { situation: 'a thread id that climbs out of the thread path', address: 'https://www.linkedin.com/messaging/thread/%2e%2e/' },
       { situation: 'a thread id that is no id', address: 'https://www.linkedin.com/messaging/thread/%3Cscript%3E/' },
     ])('keeps no link: $situation', async ({ address }) => {
       const world = new GmailWorld();
