@@ -10,7 +10,7 @@ import {
 import { api, refusal } from '../api/client';
 import { snapshotQuery, useCheckConnectionNow, whyNotDone } from '../api/queries';
 import { useChangeConnection, useSourceAccounts } from '../api/sourceAccounts';
-import type { CheckAsked } from '../connectionHistory';
+import { checkWaitingNote, type CheckAsked } from '../connectionHistory';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { dateTimeLabel } from '../dateFormat';
 import { whenCaptured } from '../duplicates';
@@ -318,10 +318,16 @@ export default function ManageConnections({
   const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
   /** The check *Check now* asked for, until its history line says it ended, and the note says so (issue 1720). */
   const [checking, setChecking] = useState<CheckAsked | null>(null);
-  useCheckEnding(workspaceId, checking, (note) => {
-    setCheckNowNote(note);
-    setChecking(null);
-  });
+  useCheckEnding(
+    workspaceId,
+    checking,
+    (note) => {
+      setCheckNowNote(note);
+      setChecking(null);
+    },
+    // Still awaited: said, so a slow or stopped check reads apart from one at work.
+    setCheckNowNote,
+  );
 
   const registered = (registry.data?.connectors ?? []).map((connector): Card => ({
       id: connector.id,
@@ -365,14 +371,19 @@ export default function ManageConnections({
   /**
    * Asks for the connection's check at once, and says so at the click. A request
    * that did not reach the server takes the note back and says so in its place;
-   * one that did leaves the note until the check ends (`useCheckEnding`).
+   * one that did says what it found - a check started, or one already waiting
+   * or running - until the check ends, or says it is taking long
+   * (`useCheckEnding`).
    */
   const pressCheckNow = (account: SourceAccount) => {
     setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` });
     setChecking(null);
     checkNow.mutate(account.id, {
       onSuccess: (answer) => {
-        if (answer.at) setChecking({ sourceAccountId: account.id, name: account.displayName, since: answer.at });
+        if (!answer.at) return;
+        const asked = { sourceAccountId: account.id, name: account.displayName, since: answer.at, status: answer.status };
+        setCheckNowNote(checkWaitingNote(asked, 0));
+        setChecking(asked);
       },
       onError: () => setCheckNowNote({ ok: false, text: 'That did not reach the server. Try again.' }),
     });
