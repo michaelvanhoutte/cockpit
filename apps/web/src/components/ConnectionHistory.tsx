@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { connectionHistorySchema, type ConnectionHistory as History, type SourceAccount } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { checkEndedNote, historyDays, olderDaysNote, type CheckAsked } from '../connectionHistory';
+import { CHECK_TAKES_LONG_MS, checkEndedNote, checkWaitingNote, historyDays, olderDaysNote, type CheckAsked } from '../connectionHistory';
 import { useOpenItem } from '../itemForm';
 import { LoadFailure } from './LoadFailure';
 
@@ -29,7 +29,16 @@ export function useCheckEnding(
   workspaceId: string,
   asked: CheckAsked | null,
   ended: (note: { ok: boolean; text: string }) => void,
+  /** Handed the note that says the check is taking long, once `CHECK_TAKES_LONG_MS` passes with no end. */
+  slow: (note: { ok: boolean; text: string }) => void,
 ): void {
+  const tellSlow = useRef(slow);
+  tellSlow.current = slow;
+  useEffect(() => {
+    if (!asked) return;
+    const timer = setTimeout(() => tellSlow.current(checkWaitingNote(asked, CHECK_TAKES_LONG_MS)), CHECK_TAKES_LONG_MS);
+    return () => clearTimeout(timer);
+  }, [asked]);
   const { data } = useQuery({
     queryKey: ['connectionHistory', workspaceId, asked?.sourceAccountId ?? ''],
     queryFn: () => fetchHistory(workspaceId, asked!.sourceAccountId),

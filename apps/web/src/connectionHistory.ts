@@ -248,11 +248,46 @@ export function olderDaysNote(olderRemain: boolean, now: Date): string | null {
   return `Older days follow, back to ${date}`;
 }
 
-/** A *Check now* the server took, until the check it left ends: whose, and when it was pressed on the server's clock. */
+/**
+ * A *Check now* the server took, until the check it left ends: whose, when it
+ * was pressed on the server's clock, and what the server answered - a check
+ * started, one already waiting to run, or one already running.
+ */
 export interface CheckAsked {
   sourceAccountId: string;
   name: string;
   since: string;
+  status: CheckedNowStatus;
+}
+
+export type CheckedNowStatus = 'queued' | 'already queued' | 'running';
+
+/** How long a check may go without ending before the note says it is taking long. */
+export const CHECK_TAKES_LONG_MS = 60_000;
+
+/**
+ * How long a check that stopped holds its connection before the next one
+ * starts on its own: the server's lease on a run (`PULLED_CHECK_LEASE_MS`).
+ */
+const CHECK_RETRIED_WITHIN_MS = 10 * 60_000;
+
+/**
+ * What the note at *Check now* says while the check is awaited, so a check
+ * that is working, one that is slow and one that has stopped read apart: what
+ * the press found, then, once `CHECK_TAKES_LONG_MS` has passed with no end,
+ * that it is taking long and by when a stopped check is tried again.
+ */
+export function checkWaitingNote(asked: CheckAsked, waitedMs: number): { ok: boolean; text: string } {
+  if (waitedMs >= CHECK_TAKES_LONG_MS) {
+    const retried = timeOfDayLabel(Date.parse(asked.since) + CHECK_RETRIED_WITHIN_MS);
+    return {
+      ok: false,
+      text: `Still checking ${asked.name}: nothing back after a minute. If the check has stopped, Cockpit starts another by ${retried}.`,
+    };
+  }
+  if (asked.status === 'running') return { ok: true, text: `A check of ${asked.name} was already running. Waiting for it to end.` };
+  if (asked.status === 'already queued') return { ok: true, text: `A check of ${asked.name} was already waiting to run. Waiting for it to end.` };
+  return { ok: true, text: `Checking ${asked.name} now.` };
 }
 
 /**

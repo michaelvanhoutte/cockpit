@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
 import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
+import { timeOfDayLabel } from '../../../src/dateFormat';
 import { useCheckConnectionNow } from '../../../src/api/queries';
 import { changes } from '../../../src/api/changes';
 
@@ -159,6 +160,8 @@ let checkedNow: string[] = [];
 let checkNowReaches = true;
 /** When the server says the press was taken, on its own clock (issue 1720). */
 let pressedAt = '2026-10-16T12:00:00.000Z';
+/** What the server answers a press: a check started, one already waiting to run, or one already running. */
+let pressFinds: 'queued' | 'already queued' | 'running' = 'queued';
 let client: QueryClient;
 
 function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode) {
@@ -171,7 +174,7 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
   vi.mocked(useCheckConnectionNow).mockReturnValue({
     mutate: (id: string, opts: { onSuccess?: (answer: { status: string; at: string }) => void; onError?: () => void }) => {
       checkedNow.push(id);
-      if (checkNowReaches) opts.onSuccess?.({ status: 'queued', at: pressedAt });
+      if (checkNowReaches) opts.onSuccess?.({ status: pressFinds, at: pressedAt });
       else opts.onError?.();
     },
     isPending: false,
@@ -210,6 +213,7 @@ beforeEach(() => {
   held.opened = [];
   checkedNow = [];
   checkNowReaches = true;
+  pressFinds = 'queued';
   held.phone.code = { status: 200, body: { number: '+32470123456' } };
   held.phone.confirm = { status: 200, body: { number: '+32470123456' }, connects: null };
   held.phone.sent = [];
@@ -1542,6 +1546,57 @@ describe('Connector management', () => {
       await theCheckEnds({ outcome: 'failed', message: 'Gmail did not answer.' });
 
       expect(await within(place).findByRole('alert')).toHaveTextContent('Checking anna@example.com failed: Gmail did not answer.');
+    });
+
+    it.each([
+      { finds: 'running' as const, says: 'A check of anna@example.com was already running. Waiting for it to end.' },
+      { finds: 'already queued' as const, says: 'A check of anna@example.com was already waiting to run. Waiting for it to end.' },
+    ])('says on the list when the press found a check $finds, and still ends with it', async ({ finds, says }) => {
+      held.sourceAccounts = [ANNA];
+      pressFinds = finds;
+      showWindow();
+      const place = await places[0]!.press();
+      expect(await within(place).findByRole('status')).toHaveTextContent(says);
+
+      await theCheckEnds({});
+
+      await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+    });
+
+    describe('a check with nothing back after a minute', () => {
+      beforeEach(() => {
+        // The clock runs on its own, so the reads and the clicks still settle; the minute is skipped.
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it.each(places)('says on $where that it is taking long, and by when a stopped check starts again', async ({ press }) => {
+        held.sourceAccounts = [ANNA];
+        showWindow();
+        const place = await press();
+        expect(await within(place).findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        const retried = timeOfDayLabel(Date.parse(pressedAt) + 10 * 60_000);
+        expect(await within(place).findByRole('alert')).toHaveTextContent(
+          `Still checking anna@example.com: nothing back after a minute. If the check has stopped, Cockpit starts another by ${retried}.`,
+        );
+      });
+
+      it('still says Checked just now once the slow check ends', async () => {
+        held.sourceAccounts = [ANNA];
+        showWindow();
+        const place = await places[0]!.press();
+        await vi.advanceTimersByTimeAsync(60_000);
+        await within(place).findByRole('alert');
+
+        await theCheckEnds({});
+
+        await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+      });
     });
   });
 
