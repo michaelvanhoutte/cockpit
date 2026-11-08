@@ -1,4 +1,5 @@
 import type { Conversation } from '@cockpit/shared';
+import { momentDayMonthLabel } from './dateFormat';
 import { whereALinkOpens } from './itemSource';
 
 /**
@@ -49,8 +50,13 @@ function whoWroteLast(conversation: Conversation): string {
  * theirs after it.
  */
 export function conversationLine(conversation: Conversation, sourceName: string, now: number): string {
+  return `${sourceName} · ${whoWroteWhen(conversation, now)}`;
+}
+
+/** The line without its source: *Steven replied yesterday*. */
+export function whoWroteWhen(conversation: Conversation, now: number): string {
   const verb = conversation.messageCount === 1 || conversation.lastBy === 'you' ? 'wrote' : 'replied';
-  return `${sourceName} · ${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
+  return `${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
 }
 
 /** The line's hover: who wrote the latest message, and its first lines. */
@@ -71,4 +77,18 @@ export function openLabel(sourceName: string): string {
 export function conversationOpensAt(conversation: Conversation): string | null {
   if (!/^https?:\/\//i.test(conversation.link)) return null;
   return whereALinkOpens(conversation.link);
+}
+
+/**
+ * The form's *Conversation* section under the description ("Show the
+ * conversation an Item follows in its form", issue 1706): who it is with, and
+ * how many messages since when - *With steven@noels.be · 4 emails since 4 Nov*.
+ * Without a name to give, only the count; a conversation of one is dated by
+ * its message, not "since" it.
+ */
+export function conversationCountLine(conversation: Conversation, now: number): string {
+  const started = momentDayMonthLabel(conversation.startedAt, new Date(now));
+  const count =
+    conversation.messageCount === 1 ? `1 email on ${started}` : `${conversation.messageCount} emails since ${started}`;
+  return conversation.withWhom ? `With ${conversation.withWhom} · ${count}` : count;
 }

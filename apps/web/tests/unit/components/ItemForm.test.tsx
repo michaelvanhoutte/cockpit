@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   Addition,
   Attachment,
+  Conversation,
   Filing,
   Item,
   Panel,
@@ -54,6 +55,7 @@ const held = vi.hoisted(() => ({
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
   additions: [] as Addition[],
+  conversations: [] as Conversation[],
   series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
@@ -216,6 +218,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.duplicates,
       held.attachments,
       held.additions,
+      held.conversations,
       held.series,
       held.itemFormPresentation,
     ],
@@ -230,6 +233,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         duplicates: held.duplicates,
         attachments: held.attachments,
         additions: held.additions,
+        conversations: held.conversations,
         series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
@@ -427,6 +431,7 @@ beforeEach(() => {
   held.duplicates = [];
   held.attachments = [];
   held.additions = [];
+  held.conversations = [];
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
@@ -3081,6 +3086,65 @@ describe('Item editing', () => {
       await user.keyboard('{ArrowRight}{ArrowRight}');
 
       expect(screen.getByRole('tab', { name: 'Details', selected: true })).toHaveFocus();
+    });
+  });
+
+  /**
+   * "Show the conversation an Item follows in its form" (issue 1706): the
+   * section reads the conversation row the Workspace read already carries. What
+   * it says of a row is tests/unit/conversationLine.test.ts's.
+   */
+  describe('the conversation an Item follows is shown under its description', () => {
+    const aConversation = (over: Partial<Conversation> = {}): Conversation => ({
+      itemId: 'item-1',
+      source: 'gmail',
+      conversationId: 't-1',
+      link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1',
+      lastBy: 'them',
+      lastFrom: 'Steven Noels',
+      lastAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      lastExcerpt: 'Thursday is tricky, how about Friday?',
+      messageCount: 4,
+      startedAt: '2026-11-04T09:00:00.000Z',
+      withWhom: 'steven@noels.be',
+      ...over,
+    });
+
+    it('draws who wrote last, Open naming the conversation, the first lines and who it is with', async () => {
+      held.conversations = [aConversation()];
+      await theForm();
+
+      const section = within(screen.getByRole('region', { name: 'Conversation' }));
+      expect(section.getByText(/Steven replied/)).toBeVisible();
+      expect(section.getByRole('link', { name: 'Open the latest email in Gmail' })).toHaveAttribute(
+        'href',
+        'https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1',
+      );
+      expect(section.getByText('“Thursday is tricky, how about Friday?”')).toBeVisible();
+      expect(section.getByText(/^With steven@noels\.be · 4 emails since /)).toBeVisible();
+      expect(section.queryByRole('button', { name: /Reply/ })).toBeNull();
+    });
+
+    it('says You wrote where your message came last', async () => {
+      held.conversations = [aConversation({ lastBy: 'you', lastFrom: 'Anna Peeters' })];
+      await theForm();
+
+      expect(within(screen.getByRole('region', { name: 'Conversation' })).getByText(/You wrote/)).toBeVisible();
+    });
+
+    it('draws no section for an Item that follows no conversation, nor for one that another Item follows', async () => {
+      held.conversations = [aConversation({ itemId: 'item-2' })];
+      await theForm();
+
+      expect(screen.queryByRole('region', { name: 'Conversation' })).toBeNull();
+    });
+
+    it('draws no Open where the conversation has no web address to open', async () => {
+      held.conversations = [aConversation({ link: 'javascript:alert(1)' })];
+      await theForm();
+
+      expect(screen.getByRole('region', { name: 'Conversation' })).toBeVisible();
+      expect(screen.queryByRole('link', { name: /Open the latest email/ })).toBeNull();
     });
   });
 

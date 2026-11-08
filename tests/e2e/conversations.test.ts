@@ -104,6 +104,17 @@ test.describe('Triage', () => {
       const open = row.getByRole('link', { name: 'Open the latest email in Gmail' });
       await expect(open).toHaveAttribute('href', new RegExp(`#all/${thread}$`));
 
+      // Its form shows the conversation under the description ("Show the conversation an Item follows in its form", issue 1706).
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open', exact: true }), isMobile);
+      const conversation = page.getByRole('region', { name: 'Conversation' });
+      await expect(conversation).toBeVisible();
+      await expect(conversation.getByText(/Steven replied/)).toBeVisible();
+      await expect(conversation.getByText('“Thursday is tricky, how about Friday?”')).toBeVisible();
+      await expect(conversation.getByRole('link', { name: 'Open the latest email in Gmail' })).toHaveAttribute('href', new RegExp(`#all/${thread}$`));
+      await page.keyboard.press('Escape');
+      await expect(conversation).toBeHidden();
+
       // Your reply arrives: the same row, now waiting for his.
       await inGmail('reply', { thread, sent: '' });
       await checkedAgain(page);
