@@ -257,10 +257,10 @@ test.describe('Triage', () => {
       await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
       const [tab] = await Promise.all([page.waitForEvent('popup'), press(page.getByRole('menuitem', { name: 'Email…' }), isMobile)]);
 
-      await expect(tab).toHaveURL(/#drafts\/draft-\d+$/);
+      await expect(tab).toHaveURL(/#drafts$/);
       await expect(row.getByText('Gmail · Draft started')).toBeVisible();
       // While it is unsent, Open goes to the draft (issue 1720).
-      await expect(row.getByRole('link', { name: 'Open the draft in Gmail' })).toHaveAttribute('href', /#drafts\/draft-\d+$/);
+      await expect(row.getByRole('link', { name: 'Open the draft in Gmail' })).toHaveAttribute('href', /#drafts$/);
       await expect(row.getByText('In progress')).toBeVisible();
       const drafts = (await (await fetch(`${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`)).json()) as { subject: string }[];
       expect(drafts.map((one) => one.subject)).toContain(purpose);

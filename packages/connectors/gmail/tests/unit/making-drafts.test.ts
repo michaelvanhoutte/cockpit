@@ -12,8 +12,8 @@ import { rawDraft } from '../../src/drafts.js';
  * (apps/api/tests/integration/connectors/drafts-on-the-host.test.ts).
  */
 
-/** Where a draft opens: the Drafts folder with the draft's message open, which `#drafts?compose=` would not (issue 1720). */
-const DRAFTS = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts/';
+/** Where a draft opens: the Drafts folder, since no link opens one draft in real Gmail (issue 1720). */
+const DRAFTS = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
 
 /** The host a draft is made through: the connection's credential, and the state its last check saved. */
@@ -47,7 +47,7 @@ describe('Triage', () => {
       expect(made).toEqual({
         draftId: 'r-1',
         conversationId: 'draft-message-1',
-        draftLink: `${DRAFTS}draft-message-1`,
+        draftLink: DRAFTS,
         conversationLink: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/draft-message-1',
       });
     });
@@ -78,7 +78,7 @@ describe('Triage', () => {
       expect(made.conversationId).toBe('t-1');
       // The message replied to, not the conversation, whose id is its first message's (issue 1720).
       expect(made.conversationLink).toBe(`${LINK}t-1-r1`);
-      expect(made.draftLink).toBe(`${DRAFTS}draft-message-1`);
+      expect(made.draftLink).toBe(DRAFTS);
     });
 
     it('folds a long conversation’s References one message id a line, inside the line length mail allows', () => {
@@ -239,7 +239,7 @@ describe('Triage', () => {
     }
 
     it.each([
-      { situation: 'still unsent', happens: () => {}, found: { draftLink: `${DRAFTS}draft-message-1` } },
+      { situation: 'still unsent', happens: () => {}, found: { draftLink: DRAFTS } },
       { situation: 'deleted unsent', happens: (world: GmailWorld, draftId: string) => world.deletesTheDraft(draftId), found: null },
       { situation: 'in the bin', happens: (world: GmailWorld, draftId: string) => world.binsTheDraft(draftId), found: null },
       // Sent is not gone: dropped as deleted, its Item would forget a reply it is about to read (issue 1720).

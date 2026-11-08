@@ -224,9 +224,11 @@ turns:
   to its To where it was yours. One metadata read of the conversation first.
 - **At most four calls**: a refresh, the profile where no check saved the address
   yet, that read, and the draft. Never retried: a draft made twice is two drafts.
-- **The link** opens the draft, `#drafts/<message id>`, in the connected mailbox.
-  `#drafts?compose=` takes Gmail's own token for a draft, not the API's id, and
-  opens a blank message given the id. The conversation's link, until the draft
+- **The link** opens the Drafts folder, `#drafts`, in the connected mailbox, the
+  new draft at its top. No link opens one draft: `#drafts?compose=` takes
+  Gmail's own token, not the API's id, and opens a blank message given the id,
+  and real Gmail answers `#drafts/<message id>` with "the conversation cannot be
+  loaded". The conversation's link, until the draft
   is sent, names the message replied to, or the draft where it starts the
   conversation.
 - **Reply… with a draft already waited on** asks first what became of it
@@ -264,7 +266,7 @@ turns:
 ## Not yet known
 
 - **Whether a draft made, opened and sent in real Gmail behaves as the stand-in
-  does**: the `#drafts/<message id>` link opening a draft (if it does not, the fallback is `#drafts`, the folder), the draft's id
+  does**: the draft's id
   staying the same while it is edited, and how long the call takes ("Measure
   Email… and Follow a sent email… on test mailboxes", issue 1704, was skipped).
 
