@@ -399,6 +399,28 @@ describe('Triage', () => {
       expect(statusOf(await theItem(itemId))).toBe('waiting');
     });
 
+    it('makes no new draft where the first was sent before any check saw it: nothing changes, and a check is asked for', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      await waitingForReply(itemId);
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      mailbox.sends(gmailDrafts[0]!.id);
+      const before = await theItem(itemId);
+
+      const again = await emailed(itemId, connection);
+
+      // Dropped as deleted, the Item would forget the reply the next check reads (issue 1720).
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: 'That draft was sent. Cockpit shows it in a moment; press Reply… again after that.' });
+      expect(gmailDrafts).toHaveLength(1);
+      expect(await theItem(itemId)).toEqual(before);
+      expect(await inTheStore((sql) => sql.exec('SELECT check_reason FROM pulled_connections').one().check_reason)).toBe('check-now');
+      await nextCheckRuns();
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('waiting');
+      expect(item.conversation?.draftStarted).toBeFalsy();
+    });
+
     it('makes one new draft for a click sent twice where the first draft is gone', async () => {
       const connection = await connected();
       const itemId = await captured('Plan a dinner with Steven Noels');

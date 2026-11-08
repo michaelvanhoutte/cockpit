@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type DraftWaiting, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { DELETED_ITEMS_ID, DRAFTS_ID, GraphWorld, NOW, SENT_ITEMS_ID, signedInHost } from './outlook-world.js';
 
@@ -239,32 +239,47 @@ describe('Triage', () => {
       expect(next.draftsGone).toEqual([{ conversationId: 'c-1', draftId: made.draftId }]);
     });
   });
-  describe('Reply… with a draft already started opens it while it is still there unsent, and asks Outlook nothing else', () => {
+  describe('Reply… with a draft already started finds it still there unsent, sent, or gone, and asks Outlook nothing else', () => {
+    /** A new conversation's draft made, as the host then waits on it. */
     async function aDraftMade() {
       const world = new GraphWorld();
       const host = signedInHost();
       const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan a dinner', replyIn: null });
-      return { world, host, draftId: made.draftId };
+      const draft: DraftWaiting = { conversationId: made.conversationId, draftId: made.draftId, after: null };
+      return { world, host, draft };
     }
 
     it.each([
       { situation: 'still unsent', happens: () => {}, found: { draftLink: LINK } },
       { situation: 'in Deleted Items', happens: (world: GraphWorld, draftId: string) => world.deletes(draftId), found: null },
       { situation: 'deleted for good', happens: (world: GraphWorld, draftId: string) => world.deleteForGood(draftId), found: null },
-      { situation: 'sent', happens: (world: GraphWorld, draftId: string) => world.sends(draftId), found: null },
+      // Sent is not gone: dropped as deleted, its Item would forget a reply it is about to read (issue 1720).
+      { situation: 'sent', happens: (world: GraphWorld, draftId: string) => world.sends(draftId), found: { sent: true } },
     ])('a draft $situation', async ({ happens, found }) => {
-      const { world, host, draftId } = await aDraftMade();
-      happens(world, draftId);
+      const { world, host, draft } = await aDraftMade();
+      happens(world, draft.draftId);
 
-      expect(await world.connector().findDraft!(onDemand(host), draftId)).toEqual(found);
+      expect(await world.connector().findDraft!(onDemand(host), draft)).toEqual(found);
       expect(world.draftsAsked).toHaveLength(1);
     });
 
-    it('says why, in words for the person, where Outlook does not answer', async () => {
-      const { world, host, draftId } = await aDraftMade();
-      world.failures.push({ prefix: `messages/${draftId}`, status: 503 });
+    it('counts a reply draft deleted unsent as gone, a message of yours from before it not making it sent', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { conversation: 'c-1', from: ANNA, folder: SENT_ITEMS_ID, receivedAt: '2026-10-09T09:00:00Z' });
+      const host = signedInHost();
+      const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: 'c-1' });
+      world.deletes(made.draftId);
 
-      const looking = world.connector().findDraft!(onDemand(host), draftId);
+      const found = await world.connector().findDraft!(onDemand(host), { conversationId: 'c-1', draftId: made.draftId, after: '2026-10-09T09:00:00.000Z' });
+
+      expect(found).toBeNull();
+    });
+
+    it('says why, in words for the person, where Outlook does not answer', async () => {
+      const { world, host, draft } = await aDraftMade();
+      world.failures.push({ prefix: `messages/${draft.draftId}`, status: 503 });
+
+      const looking = world.connector().findDraft!(onDemand(host), draft);
 
       await expect(looking).rejects.toBeInstanceOf(SourceError);
       await expect(looking).rejects.toThrow('Outlook did not answer. Try again in a moment.');

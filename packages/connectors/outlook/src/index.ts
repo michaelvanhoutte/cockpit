@@ -58,7 +58,7 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
 
     makeDraft: (host, wanted) => makeOutlookDraft(host, config, wanted),
 
-    findDraft: (host, draftId) => findOutlookDraft(host, config, draftId),
+    findDraft: (host, draft) => findOutlookDraft(host, config, draft),
 
     listRecentSent: (host, limit) => listOutlookSent(host, config, limit),
 

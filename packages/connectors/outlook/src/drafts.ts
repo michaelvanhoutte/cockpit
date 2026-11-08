@@ -1,4 +1,4 @@
-import { SourceError, type ConnectorHost, type DraftFound, type DraftMade, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type ConnectorHost, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   Changed,
@@ -11,7 +11,7 @@ import {
   type OutlookConnectorConfig,
 } from './graph.js';
 import { conversationMessages, foldersOf, type Folders } from './conversations.js';
-import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine } from './messages.js';
+import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, type MailTurn } from './messages.js';
 
 /**
  * *Email…* and *Reply…* ("Email… makes an Outlook draft the Item then follows",
@@ -78,33 +78,45 @@ export function draftIn(answer: unknown): { id: string; conversationId: string; 
   return { id, conversationId, link: linkOf(id, webLink) };
 }
 
-/** The calls one look for a draft may spend: a refresh, Deleted Items, and the draft. */
-const CALLS_PER_LOOK = 3;
+/**
+ * The calls one look for a draft may spend: a refresh, the draft, Deleted
+ * Items, and where the draft is no longer there Sent Items and a page or two
+ * of its conversation.
+ */
+const CALLS_PER_LOOK = 7;
 
 /** What a draft is read for, to tell it is still there unsent and where it opens. */
 const DRAFT_FIELDS = 'id,isDraft,parentFolderId,webLink';
 
 /**
- * Whether a draft *Email…* made is still there unsent ("Conversation
- * follow-up: Open, previews, drafts and Check now misbehave on real Gmail and
- * Outlook mailboxes", issue 1720): where it opens, or null for one Graph no
- * longer knows, sent, or in Deleted Items - which counts as deleted unsent, as
- * the draft watch counts it (`checkDrafts`).
+ * What became of a draft *Email…* made ("Conversation follow-up: Open,
+ * previews, drafts and Check now misbehave on real Gmail and Outlook
+ * mailboxes", issue 1720), told as the draft watch tells it (`checkDrafts`):
+ * still a draft outside Deleted Items, and where it opens; sent, its
+ * conversation holding a message in Sent Items since `after`; or null for one
+ * gone or in Deleted Items, which counts as deleted unsent.
  */
-export async function findOutlookDraft(host: OnDemandHost, config: OutlookConnectorConfig, draftId: string): Promise<DraftFound | null> {
+export async function findOutlookDraft(host: OnDemandHost, config: OutlookConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
   try {
     const credential = credentialIn(await host.getCredentials());
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
-    const read = await mailbox.get(`messages/${encodeURIComponent(draftId)}?$select=${DRAFT_FIELDS}`);
-    if (read === null) return null;
+    const read = await mailbox.get(`messages/${encodeURIComponent(draft.draftId)}?$select=${DRAFT_FIELDS}`);
     const deletedItems = deletedItemsIn(await mailbox.get('mailFolders/deleteditems?$select=id'));
     if (!deletedItems) throw new SourceError('Outlook gave no Deleted Items folder for this mailbox');
     const link = draftStillThere(read, deletedItems);
-    return link === null ? null : { draftLink: link };
+    if (link !== null) return { draftLink: link };
+    const whole = await conversationMessages(mailbox, draft.conversationId, await foldersOf(mailbox, deletedItems));
+    return sentSince(whole, draft.after) ? { sent: true } : null;
   } catch (error) {
     throw inTheirWords(error, 'Outlook could not look for the draft');
   }
+}
+
+/** The newest message of yours in a conversation after `after` - every one where `after` is null: what tells a draft sent from one deleted. */
+function sentSince(whole: readonly MailTurn[], after: string | null): MailTurn | undefined {
+  const since = after === null ? Number.NEGATIVE_INFINITY : Date.parse(after);
+  return whole.filter((one) => one.by === 'you' && Date.parse(one.at) > since).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
 }
 
 /**
@@ -159,11 +171,7 @@ export async function checkDrafts(
       parentFolderId?: unknown;
     } | null;
     if (draftStillThere(read, deletedItems) !== null) continue;
-    const whole = await conversationMessages(mailbox, draft.conversationId, await foldersNow());
-    const since = draft.after === null ? Number.NEGATIVE_INFINITY : Date.parse(draft.after);
-    const sent = whole
-      .filter((one) => one.by === 'you' && Date.parse(one.at) > since)
-      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    const sent = sentSince(await conversationMessages(mailbox, draft.conversationId, await foldersNow()), draft.after);
     if (sent) {
       await host.reportTurn({
         conversationId: sent.conversationId,

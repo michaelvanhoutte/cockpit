@@ -1,4 +1,4 @@
-import { SourceError, type DraftFound, type DraftMade, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   ChangeRefused,
@@ -189,23 +189,30 @@ export function draftLink(messageId: string, mailboxAddress: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts/${encodeURIComponent(messageId)}`;
 }
 
-/** The calls one look for a draft may spend: a refresh, the mailbox's address where no run has saved it yet, and the draft. */
-const CALLS_PER_LOOK = 3;
+/**
+ * The calls one look for a draft may spend: a refresh, the draft, the mailbox's
+ * address where no run has saved it yet, and the conversation where the draft
+ * is no longer there.
+ */
+const CALLS_PER_LOOK = 4;
 
 /**
- * Whether a draft *Email…* made is still there unsent (issue 1720): where it
- * opens, or null for one Gmail no longer has, or has in the bin - which counts
- * as deleted unsent, as the draft watch counts it (`draftStillThere`).
+ * What became of a draft *Email…* made (issue 1720), told as the draft watch
+ * tells it (`#checkDrafts`, sync.ts): still there unsent, and where it opens;
+ * sent, its conversation holding a message sent from this mailbox since
+ * `after`; or null for one Gmail no longer has, or has in the bin - which
+ * counts as deleted unsent (`draftStillThere`).
  */
-export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorConfig, draftId: string): Promise<DraftFound | null> {
+export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
   try {
     const credential = credentialIn(await host.getCredentials());
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
-    const answer = await mailbox.get(`drafts/${encodeURIComponent(draftId)}?format=minimal`);
+    const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`);
     const messageId = draftStillThere(answer);
-    if (messageId === null) return null;
-    return { draftLink: draftLink(messageId, await addressOf(host, mailbox)) };
+    if (messageId !== null) return { draftLink: draftLink(messageId, await addressOf(host, mailbox)) };
+    const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
+    return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
   } catch (error) {
     throw inTheirWords(error, 'Gmail could not look for the draft');
   }

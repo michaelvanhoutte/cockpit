@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type DraftWaiting, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { ADDRESS, GmailWorld, signedInHost } from './gmail-world.js';
 import { rawDraft } from '../../src/drafts.js';
@@ -229,33 +229,48 @@ describe('Triage', () => {
     });
   });
 
-  describe('Reply… with a draft already started opens it while it is still there unsent, and asks Gmail nothing else', () => {
-    async function aDraftMade(): Promise<{ world: GmailWorld; host: FakeHost; draftId: string }> {
+  describe('Reply… with a draft already started finds it still there unsent, sent, or gone, and asks Gmail nothing else', () => {
+    /** A new conversation's draft made, as the host then waits on it. */
+    async function aDraftMade(): Promise<{ world: GmailWorld; host: FakeHost; draft: DraftWaiting }> {
       const world = new GmailWorld();
       const host = signedInHost({ choice: 'star' });
       const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan a dinner', replyIn: null });
-      return { world, host, draftId: made.draftId };
+      return { world, host, draft: { conversationId: made.conversationId, draftId: made.draftId, after: null } };
     }
 
     it.each([
       { situation: 'still unsent', happens: () => {}, found: { draftLink: `${DRAFTS}draft-message-1` } },
       { situation: 'deleted unsent', happens: (world: GmailWorld, draftId: string) => world.deletesTheDraft(draftId), found: null },
       { situation: 'in the bin', happens: (world: GmailWorld, draftId: string) => world.binsTheDraft(draftId), found: null },
-      { situation: 'sent', happens: (world: GmailWorld, draftId: string) => world.sendsTheDraft(draftId), found: null },
+      // Sent is not gone: dropped as deleted, its Item would forget a reply it is about to read (issue 1720).
+      { situation: 'sent', happens: (world: GmailWorld, draftId: string) => world.sendsTheDraft(draftId), found: { sent: true } },
     ])('a draft $situation', async ({ happens, found }) => {
-      const { world, host, draftId } = await aDraftMade();
-      happens(world, draftId);
+      const { world, host, draft } = await aDraftMade();
+      happens(world, draft.draftId);
       const asked = world.draftsAsked.length;
 
-      expect(await world.connector().findDraft!(onDemand(host), draftId)).toEqual(found);
+      expect(await world.connector().findDraft!(onDemand(host), draft)).toEqual(found);
       expect(world.draftsAsked).toHaveLength(asked);
     });
 
+    it('counts a reply draft deleted unsent as gone, a message of yours from before it not making it sent', async () => {
+      const world = new GmailWorld();
+      const host = signedInHost({ choice: 'star' });
+      world.arrives('t-1', 'Dinner one of these weeks?', 'Shall we?', ['star']);
+      world.replies('t-1', [], { sent: true, text: 'Thursday?', sentAt: '2026-10-03T09:00:00Z' });
+      const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: 't-1' });
+      world.deletesTheDraft(made.draftId);
+
+      const found = await world.connector().findDraft!(onDemand(host), { conversationId: 't-1', draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' });
+
+      expect(found).toBeNull();
+    });
+
     it('says why, in words for the person, where Gmail does not answer', async () => {
-      const { world, host, draftId } = await aDraftMade();
+      const { world, host, draft } = await aDraftMade();
       world.failures.push({ prefix: 'drafts', status: 503 });
 
-      const looking = world.connector().findDraft!(onDemand(host), draftId);
+      const looking = world.connector().findDraft!(onDemand(host), draft);
 
       await expect(looking).rejects.toBeInstanceOf(SourceError);
       await expect(looking).rejects.toThrow('Gmail did not answer. Try again in a moment.');

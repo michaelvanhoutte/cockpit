@@ -213,9 +213,12 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
   your turn, reported here since the read of received mail may never show it
   (sent while the Item was done, or before the cursor); none, and the draft is
   reported gone.
-- **Reply… with a draft already waited on** reads it the same way first
-  (`findDraft`): still a draft outside Deleted Items, its `webLink` is the
-  answer and nothing is made; otherwise a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+- **Reply… with a draft already waited on** asks first what became of it, the
+  same way (`findDraft`): still a draft outside Deleted Items, its `webLink` is
+  the answer and nothing is made; sent (a message in Sent Items in its
+  conversation after `after`), the host is told so and makes nothing; otherwise
+  a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most seven calls: a refresh, the draft, the two
+  folders and a page or two of the conversation.
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 

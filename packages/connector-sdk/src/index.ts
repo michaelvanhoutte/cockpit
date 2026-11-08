@@ -371,13 +371,13 @@ export interface DraftMade {
 }
 
 /**
- * A draft `makeDraft` made that is still there unsent ("Conversation follow-up:
+ * What `findDraft` found of a draft `makeDraft` made ("Conversation follow-up:
  * Open, previews, drafts and Check now misbehave on real Gmail and Outlook
- * mailboxes", issue 1720): where the source opens it.
+ * mailboxes", issue 1720): still there unsent, with where the source opens it;
+ * or sent, its conversation holding a message of yours since the draft's
+ * `after`, as the draft watch tells a draft sent from one deleted.
  */
-export interface DraftFound {
-  draftLink: string;
-}
+export type DraftFound = { draftLink: string } | { sent: true };
 
 /**
  * One email sent from the connection's mailbox, as *Follow a sent email…*
@@ -730,13 +730,15 @@ export interface Connector {
   makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
 
   /**
-   * Asks the source whether a draft `makeDraft` made is still there unsent, on
-   * demand while a person waits (issue 1720): where it opens, or null where it
-   * is gone, sent, or in the bin, which counts as deleted unsent. Throws
-   * `SourceError`, worded for the person, where the source would not answer.
-   * Changes nothing at the source. Every connector that makes drafts has it.
+   * Asks the source what became of a draft `makeDraft` made, on demand while a
+   * person waits (issue 1720), told as `draftsWaiting` tells it: still there
+   * unsent, and where it opens; sent, its conversation holding a message of
+   * yours since `after`; or null where it is gone or in the bin, which counts
+   * as deleted unsent. Throws `SourceError`, worded for the person, where the
+   * source would not answer. Changes nothing at the source. Every connector
+   * that makes drafts has it.
    */
-  findDraft?(host: OnDemandHost, draftId: string): Promise<DraftFound | null>;
+  findDraft?(host: OnDemandHost, draft: DraftWaiting): Promise<DraftFound | null>;
 
   /**
    * Lists the newest `limit` emails sent, one for each conversation (its newest), from the mailbox, newest first, on

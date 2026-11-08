@@ -1,10 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, workspaceIsDecided } from '@cockpit/shared';
-import type { DraftMade } from '@cockpit/connector-sdk';
+import type { DraftMade, DraftWaiting } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { DraftRefusedError, ItemNotFoundError, SourceAccountNotFoundError, runCommand } from './command-service.js';
 import { getItem, getSourceAccount } from './repo.js';
 import { commands, connectorAccounts, itemConversations, pulledConnections } from './schema.js';
+import { statusBeforeDraftIn } from '../domain/conversations.js';
 import { couldStillBeActedOn } from '../domain/duplicates.js';
 
 /**
@@ -50,7 +51,7 @@ interface AskingTheSource {
 export type DraftWantedAnswer =
   | { status: 'recorded'; link: string }
   | { status: 'failed' }
-  | ({ status: 'look'; draftId: string } & AskingTheSource)
+  | ({ status: 'look'; draft: DraftWaiting } & AskingTheSource)
   | ({ status: 'make'; subject: string; replyIn: string | null } & AskingTheSource);
 
 /** Refused: a LinkedIn conversation is answered in LinkedIn, which no mailbox reaches. */
@@ -67,8 +68,9 @@ export const DRAFT_ALREADY_STARTED = 'A draft is already started in this convers
  * **A draft recorded before and still waited on is looked for first** ("Conversation
  * follow-up: Open, previews, drafts and Check now misbehave on real Gmail and
  * Outlook mailboxes", issue 1720): answered `look`, changing nothing, for the
- * Worker to ask the source whether it is still there. Still there, the Worker
- * opens it and nothing changes. Gone or in the bin, the Worker asks again with
+ * Worker to ask the source what became of it. Still there, the Worker opens it
+ * and nothing changes; sent, the Worker asks for a check and nothing changes
+ * here either. Gone or in the bin, the Worker asks again with
  * `replacing` naming it: that draft is dropped as deleted unsent, under the
  * click's derived id, and a new one made as any click makes one - a second
  * draft beside one still there would leave the first untracked.
@@ -97,7 +99,9 @@ export function wantDraft(
   const waitedOn = (row: typeof here) => (row && row.draftId !== null && row.statusBeforeDraft !== null ? row.draftId : null);
   const recordedDraft = waitedOn(here);
   if (recordedDraft !== null && ask.replacing !== recordedDraft) {
-    return { status: 'look', draftId: recordedDraft, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
+    // As the draft watch is handed it (`pulledDraftsWaiting`), so the source tells sent from gone the same way.
+    const draft = { conversationId: here!.conversationId, draftId: recordedDraft, after: statusBeforeDraftIn(here!.statusBeforeDraft)?.opened ? null : here!.lastAt };
+    return { status: 'look', draft, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
   }
   if (recordedDraft !== null) {
     // Found gone at the source: deleted unsent, as a check finding it gone drops it.
@@ -141,6 +145,7 @@ function followedHere(db: AccountDb, accountName: string, itemId: string, at: { 
       conversationId: itemConversations.conversationId,
       draftId: itemConversations.draftId,
       statusBeforeDraft: itemConversations.statusBeforeDraft,
+      lastAt: itemConversations.lastAt,
     })
     .from(itemConversations)
     .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, itemId)))

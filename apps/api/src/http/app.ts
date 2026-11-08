@@ -831,7 +831,7 @@ const draftRoute = createRoute({
       content: { 'application/json': { schema: errorSchema } },
     },
     409: {
-      description: 'This click’s draft was not made before',
+      description: 'This click’s draft was not made before, or the draft started before was sent since the last check, which is asked for',
       content: { 'application/json': { schema: errorSchema } },
     },
     502: {

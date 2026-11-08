@@ -285,6 +285,21 @@ describe('Triage', () => {
       expect((await theItem(itemId)).conversation).toEqual(expect.objectContaining({ draftStarted: true, link: DRAFT_LINK('draft-m-2') }));
     });
 
+    it('makes no new draft where the first was sent before any check saw it, and changes nothing', async () => {
+      graphHolds([]);
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      graphSends('draft-m-1');
+      const before = await theItem(itemId);
+
+      const again = await emailed(itemId, connection);
+
+      expect(again.status).toBe(409);
+      expect(graphDrafts).toHaveLength(1);
+      expect(await theItem(itemId)).toEqual(before);
+    });
+
     it('changes nothing while the draft is still unsent', async () => {
       const itemId = await aDraftStarted();
       const before = await theItem(itemId);

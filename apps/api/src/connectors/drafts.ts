@@ -36,6 +36,13 @@ export class DraftNotMadeError extends Error {
 /** What a click resent after its draft failed is told. */
 export const DRAFT_FAILED_BEFORE = 'This draft was not made. Try again.';
 
+/**
+ * What a click is told where the draft an earlier click made was sent since the
+ * last check: the check is asked for, and once it has read the sent message the
+ * Item follows the conversation again and Reply… makes a new draft (issue 1720).
+ */
+export const DRAFT_SENT = 'That draft was sent. Cockpit shows it in a moment; press Reply… again after that.';
+
 /** What a click is told where another click recorded a draft while this one looked for the one before. */
 export const DRAFT_RECORDED_MEANWHILE = 'Another draft was started meanwhile. Try again to open it.';
 
@@ -74,8 +81,11 @@ export function mailboxesOf(
  * **A draft an earlier click recorded, still waited on, is looked for first**
  * ("Conversation follow-up: Open, previews, drafts and Check now misbehave on
  * real Gmail and Outlook mailboxes", issue 1720): still there unsent, its link
- * is the answer and nothing changes; gone or in the bin, the store drops it as
- * deleted unsent and a new one is made.
+ * is the answer and nothing changes; sent, nothing changes either, the click is
+ * refused and the connection's check asked for, so the sent message is read
+ * within seconds - dropped as deleted, the Item would forget a reply it is about
+ * to read; gone or in the bin, the store drops it as deleted unsent and a new
+ * one is made.
  */
 export async function makeTheDraft(
   env: Env,
@@ -102,15 +112,20 @@ export async function makeTheDraft(
     let found;
     try {
       if (!connector!.findDraft) throw new SourceError('this mailbox cannot be asked for the draft started before');
-      found = await connector!.findDraft(lookHost, look.draftId);
+      found = await connector!.findDraft(lookHost, look.draft);
     } catch (error) {
       // Nothing was changed, so nothing is put back.
       if (error instanceof SourceError) throw new DraftNotMadeError(error.message, false);
       logged(look.connectorId, 'error', 'a draft could not be looked for', error instanceof Error ? error.message : String(error));
       throw new DraftNotMadeError('something went wrong', false);
     }
-    if (found) return found.draftLink;
-    wanted = await account.wantDraft({ ...ask, ...click, replacing: look.draftId });
+    if (found && 'draftLink' in found) return found.draftLink;
+    if (found) {
+      // Changes nothing: the check records the sent message, as it would have at its next turn.
+      await account.checkNow(ask.workspaceId, ask.sourceAccountId).catch(() => undefined);
+      throw new ConflictInAccountError(DRAFT_SENT);
+    }
+    wanted = await account.wantDraft({ ...ask, ...click, replacing: look.draft.draftId });
     // Only a draft recorded meanwhile by another click could be looked for again: that one is not this click's to replace.
     if (wanted.status === 'look') throw new ConflictInAccountError(DRAFT_RECORDED_MEANWHILE);
   }

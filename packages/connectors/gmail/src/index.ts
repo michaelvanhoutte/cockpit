@@ -63,7 +63,7 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
 
     makeDraft: (host, wanted) => makeGmailDraft(host, config, wanted),
 
-    findDraft: (host, draftId) => findGmailDraft(host, config, draftId),
+    findDraft: (host, draft) => findGmailDraft(host, config, draft),
 
     listRecentSent: (host, limit) => listGmailSent(host, config, limit),
 

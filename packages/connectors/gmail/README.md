@@ -229,9 +229,13 @@ turns:
   opens a blank message given the id. The conversation's link, until the draft
   is sent, names the message replied to, or the draft where it starts the
   conversation.
-- **Reply… with a draft already waited on** asks `drafts.get` first
-  (`findDraft`): still there outside the bin, its link is the answer and nothing
-  is made; gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+- **Reply… with a draft already waited on** asks first what became of it
+  (`findDraft`), as the check below tells it: still there outside the bin, its
+  link is the answer and nothing is made; sent (gone, with a message sent from
+  the mailbox in its conversation since), the host is told so and makes nothing;
+  otherwise, gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most four calls:
+  a refresh, the draft, the profile where no check saved the address yet, and
+  the conversation.
 - **A check** reads a draft's conversation as any followed one: the draft sent,
   whether its message keeps its id (Draft off, Sent on) or comes back as a new
   one, is a turn of yours. Once the history is read to the end, each draft the
