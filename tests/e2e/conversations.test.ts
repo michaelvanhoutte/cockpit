@@ -125,6 +125,31 @@ async function connectedByStarFromTheAddress(page: Page, isMobile: boolean): Pro
   if (!isMobile) await closeSettings(page, isMobile);
 }
 
+/**
+ * A Gmail connection and an Outlook connection of the open Workspace, by the
+ * address each connect goes to (a phone has no Settings to press them in): the
+ * Gmail one is the stub's own `MAILBOX`, the Outlook one signs in as `address`.
+ * Waits until both are listed, then reloads so the Workspace holds both.
+ */
+async function gmailAndOutlookConnected(page: Page, isMobile: boolean, address: string): Promise<string[]> {
+  const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+  const listedNow = async () =>
+    ((await (await page.request.get(`/v1/workspaces/${workspaceId}/connections`)).json()) as {
+      sourceAccounts: { id: string; connectorId: string }[];
+    }).sourceAccounts;
+  await page.goto(`/v1/workspaces/${workspaceId}/connections/gmail/connect?choice=star`);
+  await page.getByRole('link', { name: MAILBOX, exact: true }).click();
+  await expect.poll(async () => (await listedNow()).some((one) => one.connectorId === 'gmail')).toBe(true);
+  if (!isMobile) await closeSettings(page, isMobile);
+  await page.goto(`/v1/workspaces/${workspaceId}/connections/outlook/connect?choice=flag`);
+  await page.getByPlaceholder('somebody@example.com').fill(address);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect.poll(async () => (await listedNow()).some((one) => one.connectorId === 'outlook')).toBe(true);
+  if (!isMobile) await closeSettings(page, isMobile);
+  await page.reload();
+  return (await listedNow()).map((one) => one.id);
+}
+
 test.describe('Triage', () => {
   test.describe('Follow a sent email… in Capture lists the mailbox’s newest sent mail, and a pick is an Item waiting for a reply', () => {
     test('lists the newest first, one entry a row, and picking the first reads Gmail · You wrote in the Inbox, Waiting since', async ({
@@ -435,5 +460,69 @@ test.describe('Triage', () => {
       await closeSettings(page, isMobile);
       await deleteWorkspace(page, workspace, isMobile);
     });
+  });
+
+  /**
+   * "Email…'s mailbox menu does not say it is the From" (issue 1723): what the
+   * menu draws is the component tests'; how wide it comes out, and that nothing
+   * crosses its edge or the screen's, only a browser measures.
+   */
+  test.describe('the mailbox menu fits the longest address up to 320px, cutting a longer one, and nothing crosses an edge', () => {
+    const cases = [
+      { situation: 'an address that fits', address: 'michael.vanhoutte@example.com', cut: false },
+      { situation: 'an address past the limit', address: 'a.very.long.shared.mailbox.address.for.the.whole.team@subsidiary.example.com', cut: true },
+    ];
+    const inARegExp = (text: string) => new RegExp(text.replace(/\./g, '\\.'));
+    for (const { situation, address, cut } of cases) {
+      test(`heads From over Gmail and Outlook, ${situation}`, async ({ page, isMobile }) => {
+        await openFirstWorkspace(page, isMobile);
+        const workspace = uniqueTitle('Mailbox menu');
+        await makeWorkspace(page, workspace, isMobile);
+        await switchTo(page, workspace, isMobile);
+        const sourceAccountIds = await gmailAndOutlookConnected(page, isMobile, address);
+
+        const purpose = uniqueTitle('Plan a dinner with Steven Noels');
+        await giveToTheInbox(page, [purpose]);
+        if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+        const row = itemRow(page, purpose);
+        await expect(row).toBeVisible();
+        await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+        await press(page.getByRole('menuitem', { name: /^Email…/ }), isMobile);
+
+        const heading = page.getByText('From', { exact: true });
+        await expect(heading).toBeVisible();
+        const menu = page.getByRole('menu').filter({ has: heading });
+        await expect(menu.getByRole('menuitem', { name: inARegExp(address) })).toContainText('Outlook');
+        await expect(menu.getByRole('menuitem', { name: inARegExp(MAILBOX) })).toContainText('Gmail');
+
+        const box = (await menu.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+        expect(box.width).toBeLessThanOrEqual(321);
+        // Every line stops inside the menu; the one cut says so by its own overflow, and says its whole name on hover.
+        const lines = await menu.getByRole('menuitem').evaluateAll((items) =>
+          items.flatMap((item) => {
+            const edge = item.closest('[role="menu"]')!.getBoundingClientRect().right;
+            return [...item.querySelectorAll('div')].map((line) => ({
+              text: line.textContent,
+              right: line.getBoundingClientRect().right,
+              edge,
+              cut: line.scrollWidth > line.clientWidth,
+              title: line.getAttribute('title'),
+            }));
+          }),
+        );
+        for (const line of lines) expect(line.right).toBeLessThanOrEqual(line.edge);
+        const named = lines.find((line) => line.text === address)!;
+        expect(named.cut).toBe(cut);
+        expect(named.title).toBe(address);
+        if (cut) expect(box.width).toBeGreaterThanOrEqual(319);
+        else expect(box.width).toBeGreaterThan(192);
+
+        await page.keyboard.press('Escape');
+        for (const sourceAccountId of sourceAccountIds) await arrange(page, 'disconnect_source_account', { sourceAccountId });
+        await deleteWorkspace(page, workspace, isMobile);
+      });
+    }
   });
 });
