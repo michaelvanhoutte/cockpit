@@ -552,7 +552,9 @@ export function recordPulledTurn(
     {
       commandId,
       issuedAt: at,
-      workspaceId: holds.workspaceId,
+      // The Item's own Workspace, whose open tabs read it again: an Item Email…
+      // made follow a conversation may be read by another Workspace's connection.
+      workspaceId: followed.itemWorkspaceId,
       itemId: followed.itemId,
       connectorId: holds.connectorId,
       externalAccountKey: holds.externalAccountKey,
@@ -618,7 +620,7 @@ export function reportPulledDraftGone(
     {
       commandId,
       issuedAt: at,
-      workspaceId: holds.workspaceId,
+      workspaceId: waiting.itemWorkspaceId,
       itemId: waiting.itemId,
       connectorId: holds.connectorId,
       externalAccountKey: holds.externalAccountKey,
@@ -648,6 +650,7 @@ function followedBy(
   return db
     .select({
       itemId: itemConversations.itemId,
+      itemWorkspaceId: items.workspaceId,
       conversationId: itemConversations.conversationId,
       lastAt: itemConversations.lastAt,
       draftId: itemConversations.draftId,

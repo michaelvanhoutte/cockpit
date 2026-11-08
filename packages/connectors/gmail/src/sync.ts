@@ -7,7 +7,7 @@ import {
   type GmailConnectorConfig,
   type Mailbox,
 } from './mailbox.js';
-import { sentSince } from './drafts.js';
+import { latestSentSince } from './drafts.js';
 import { LINKEDIN_PREFIX, NOTIFICATION_SEARCH, linkedInConversationOf, linkedInNotificationIn } from './linkedin.js';
 import {
   STARRED,
@@ -589,14 +589,17 @@ class Reading {
    * read to the end, so a draft sent and read as a turn this run is no longer
    * among them. One still in Gmail changes nothing. One gone is reported gone
    * - deleted unsent - unless its conversation holds a message sent from this
-   * mailbox since: sent just after the history was read, its turn read next run.
+   * mailbox since: the draft sent, whose turn is reported here, since the
+   * history may never report it (sent while the Item was done, or while the
+   * position lapsed). A turn reported twice is applied once.
    */
   async #checkDrafts(): Promise<void> {
     for (const draft of await this.host.draftsWaiting()) {
       if ((await this.mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`)) !== null) continue;
       const thread = await this.mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
-      if (thread !== null && sentSince(thread, draft.after)) continue;
-      await this.host.reportDraftGone({ conversationId: draft.conversationId, draftId: draft.draftId });
+      const sent = thread === null ? null : latestSentSince(thread, draft.after);
+      if (sent !== null) await this.#reportTurn(sent, draft.conversationId);
+      else await this.host.reportDraftGone({ conversationId: draft.conversationId, draftId: draft.draftId });
     }
   }
 

@@ -86,6 +86,20 @@ describe('Triage', () => {
       expect(Math.max(...text.split('\r\n').map((line) => line.length))).toBeLessThanOrEqual(998);
     });
 
+    it('splits a long subject outside ASCII into encoded words short enough for mail, which read back whole', () => {
+      const subject = `Diner met Stéven ${'✓'.repeat(200)}`;
+
+      const raw = rawDraft({ subject, to: null, inReplyTo: null, references: null });
+
+      const text = new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+      const header = /^Subject: ([\s\S]*?)\r\n(?! )/m.exec(text)![1]!;
+      const words = header.split('\r\n ');
+      expect(words.length).toBeGreaterThan(1);
+      expect(Math.max(...words.map((word) => word.length))).toBeLessThanOrEqual(75);
+      const decoded = words.map((word) => /^=\?UTF-8\?B\?(.+)\?=$/.exec(word)![1]!).map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+      expect(decoded.map((bytes) => new TextDecoder().decode(bytes)).join('')).toBe(subject);
+    });
+
     it('addresses a reply to whom your own latest message went', async () => {
       const world = new GmailWorld();
       world.arrives('t-1', 'Dinner one of these weeks?', 'Shall we?', ['star']);
@@ -188,16 +202,18 @@ describe('Triage', () => {
       expect(next.draftsGone).toEqual(gone.map((id) => ({ conversationId, draftId: id })));
     });
 
-    it('reports nothing gone for a draft whose conversation holds a message you sent, though the host still waits on it', async () => {
-      const { world, host, draftId } = await aDraftWaitedOn();
+    it('reports the sent message as your turn, and nothing gone, where the host still waits on a draft gone from Gmail', async () => {
+      const { world, host, draftId, conversationId } = await aDraftWaitedOn();
       world.sendsTheDraft(draftId);
       const next = host.next();
-      // As a draft sent after the history was read: the host has not heard of the turn yet.
-      next.draftsWaiting = async () => [...host.draftsMade];
+      // Sent while the Item was done, which the host hands over no longer: the
+      // history reports no turn, and the host still waits on the draft.
+      next.following.delete(conversationId);
 
       await world.connector().sync(next);
 
       expect(next.draftsGone).toEqual([]);
+      expect(next.turns).toEqual([expect.objectContaining({ by: 'you', conversationId })]);
     });
   });
 });

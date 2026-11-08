@@ -137,9 +137,24 @@ export function rawDraft(draft: ReplyTo): string {
   return base64url(lines.join('\r\n'));
 }
 
-/** A header value as it may be sent: as it is in ASCII, else one UTF-8 encoded word. */
+/**
+ * A header value as it may be sent: as it is in ASCII, else UTF-8 encoded
+ * words of at most 45 bytes each, one a line, so none passes RFC 2047's 75
+ * characters and a long title no line's 998. A character is never split.
+ */
 function encodedWord(value: string): string {
-  return /^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${base64(value)}?=`;
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  const words: string[] = [];
+  let word = '';
+  for (const character of value) {
+    if (word && new TextEncoder().encode(word + character).length > 45) {
+      words.push(word);
+      word = '';
+    }
+    word += character;
+  }
+  if (word) words.push(word);
+  return words.map((one) => `=?UTF-8?B?${base64(one)}?=`).join('\r\n ');
 }
 
 function base64(text: string): string {
@@ -183,13 +198,21 @@ function inTheirWords(error: unknown): Error {
  * a draft sent, whose turn a check reads, from one deleted unsent.
  */
 export function sentSince(answer: unknown, after: string | null): boolean {
+  return latestSentSince(answer, after) !== null;
+}
+
+/** The id of the newest message sent from this mailbox after `after` in a conversation as `threads.get` answers it, or null. */
+export function latestSentSince(answer: unknown, after: string | null): string | null {
   const { messages } = (answer ?? {}) as { messages?: unknown };
   const since = after === null ? Number.NEGATIVE_INFINITY : Date.parse(after);
-  return (Array.isArray(messages) ? (messages as GmailMessage[]) : []).some(
+  const sent = (Array.isArray(messages) ? (messages as GmailMessage[]) : []).filter(
     (message) =>
-      Array.isArray(message?.labelIds) &&
+      typeof message?.id === 'string' &&
+      Array.isArray(message.labelIds) &&
       message.labelIds.includes(SENT) &&
       !message.labelIds.includes(DRAFT) &&
       sentAt(message) > since,
   );
+  const latest = sent.sort((a, b) => sentAt(b) - sentAt(a))[0];
+  return typeof latest?.id === 'string' ? latest.id : null;
 }

@@ -79,6 +79,7 @@ export function wantDraft(
       externalAccountKey: itemConversations.externalAccountKey,
       conversationId: itemConversations.conversationId,
       draftId: itemConversations.draftId,
+      statusBeforeDraft: itemConversations.statusBeforeDraft,
     })
     .from(itemConversations)
     .where(and(eq(itemConversations.tenantId, accountName), eq(itemConversations.itemId, ask.itemId)))
@@ -90,9 +91,10 @@ export function wantDraft(
     (one) => one.connectorId === connection.connectorId && one.externalAccountKey === connection.externalAccountKey,
   );
   if (!here && followed.length > 0) throw new DraftRefusedError(FOLLOWS_ELSEWHERE);
-  // A recorded draft still unsent is the one to finish: a second would leave
-  // the first untracked, and one that started the conversation has nothing to reply to.
-  if (here && here.draftId !== null) throw new DraftRefusedError(DRAFT_ALREADY_STARTED);
+  // A recorded draft still waited on is the one to finish (not one whose wait a
+  // turn has ended since): a second would leave the first untracked, and one
+  // that started the conversation has nothing to reply to.
+  if (here && here.draftId !== null && here.statusBeforeDraft !== null) throw new DraftRefusedError(DRAFT_ALREADY_STARTED);
   const replyIn = here?.conversationId ?? null;
 
   runCommand(db, accountName, 'start_draft', {
