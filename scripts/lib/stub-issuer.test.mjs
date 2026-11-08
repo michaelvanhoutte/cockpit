@@ -571,6 +571,32 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual(asked, [`GET ${flagged.split('?')[0]}`]);
   });
 
+  // What a followed conversation's later messages look like to a check ("Outlook
+  // follows the flagged conversation as Gmail does", issue 1707).
+  it('adds a reply to a conversation, sent from the mailbox or not, and lists a conversation and the mail received since', async () => {
+    const token = await accessTokenFor('graph-replying@example.com');
+    const at = (path) => `${issuer.origin}/graph-stub/${path}`;
+    const act = (path) => fetch(at(path), { method: 'POST' }).then((answer) => answer.json());
+    const { conversation } = await act('flag?email=graph-replying%40example.com&subject=Dinner');
+    const theirs = await act(`reply?email=graph-replying%40example.com&conversation=${encodeURIComponent(conversation)}&text=Friday%3F`);
+    const mine = await act(`reply?email=graph-replying%40example.com&conversation=${encodeURIComponent(conversation)}&sent`);
+    const sentItems = (await (await graph(token, 'mailFolders/sentitems?$select=id')).json()).id;
+
+    const whole = await (
+      await graph(token, `messages?$filter=${encodeURIComponent(`conversationId eq '${conversation}'`)}&$select=id,parentFolderId,bodyPreview`)
+    ).json();
+    assert.equal(whole.value.length, 3);
+    assert.ok([theirs.id, mine.id].every((id) => whole.value.some((one) => one.id === id)));
+    assert.equal(whole.value.find((one) => one.id === mine.id).parentFolderId, sentItems);
+    assert.equal(whole.value.find((one) => one.id === theirs.id).bodyPreview, 'Friday?');
+
+    const since = new Date(Date.now() - 60_000).toISOString(); // clock-ok: the stub stamps what a walk adds on the real clock
+    const recent = await (
+      await graph(token, `messages?$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}&$orderby=receivedDateTime&$select=id,conversationId`)
+    ).json();
+    assert.deepEqual(recent.value.map((one) => one.conversationId), [conversation, conversation, conversation]);
+  });
+
   it('flags a new message with the categories a walk names, and adds one to it later', async () => {
     const at = (path) => `${issuer.origin}/graph-stub/${path}`;
     const { id } = await fetch(at('flag?email=graph-tagging%40example.com&category=Customer%20Atlas'), {

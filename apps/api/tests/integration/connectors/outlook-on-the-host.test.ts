@@ -215,7 +215,7 @@ describe('Connector management', () => {
 
       await deliver(check);
 
-      expect(await outlookItems()).toEqual([expect.objectContaining({ title: 'Invoice 42', sourceId: 'message-1' })]);
+      expect(await outlookItems()).toEqual([expect.objectContaining({ title: 'Invoice 42', sourceId: 'conversation:conversation-of-message-1' })]);
       expect(await outlookRow()).toMatchObject({ failingBecause: null });
       expect((await nextAlarm())! - Date.now()).toBeGreaterThan(4 * 60_000);
     });
@@ -281,7 +281,7 @@ describe('Connector management', () => {
         }),
       );
       expect(graphCalls.filter((call) => call.startsWith('PATCH ')).length).toBe(12);
-      expect(graphMessage(filed[0]!.sourceId!)?.flag).toBe('complete');
+      expect(graphMessage(filed[0]!.sourceId!.replace('conversation:conversation-of-', ''))?.flag).toBe('complete');
       expect(graphCalls.length + refreshes.length).toBeLessThanOrEqual(OUTLOOK_CALLS_PER_RUN);
       // And one more where the isolate has not yet read the issuer's discovery document, which an earlier case here may have.
       expect(outbound + 1).toBeLessThanOrEqual(OUTBOUND_LIMIT);

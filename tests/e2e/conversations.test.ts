@@ -65,6 +65,33 @@ async function checkedAgain(page: Page): Promise<void> {
   await expect.poll(async () => (await askedOfGmail()).slice(before).some((call) => call.startsWith('history'))).toBe(true);
 }
 
+/** Something done in the stand-in Outlook mailbox, as a person does it there: answers what the stub says it made. */
+async function inOutlook(what: 'flag' | 'reply', query: Record<string, string>): Promise<{ id: string; conversation: string }> {
+  const answer = await fetch(`${issuer}/graph-stub/${what}?${new URLSearchParams({ email: MAILBOX, ...query })}`, { method: 'POST' });
+  return (await answer.json()) as { id: string; conversation: string };
+}
+
+async function askedOfOutlook(): Promise<string[]> {
+  return (await (await fetch(`${issuer}/graph-stub/asked?email=${encodeURIComponent(MAILBOX)}`)).json()) as string[];
+}
+
+/** The Outlook connection checked once more after what the mailbox just took: *Check now* until a check starts that lists Deleted Items again. */
+async function outlookCheckedAgain(page: Page): Promise<void> {
+  const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+  const listed = (await (await page.request.get(`/v1/workspaces/${workspaceId}/connections`)).json()) as {
+    sourceAccounts: { id: string; connectorId: string }[];
+  };
+  const outlook = listed.sourceAccounts.find((one) => one.connectorId === 'outlook')!;
+  const before = (await askedOfOutlook()).length;
+  await expect
+    .poll(async () => {
+      const pressed = await page.request.post(`/v1/workspaces/${workspaceId}/connections/${outlook.id}/check-now`);
+      return ((await pressed.json()) as { status: string }).status;
+    })
+    .not.toBe('running');
+  await expect.poll(async () => (await askedOfOutlook()).slice(before).includes('GET mailFolders/deleteditems')).toBe(true);
+}
+
 /** Connect on the Gmail card, picking the star, and wait until the first check has read where the mailbox stands - what is starred after is brought in. */
 async function connectedByStar(page: Page, isMobile: boolean): Promise<void> {
   const window = await openSettings(page, 'Connections', isMobile);
@@ -182,6 +209,61 @@ test.describe('Triage', () => {
       await expect(section.getByText(/emails?/)).toHaveCount(0);
       await page.keyboard.press('Escape');
       await expect(section).toBeHidden();
+
+      await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: `Yes, disconnect ${MAILBOX}` }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
+  test.describe('a followed Outlook conversation’s row says who wrote last, and a reply turns it To do', () => {
+    test('reads Outlook · Anna wrote, then Steven replied, with the status To do, and opens the latest message', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Followed in Outlook');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+
+      const window = await openSettings(page, 'Connections', isMobile);
+      await press(window.getByRole('button', { name: 'Connect Outlook' }), isMobile);
+      const asked = page.getByRole('dialog', { name: 'Connect Outlook' });
+      await expect(asked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
+      await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
+      await press(page.getByRole('link', { name: MAILBOX, exact: true }), isMobile);
+      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Checked /)).toBeVisible();
+      await closeSettings(page, isMobile);
+
+      // A message flagged after connecting: one Item for its conversation.
+      const purpose = uniqueTitle('Dinner with Steven');
+      const { conversation, id } = await inOutlook('flag', { subject: purpose, text: 'Shall we have dinner one of these weeks?' });
+      await outlookCheckedAgain(page);
+      const row = itemRow(page, purpose);
+      await expect(row.getByText('Outlook · Anna wrote just now')).toBeVisible();
+
+      // Steven answers, flagged or not: the row says so, and the Item is to do.
+      await inOutlook('reply', { conversation, from: 'Steven Noels <steven@example.com>', text: 'Thursday is tricky, how about Friday?' });
+      await outlookCheckedAgain(page);
+      await expect(row.getByText('Outlook · Steven replied just now')).toBeVisible();
+      await expect(row.getByText('Outlook · Steven replied just now')).toHaveAttribute('title', 'Steven Noels: Thursday is tricky, how about Friday?');
+      await expect(row.getByText(/^Waiting since/)).toHaveCount(0);
+      await expect(row.getByRole('link', { name: 'Open the latest email in Outlook' })).toBeVisible();
+
+      // Your reply, sent from the mailbox: waiting for his.
+      await inOutlook('reply', { conversation, sent: '' });
+      await outlookCheckedAgain(page);
+      await expect(row.getByText('Outlook · You wrote just now')).toBeVisible();
+      await expect(row.getByText(/^Waiting since/)).toBeVisible();
+
+      // Done completes the flag in the mailbox.
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: /^Status/ }), isMobile);
+      await press(page.getByRole('menuitemradio', { name: 'Done' }), isMobile);
+      await expect(row).toHaveCount(0);
+      await expect
+        .poll(async () => ((await (await fetch(`${issuer}/graph-stub/message?email=${encodeURIComponent(MAILBOX)}&id=${id}`)).json()) as { flagStatus: string }).flagStatus)
+        .toBe('complete');
 
       await openSettings(page, 'Connections', isMobile);
       await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);

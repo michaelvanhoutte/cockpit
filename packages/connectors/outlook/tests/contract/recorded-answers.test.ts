@@ -9,9 +9,11 @@ import {
   isMarked,
   markFilter,
   messageFrom,
+  TURN_FIELDS,
   messagePage,
+  turnPage,
 } from '../../src/messages.js';
-import { categoriesAnswer, deletedItemsAnswer, message, messagesPage } from '../graph-payloads.js';
+import { categoriesAnswer, deletedItemsAnswer, message, messagesPage, sentItemsAnswer } from '../graph-payloads.js';
 
 /**
  * The contract tier: the calls the Outlook connector reads and writes, asked of Microsoft
@@ -133,6 +135,51 @@ describe.skipIf(!provisioned)('Capture', () => {
         expect(missingFrom(live, messagesPage([message({ id: 'a-message' })]), ['value', 'value[].id', 'value[].parentFolderId', 'value[].flag', 'value[].flag.flagStatus', 'value[].categories'])).toEqual([]);
         expect(messagePage(live, mark, deletedItems).messageIds.length, `the test mailbox holds no message for ${mark}`).toBeGreaterThan(0);
       }
+    });
+
+    it('names the Sent Items folder by its well-known name', async () => {
+      const live = await graph('mailFolders/sentitems?$select=id');
+
+      expect(missingFrom(live, sentItemsAnswer(), ['id'])).toEqual([]);
+    });
+
+    // Issue 1707: what the spike was to settle. A failure here means the
+    // reading in src/conversations.ts is wrong about Graph.
+    it('reads the mail received since a time across every folder, Sent Items among them, ordered by it', async () => {
+      const folders = {
+        sentItems: deletedItemsIn(await graph('mailFolders/sentitems?$select=id'))!,
+        deletedItems: deletedItemsIn(await graph('mailFolders/deleteditems?$select=id'))!,
+      };
+      const since = new Date(Date.now() - 30 * 24 * 3600_000).toISOString(); // clock-ok: the live mailbox is asked for the last 30 days
+
+      const live = await graph(
+        `messages?$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}&$orderby=receivedDateTime&$select=${TURN_FIELDS}&$top=100`,
+      );
+
+      expect(
+        missingFrom(live, messagesPage([message({ id: 'a-message' })], undefined, TURN_FIELDS.split(',')), [
+          'value[].id',
+          'value[].conversationId',
+          'value[].parentFolderId',
+          'value[].receivedDateTime',
+          'value[].bodyPreview',
+          'value[].isDraft',
+        ]),
+      ).toEqual([]);
+      const { turns } = turnPage(live, folders);
+      expect(turns.some((turn) => turn.by === 'you'), 'the test mailbox holds no message sent in the last 30 days').toBe(true);
+      const times = turns.map((turn) => Date.parse(turn.at));
+      expect(times).toEqual([...times].sort((one, other) => one - other));
+    });
+
+    it('reads one conversation whole by its id', async () => {
+      const deletedItems = deletedItemsIn(await graph('mailFolders/deleteditems?$select=id'))!;
+      const [id] = messagePage(await list('flag'), 'flag', deletedItems).messageIds;
+      const { conversationId } = (await graph(`messages/${encodeURIComponent(id!)}?$select=conversationId`)) as { conversationId: string };
+
+      const live = await graph(`messages?$filter=${encodeURIComponent(`conversationId eq '${conversationId}'`)}&$select=id,flag`);
+
+      expect((live.value as { id: string }[]).map((one) => one.id)).toContain(id);
     });
 
     it('leaves a marked message in Deleted Items out of the listing the connector reads', async () => {

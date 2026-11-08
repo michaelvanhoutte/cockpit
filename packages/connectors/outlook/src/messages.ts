@@ -30,7 +30,7 @@ const DESCRIPTION_LENGTH = 60_000;
 export const NO_SUBJECT = '(no subject)';
 
 /** What Graph says of a message the connector looks at when listing: where it is and what marks it carries. */
-export const LIST_FIELDS = 'id,parentFolderId,flag,categories';
+export const LIST_FIELDS = 'id,parentFolderId,flag,categories,conversationId';
 
 /** What a message is read for in full. */
 export const READ_FIELDS = `${LIST_FIELDS},subject,from,body,webLink,receivedDateTime`;
@@ -42,6 +42,9 @@ export function markFilter(mark: Mark): string {
 
 interface GraphMessage {
   id?: unknown;
+  conversationId?: unknown;
+  isDraft?: unknown;
+  bodyPreview?: unknown;
   parentFolderId?: unknown;
   flag?: { flagStatus?: unknown } | null;
   categories?: unknown;
@@ -114,7 +117,12 @@ export function messagePage(
   answer: unknown,
   mark: Mark,
   deletedItems: string,
-): { messageIds: string[]; categories: Record<string, string[]>; nextLink: string | null } {
+): {
+  messageIds: string[];
+  categories: Record<string, string[]>;
+  conversations: Record<string, string>;
+  nextLink: string | null;
+} {
   const { value, '@odata.nextLink': nextLink } = (answer ?? {}) as Record<string, unknown>;
   const marked = (Array.isArray(value) ? (value as GraphMessage[]) : []).filter(
     (one) => typeof one?.id === 'string' && one.id && one.parentFolderId !== deletedItems && isMarked(one, mark),
@@ -122,8 +130,14 @@ export function messagePage(
   return {
     messageIds: marked.map((one) => one.id as string),
     categories: Object.fromEntries(marked.map((one) => [one.id as string, categoryNames(one.categories)])),
+    // A message Graph names no conversation for is its own: nothing else can be in it.
+    conversations: Object.fromEntries(marked.map((one) => [one.id as string, conversationIdOf(one)])),
     nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null,
   };
+}
+
+function conversationIdOf(message: GraphMessage): string {
+  return typeof message.conversationId === 'string' && message.conversationId ? message.conversationId : `alone:${String(message.id)}`;
 }
 
 /** Every category name a message carries, as Graph lists them. */
@@ -155,6 +169,8 @@ export interface OutlookMessage {
   readonly receivedAt: string | null;
   /** Every category it carries, the mark among them where it is one. */
   readonly categories: string[];
+  /** The conversation it is in. */
+  readonly conversationId: string;
 }
 
 /**
@@ -181,6 +197,7 @@ export function messageFrom(answer: unknown, mark: Mark, deletedItems: string): 
         : `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(message.id)}`,
     receivedAt: Number.isFinite(received) ? new Date(received).toISOString() : null,
     categories: categoryNames(message.categories),
+    conversationId: conversationIdOf(message),
   };
 }
 
@@ -237,4 +254,65 @@ function cutTo(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);
+}
+
+/**
+ * **A conversation an Item follows is filed under `conversation:` and its id.**
+ * An Item made of one flagged message before conversations were followed is
+ * filed under that message's id, which a prefix tells from it: those keep
+ * working as they did and never follow anything.
+ */
+export const CONVERSATION_PREFIX = 'conversation:';
+
+export function conversationKey(conversationId: string): string {
+  return `${CONVERSATION_PREFIX}${conversationId}`;
+}
+
+/** The conversation an Item's source id names, or null for an Item made of one message. */
+export function conversationIdIn(sourceId: string): string | null {
+  return sourceId.startsWith(CONVERSATION_PREFIX) ? sourceId.slice(CONVERSATION_PREFIX.length) : null;
+}
+
+/** What is asked of a message to place it in a conversation, or to report it as a turn of one. */
+export const TURN_FIELDS = 'id,conversationId,parentFolderId,from,receivedDateTime,bodyPreview,isDraft,webLink,flag';
+
+/** One message of a conversation or of the mailbox's recent mail, as a turn would carry it. */
+export interface MailTurn {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly by: 'you' | 'them';
+  readonly from: string | null;
+  readonly at: string;
+  readonly excerpt: string;
+  readonly link: string | null;
+  readonly flagged: boolean;
+}
+
+/**
+ * One page of messages read for their turns: those that are sent (not drafts)
+ * and not in Deleted Items, with `by` = `you` for Sent Items. Pure.
+ */
+export function turnPage(
+  answer: unknown,
+  folders: { sentItems: string; deletedItems: string },
+): { turns: MailTurn[]; nextLink: string | null } {
+  const { value, '@odata.nextLink': nextLink } = (answer ?? {}) as Record<string, unknown>;
+  const turns: MailTurn[] = [];
+  for (const one of Array.isArray(value) ? (value as GraphMessage[]) : []) {
+    if (typeof one?.id !== 'string' || !one.id || one.isDraft === true || one.parentFolderId === folders.deletedItems) continue;
+    const at = typeof one.receivedDateTime === 'string' ? Date.parse(one.receivedDateTime) : NaN;
+    if (!Number.isFinite(at)) continue;
+    const inSent = one.parentFolderId === folders.sentItems;
+    turns.push({
+      messageId: one.id,
+      conversationId: conversationIdOf(one),
+      by: inSent ? 'you' : 'them',
+      from: senderIn(one.from),
+      at: new Date(at).toISOString(),
+      excerpt: cutTo(oneLine(typeof one.bodyPreview === 'string' ? one.bodyPreview : ''), 280),
+      link: typeof one.webLink === 'string' && one.webLink ? one.webLink : null,
+      flagged: one.flag?.flagStatus === 'flagged',
+    });
+  }
+  return { turns, nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null };
 }

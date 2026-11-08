@@ -5,6 +5,7 @@ import type {
   NamesReport,
   SourceItem,
   SourceStateChange,
+  ConversationTurn,
 } from '@cockpit/connector-sdk';
 
 /**
@@ -24,6 +25,9 @@ export class FakeHost implements ConnectorHost {
   readonly changes: SourceStateChange[] = [];
   readonly listings: CompleteListing[] = [];
   readonly namesReported: NamesReport[] = [];
+  /** The conversations an open Item follows, by the source's id for them: those emitted with one, unless a case ends them. */
+  readonly following = new Set<string>();
+  readonly turns: ConversationTurn[] = [];
   readonly credentialsSaved: Record<string, string>[] = [];
   readonly logged: { level: string; message: string; data?: unknown }[] = [];
 
@@ -37,6 +41,7 @@ export class FakeHost implements ConnectorHost {
     const next = new FakeHost({ choice: this.choice, credential: this.credential });
     next.state = this.state;
     for (const [id, item] of this.filed) next.filed.set(id, item);
+    for (const id of this.following) next.following.add(id);
     return next;
   }
 
@@ -59,6 +64,8 @@ export class FakeHost implements ConnectorHost {
 
   async emitItem(item: SourceItem): Promise<EmittedItem> {
     const id = item.sourceId ?? '';
+    // The host has an Item follow the conversation it is emitted with, new or known.
+    if (item.conversation) this.following.add(item.conversation.id);
     if (this.filed.has(id)) return 'already-known';
     this.filed.set(id, item);
     return 'filed';
@@ -76,13 +83,12 @@ export class FakeHost implements ConnectorHost {
     this.namesReported.push({ ...report, names: [...report.names] });
   }
 
-  /** Outlook follows no conversation yet: none is ever handed over. */
   async followedConversations(): Promise<string[]> {
-    return [];
+    return [...this.following];
   }
 
-  async reportTurn(): Promise<void> {
-    throw new Error('Outlook follows no conversation yet, so it has no turn to report');
+  async reportTurn(turn: ConversationTurn): Promise<void> {
+    this.turns.push(turn);
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
