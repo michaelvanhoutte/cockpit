@@ -28,6 +28,9 @@ import { EXCERPT_LENGTH, NO_SUBJECT, SENT, TITLE_LENGTH, conversationLink, cutTo
  */
 const CALLS_PER_LISTING = 14;
 
+/** How many times the limit the list asks for, since several of the newest may be one conversation's. */
+const OVER_FETCH = 3;
+
 /** The headers a listing is built from. */
 const LISTED_HEADERS = ['Subject', 'To'];
 
@@ -38,7 +41,7 @@ export async function listGmailSent(host: OnDemandHost, config: GmailConnectorCo
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LISTING });
     const saved = (await host.getState()) as { address?: unknown } | null;
     // Asked first, one by one: the first call settles the access token the reads then share.
-    const ids = sentIds(await mailbox.get(`messages?labelIds=${SENT}&maxResults=${limit}`), limit);
+    const ids = sentIds(await mailbox.get(`messages?labelIds=${SENT}&maxResults=${limit * OVER_FETCH}`), limit);
     if (ids.length === 0) return [];
     const address =
       typeof saved?.address === 'string' && saved.address
@@ -56,13 +59,22 @@ export async function listGmailSent(host: OnDemandHost, config: GmailConnectorCo
   }
 }
 
-/** The ids of the emails `users.messages.list` answers, in its order, at most `limit`. */
+/**
+ * The ids of the newest email of each conversation `users.messages.list` answers,
+ * in its order, at most `limit`: a conversation written in four times is listed once.
+ */
 export function sentIds(answer: unknown, limit: number): string[] {
   const { messages } = (answer ?? {}) as { messages?: unknown };
   const ids: string[] = [];
+  const threads = new Set<string>();
   for (const one of Array.isArray(messages) ? (messages as unknown[]) : []) {
-    const { id } = (one ?? {}) as { id?: unknown };
-    if (typeof id === 'string' && id && !ids.includes(id)) ids.push(id);
+    const { id, threadId } = (one ?? {}) as { id?: unknown; threadId?: unknown };
+    if (typeof id !== 'string' || !id || ids.includes(id)) continue;
+    if (typeof threadId === 'string' && threadId) {
+      if (threads.has(threadId)) continue;
+      threads.add(threadId);
+    }
+    ids.push(id);
   }
   return ids.slice(0, limit);
 }
@@ -97,7 +109,9 @@ export function sentEmailIn(answer: unknown, mailboxAddress: string): SentEmail 
  */
 export function recipientsIn(header: string | null): string | null {
   if (!header) return null;
-  const names = header
+  // A group (`undisclosed-recipients:;`, `Team: a@x.com, b@x.com;`) is its members, if it names any.
+  const group = /^\s*[^:"<>,@]+:(.*);\s*$/.exec(header);
+  const names = (group ? group[1]! : header)
     // A comma inside quotes is part of a name, not a separator.
     .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
     .map((one) => {

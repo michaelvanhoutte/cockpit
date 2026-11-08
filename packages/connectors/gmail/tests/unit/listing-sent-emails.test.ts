@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { ADDRESS, GmailWorld, signedInHost } from './gmail-world.js';
-import { recipientsIn } from '../../src/sent.js';
+import { recipientsIn, sentIds } from '../../src/sent.js';
 
 /**
  * L1, against a fake host and Gmail faked at the network: *Follow a sent
@@ -63,7 +63,7 @@ describe('Triage', () => {
 
       expect(listed.map((one) => one.conversationId)).toEqual(['t-12', 't-11', 't-10', 't-9', 't-8', 't-7', 't-6', 't-5', 't-4', 't-3']);
       expect(world.requests.filter((one) => one.startsWith('GET /gmail/v1/users/me/messages?'))).toEqual([
-        'GET /gmail/v1/users/me/messages?labelIds=SENT&maxResults=10',
+        'GET /gmail/v1/users/me/messages?labelIds=SENT&maxResults=30',
       ]);
       expect(world.requests.every((one) => one.startsWith('GET '))).toBe(true);
       // The list, and one read of each email.
@@ -148,8 +148,27 @@ describe('Triage', () => {
       ['<only@example.com>', 'only@example.com'],
       ['   ', null],
       [null, null],
+      ['undisclosed-recipients:;', null],
+      ['Team: a@example.com, "Noels, Steven" <s@example.com>;', 'a@example.com, Noels, Steven'],
     ])('reads %j as %j', (header, shown) => {
       expect(recipientsIn(header)).toBe(shown);
+    });
+  });
+
+  describe('one conversation written in more than once', () => {
+    it('is listed once, by its newest email, and the rest of the ten are other conversations', () => {
+      const answer = {
+        messages: [
+          { id: 'm-5', threadId: 't-a' },
+          { id: 'm-4', threadId: 't-a' },
+          { id: 'm-3', threadId: 't-b' },
+          { id: 'm-2', threadId: 't-a' },
+          { id: 'm-1', threadId: 't-c' },
+        ],
+      };
+
+      expect(sentIds(answer, 10)).toEqual(['m-5', 'm-3', 'm-1']);
+      expect(sentIds(answer, 2)).toEqual(['m-5', 'm-3']);
     });
   });
 });

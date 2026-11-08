@@ -30,9 +30,13 @@ export class DraftNotMadeError extends Error {
 export const DRAFT_FAILED_BEFORE = 'This draft was not made. Try again.';
 
 /** Whether a connection may start a conversation from an Item: its connector makes drafts, under the choice it follows. */
-export function startsConversations(connector: Connector | undefined, follows: string | null): boolean {
+export function startsConversations(
+  connector: Connector | undefined,
+  follows: string | null,
+  method: 'makeDraft' | 'listRecentSent' = 'makeDraft',
+): boolean {
   const under = connector?.manifest.startsConversations?.underChoices;
-  return Boolean(connector?.makeDraft && under && follows !== null && under.includes(follows));
+  return Boolean(connector?.[method] && under && follows !== null && under.includes(follows));
 }
 
 /** The Workspace's connections *Email…* may use, oldest first, as the Workspace read carries them. */
@@ -122,7 +126,7 @@ export function onDemandHost(
   };
 }
 
-export async function keyOf(env: Env): Promise<CryptoKey> {
+async function keyOf(env: Env): Promise<CryptoKey> {
   const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
   if (!key) throw new Error('this environment has no key to open a stored credential with');
   return key;

@@ -152,14 +152,14 @@ describe('Follow a sent email…', () => {
 
   it('says why a pick was refused and leaves the list to pick again from', async () => {
     vi.mocked(followSentEmail).mockRejectedValue(
-      new FollowRefused('The item made from this email is finished. Reopen it from Done, or follow a different email.'),
+      new FollowRefused('The item made from this conversation is finished or dismissed. Reopen it, or follow a different conversation.'),
     );
     const { user, onFollowed } = theList();
     await waitFor(() => expect(rows()).toHaveLength(2));
 
     await user.click(rows()[0]!);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The item made from this email is finished.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The item made from this conversation is finished or dismissed.');
     expect(onFollowed).not.toHaveBeenCalled();
     await waitFor(() => expect(rows()[0]).toBeEnabled());
   });

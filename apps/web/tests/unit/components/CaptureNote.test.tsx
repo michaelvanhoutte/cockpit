@@ -2137,7 +2137,28 @@ describe('Capture', () => {
       await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
       await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
 
-      expect(await screen.findByRole('status')).toHaveTextContent('Already following “Quote for the kitchen renovation” → Inbox');
+      expect(await screen.findByRole('status')).toHaveTextContent('Already following “Quote for the kitchen renovation”');
+      expect(screen.getByRole('status')).not.toHaveTextContent('→');
+    });
+
+    it('closes the form once followed only where no note was typed, so a half-written one is not lost', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const typed = vi.fn();
+      const user = await thePage({ onKept: typed });
+      await user.type(box(), 'Ask Ada');
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+      await screen.findByRole('status');
+      expect(typed).not.toHaveBeenCalled();
+      expect(box()).toHaveValue('Ask Ada');
+
+      const bare = vi.fn();
+      await thePage({ onKept: bare });
+      const entries = await screen.findAllByRole('button', { name: 'Follow a sent email…' });
+      await user.click(entries[entries.length - 1]!);
+      const rows = await screen.findAllByRole('button', { name: /Quote for the kitchen renovation/ });
+      await user.click(rows[rows.length - 1]!);
+      await waitFor(() => expect(bare).toHaveBeenCalledTimes(1));
     });
   });
 

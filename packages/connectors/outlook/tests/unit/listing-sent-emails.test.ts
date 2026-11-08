@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { GraphWorld, SENT_ITEMS_ID, signedInHost } from './outlook-world.js';
-import { recipientsIn } from '../../src/sent.js';
+import { recipientsIn, sentEmailsIn } from '../../src/sent.js';
 
 /**
  * L1, against a fake host and Microsoft Graph faked at the network, from the
@@ -78,7 +78,7 @@ describe('Triage', () => {
       expect(listed).toHaveLength(10);
       expect(listed[0]!.sentAt).toBe('2026-10-12T09:00:00.000Z');
       expect(world.requests).toEqual([
-        'GET /v1.0/me/mailFolders/sentitems/messages?$top=10&$orderby=sentDateTime desc&$select=id,conversationId,subject,toRecipients,sentDateTime,bodyPreview,webLink,isDraft',
+        'GET /v1.0/me/mailFolders/sentitems/messages?$top=30&$orderby=sentDateTime desc&$select=id,conversationId,subject,toRecipients,sentDateTime,bodyPreview,webLink,isDraft',
       ]);
     });
 
@@ -148,6 +148,23 @@ describe('Triage', () => {
       [undefined, null],
     ])('reads %j as %j', (recipients, shown) => {
       expect(recipientsIn(recipients)).toBe(shown);
+    });
+  });
+
+  describe('one conversation written in more than once', () => {
+    it('is listed once, by its newest message, and the rest of the ten are other conversations', () => {
+      const sent = (id: string, conversationId: string, sentDateTime: string) => ({ id, conversationId, subject: id, sentDateTime });
+      const answer = {
+        value: [
+          sent('m-1', 't-a', '2026-10-01T09:00:00Z'),
+          sent('m-5', 't-a', '2026-10-05T09:00:00Z'),
+          sent('m-3', 't-b', '2026-10-03T09:00:00Z'),
+          sent('m-2', 't-c', '2026-10-02T09:00:00Z'),
+        ],
+      };
+
+      expect(sentEmailsIn(answer, 10).map((one) => one.subject)).toEqual(['m-5', 'm-3', 'm-2']);
+      expect(sentEmailsIn(answer, 2).map((one) => one.subject)).toEqual(['m-5', 'm-3']);
     });
   });
 });

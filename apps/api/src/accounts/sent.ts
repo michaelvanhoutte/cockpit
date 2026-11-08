@@ -76,7 +76,7 @@ export interface SentPick {
 
 /** Refused: the Item an earlier pick made for this conversation was finished or dismissed. */
 export const SENT_ITEM_FINISHED =
-  'The item made from this email is finished. Reopen it from Done, or follow a different email.';
+  'The item made from this conversation is finished or dismissed. Reopen it, or follow a different conversation.';
 
 /**
  * Makes the Item that follows a sent email's conversation: `capture_item`

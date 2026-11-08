@@ -77,9 +77,12 @@ export function FollowSentEmail({
         </button>
         <h2 className="text-sm font-semibold text-ink">Follow a sent email</h2>
       </div>
-      <p className="text-sm text-ink-faint">
-        Your last {sent.data?.emails.length ?? 10} sent emails, newest first. Pick one to follow its conversation: it waits for a reply.
-      </p>
+      {sent.data && sent.data.emails.length > 0 && (
+        <p className="text-sm text-ink-faint">
+          {sent.data.emails.length === 1 ? 'Your last sent email' : `Your last ${sent.data.emails.length} sent emails, newest first`}. Pick one
+          to follow its conversation: it waits for a reply.
+        </p>
+      )}
 
       {sent.isPending && <p role="status" className="text-sm text-ink-soft">Reading your sent emails…</p>}
       {sent.isError && (

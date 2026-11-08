@@ -23,6 +23,9 @@ import { NO_SUBJECT, TITLE_LENGTH, cutTo, oneLine } from './messages.js';
 /** The calls one listing may spend: a refresh and the read. */
 const CALLS_PER_LISTING = 3;
 
+/** How many times the limit the list asks for, since several of the newest may be one conversation's. */
+const OVER_FETCH = 3;
+
 /** The longest an excerpt is: as a turn's, the first lines. */
 const EXCERPT_LENGTH = 280;
 
@@ -34,7 +37,7 @@ export async function listOutlookSent(host: OnDemandHost, config: OutlookConnect
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LISTING });
     const answer = await mailbox.get(
-      `mailFolders/sentitems/messages?$top=${limit}&$orderby=${encodeURIComponent('sentDateTime desc')}&$select=${LISTED_FIELDS}`,
+      `mailFolders/sentitems/messages?$top=${limit * OVER_FETCH}&$orderby=${encodeURIComponent('sentDateTime desc')}&$select=${LISTED_FIELDS}`,
     );
     return sentEmailsIn(answer, limit);
   } catch (error) {
@@ -62,7 +65,9 @@ export function sentEmailsIn(answer: unknown, limit: number): SentEmail[] {
       excerpt: cutTo(oneLine(typeof message.bodyPreview === 'string' ? message.bodyPreview : ''), EXCERPT_LENGTH),
     });
   }
-  return emails.sort((a, b) => Date.parse(b.sentAt) - Date.parse(a.sentAt)).slice(0, limit);
+  // Newest first, then the newest of each conversation: one written in four times is listed once.
+  const newest = emails.sort((a, b) => Date.parse(b.sentAt) - Date.parse(a.sentAt));
+  return newest.filter((one, at) => newest.findIndex((other) => other.conversationId === one.conversationId) === at).slice(0, limit);
 }
 
 /** Whom a message went to: each recipient's name, else the address, joined by commas; null where it names nobody. */

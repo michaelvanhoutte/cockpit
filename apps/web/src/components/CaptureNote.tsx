@@ -28,7 +28,7 @@ import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
-import { useStanding } from '../offline';
+import { useIsOffline } from '../offline';
 import { sentEmailsAvailable } from '../api/sentEmails';
 
 /** *Follow a sent email…* is a chunk of its own, fetched when its entry is first pressed ("Follow a sent email… in Capture", issue 1710). */
@@ -534,8 +534,7 @@ export function CaptureNote({
     staleTime: 15_000,
     retry: false,
   });
-  const standing = useStanding();
-  const offline = standing.found || standing.chosen;
+  const offline = useIsOffline();
   const [following, setFollowing] = useState(false);
   const [followed, setFollowed] = useState<{ itemId: string; subject: string; made: boolean; filedOn: string } | null>(null);
 
@@ -817,11 +816,13 @@ export function CaptureNote({
           panelIds={filedHere.map((one) => one.panelId)}
           onBack={() => setFollowing(false)}
           onFollowed={(result) => {
-            setFollowed({ ...result, filedOn: filedHere.map((one) => one.name).join(', ') });
+            setFollowed({ ...result, filedOn: result.made ? filedHere.map((one) => one.name).join(', ') : '' });
             setFollowing(false);
+            if (!result.made) return;
             setFiled((was) => (was === filed ? [] : was));
             void queryClient.invalidateQueries({ queryKey: ['snapshot', target] });
-            saidNow.current.onKept?.();
+            // Only where nothing was typed here: whoever closes this on hearing it would take a half-written note with it.
+            if (noteNow.current.trim() === '' && queued.length === 0) saidNow.current.onKept?.();
           }}
         />
       </Suspense>
@@ -1110,7 +1111,7 @@ export function CaptureNote({
           {followed && (
             <span role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
               <span className="min-w-0 truncate">
-                {followed.made ? 'Following' : 'Already following'} “{followed.subject}” → {followed.filedOn || 'Inbox'}
+                {followed.made ? `Following “${followed.subject}” → ${followed.filedOn || 'Inbox'}` : `Already following “${followed.subject}”`}
               </span>
               <button
                 type="button"

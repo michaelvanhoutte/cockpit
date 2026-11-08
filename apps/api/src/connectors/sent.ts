@@ -1,9 +1,9 @@
-import { SourceError, type Connector, type SentEmail } from '@cockpit/connector-sdk';
+import { SourceError, type SentEmail } from '@cockpit/connector-sdk';
 import { SENT_EMAILS_SHOWN, type FollowSentAsked, type SentEmailEntry, type SentEmails } from '@cockpit/shared/sent-emails';
 import type { Env } from '../env.js';
 import { NotFoundInAccountError, type Account } from '../accounts/index.js';
 import { derivedUuid } from '../domain/derived-uuid.js';
-import { logged, onDemandHost } from './drafts.js';
+import { logged, onDemandHost, startsConversations } from './drafts.js';
 import { getConnector } from './registry.js';
 
 /**
@@ -18,17 +18,11 @@ import { getConnector } from './registry.js';
  * unproven; built to the design as it stands.
  */
 
-/** Whether a connection lists its sent mail: its connector can, under the choice it follows. */
-function listsSent(connector: Connector | undefined, follows: string | null): boolean {
-  const under = connector?.manifest.startsConversations?.underChoices;
-  return Boolean(connector?.listRecentSent && under && follows !== null && under.includes(follows));
-}
-
 /** The Workspace's connections whose sent mail can be listed. */
 function connectionsListingSent(env: Env, account: Account, workspaceId: string) {
   return account
     .sourceAccounts(workspaceId)
-    .then((all) => all.filter((one) => listsSent(getConnector(env, one.connectorId), one.follows ?? null)));
+    .then((all) => all.filter((one) => startsConversations(getConnector(env, one.connectorId), one.follows ?? null, 'listRecentSent')));
 }
 
 /**
@@ -101,7 +95,7 @@ export async function followSentEmail(
   ask: FollowSentAsked,
 ): Promise<{ itemId: string; made: boolean }> {
   const held = (await account.sourceAccounts(workspaceId)).find((one) => one.id === ask.sourceAccountId);
-  if (!held || !listsSent(getConnector(env, held.connectorId), held.follows ?? null)) {
+  if (!held || !startsConversations(getConnector(env, held.connectorId), held.follows ?? null, 'listRecentSent')) {
     throw new NotFoundInAccountError(`no connection ${ask.sourceAccountId} of this workspace lists sent mail`);
   }
   const named = JSON.stringify([accountName, ask.sourceAccountId, ask.conversationId]);
