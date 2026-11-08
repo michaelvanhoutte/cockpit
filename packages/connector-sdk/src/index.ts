@@ -364,6 +364,27 @@ export interface DraftMade {
   conversationLink: string;
 }
 
+/**
+ * One email sent from the connection's mailbox, as *Follow a sent email…*
+ * lists it ("Follow a sent email… in Capture", issue 1710): the conversation it
+ * is in, what a person picks it by, and what an Item following that conversation
+ * starts with. Newest first is the connector's to answer; the Worker sorts
+ * again across mailboxes.
+ */
+export interface SentEmail {
+  /** The source's id of the conversation the email is in, which an Item then follows. */
+  conversationId: string;
+  subject: string;
+  /** Who it went to, as the source names them; null where it went to nobody it names. */
+  to: string | null;
+  /** When it was sent, an ISO instant. */
+  sentAt: string;
+  /** Where the source shows the conversation. */
+  link: string;
+  /** The email's first lines, on one line. */
+  excerpt: string;
+}
+
 /** A draft an open Item still waits on: its conversation, its id, and the time after which a message of yours means it was sent. */
 export interface DraftWaiting {
   conversationId: string;
@@ -692,4 +713,13 @@ export interface Connector {
    * draft made cannot be taken back**, so it is called once per click.
    */
   makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
+
+  /**
+   * Lists the newest `limit` emails sent from the mailbox, newest first, on
+   * demand while a person waits ("Follow a sent email… in Capture", issue
+   * 1710), for a connector whose manifest `startsConversations`. Throws
+   * `SourceError`, worded for the person, where the source would not answer.
+   * Changes nothing at the source.
+   */
+  listRecentSent?(host: OnDemandHost, limit: number): Promise<SentEmail[]>;
 }

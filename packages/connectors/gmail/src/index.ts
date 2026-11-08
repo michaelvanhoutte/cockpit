@@ -1,6 +1,7 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { refreshTokenToRevoke } from './credential.js';
 import { makeGmailDraft } from './drafts.js';
+import { listGmailSent } from './sent.js';
 import { endpointsOf, type GmailConnectorConfig } from './mailbox.js';
 import { gmailAccountFrom, gmailSignIn } from './sign-in.js';
 import { mirrorOpenStates, syncMailbox } from './sync.js';
@@ -61,6 +62,8 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
     mirrorOpenState: (host, wanted) => mirrorOpenStates(host, config, wanted),
 
     makeDraft: (host, wanted) => makeGmailDraft(host, config, wanted),
+
+    listRecentSent: (host, limit) => listGmailSent(host, config, limit),
 
     /**
      * Cancels the grant at Google: a token that can change mail should not

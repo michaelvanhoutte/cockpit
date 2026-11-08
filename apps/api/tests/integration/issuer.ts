@@ -503,6 +503,19 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
     );
     return Response.json({ messages: sentBy, resultSizeEstimate: sentBy.length });
   }
+  // `users.messages.list` of the mail sent from the mailbox, newest first ("Follow a sent
+  // email… in Capture", issue 1710): the messages of the conversations held that carry the Sent label.
+  if (path === 'messages' && url.searchParams.get('labelIds') === 'SENT') {
+    const sent = mailbox.threads
+      .flatMap((one) =>
+        ((one.answer as { messages?: { id: string; labelIds?: string[]; internalDate?: string }[] }).messages ?? [])
+          .filter((message) => (message.labelIds ?? []).includes('SENT') && !(message.labelIds ?? []).includes('TRASH'))
+          .map((message) => ({ id: message.id, threadId: one.id, at: Number(message.internalDate) })),
+      )
+      .sort((a, b) => b.at - a.at)
+      .slice(0, Number(url.searchParams.get('maxResults') ?? 100));
+    return Response.json({ messages: sent.map(({ id, threadId }) => ({ id, threadId })), resultSizeEstimate: sent.length });
+  }
   const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
   if (modified && init?.method === 'POST') {
     const change = JSON.parse(String(init.body)) as { addLabelIds?: string[]; removeLabelIds?: string[] };

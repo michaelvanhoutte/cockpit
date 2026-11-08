@@ -324,6 +324,44 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.equal((await read(token, `threads/${deleting.message.threadId}?format=minimal`)).status, 404);
   });
 
+  // The mail sent from the mailbox, which Follow a sent email… lists (issue 1710).
+  it('lists the mail sent from the mailbox, newest first, with each email carrying its recipients and snippet', async () => {
+    const token = await accessTokenFor('sending@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=sending%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread } = await act('star', 'subject=Dinner');
+    const reply = await act('reply', `thread=${thread}&sent&text=Friday`);
+
+    const listed = await (await read(token, 'messages?labelIds=SENT&maxResults=2')).json();
+
+    assert.equal(listed.messages.length, 2);
+    assert.equal(listed.messages[1] === undefined, false);
+    const email = await (await read(token, `messages/${listed.messages[1].id}?format=metadata`)).json();
+    assert.deepEqual(email.labelIds, ['SENT']);
+    assert.match(email.snippet, /quote|offer|dinner/i);
+    assert.equal(email.payload.headers.find((one) => one.name === 'To').value.includes('@'), true);
+    const all = (await (await read(token, 'messages?labelIds=SENT')).json()).messages.map((one) => one.id);
+    assert.equal(all.includes(reply.message), true);
+  });
+
+  it('sends an email a walk asks for, which the Sent listing then names first, with its recipient and snippet', async () => {
+    const token = await accessTokenFor('sending-now@example.com');
+    const sent = await fetch(
+      `${issuer.origin}/gmail-stub/send?email=sending-now%40example.com&subject=Just%20sent&to=${encodeURIComponent('Steven Noels <steven@example.com>')}&text=Friday%3F`,
+      { method: 'POST' },
+    ).then((answer) => answer.json());
+
+    const listed = (await (await read(token, 'messages?labelIds=SENT&maxResults=10')).json()).messages;
+
+    assert.equal(listed[0].id, sent.message);
+    const email = await (await read(token, `messages/${sent.message}?format=metadata`)).json();
+    assert.equal(email.snippet, 'Friday?');
+    assert.deepEqual(
+      email.payload.headers.filter((one) => ['Subject', 'To'].includes(one.name)).map((one) => one.value),
+      ['Just sent', 'Steven Noels <steven@example.com>'],
+    );
+  });
+
   it('takes the label off, moves to the bin and labels again, each leaving the listing as Gmail would', async () => {
     const token = await accessTokenFor('closing@example.com');
     const act = (what, query) =>
@@ -653,6 +691,22 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual([sent.isDraft, sent.parentFolderId], [false, sentItems]);
     const deleted = await (await graph(token, `messages/${replying.id}`)).json();
     assert.deepEqual([deleted.isDraft, deleted.parentFolderId], [true, deletedItems]);
+  });
+
+  it('lists Sent Items newest first, a draft sent joining them and a draft unsent staying out', async () => {
+    const token = await accessTokenFor('graph-sent@example.com');
+    const post = (path, body) =>
+      graph(token, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((answer) => answer.json());
+    const sending = await post('messages', { subject: 'Just sent', body: { contentType: 'text', content: '' } });
+    await post('messages', { subject: 'Never sent', body: { contentType: 'text', content: '' } });
+    await fetch(`${issuer.origin}/graph-stub/send-draft?email=graph-sent%40example.com&id=${sending.id}`, { method: 'POST' });
+
+    const listed = await (
+      await graph(token, 'mailFolders/sentitems/messages?$top=2&$orderby=sentDateTime%20desc&$select=id,subject,toRecipients,sentDateTime,conversationId')
+    ).json();
+
+    assert.deepEqual(listed.value.map((one) => one.subject), ['Just sent', 'Quote for the kitchen renovation']);
+    assert.deepEqual(listed.value[1].toRecipients, [{ emailAddress: { name: 'Marc Lambrecht', address: 'marc@example.com' } }]);
   });
 
   it('flags a new message with the categories a walk names, and adds one to it later', async () => {

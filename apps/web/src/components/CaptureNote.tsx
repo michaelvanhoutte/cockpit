@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   itemLabel,
@@ -28,6 +28,11 @@ import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
+import { useStanding } from '../offline';
+import { sentEmailsAvailable } from '../api/sentEmails';
+
+/** *Follow a sent email…* is a chunk of its own, fetched when its entry is first pressed ("Follow a sent email… in Capture", issue 1710). */
+const FollowSentEmail = lazy(() => import('./FollowSentEmail').then((one) => ({ default: one.FollowSentEmail })));
 
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
@@ -515,6 +520,25 @@ export function CaptureNote({
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
 
+  /**
+   * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710) reads
+   * the mailboxes of the Workspace this is captured against; with none, the entry
+   * is not shown. It takes the place of the note
+   * while its list is open, and leaves a line saying what was followed.
+   */
+  const target = belongsTo ?? from ?? null;
+  const { data: canFollow } = useQuery({
+    queryKey: ['sent-emails-available', target],
+    queryFn: () => sentEmailsAvailable(target!),
+    enabled: target !== null,
+    staleTime: 15_000,
+    retry: false,
+  });
+  const standing = useStanding();
+  const offline = standing.found || standing.chosen;
+  const [following, setFollowing] = useState(false);
+  const [followed, setFollowed] = useState<{ itemId: string; subject: string; made: boolean; filedOn: string } | null>(null);
+
   /** Capture was pressed and is waiting on words still being recorded or transcribed. */
   const waitingOnWords = useRef(false);
 
@@ -776,6 +800,33 @@ export function CaptureNote({
       className="w-full flex-1 resize-none rounded-md bg-transparent p-3 text-base leading-[1.5] text-ink outline-none sm:px-5 sm:py-[18px]"
     />
   );
+
+  if (following && target) {
+    const filedHere = filed.filter((one) => one.workspaceId === target);
+    return (
+      <Suspense
+        fallback={
+          <p role="status" className="mt-3 text-sm text-ink-soft">
+            Reading your sent emails…
+          </p>
+        }
+      >
+        <FollowSentEmail
+          workspaceId={target}
+          decided={belongsTo !== null}
+          panelIds={filedHere.map((one) => one.panelId)}
+          onBack={() => setFollowing(false)}
+          onFollowed={(result) => {
+            setFollowed({ ...result, filedOn: filedHere.map((one) => one.name).join(', ') });
+            setFollowing(false);
+            setFiled((was) => (was === filed ? [] : was));
+            void queryClient.invalidateQueries({ queryKey: ['snapshot', target] });
+            saidNow.current.onKept?.();
+          }}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <form
@@ -1040,6 +1091,38 @@ export function CaptureNote({
           Leave it on Any workspace and it waits in every Inbox.
         </span>
       </Choice>
+
+      {/* Not shown with no mailbox to read; unavailable offline, since the list is read from the mailboxes. */}
+      {canFollow && (
+        <Choice label="Follow up">
+          <button
+            type="button"
+            disabled={busy || offline}
+            onClick={() => {
+              setFollowed(null);
+              setFollowing(true);
+            }}
+            className="inline-flex min-h-9 shrink-0 items-center rounded-full border border-shade/10 bg-field px-3 text-sm text-ink hover:border-accent hover:bg-accent-tint disabled:opacity-50 sm:min-h-0 sm:px-2.5 sm:py-[3px] sm:text-[13px]"
+          >
+            Follow a sent email…
+          </button>
+          {offline && <span className="text-xs text-ink-faint">Needs a connection.</span>}
+          {followed && (
+            <span role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
+              <span className="min-w-0 truncate">
+                {followed.made ? 'Following' : 'Already following'} “{followed.subject}” → {followed.filedOn || 'Inbox'}
+              </span>
+              <button
+                type="button"
+                onClick={() => openItem(followed.itemId)}
+                className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+              >
+                Open it
+              </button>
+            </span>
+          )}
+        </Choice>
+      )}
 
       {/* Directly under the note on a phone, so it stays above the on-screen
           keyboard and the browser's toolbars; below the Where row, beside the

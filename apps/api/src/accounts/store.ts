@@ -95,6 +95,7 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import { dropDraft, recordDraft, resealCredential, wantDraft, type DraftClick, type DraftWantedAnswer } from './drafts.js';
+import { followSentEmail, listingAsk, type ListingAsk, type SentPick } from './sent.js';
 import {
   deleteAllRows,
   dropAccountTables,
@@ -1242,6 +1243,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sealed: { sealedCredential: string; credentialNonce: string },
   ): Answer<'saved' | 'not saved'> {
     return this.#answer(accountName, (db) => resealCredential(db, accountName, sourceAccountId, was, sealed));
+  }
+
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Answer<ListingAsk> {
+    return this.#answer(accountName, (db) => listingAsk(db, accountName, workspaceId, sourceAccountId));
+  }
+
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(accountName: string, pick: SentPick): Answer<{ itemId: string; made: boolean }> {
+    return this.#answer(accountName, (db) => followSentEmail(db, accountName, pick, new Date().toISOString()));
   }
 
   /** The drafts this connection's open Items still wait on, for the run holding it (issue 1708). */

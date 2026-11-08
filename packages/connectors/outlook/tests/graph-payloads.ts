@@ -54,6 +54,8 @@ export interface MessageOptions {
   readonly text?: string;
   readonly html?: string;
   readonly receivedAt?: string;
+  /** Whom it was sent to; this mailbox unless said. */
+  readonly to?: readonly { name?: string; address: string }[];
   /** The conversation it is in; each message is its own conversation unless this says otherwise. */
   readonly conversation?: string;
   /** A draft not yet sent. */
@@ -75,6 +77,8 @@ export function message(options: MessageOptions) {
     bodyPreview: content.slice(0, 255),
     parentFolderId: options.folder ?? INBOX_ID,
     receivedDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
+    sentDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
+    toRecipients: (options.to ?? [{ name: 'Anna', address: 'anna@example.com' }]).map((one) => ({ emailAddress: { name: one.name ?? '', address: one.address } })),
     subject: options.subject === undefined ? `About ${options.id}` : (options.subject ?? ''),
     categories: [...(options.categories ?? [])],
     flag: { flagStatus: options.flag ?? 'notFlagged' },

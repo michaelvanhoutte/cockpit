@@ -162,6 +162,8 @@ import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourc
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema } from '@cockpit/shared/draft';
+import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
+import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
 import { forgetAddressAfterLettingGo, holdAddress } from '../email/register.js';
 import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';
@@ -840,6 +842,61 @@ const draftRoute = createRoute({
 });
 
 /**
+ * *Follow a sent email…* in Capture ("Follow a sent email… in Capture", issue
+ * 1710): the newest ten emails sent from the Workspace's mail connections, read
+ * from their sources during the request, and a pick of one - the Item that
+ * follows its conversation, Waiting for reply. The list is a GET with no
+ * change; the pick makes its Item and logs its changes as commands
+ * (`capture_item`, `follow_conversation`).
+ */
+const sentEmailsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/sent-emails',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: 'The newest sent emails of the Workspace mail connections, newest first, and the connections that could not be read',
+      content: { 'application/json': { schema: sentEmailsSchema } },
+    },
+  },
+});
+
+const sentEmailsAvailableRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/sent-emails/available',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: 'Whether the Workspace has a connection to list sent mail from, which is whether Capture offers the entry; no source is asked',
+      content: { 'application/json': { schema: sentEmailsAvailableSchema } },
+    },
+  },
+});
+
+const followSentEmailRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/sent-emails/follow',
+  request: {
+    params: z.object({ workspaceId: z.string() }),
+    body: { content: { 'application/json': { schema: followSentAskedSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The Item following the conversation of the email: made now, or the open one that already did',
+      content: { 'application/json': { schema: followSentAnswerSchema } },
+    },
+    400: {
+      description: 'The Item an earlier pick made for this conversation is finished',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'No connection of this Workspace lists sent mail',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * *Check now* on one pulled connection ("Check a pulled connection now, from
  * its row or its history", issue 1143): its check made due at once through the
  * path a person's change takes, labelled *Check now*. A POST to the
@@ -1469,6 +1526,22 @@ const routes = app
       if (error instanceof DraftNotMadeError) return c.json({ error: error.message }, 502);
       throw error;
     }
+  })
+  .openapi(sentEmailsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json(await listSentEmails(c.env, account, workspaceId), 200);
+  })
+  .openapi(sentEmailsAvailableRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ available: await sentMailCanBeListed(c.env, account, workspaceId) }, 200);
+  })
+  .openapi(followSentEmailRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    return c.json(await followSentEmail(c.env, account, accountName, workspaceId, c.req.valid('json')), 200);
   })
   .openapi(checkConnectionNowRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');

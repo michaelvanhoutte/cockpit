@@ -49,6 +49,7 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { DraftClick, DraftWantedAnswer } from './drafts.js';
+import type { ListingAsk, SentPick } from './sent.js';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
@@ -382,6 +383,10 @@ export interface Account {
   wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick): Promise<DraftWantedAnswer>;
   recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick): Promise<null>;
   dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(workspaceId: string, sourceAccountId: string): Promise<ListingAsk>;
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(pick: SentPick): Promise<{ itemId: string; made: boolean }>;
   resealCredential(
     sourceAccountId: string,
     was: { sealedCredential: string; credentialNonce: string },
@@ -565,6 +570,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     wantDraft: async (ask) => unwrap(await store.wantDraft(accountName, ask)),
     recordDraft: async (record) => unwrap(await store.recordDraft(accountName, record)),
     dropDraft: async (drop) => unwrap(await store.dropDraft(accountName, drop)),
+    listingAsk: async (workspaceId, sourceAccountId) => unwrap(await store.listingAsk(accountName, workspaceId, sourceAccountId)),
+    followSentEmail: async (pick) => unwrap(await store.followSentEmail(accountName, pick)),
     resealCredential: async (sourceAccountId, was, sealed) =>
       unwrap(await store.resealCredential(accountName, sourceAccountId, was, sealed)),
   };

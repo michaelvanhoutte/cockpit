@@ -179,6 +179,17 @@ export class GmailWorld {
     return reply.id;
   }
 
+  /**
+   * An email sent from this mailbox in a conversation of its own, as Gmail files
+   * one: the Sent label and no Inbox. `text` is what Gmail shows of it as a snippet.
+   */
+  sends(threadId: string, subject: string, to: string, sentAt: string, text = `The text of ${threadId}.`): void {
+    const sent = message(threadId, { id: threadId, sentAt, subject, to, from: `Anna Peeters <${ADDRESS}>`, plain: text, labelled: false });
+    sent.labelIds = ['SENT'];
+    this.#threads.unshift({ id: threadId, messages: [sent] });
+    this.#record({ added: sent.id, threadId, labelIds: sent.labelIds });
+  }
+
   /** A draft being written in a conversation, which Gmail records as a message added with the Draft label. */
   drafts(threadId: string): string {
     const thread = this.#thread(threadId);

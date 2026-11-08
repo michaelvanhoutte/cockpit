@@ -93,7 +93,7 @@ export async function makeTheDraft(
 }
 
 /** The connection's credential opened in the Worker, a rotated one sealed back only over the one opened. */
-function onDemandHost(
+export function onDemandHost(
   env: Env,
   account: Account,
   sourceAccountId: string,
@@ -122,13 +122,13 @@ function onDemandHost(
   };
 }
 
-async function keyOf(env: Env): Promise<CryptoKey> {
+export async function keyOf(env: Env): Promise<CryptoKey> {
   const key = await sealingKey(env.CONNECTOR_CREDENTIAL_KEY);
   if (!key) throw new Error('this environment has no key to open a stored credential with');
   return key;
 }
 
-function logged(connectorId: string, level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
+export function logged(connectorId: string, level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
   const line = JSON.stringify({ level, connector: connectorId, message, data });
   if (level === 'error') console.error(line);
   else console.log(line);

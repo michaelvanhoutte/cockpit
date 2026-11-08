@@ -82,6 +82,7 @@ export class GraphWorld {
     const path = url.pathname.replace('/v1.0/me/', '');
     if (path === 'mailFolders/deleteditems') return json(deletedItemsAnswer());
     if (path === 'mailFolders/sentitems') return json(sentItemsAnswer());
+    if (path === 'mailFolders/sentitems/messages') return this.#listSent(url);
     if (path === 'messages' && method === 'POST') return this.#makeDraft(null, init?.body);
     if (path === 'messages') return this.#list(url, headers.get('prefer')?.includes('ImmutableId') ?? false);
     const replying = /^messages\/(.+)\/createReply$/.exec(path);
@@ -267,6 +268,15 @@ export class GraphWorld {
   /** A message by its id - the immutable one, or the default one Graph hands out without asking, which dies when the message moves. */
   #find(id: string): Stored | undefined {
     return this.#messages.find((one) => one.id === id || mutableId(one) === id);
+  }
+
+  /** `GET /me/mailFolders/sentitems/messages`: Sent Items, a draft not among them, by `sentDateTime` as asked, the first `$top`. */
+  #listSent(url: URL): Response {
+    const top = Number(url.searchParams.get('$top') ?? 10);
+    const newestFirst = url.searchParams.get('$orderby') === 'sentDateTime desc';
+    const sent = this.#messages.filter((one) => one.folder === SENT_ITEMS_ID && !one.draft);
+    sent.sort((a, b) => (newestFirst ? -1 : 1) * (Date.parse(receivedOf(a)) - Date.parse(receivedOf(b))));
+    return json(messagesPage(sent.slice(0, top).map((one) => message(one)), undefined, url.searchParams.get('$select')?.split(',')));
   }
 
   #list(url: URL, immutable: boolean): Response {

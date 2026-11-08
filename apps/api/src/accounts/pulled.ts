@@ -641,7 +641,7 @@ const broughtIn = alias(pulledLinks, 'brought_in');
  * by their links to it, and those no connection to this mailbox brought in,
  * whose Email… started or replied in one there.
  */
-function followedBy(
+export function followedBy(
   db: AccountDb,
   accountName: string,
   holds: { workspaceId: string; connectorId: string; externalAccountKey: string },

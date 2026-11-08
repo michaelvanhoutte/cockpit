@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./usage-export": "./src/api/usage-export.ts",
     "./claude-calls-feed": "./src/api/claude-calls-feed.ts",
-    "./draft": "./src/api/draft.ts"
+    "./draft": "./src/api/draft.ts",
+    "./sent-emails": "./src/api/sent-emails.ts"
   },
   "scripts": {
     "typecheck": "tsc",
