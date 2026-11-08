@@ -1662,7 +1662,7 @@ const ITEM_CONVERSATIONS_DRAFT_LINK: Change = {
 };
 
 /**
- * Adds when a check began to its line of a connection's history ( 103-connection-history-started-at,
+ * Adds when a check began to its line of a connection's history (`0103-connection-history-started-at`,
  * issue 1725): NULL for a delivery and for every line written before it, which
  * a release before it ignores. Expand only.
  */

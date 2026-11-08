@@ -3744,7 +3744,7 @@ describe('Triage', () => {
  * account from before it gains an empty table, every row it already held stays
  * as it was, and it waits 3 days until it chooses.
  */
-/** The rows of an account kept before  103-connection-history-started-at, as the same open leaves its lines: each with no start. */
+/** The rows of an account kept before `0103-connection-history-started-at`, as the same open leaves its lines: each with no start. */
 const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
   ...kept,
   connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
