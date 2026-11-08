@@ -34,7 +34,7 @@ const MAILBOX = 'michael@example.com';
  */
 
 /** Something done in the stand-in mailbox, as a person does it in Gmail: answers what the stub says it made. */
-async function inGmail(what: 'star' | 'reply', query: Record<string, string>): Promise<{ thread: string; message: string }> {
+async function inGmail(what: 'star' | 'reply' | 'linkedin', query: Record<string, string>): Promise<{ thread: string; message: string }> {
   const answer = await fetch(`${issuer}/gmail-stub/${what}?${new URLSearchParams({ email: MAILBOX, ...query })}`, { method: 'POST' });
   return (await answer.json()) as { thread: string; message: string };
 }
@@ -65,6 +65,20 @@ async function checkedAgain(page: Page): Promise<void> {
   await expect.poll(async () => (await askedOfGmail()).slice(before).some((call) => call.startsWith('history'))).toBe(true);
 }
 
+/** Connect on the Gmail card, picking the star, and wait until the first check has read where the mailbox stands - what is starred after is brought in. */
+async function connectedByStar(page: Page, isMobile: boolean): Promise<void> {
+  const window = await openSettings(page, 'Connections', isMobile);
+  await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
+  const asked = page.getByRole('dialog', { name: 'Connect Gmail' });
+  await press(asked.getByText('Starred (flagged in Outlook)'), isMobile);
+  await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
+  const askedBefore = (await askedOfGmail()).length;
+  await press(page.getByRole('link', { name: MAILBOX, exact: true }), isMobile);
+  await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Checked /)).toBeVisible();
+  await expect.poll(async () => (await askedOfGmail()).slice(askedBefore)).toContain('profile');
+  await closeSettings(page, isMobile);
+}
+
 test.describe('Triage', () => {
   test.describe('a followed Gmail conversation’s row says who wrote last, and its status follows', () => {
     test('reads Steven replied on his reply, To do, then You wrote with Waiting since on yours, and opens the conversation', async ({
@@ -77,17 +91,7 @@ test.describe('Triage', () => {
       await makeWorkspace(page, workspace, isMobile);
       await switchTo(page, workspace, isMobile);
 
-      // Connected by the star, and starred once the first check has read where the mailbox stands.
-      const window = await openSettings(page, 'Connections', isMobile);
-      await press(window.getByRole('button', { name: 'Connect Gmail' }), isMobile);
-      const asked = page.getByRole('dialog', { name: 'Connect Gmail' });
-      await press(asked.getByText('Starred (flagged in Outlook)'), isMobile);
-      await press(asked.getByRole('button', { name: 'Connect' }), isMobile);
-      const askedBefore = (await askedOfGmail()).length;
-      await press(page.getByRole('link', { name: MAILBOX, exact: true }), isMobile);
-      await expect(page.getByRole('dialog', { name: 'Settings' }).getByText(/^Checked /)).toBeVisible();
-      await expect.poll(async () => (await askedOfGmail()).slice(askedBefore)).toContain('profile');
-      await closeSettings(page, isMobile);
+      await connectedByStar(page, isMobile);
 
       const purpose = uniqueTitle('Dinner with Steven');
       const { thread } = await inGmail('star', { subject: purpose, text: 'Shall we have dinner one of these weeks?' });
@@ -120,6 +124,64 @@ test.describe('Triage', () => {
       await checkedAgain(page);
       await expect(row.getByText('Gmail · You wrote just now')).toBeVisible();
       await expect(row.getByText(/^Waiting since/)).toBeVisible();
+
+      await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: `Yes, disconnect ${MAILBOX}` }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
+
+  test.describe('a followed LinkedIn conversation’s row says LinkedIn, and opens LinkedIn', () => {
+    test('reads LinkedIn · Steven wrote, then replied on a later notification, opens linkedin.com, and offers no Email…', async ({
+      page,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('LinkedIn');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+      await connectedByStar(page, isMobile);
+
+      // A LinkedIn message notification, starred: the Item follows the LinkedIn conversation, not the email.
+      const subject = uniqueTitle('Steven Noels sent you a message');
+      const conversation = '2-ZmFrZS1lMmUtdGhyZWFk';
+      const { message } = await inGmail('linkedin', { subject, text: 'Shall we have dinner on Thursday?', conversation });
+      await inGmail('star', { message });
+      await checkedAgain(page);
+      const row = itemRow(page, subject);
+      await expect(row.getByText('LinkedIn · Steven wrote just now')).toBeVisible();
+      await expect(row.getByRole('link', { name: 'Open the conversation in LinkedIn' })).toHaveAttribute(
+        'href',
+        `https://www.linkedin.com/messaging/thread/${conversation}/`,
+      );
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /^Email/ })).toHaveCount(0);
+      await page.keyboard.press('Escape');
+
+      // Another notification about it, in a Gmail conversation of its own and not starred: still Steven's turn on this row.
+      await inGmail('linkedin', { subject: uniqueTitle('Another notification'), text: 'Friday works too.', conversation });
+      await checkedAgain(page);
+      await expect(row.getByText('LinkedIn · Steven replied just now')).toBeVisible();
+      await expect(row.getByText('LinkedIn · Steven replied just now')).toHaveAttribute('title', 'Steven Noels: Friday works too.');
+
+      // Its form opens LinkedIn too, and counts nothing it cannot see.
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open', exact: true }), isMobile);
+      const section = page.getByRole('region', { name: 'Conversation' });
+      await expect(section.getByText('LinkedIn', { exact: true })).toBeVisible();
+      await expect(section.getByRole('link', { name: 'Open the conversation in LinkedIn' })).toHaveAttribute(
+        'href',
+        `https://www.linkedin.com/messaging/thread/${conversation}/`,
+      );
+      await expect(section.getByText('With Steven Noels')).toBeVisible();
+      await expect(section.getByText(/emails?/)).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(section).toBeHidden();
 
       await openSettings(page, 'Connections', isMobile);
       await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);

@@ -36,6 +36,21 @@ export const conversationSchema = z.object({
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 
+/**
+ * What the id of a LinkedIn conversation starts with ("Follow the LinkedIn
+ * conversation instead of the notification", issue 1711). LinkedIn has no
+ * connector of its own: the Gmail connector reads a LinkedIn message
+ * notification and reports the conversation under LinkedIn's own thread id,
+ * behind this prefix so it can never be taken for a Gmail thread, and so the
+ * row can say *LinkedIn* with nothing stored beside the id.
+ */
+export const LINKEDIN_CONVERSATION_PREFIX = 'linkedin:';
+
+/** Whether a conversation is one at LinkedIn, followed through notification emails. */
+export function isLinkedInConversation(conversation: Pick<Conversation, 'conversationId'>): boolean {
+  return conversation.conversationId.startsWith(LINKEDIN_CONVERSATION_PREFIX);
+}
+
 /** The conversation one Item follows out of a Workspace's whole list, or none. */
 export function conversationOf(conversations: readonly Conversation[] | undefined, itemId: string): Conversation | undefined {
   return (conversations ?? []).find((conversation) => conversation.itemId === itemId);

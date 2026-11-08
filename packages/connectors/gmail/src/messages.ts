@@ -19,7 +19,7 @@ export const STARRED = 'STARRED';
  * Gmail's own labels for mail on its way out: in the bin, or marked spam. A
  * labelled message there keeps the label, and no longer counts as labelled.
  */
-const AWAY: readonly string[] = ['TRASH', 'SPAM'];
+export const AWAY: readonly string[] = ['TRASH', 'SPAM'];
 
 /**
  * What a source id starts with when it names one email rather than a
@@ -399,14 +399,16 @@ export interface GmailConversation {
   readonly sentAt: string | null;
 }
 
-interface GmailPart {
+export interface GmailPart {
   mimeType?: unknown;
   headers?: unknown;
   body?: { data?: unknown } | null;
   parts?: unknown;
 }
 
-interface GmailMessage {
+export interface GmailMessage {
+  id?: unknown;
+  threadId?: unknown;
   labelIds?: unknown;
   internalDate?: unknown;
   payload?: GmailPart | null;
@@ -461,12 +463,12 @@ function describe(message: GmailMessage, linkId: string, mailboxAddress: string)
   };
 }
 
-function sentAt(message: GmailMessage): number {
+export function sentAt(message: GmailMessage): number {
   const at = Number(message?.internalDate);
   return Number.isFinite(at) ? at : 0;
 }
 
-function headerOf(part: GmailPart | null | undefined, name: string): string | null {
+export function headerOf(part: GmailPart | null | undefined, name: string): string | null {
   if (!Array.isArray(part?.headers)) return null;
   for (const header of part.headers as unknown[]) {
     const { name: called, value } = (header ?? {}) as Record<string, unknown>;
@@ -515,7 +517,7 @@ function firstPart(part: GmailPart | null | undefined, mimeType: string): string
  * nothing where it cannot be read, so one malformed message is brought in
  * under its subject rather than stopping every conversation after it.
  */
-function decodedBody(data: string): string {
+export function decodedBody(data: string): string {
   const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
   try {
     const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
@@ -560,10 +562,10 @@ export function plainTextOf(html: string): string {
 export const SENT = 'SENT';
 
 /** Gmail's label on a message not yet sent, which is no turn of anybody's. */
-const DRAFT = 'DRAFT';
+export const DRAFT = 'DRAFT';
 
 /** How much of a message's text a turn carries: the first lines, which the row shows on hover. */
-const EXCERPT_LENGTH = 280;
+export const EXCERPT_LENGTH = 280;
 
 /**
  * The messages a history page says were added to a conversation an Item
@@ -574,6 +576,11 @@ const EXCERPT_LENGTH = 280;
  * added message behind; reading it again says whether it was really sent.
  */
 export function addedToFollowed(answer: unknown, followed: ReadonlySet<string>): { id: string; threadId: string }[] {
+  return addedWhere(answer, (threadId) => followed.has(threadId));
+}
+
+/** As `addedToFollowed`, for the conversations `wanted` says yes to: every one for the mail of a sender to be looked at. */
+export function addedWhere(answer: unknown, wanted: (threadId: string) => boolean): { id: string; threadId: string }[] {
   const { history } = (answer ?? {}) as { history?: unknown };
   const added = new Map<string, string>();
   const has = (labels: unknown, label: string) => Array.isArray(labels) && labels.includes(label);
@@ -586,7 +593,7 @@ export function addedToFollowed(answer: unknown, followed: ReadonlySet<string>):
     ];
     for (const entry of candidates) {
       const { id, threadId, labelIds } = entry?.message ?? {};
-      if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !followed.has(threadId)) continue;
+      if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !wanted(threadId)) continue;
       const labels = Array.isArray(labelIds) ? labelIds : [];
       if (labels.includes(DRAFT) || labels.some((label) => AWAY.includes(label as string))) continue;
       if (!added.has(id)) added.set(id, threadId);
@@ -677,7 +684,7 @@ function excerptOf(message: GmailMessage): string {
   return cutTo(oneLine(textOf(message.payload)), EXCERPT_LENGTH);
 }
 
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim();
 }
 
@@ -686,7 +693,7 @@ function oneLine(text: string): string {
  * outside the BMP is two code units, and a cut between them leaves a lone
  * surrogate that renders as a replacement box.
  */
-function cutTo(text: string, limit: number): string {
+export function cutTo(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);

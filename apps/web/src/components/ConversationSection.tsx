@@ -21,6 +21,7 @@ export function ConversationSection({
   now: number;
 }) {
   const opensAt = conversationOpensAt(conversation);
+  const countLine = conversationCountLine(conversation, now);
   return (
     <section aria-label="Conversation" className="flex flex-col gap-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Conversation</h3>
@@ -34,8 +35,8 @@ export function ConversationSection({
               href={opensAt}
               target="_blank"
               rel="noopener noreferrer"
-              title={openLabel(sourceName)}
-              aria-label={openLabel(sourceName)}
+              title={openLabel(conversation, sourceName)}
+              aria-label={openLabel(conversation, sourceName)}
               className="shrink-0 whitespace-nowrap text-sm text-accent-deep underline hover:text-accent"
             >
               Open ↗
@@ -45,7 +46,7 @@ export function ConversationSection({
         {conversation.lastExcerpt && (
           <p className="line-clamp-3 text-sm leading-snug text-ink-soft">“{conversation.lastExcerpt}”</p>
         )}
-        <p className="text-xs text-ink-faint">{conversationCountLine(conversation, now)}</p>
+        {countLine && <p className="text-xs text-ink-faint">{countLine}</p>}
       </div>
     </section>
   );

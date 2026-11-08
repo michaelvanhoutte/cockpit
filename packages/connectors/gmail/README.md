@@ -171,7 +171,44 @@ out of the core", issue 944).
   decoded is brought in under its subject rather than stopping everything after
   it.
 
+## LinkedIn message notifications
+
+A starred LinkedIn message notification is followed as the LinkedIn
+conversation it tells of, not as the email ("Follow the LinkedIn conversation
+instead of the notification", issue 1711). The notification emails the tests
+use are reconstructed, not captured (`tests/linkedin-notifications.ts` says
+so); replace them with a captured one when there is one.
+
+- **A notification is recognised by its sender's domain and its link.** From
+  `linkedin.com` or a subdomain of it, with an address in its bodies that
+  leads to `/messaging/thread/<id>/`, directly, through LinkedIn's `/comm/`
+  prefix, or in the query of a LinkedIn redirect (looked into twice, never
+  fetched). Any other LinkedIn email, a link to another host, a plain-http link
+  or a thread id with odd characters is plain mail.
+- **Only `https://www.linkedin.com/messaging/thread/<id>/` is kept**, built from
+  the id, so the email's tracking token is never reported. The conversation is
+  keyed `linkedin:<id>`, which no Gmail thread id can be; the web names the
+  source *LinkedIn* by that prefix (`LINKEDIN_CONVERSATION_PREFIX`, shared).
+- **Only their turns are seen**; the sender's name is read off *Name via
+  LinkedIn*, and the excerpt is the text between the name and the *View
+  message* (*Bekijk bericht*) button.
+- **A later notification is found by sender, not by thread.** While an open Item
+  follows a LinkedIn conversation, each page of history that added mail also
+  asks `messages.list` for `from:messages-noreply@linkedin.com` (the newest
+  100) and reads in full only the added messages that are among them, the one
+  place the connector reads a message outside a followed Gmail conversation.
+  With no LinkedIn conversation followed, that call is not made. A notification
+  that is no longer among the newest 100 when its page is read, after a long
+  backlog, is missed. The notification sender is a constant; if LinkedIn changes
+  it, turns stop and the line goes stale.
+- **A star on another notification of a followed conversation adds to its Item**
+  and makes no second one.
+
 ## Not yet known
+
+- **Whether a real LinkedIn notification reads as the fixtures say**, and whether
+  `messages.list` with `q=from:` finds it. Both are reconstructed from the
+  format as publicly seen; the contract suite covers neither.
 
 - **Whether Gmail opens a link to one email (`#all/<message id>`) at that email
   in conversation view as well as with it off.** The Item links the email by

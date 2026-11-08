@@ -50,6 +50,7 @@ import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { ConversationSection } from './ConversationSection';
+import { conversationSourceName } from '../conversationLine';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
@@ -2196,7 +2197,7 @@ function TheForm({
                       {followed && (
                         <ConversationSection
                           conversation={followed}
-                          sourceName={sourceNamed(data?.sourceNames, followed.source)}
+                          sourceName={conversationSourceName(followed, data?.sourceNames)}
                           now={Date.now()}
                         />
                       )}

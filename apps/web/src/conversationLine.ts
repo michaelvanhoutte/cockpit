@@ -1,6 +1,6 @@
-import type { Conversation } from '@cockpit/shared';
+import { isLinkedInConversation, type Conversation } from '@cockpit/shared';
 import { momentDayMonthLabel } from './dateFormat';
-import { whereALinkOpens } from './itemSource';
+import { sourceNamed, whereALinkOpens, type SourceNames } from './itemSource';
 
 /**
  * What a row says of the conversation its Item follows ("A Gmail starred
@@ -65,9 +65,21 @@ export function latestText(conversation: Conversation): string {
   return who ? `${who}: ${conversation.lastExcerpt}` : conversation.lastExcerpt;
 }
 
-/** What *Open ↗* says it does. */
-export function openLabel(sourceName: string): string {
-  return `Open the latest email in ${sourceName}`;
+/**
+ * What the row calls the source of a conversation: its connector's name
+ * (*Gmail*), or *LinkedIn* for a LinkedIn conversation, which reaches Cockpit
+ * through Gmail's notification emails ("Follow the LinkedIn conversation
+ * instead of the notification", issue 1711).
+ */
+export function conversationSourceName(conversation: Conversation, names: SourceNames): string {
+  return isLinkedInConversation(conversation) ? 'LinkedIn' : sourceNamed(names, conversation.source);
+}
+
+/** What *Open ↗* says it does: a LinkedIn conversation opens as a conversation, not as the email that told of it. */
+export function openLabel(conversation: Conversation, sourceName: string): string {
+  return isLinkedInConversation(conversation)
+    ? 'Open the conversation in LinkedIn'
+    : `Open the latest email in ${sourceName}`;
 }
 
 /**
@@ -84,9 +96,12 @@ export function conversationOpensAt(conversation: Conversation): string | null {
  * conversation an Item follows in its form", issue 1706): who it is with, and
  * how many messages since when - *With steven@noels.be · 4 emails since 4 Nov*.
  * Without a name to give, only the count; a conversation of one is dated by
- * its message, not "since" it.
+ * its message, not "since" it. **A LinkedIn conversation gives no count**: it
+ * is known only by the notifications that came, which are not its messages, so
+ * the line is who it is with, or nothing.
  */
 export function conversationCountLine(conversation: Conversation, now: number): string {
+  if (isLinkedInConversation(conversation)) return conversation.withWhom ? `With ${conversation.withWhom}` : '';
   const started = momentDayMonthLabel(conversation.startedAt, new Date(now));
   const count =
     conversation.messageCount === 1 ? `1 email on ${started}` : `${conversation.messageCount} emails since ${started}`;

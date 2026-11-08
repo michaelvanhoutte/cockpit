@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env, runDurableObjectAlarm } from 'cloudflare:test';
-import type { Conversation, WorkspaceSnapshot } from '@cockpit/shared';
+import { LINKEDIN_CONVERSATION_PREFIX, isLinkedInConversation, type Conversation, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import {
@@ -16,6 +16,7 @@ import {
 } from '../seed.js';
 import { gmailCalls, gmailHolds, gmailModifies, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
 import { historyRecord, labelsAnswer, message } from '../../../../../packages/connectors/gmail/tests/gmail-payloads.js';
+import { linkedInNotification } from '../../../../../packages/connectors/gmail/tests/linkedin-notifications.js';
 
 /**
  * Integration level: a Gmail connection following the star, run by the
@@ -81,6 +82,12 @@ class Mailbox {
     if (!thread) throw new Error(`no email ${messageId}`);
     thread.answer.messages = thread.answer.messages.filter((message) => message.id !== messageId);
     this.#record({ deleted: messageId, threadId: thread.id });
+  }
+
+  /** An email built elsewhere (a LinkedIn notification) arriving in a conversation of its own, unstarred. */
+  receives(email: GmailMessage): void {
+    this.threads.push({ id: email.threadId, labelled: false, answer: { id: email.threadId, historyId: '1', messages: [email] } });
+    this.#record({ added: email.id, threadId: email.threadId, labelIds: email.labelIds });
   }
 
   star(messageId: string): void {
@@ -597,6 +604,58 @@ describe('Triage', () => {
       await nextCheckRuns();
 
       expect(statusOf(await theItem('t-1'))).toBe('waiting');
+      expect(await turnsLogged()).toHaveLength(1);
+    });
+  });
+});
+
+describe('Capture', () => {
+  describe('a starred LinkedIn message notification makes one Item following the LinkedIn conversation', () => {
+    const THREAD = '2-ZmFrZS10aHJlYWQtMQ==';
+
+    it('names the conversation LinkedIn, keyed by its thread, with the LinkedIn address, and their turn', async () => {
+      mailbox = new Mailbox();
+      await connectedByStar();
+      mailbox.receives(linkedInNotification('n-t-1', { id: 'n-1', sentAt: '2026-10-06T09:00:00Z', language: 'nl', link: 'comm' }));
+      mailbox.star('n-1');
+
+      await nextCheckRuns();
+
+      const item = await theItem('n-t-1');
+      expect(statusOf(item)).toBe('to do');
+      expect(item.conversation).toEqual(
+        expect.objectContaining<Partial<Conversation>>({
+          source: 'gmail',
+          // The prefix the web names the source by is the shared contract's, which the connector writes by its own copy.
+          conversationId: `${LINKEDIN_CONVERSATION_PREFIX}${THREAD}`,
+          link: `https://www.linkedin.com/messaging/thread/${THREAD}/`,
+          lastBy: 'them',
+          lastFrom: 'Steven Noels',
+          withWhom: 'Steven Noels',
+        }),
+      );
+      expect(isLinkedInConversation(item.conversation!)).toBe(true);
+    });
+
+    it('makes a later notification in another Gmail conversation, unstarred, their turn on the same Item', async () => {
+      mailbox = new Mailbox();
+      await connectedByStar();
+      mailbox.receives(linkedInNotification('n-t-1', { id: 'n-1', sentAt: '2026-10-06T09:00:00Z' }));
+      mailbox.star('n-1');
+      await nextCheckRuns();
+      const item = await theItem('n-t-1');
+      await change('wait_for_reply', item.id, { days: 7, timeZone: 'Europe/Brussels' });
+      expect(statusOf(await theItem('n-t-1'))).toBe('waiting');
+
+      mailbox.receives(linkedInNotification('n-t-2', { id: 'n-2', sentAt: '2026-10-08T07:30:00Z', text: 'Friday works too.' }));
+      await nextCheckRuns();
+
+      const after = await theItem('n-t-1');
+      expect(statusOf(after)).toBe('to do');
+      expect((await gmailItems()).map((one) => one.sourceId)).toEqual(['n-t-1']);
+      expect(after.conversation).toEqual(
+        expect.objectContaining({ lastBy: 'them', lastExcerpt: 'Friday works too.', lastAt: '2026-10-08T07:30:00.000Z' }),
+      );
       expect(await turnsLogged()).toHaveLength(1);
     });
   });

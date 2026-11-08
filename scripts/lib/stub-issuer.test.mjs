@@ -405,6 +405,23 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.deepEqual(listed.messages, [{ id: second, threadId: thread }]);
   });
 
+  // A LinkedIn message notification, for a walk to deliver ("Follow the
+  // LinkedIn conversation instead of the notification", issue 1711).
+  it('delivers a LinkedIn message notification in a conversation of its own, found by its sender', async () => {
+    const email = 'linkedin@example.com';
+    const token = await accessTokenFor(email);
+    const { thread, message } = await fetch(
+      `${issuer.origin}/gmail-stub/linkedin?email=${encodeURIComponent(email)}&text=Friday%20works&conversation=2-abc`,
+      { method: 'POST' },
+    ).then((answer) => answer.json());
+
+    const listed = await (await read(token, 'messages?q=from%3Amessages-noreply%40linkedin.com')).json();
+    assert.deepEqual(listed.messages, [{ id: message, threadId: thread }]);
+    const sent = await (await read(token, `messages/${message}`)).json();
+    assert.equal(sent.payload.headers.find((header) => header.name === 'From').value, 'Steven Noels via LinkedIn <messages-noreply@linkedin.com>');
+    assert.match(Buffer.from(sent.payload.body.data, 'base64url').toString(), /Friday works[\s\S]*thread\/2-abc\//);
+  });
+
   it('takes the star off one email alone, leaving the history record Gmail leaves and the other starred email listed', async () => {
     const email = 'per-email-off@example.com';
     const token = await accessTokenFor(email);
