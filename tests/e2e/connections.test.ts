@@ -305,8 +305,9 @@ test.describe('Connector management', () => {
       // on one completes its flag in that mailbox.
       await closeSettings(page, isMobile);
       await expect(page.getByText('Supplier contract to review')).toBeVisible();
-      await expect(page.getByText(/Outlook · Anna Peeters/)).toBeVisible();
-      await expect(page.getByRole('link', { name: 'Open in Outlook' }).first()).toBeVisible();
+      // Each flagged message is the Item of its conversation (issue 1707), so the row says who wrote last.
+      await expect(page.getByText(/Outlook · Anna wrote/)).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open the latest email in Outlook' }).first()).toBeVisible();
 
       const offsite = itemRow(page, 'Offsite dates for November');
       await press(offsite.getByRole('button', { name: 'Item actions' }), isMobile);

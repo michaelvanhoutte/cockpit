@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MirroredOpenStates } from '@cockpit/connector-sdk';
-import { GraphWorld, signedInHost } from './outlook-world.js';
+import { GraphWorld, itemOf, signedInHost } from './outlook-world.js';
 
 /**
  * L1, against a fake host and Graph faked at the network: a Task done,
@@ -108,15 +108,15 @@ describe('Connector management', () => {
 
       const second = first.next();
       const connector = world.connector();
-      const answer = await connector.mirrorOpenState!(second, [{ sourceId: 'm-1', open: false }]);
+      const answer = await connector.mirrorOpenState!(second, [{ sourceId: itemOf('m-1'), open: false }]);
       await connector.sync(second);
 
       // What has the host push before every run.
       expect(connector.manifest.mirrorsOpenState).toBe(true);
-      expect(answered(answer).confirmed).toEqual(['m-1']);
+      expect(answered(answer).confirmed).toEqual([itemOf('m-1')]);
       expect(world.flagOf('m-1')).toBe('complete');
-      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: ['m-2'] }]);
-      expect(second.saidOf('m-1')).toEqual([]);
+      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: [itemOf('m-2')] }]);
+      expect(second.saidOf(itemOf('m-1'))).toEqual([]);
     });
   });
 

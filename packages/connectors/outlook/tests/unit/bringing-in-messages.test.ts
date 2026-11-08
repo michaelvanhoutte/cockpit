@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EmittedItem, SourceItem } from '@cockpit/connector-sdk';
-import { ARCHIVE_ID, DELETED_ITEMS_ID, GraphWorld, signedInHost } from './outlook-world.js';
+import { ARCHIVE_ID, DELETED_ITEMS_ID, GraphWorld, itemOf, signedInHost } from './outlook-world.js';
 import { FakeHost } from './fake-host.js';
 
 /**
@@ -18,8 +18,8 @@ describe('Capture', () => {
 
       await world.connector().sync(host);
 
-      expect(host.filed.get('m-1')).toEqual({
-        sourceId: 'm-1',
+      expect(host.filed.get(itemOf('m-1'))).toEqual({
+        sourceId: itemOf('m-1'),
         sourceLink: expect.stringContaining('outlook.office365.com'),
         sender: 'Pieter Claes',
         sourceTimestamp: '2026-10-01T08:30:00.000Z',
@@ -27,6 +27,14 @@ describe('Capture', () => {
         title: 'Chase the invoice',
         choice: 'flag',
         names: [],
+        conversation: {
+          id: 'conversation-of-m-1',
+          link: expect.stringContaining('outlook.office365.com'),
+          latest: { by: 'them', from: 'Pieter Claes', at: '2026-10-01T08:30:00.000Z', excerpt: 'Please pay by Friday.' },
+          messageCount: 1,
+          startedAt: '2026-10-01T08:30:00.000Z',
+          withWhom: 'Pieter Claes',
+        },
       });
     });
 
@@ -118,7 +126,7 @@ describe('Capture', () => {
 
       await world.connector().sync(host);
 
-      expect(host.filed.get('m-1')).toMatchObject({ title: '(no subject)', capturedMessage: '(no subject)' });
+      expect(host.filed.get(itemOf('m-1'))).toMatchObject({ title: '(no subject)', capturedMessage: '(no subject)' });
     });
 
     it('brings in the words of an HTML-only body, its tags taken out', async () => {
@@ -128,7 +136,7 @@ describe('Capture', () => {
 
       await world.connector().sync(host);
 
-      expect(host.filed.get('m-1')?.capturedMessage).toBe('Hello Anna\nPay & confirm');
+      expect(host.filed.get(itemOf('m-1'))?.capturedMessage).toBe('Hello Anna\nPay & confirm');
     });
 
     it('cuts a title or sender past 200 characters and the text past 60,000', async () => {
@@ -143,7 +151,7 @@ describe('Capture', () => {
 
       await world.connector().sync(host);
 
-      const item = host.filed.get('m-1')!;
+      const item = host.filed.get(itemOf('m-1'))!;
       expect([item.title?.length, item.sender?.length, item.capturedMessage?.length]).toEqual([200, 200, 60_000]);
     });
 
@@ -155,7 +163,7 @@ describe('Capture', () => {
 
       await world.connector().sync(host);
 
-      expect([host.filed.get('m-1')?.sender, host.filed.get('m-2')?.sender]).toEqual(['pieter@example.com', null]);
+      expect([host.filed.get(itemOf('m-1'))?.sender, host.filed.get(itemOf('m-2'))?.sender]).toEqual(['pieter@example.com', null]);
     });
   });
 
@@ -190,7 +198,7 @@ describe('Capture', () => {
       await world.connector().sync(second);
 
       expect(world.readsInFull()).toEqual(['m-2']);
-      expect([...second.filed.keys()].sort()).toEqual(['m-1', 'm-2']);
+      expect([...second.filed.keys()].sort()).toEqual([itemOf('m-1'), itemOf('m-2')]);
     });
 
     it('reports reopened a message marked again after its Item closed, which the host already knows', async () => {
@@ -202,6 +210,8 @@ describe('Capture', () => {
       const closed = first.next();
       await world.connector().sync(closed);
       expect(closed.listings.at(-1)?.sourceIds).toEqual([]);
+      // Closed, the Item no longer follows its conversation.
+      closed.following.clear();
       world.forget();
       world.flag('m-1');
 
@@ -209,7 +219,7 @@ describe('Capture', () => {
       await world.connector().sync(again);
 
       expect(world.readsInFull()).toEqual(['m-1']);
-      expect(again.saidOf('m-1')).toEqual(['reopened']);
+      expect(again.saidOf(itemOf('m-1'))).toEqual(['reopened']);
     });
 
     it('keeps nothing of a run whose emit fails part-way, so the next run reads the same messages and finds them known', async () => {
@@ -225,9 +235,11 @@ describe('Capture', () => {
       const next = failing.next();
       await world.connector().sync(next);
 
-      expect(world.readsInFull().sort()).toEqual(['m-1', 'm-2', 'm-3']);
+      // m-3 was filed before the store gave out, so its conversation is followed
+      // and is not read again; the two that were not filed are read and filed.
+      expect(world.readsInFull().sort()).toEqual(['m-1', 'm-2']);
       expect(next.filed.size).toBe(3);
-      expect(next.saidOf('m-3')).toEqual(['reopened']);
+      expect(next.saidOf(itemOf('m-3'))).toEqual([]);
     });
   });
 
@@ -253,7 +265,7 @@ describe('Capture', () => {
       const second = first.next();
       await world.connector().sync(second);
 
-      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: ['m-1'] }]);
+      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: [itemOf('m-1')] }]);
       expect(world.readsInFull()).toEqual([]);
       expect(second.changes).toEqual([]);
       expect(second.filed.size).toBe(1);
@@ -301,14 +313,15 @@ describe('Capture', () => {
       const first = await world.connector({ callsPerRun: 6 }).sync(host);
 
       expect(first).toEqual({ moreToDo: true });
-      // The refresh, Deleted Items and the listing take three of the six.
+      // The refresh, Deleted Items and the listing take three of the six; Sent
+      // Items, one message and its conversation take the rest.
       expect(world.requests).toHaveLength(6);
-      expect(world.readsInFull()).toHaveLength(3);
-      expect(host.filed.size).toBe(3);
+      expect(world.readsInFull()).toHaveLength(1);
+      expect(host.filed.size).toBe(1);
 
       let runs = 1;
       let answer: unknown = first;
-      while (answer && runs < 10) {
+      while (answer && runs < 20) {
         host = host.next();
         answer = await world.connector({ callsPerRun: 6 }).sync(host);
         runs += 1;
@@ -324,7 +337,7 @@ describe('Capture', () => {
       const world = new GraphWorld();
       world.arrives('m-1', { flag: 'flagged' });
 
-      await expect(world.connector({ callsPerRun: 4 }).sync(signedInHost())).resolves.toBeUndefined();
+      await expect(world.connector({ callsPerRun: 5 }).sync(signedInHost())).resolves.toBeUndefined();
     });
   });
 });

@@ -8,14 +8,18 @@
 // It answers the calls the Outlook connector makes (packages/connectors/
 // outlook/README.md) at Graph's own paths under `/v1.0/me/`, read with an access
 // token the issuer issued, so the token says whose mailbox it is: the Deleted
-// Items folder, the listing of marked messages, one message in full, and a
-// `PATCH` of its flag or categories, conditional on `If-Match` as Exchange
+// Items and Sent Items folders, the listing of marked messages, the messages of
+// one conversation (`$filter=conversationId eq`) or received since a time
+// (`$filter=receivedDateTime ge`, `$orderby=receivedDateTime`, "Outlook follows
+// the flagged conversation as Gmail does", issue 1707), one message in full, and
+// a `PATCH` of its flag or categories, conditional on `If-Match` as Exchange
 // makes it. Nothing here ships.
 //
 
 /** The folders a stand-in mailbox holds a message in. */
 const INBOX = 'stub-inbox-folder';
 const DELETED_ITEMS = 'stub-deleteditems-folder';
+const SENT_ITEMS = 'stub-sentitems-folder';
 
 /**
  * What every stand-in mailbox starts with: two flagged messages, one plain text
@@ -56,9 +60,12 @@ function seededMessages() {
 
 let versions = 0;
 
-function message(id, { subject, from, text, html, flagged = false, categories = [], at, folder = INBOX }) {
+function message(id, { subject, from, text, html, flagged = false, categories = [], at, folder = INBOX, conversation = `stub-conversation-of-${id}` }) {
   return {
     id,
+    conversationId: conversation,
+    isDraft: false,
+    bodyPreview: (html === undefined ? text : html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 255),
     parentFolderId: folder,
     receivedDateTime: at,
     subject,
@@ -102,13 +109,21 @@ export function createStubGraph({ mailboxOfToken, json }) {
     const filter = url.searchParams.get('$filter') ?? '';
     const flagged = /flag\/flagStatus eq 'flagged'/.test(filter);
     const category = /categories\/any\(c:c eq '([^']+)'\)/.exec(filter)?.[1];
-    const marked = mailbox.messages.filter((one) =>
-      flagged
+    const conversation = /conversationId eq '((?:[^']|'')*)'/.exec(filter)?.[1]?.replace(/''/g, "'");
+    const since = /receivedDateTime ge (\S+)/.exec(filter)?.[1];
+    const marked = mailbox.messages.filter((one) => {
+      if (conversation !== undefined) return one.conversationId === conversation;
+      if (since !== undefined) return Date.parse(one.receivedDateTime) >= Date.parse(since);
+      return flagged
         ? one.flag.flagStatus === 'flagged'
         : category
           ? one.categories.some((name) => name.toLowerCase() === category.toLowerCase())
-          : true,
-    );
+          : true;
+    });
+    if (url.searchParams.get('$orderby') === 'receivedDateTime') {
+      marked.sort((a, b) => Date.parse(a.receivedDateTime) - Date.parse(b.receivedDateTime));
+    }
+    const select = url.searchParams.get('$select')?.split(',') ?? ['id', 'parentFolderId', 'flag', 'categories', 'conversationId'];
     const size = Number(url.searchParams.get('$top') ?? 10);
     const from = Number(url.searchParams.get('$skip') ?? 0);
     const page = marked.slice(from, from + size);
@@ -117,8 +132,8 @@ export function createStubGraph({ mailboxOfToken, json }) {
     return {
       ...(from + size < marked.length ? { '@odata.nextLink': `${origin}${next.pathname}${next.search}` } : {}),
       value: page.map((one) => {
-        const { '@odata.etag': etag, id, parentFolderId, flag, categories } = shown(one);
-        return { '@odata.etag': etag, id, parentFolderId, categories, flag };
+        const whole = shown(one);
+        return { '@odata.etag': whole['@odata.etag'], ...Object.fromEntries(select.map((field) => [field, whole[field]])) };
       }),
     };
   }
@@ -135,6 +150,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
     }
 
     if (path === 'mailFolders/deleteditems') return json(response, { id: DELETED_ITEMS });
+    if (path === 'mailFolders/sentitems') return json(response, { id: SENT_ITEMS });
     if (path === 'messages' && request.method === 'GET') return json(response, listing(mailbox, url, origin));
 
     const one = /^messages\/(.+)$/.exec(path);
@@ -167,7 +183,10 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * one, each also carrying every `category=` given; `POST
    * /graph-stub/tag?email=&id=&category=` adds a category to a message already
    * there; `GET /graph-stub/message?email=&id=` reads back what a message's flag
-   * and categories are now; `POST /graph-stub/refuse?email=&status=403` makes
+   * and categories are now; `POST /graph-stub/reply?email=&conversation=&text=&from=`
+   * adds a message to a conversation (`sent` makes it one sent from the mailbox, in
+   * Sent Items), answering its id, and `flag`, `categorise` also take `conversation=`
+   * to start in one; `POST /graph-stub/refuse?email=&status=403` makes
    * every later call of that mailbox answer that status (`status=0` ends it), to
    * see a failed check's status in its connection's history; and `/graph-stub/asked?email=` lists every call
    * the mailbox was asked, oldest first, so a walk can wait for a check.
@@ -179,7 +198,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
     if (action === 'message') {
       const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
       if (!held) return json(response, { error: 'no such message' }, 404);
-      return json(response, { id: held.id, flagStatus: held.flag.flagStatus, categories: held.categories });
+      return json(response, { id: held.id, flagStatus: held.flag.flagStatus, categories: held.categories, conversationId: held.conversationId });
     }
     if (request.method !== 'POST') return json(response, { error: 'POST only' }, 405);
     if (action === 'refuse') {
@@ -194,6 +213,21 @@ export function createStubGraph({ mailboxOfToken, json }) {
       held.version = ++versions;
       return json(response, { id: held.id, categories: held.categories });
     }
+    if (action === 'reply') {
+      mailbox.counter += 1;
+      const sent = url.searchParams.has('sent');
+      const from = /^(.*?)\s*<([^>]+)>$/.exec(url.searchParams.get('from') ?? '');
+      const reply = message(`AAkALgStubNew${mailbox.counter}`, {
+        subject: 'Re: a conversation',
+        from: sent ? { name: 'Michael', address: email } : { name: from?.[1] ?? 'Steven Noels', address: from?.[2] ?? 'steven@example.com' },
+        text: url.searchParams.get('text') ?? 'A reply, a moment ago.',
+        at: new Date().toISOString(),
+        folder: sent ? SENT_ITEMS : INBOX,
+        conversation: url.searchParams.get('conversation') ?? undefined,
+      });
+      mailbox.messages.push(reply);
+      return json(response, { id: reply.id, conversation: reply.conversationId });
+    }
     mailbox.counter += 1;
     const subject = url.searchParams.get('subject') ?? (action === 'flag' ? 'Flagged just now' : 'Categorised just now');
     const added = message(`AAkALgStubNew${mailbox.counter}`, {
@@ -203,9 +237,10 @@ export function createStubGraph({ mailboxOfToken, json }) {
       flagged: action === 'flag',
       categories: [...(action === 'categorise' ? ['Cockpit'] : []), ...extra],
       at: new Date().toISOString(),
+      conversation: url.searchParams.get('conversation') ?? undefined,
     });
     mailbox.messages.push(added);
-    return json(response, { id: added.id });
+    return json(response, { id: added.id, conversation: added.conversationId });
   }
 
   return {
@@ -215,7 +250,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         void graph(url, request, response, origin);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

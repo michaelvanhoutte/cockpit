@@ -5,6 +5,7 @@ import {
   deletedItemsAnswer,
   message,
   messagesPage,
+  sentItemsAnswer,
   type MessageOptions,
 } from '../../../../packages/connectors/outlook/tests/graph-payloads.js';
 
@@ -60,17 +61,27 @@ export async function graphAnswer(url: URL, init?: RequestInit): Promise<Respons
   }
   const path = url.pathname.replace('/v1.0/me/', '');
   if (path === 'mailFolders/deleteditems') return Response.json(deletedItemsAnswer());
+  if (path === 'mailFolders/sentitems') return Response.json(sentItemsAnswer());
   if (path === 'messages') {
     const filter = url.searchParams.get('$filter') ?? '';
     const flagged = filter.includes('flagStatus');
-    const marked = messages.filter((one) =>
-      flagged ? one.flag === 'flagged' : (one.categories ?? []).some((name) => name.toLowerCase() === 'cockpit'),
-    );
+    const conversation = /conversationId eq '((?:[^']|'')*)'/.exec(filter)?.[1]?.replace(/''/g, "'");
+    const since = /receivedDateTime ge (\S+)/.exec(filter)?.[1];
+    const marked = messages.filter((one) => {
+      if (conversation !== undefined) return message(one).conversationId === conversation;
+      if (since !== undefined) return Date.parse(one.receivedAt ?? '2026-10-01T08:30:00Z') >= Date.parse(since);
+      return flagged ? one.flag === 'flagged' : (one.categories ?? []).some((name) => name.toLowerCase() === 'cockpit');
+    });
+    if (url.searchParams.get('$orderby') === 'receivedDateTime') {
+      marked.sort((a, b) => Date.parse(a.receivedAt ?? '2026-10-01T08:30:00Z') - Date.parse(b.receivedAt ?? '2026-10-01T08:30:00Z'));
+    }
     const from = Number(url.searchParams.get('$skip') ?? 0);
     const page = marked.slice(from, from + pageSize);
     const next = new URL(url);
     next.searchParams.set('$skip', String(from + pageSize));
-    return Response.json(messagesPage(page.map(message), from + pageSize < marked.length ? next.href : undefined));
+    return Response.json(
+      messagesPage(page.map(message), from + pageSize < marked.length ? next.href : undefined, url.searchParams.get('$select')?.split(',')),
+    );
   }
   const one = /^messages\/(.+)$/.exec(path);
   const held = one && messages.find((candidate) => candidate.id === decodeURIComponent(one[1]!));

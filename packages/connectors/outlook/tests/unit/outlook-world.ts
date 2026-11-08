@@ -1,14 +1,17 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { createOutlookConnector } from '../../src/index.js';
+import { conversationKey } from '../../src/messages.js';
 import {
   ARCHIVE_ID,
   DELETED_ITEMS_ID,
+  SENT_ITEMS_ID,
   VERSION_CHANGED,
   categoriesAnswer,
   deletedItemsAnswer,
   message,
   messagesPage,
   refreshAnswer,
+  sentItemsAnswer,
   type MessageOptions,
 } from '../graph-payloads.js';
 import { FakeHost } from './fake-host.js';
@@ -77,6 +80,7 @@ export class GraphWorld {
 
     const path = url.pathname.replace('/v1.0/me/', '');
     if (path === 'mailFolders/deleteditems') return json(deletedItemsAnswer());
+    if (path === 'mailFolders/sentitems') return json(sentItemsAnswer());
     if (path === 'messages') return this.#list(url, headers.get('prefer')?.includes('ImmutableId') ?? false);
     const read = /^messages\/(.+)$/.exec(path);
     if (read && method === 'PATCH') return this.#write(decodeURIComponent(read[1]!), headers.get('if-match'), init?.body);
@@ -168,8 +172,19 @@ export class GraphWorld {
     return this.requests.filter((one) => /^GET \/v1\.0\/me\/messages\/[^?]/.test(one)).map((one) => /messages\/([^?]+)/.exec(one)![1]!);
   }
 
+  /** Pages of the listing of marked messages (the reads of one conversation, or of recent mail, are not). */
   listPages(): number {
-    return this.requests.filter((one) => /^GET \/v1\.0\/me\/messages\?/.test(one)).length;
+    return this.requests.filter((one) => /^GET \/v1\.0\/me\/messages\?\$filter=(flag\/flagStatus|categories\/any)/.test(one)).length;
+  }
+
+  /** The conversations read whole, by the id each was asked for. */
+  conversationsRead(): string[] {
+    return this.requests.flatMap((one) => /conversationId eq '([^']*)'/.exec(one)?.[1] ?? []);
+  }
+
+  /** The reads of mail received since a time. */
+  receivedReads(): string[] {
+    return this.requests.filter((one) => one.includes('receivedDateTime ge'));
   }
 
   graphCalls(): number {
@@ -209,15 +224,18 @@ export class GraphWorld {
     const top = Math.min(Number(url.searchParams.get('$top') ?? 10), this.pageSize);
     const skip = Number(url.searchParams.get('$skip') ?? 0);
     const matching = this.#messages.filter((one) => this.listsEverything || matches(one, filter));
+    // Graph orders by the one property the filter names first when asked to.
+    if (url.searchParams.get('$orderby') === 'receivedDateTime') matching.sort((one, other) => Date.parse(receivedOf(one)) - Date.parse(receivedOf(other)));
     const page = matching.slice(skip, skip + top);
     const shown = page.map((one) => message(immutable ? one : { ...one, id: mutableId(one) }));
+    const select = url.searchParams.get('$select')?.split(',');
     let next: string | undefined;
     if (skip + top < matching.length) {
       const link = new URL(url);
       link.searchParams.set('$skip', String(skip + top));
       next = this.nextLinkOrigin ? link.href.replace(link.origin, this.nextLinkOrigin) : link.href;
     }
-    return json(messagesPage(shown, next));
+    return json(messagesPage(shown, next, select));
   }
 }
 
@@ -231,7 +249,15 @@ function mutableId(one: Stored): string {
   return `${one.id}.in.${one.folder ?? 'inbox'}`;
 }
 
+function receivedOf(one: Stored): string {
+  return one.receivedAt ?? '2026-10-01T08:30:00Z';
+}
+
 function matches(one: Stored, filter: string): boolean {
+  const conversation = /conversationId eq '((?:[^']|'')*)'/.exec(filter)?.[1];
+  if (conversation !== undefined) return message(one).conversationId === conversation.replace(/''/g, "'");
+  const since = /receivedDateTime ge (\S+)/.exec(filter)?.[1];
+  if (since !== undefined) return Date.parse(receivedOf(one)) >= Date.parse(since);
   if (filter.includes('flag/flagStatus')) return (one.flag ?? 'notFlagged') === 'flagged';
   const category = /c eq '([^']+)'/.exec(filter)?.[1]?.toLowerCase();
   return category !== undefined && (one.categories ?? []).some((name) => name.toLowerCase() === category);
@@ -258,4 +284,9 @@ export function signedInHost(options: { choice?: string | null; expiresAt?: stri
   });
 }
 
-export { ARCHIVE_ID, DELETED_ITEMS_ID };
+export { ARCHIVE_ID, DELETED_ITEMS_ID, SENT_ITEMS_ID };
+
+/** The source id of the Item following the conversation `message` was in, where each message is its own conversation. */
+export function itemOf(messageId: string): string {
+  return conversationKey(`conversation-of-${messageId}`);
+}

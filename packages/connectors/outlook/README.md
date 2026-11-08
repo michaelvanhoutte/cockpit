@@ -132,7 +132,64 @@ flag or category off in Outlook when its task is done in Cockpit", issue 1047).
   `400`) is given up on, so one message cannot hold up the rest. A `401` is
   refreshed once. The writes spend the run's `callsPerRun` before the listing does.
 
+## Following a conversation ("Outlook follows the flagged conversation as Gmail does", issue 1707)
+
+A connection following the flag makes one Item per **conversation**, keyed
+`conversation:<conversationId>`, and the Item follows it, as a Gmail starred
+conversation does. An Item made of one message before is keyed by the message's
+id (no prefix), stays as it was, never follows, and is still pushed per message;
+a message flagged again after its old Item closed makes a conversation Item.
+Following the category is per message, as before.
+
+- **The flagged listing reads each message's `conversationId`.** A flagged
+  message the run has not read, in a conversation no open Item follows
+  (`followedConversations`), is read in full and its conversation read whole
+  (`messages?$filter=conversationId eq '…'`, drafts and Deleted Items left out),
+  then emitted with where the conversation stands: the latest message (yours if
+  in Sent Items), the count, the first message's time, who it is with. The
+  flagged message gives the title, text and sender. The host answering
+  `already-known` is reported reopened, which is how flagging again after Done
+  reopens the same Item. A message in a conversation already followed costs no
+  call. The complete listing names `conversation:<id>` for such messages, so an
+  Item closes when no message of its conversation is flagged.
+- **A turn is any message received since the last run**, one read of the whole
+  mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
+  with `$select` of the id, conversation, folder, sender, time and
+  `bodyPreview`. Each message in a followed conversation is reported once the
+  host asks (`reportTurn`; it changes nothing for one already reported). **Yours
+  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), not
+  a From comparison, so a send-as alias still counts. Drafts and Deleted Items
+  are not turns. Nothing is read while no Item follows a conversation. A read
+  cut short by the call budget keeps the time of the last message reported and
+  answers that there is more to do; a complete one restarts five minutes
+  before the run began, so a message stamped late is still seen (the host
+  ignores a repeat).
+- **Why `receivedDateTime`, and what is not proved.** Graph lists "the messages
+  in the signed-in user's mailbox (including the Deleted Items and Clutter
+  folders)" in one read (https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0),
+  so Sent Items are included, and `$orderby` must name a property that is also in
+  `$filter`, first. `createdDateTime` is documented as when the message was
+  created (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0),
+  which for a reply is when its draft was started, so a send long after would
+  fall behind the cursor; `receivedDateTime` is when it arrived, and Exchange
+  stamps a sent message with the time it was sent. Graph does not document the
+  last point; the contract test settles it against a real mailbox.
+- **Done completes the flag on every flagged message of the conversation**
+  (`messages?$filter=conversationId eq '…'&$select=id,flag`, then one `PATCH`
+  each, in Deleted Items too), confirmed only when none is left; a conversation
+  with more messages than the run's calls reach continues next run. A `403` or
+  `400` gives it up like any message. Reopened in Cockpit, it is confirmed while
+  a message in it is still flagged and otherwise given up, so the host stops
+  following: flagging every message again would flag mail nobody chose.
+- **Names** of a conversation Item are the union of the categories of its
+  flagged messages, reported when they change.
+
 ## Not yet known
+
+- **Whether Exchange gives a sent message a `receivedDateTime` of when it was
+  sent**, and whether `conversationId` accepts `eq` in a filter, as written
+  above. The contract test (`reads the mail received since…`) settles both; it
+  did not run when this was written.
 
 - **Whether `tests/contract/` still passes.** It reaches a dedicated Microsoft
   365 mailbox and skips without the three `OUTLOOK_CONTRACT_*` secrets, so it

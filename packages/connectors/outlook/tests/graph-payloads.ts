@@ -23,6 +23,15 @@
 export const DELETED_ITEMS_ID = 'AAMkADdeleteditemsFolderIdAAA=';
 export const INBOX_ID = 'AAMkADinboxFolderIdAAAA=';
 export const ARCHIVE_ID = 'AAMkADarchiveFolderIdAAA=';
+export const SENT_ITEMS_ID = 'AAMkADsentitemsFolderIdAAA=';
+
+/** `GET /me/mailFolders/sentitems?$select=id`. */
+export function sentItemsAnswer() {
+  return {
+    '@odata.context': "https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/mailFolders/$entity",
+    id: SENT_ITEMS_ID,
+  };
+}
 
 /** `GET /me/mailFolders/deleteditems?$select=id`. */
 export function deletedItemsAnswer() {
@@ -44,6 +53,10 @@ export interface MessageOptions {
   readonly text?: string;
   readonly html?: string;
   readonly receivedAt?: string;
+  /** The conversation it is in; each message is its own conversation unless this says otherwise. */
+  readonly conversation?: string;
+  /** A draft not yet sent. */
+  readonly draft?: boolean;
   /** The version Graph names the message at (@odata.etag), which changes with every change to it. */
   readonly version?: string;
 }
@@ -56,6 +69,9 @@ export function message(options: MessageOptions) {
   return {
     '@odata.etag': options.version ?? 'W/"CQAAABYAAAB3Gs0yUuqeSKdKbXRSf8D4AAGH0d9d"',
     id: options.id,
+    conversationId: options.conversation ?? `conversation-of-${options.id}`,
+    isDraft: options.draft ?? false,
+    bodyPreview: content.slice(0, 255),
     parentFolderId: options.folder ?? INBOX_ID,
     receivedDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
     subject: options.subject === undefined ? `About ${options.id}` : (options.subject ?? ''),
@@ -86,17 +102,20 @@ export const VERSION_CHANGED = {
   },
 };
 
-/** `GET /me/messages?$select=id,parentFolderId,flag,categories`: one page, and where the next one is. */
-export function messagesPage(messages: readonly ReturnType<typeof message>[], nextLink?: string) {
+/** The fields a listing of marked messages asks for. */
+const LISTED = ['id', 'parentFolderId', 'flag', 'categories', 'conversationId'];
+
+/**
+ * `GET /me/messages?$select=...`: one page of just the fields asked for, and
+ * where the next one is.
+ */
+export function messagesPage(messages: readonly ReturnType<typeof message>[], nextLink?: string, select: readonly string[] = LISTED) {
   return {
-    '@odata.context': "https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/messages(id,parentFolderId,flag,categories)",
+    '@odata.context': `https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/messages(${select.join(',')})`,
     ...(nextLink ? { '@odata.nextLink': nextLink } : {}),
-    value: messages.map(({ id, parentFolderId, flag, categories }) => ({
+    value: messages.map((one) => ({
       '@odata.etag': 'W/"CQAAABYAAAB3Gs0yUuqeSKdKbXRSf8D4AAGH0d9d"',
-      id,
-      parentFolderId,
-      categories,
-      flag,
+      ...Object.fromEntries(select.map((field) => [field, (one as Record<string, unknown>)[field]])),
     })),
   };
 }

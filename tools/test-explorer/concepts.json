@@ -174,7 +174,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 18,
+      "browserWalks": 19,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
