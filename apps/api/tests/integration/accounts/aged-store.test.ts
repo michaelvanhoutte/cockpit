@@ -2034,8 +2034,8 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      // With `status` and `listed` NULL, which `0082-connection-history-status` and `0088-connection-history-listed` add on the same open.
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null, listed: null })));
+      // With `status`, `listed` and `started_at` NULL, which `0082-connection-history-status`, `0088-connection-history-listed` and `0103-connection-history-started-at` add on the same open.
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null, listed: null, started_at: null })));
       const nothing = { count: 0, items: [] };
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([
         expect.objectContaining({
@@ -2069,7 +2069,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
     });
   });
@@ -2091,7 +2091,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2 })]);
     });
   });
@@ -2113,7 +2113,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, listed: null })]);
     });
   });
@@ -3744,6 +3744,12 @@ describe('Triage', () => {
  * account from before it gains an empty table, every row it already held stays
  * as it was, and it waits 3 days until it chooses.
  */
+/** The rows of an account kept before  103-connection-history-started-at, as the same open leaves its lines: each with no start. */
+const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
+  ...kept,
+  connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
+});
+
 describe('Triage', () => {
   describe('an account already in use waits 3 days for a reply until it chooses, and keeps everything it held', () => {
     const FOLLOW_UPS = '0097-account-follow-ups';
@@ -3785,7 +3791,7 @@ describe('Triage', () => {
         ...keptAfter
       } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
@@ -3842,7 +3848,7 @@ describe('Capture', () => {
         ...keptAfter
       } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { additions: [] } });
@@ -3891,7 +3897,7 @@ describe('Capture', () => {
       // remembered sentence whatever change it applies (`retire-agents.ts`).
       const { item_conversations: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [] } });
