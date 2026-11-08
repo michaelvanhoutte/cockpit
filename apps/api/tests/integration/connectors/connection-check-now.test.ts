@@ -113,9 +113,9 @@ async function checkNow(id: string, workspaceId = WORKSPACE_ID) {
   return { status: res.status, body: res.status === 200 ? ((await res.json()) as { status: string; at: string }) : null };
 }
 
-async function historyOf(id: string): Promise<{ reason: string; count: number; outcome: string; lastAt: string }[]> {
+async function historyOf(id: string): Promise<{ reason: string; count: number; outcome: string; lastAt: string; startedAt: string | null }[]> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/${id}/history`);
-  return ((await res.json()) as { lines: { reason: string; count: number; outcome: string; lastAt: string }[] }).lines;
+  return ((await res.json()) as { lines: { reason: string; count: number; outcome: string; lastAt: string; startedAt: string | null }[] }).lines;
 }
 
 const pulledRow = (id: string) =>
@@ -165,7 +165,7 @@ describe('Connector management', () => {
       await queuedChecksRun();
 
       expect(await historyOf(id)).toEqual([
-        expect.objectContaining({ reason: 'check-now', count: 1 }),
+        expect.objectContaining({ reason: 'check-now', count: 1, startedAt: expect.any(String) }),
         expect.objectContaining({ reason: 'scheduled', count: 1 }),
       ]);
       // Last run at or after the press, which is what ends the note at the press (issue 1720).

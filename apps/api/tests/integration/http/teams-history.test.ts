@@ -108,7 +108,7 @@ describe('Connector management', () => {
 
       const [line, ...others] = await historyOf(connection);
       expect(others).toEqual([]);
-      expect(line).toMatchObject({ outcome: 'worked', reason: 'delivery', count: 1, status: null, message: null });
+      expect(line).toMatchObject({ outcome: 'worked', reason: 'delivery', count: 1, status: null, message: null, startedAt: null });
       expect(line!.did.broughtIn.count).toBe(1);
       expect(line!.did.broughtIn.items).toEqual([
         { id: expect.any(String), title: 'Can you review the Q3 plan before Friday?', dismissed: false },

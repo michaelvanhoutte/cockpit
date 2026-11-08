@@ -36,7 +36,7 @@ import {
 } from '../domain/filing-by-name.js';
 import { dueDateOnArrival } from '../domain/due-in-days.js';
 import { statusBeforeDraftIn } from '../domain/conversations.js';
-import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
+import { PULLED_CHECK_LEASE_MS, leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
 
@@ -993,7 +993,7 @@ export function endPulledRun(
   const followUp = failing === null && moreToDo;
   db.transaction((tx) => {
     const ran = tx
-      .select({ checkReason: pulledConnections.checkReason })
+      .select({ checkReason: pulledConnections.checkReason, leaseUntil: pulledConnections.leaseUntil })
       .from(pulledConnections)
       .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
       .get();
@@ -1014,6 +1014,8 @@ export function endPulledRun(
       failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing), status: status ?? null },
       did,
       at,
+      // The run took its hold for a fixed length when it began (issue 1725).
+      ran?.leaseUntil ? new Date(Date.parse(ran.leaseUntil) - PULLED_CHECK_LEASE_MS).toISOString() : null,
     );
     if (failing === null) {
       tx.update(connectorAccounts)

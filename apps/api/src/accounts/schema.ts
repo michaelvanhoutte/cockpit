@@ -2359,6 +2359,8 @@ export const connectionHistory = sqliteTable(
     status: integer('status'),
     /** How many messages the check's complete listing returned (issue 1196); NULL where it listed nothing completely - a failed or stopped check - and on every line from before it. */
     listed: integer('listed'),
+    /** When the check's run took its hold (issue 1725): the hold's end less its fixed length, read as the run ends. NULL for a delivery, where no check ran, and on every line from before it. A line folded across checks keeps its first check's. */
+    startedAt: text('started_at'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),

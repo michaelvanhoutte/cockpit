@@ -62,6 +62,8 @@ export const connectionHistoryLineSchema = z.object({
   did: checkDidSchema,
   /** How many messages the check's complete listing returned (issue 1196); null where it listed nothing completely, and on a line from before it. */
   listed: z.number().int().min(0).nullable().default(null),
+  /** When the check's run began (issue 1725); null on a delivery, and on a line from before it. A folded line carries its first check's. */
+  startedAt: z.iso.datetime().nullable().default(null),
 });
 export type ConnectionHistoryLine = z.infer<typeof connectionHistoryLineSchema>;
 
