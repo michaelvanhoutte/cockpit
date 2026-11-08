@@ -190,7 +190,15 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
           turnsOutOfCalls = true;
         } else {
           // Once the turns are reported, so a draft sent and read as a turn this run is no longer waited on.
-          await checkDrafts(host, mailbox, listing.deletedItems, foldersNow);
+          // A draft that could not be read this time is read next run, and must not stop the flagged mail being brought in.
+          try {
+            await checkDrafts(host, mailbox, listing.deletedItems, foldersNow);
+          } catch (error) {
+            if (error instanceof OutOfCalls) moreToDo = true;
+            else if (error instanceof NotAnswering) {
+              host.log('warn', 'an Outlook connection could not check its drafts this time', { cause: error.message });
+            } else throw error;
+          }
         }
       } else {
         turnsSince = new Date(runStart.getTime() - OVERLAP_MS).toISOString();

@@ -197,6 +197,18 @@ describe('Triage', () => {
       expect(world.conversationsRead()).toEqual([]);
     });
 
+    it('still brings in newly flagged mail where a waiting draft could not be read this time', async () => {
+      const { world, host, draftId } = await aDraftWaitedOn();
+      world.arrives('m-9', { flag: 'flagged', subject: 'Chase the invoice' });
+      world.failures.push({ prefix: `messages/${draftId}`, status: 503 });
+      const next = host.next();
+
+      await world.connector({ now: () => NOW }).sync(next);
+
+      expect([...next.filed.values()].map((one) => one.title)).toContain('Chase the invoice');
+      expect(next.draftsGone).toEqual([]);
+    });
+
     it('reports the sent message as your turn, and nothing gone, where the read of received mail never showed it', async () => {
       const { world, host, draftId, conversationId } = await aDraftWaitedOn();
       // Sent before the time the read of received mail starts from.
