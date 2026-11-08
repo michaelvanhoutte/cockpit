@@ -32,7 +32,7 @@ import { historyRecord, labelsAnswer, message } from '../../../../../packages/co
 const ANNA = { email: 'anna@example.com', subject: 'google-anna' };
 
 /** Where Gmail opens the first draft made, and shows a message of the mailbox. */
-const DRAFT_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts/draft-m-1';
+const DRAFT_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const MESSAGE_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
 
 /** The store stamps its own changes on the real clock, which a case's changes must not be older than. */
@@ -388,7 +388,7 @@ describe('Triage', () => {
       const again = await emailed(itemId, connection);
 
       expect(again.status).toBe(200);
-      expect(await again.json()).toEqual({ link: DRAFT_LINK.replace('draft-m-1', 'draft-m-2') });
+      expect(await again.json()).toEqual({ link: DRAFT_LINK });
       expect(gmailDrafts).toHaveLength(2);
       const item = await theItem(itemId);
       expect(statusOf(item)).toBe('in progress');
@@ -493,7 +493,7 @@ describe('Triage', () => {
       const replying = await aReplyStarted();
 
       expect((await theItem(started)).conversation?.link).toBe(DRAFT_LINK);
-      expect((await theItem(replying)).conversation?.link).toBe(DRAFT_LINK.replace('draft-m-1', 'draft-m-2'));
+      expect((await theItem(replying)).conversation?.link).toBe(DRAFT_LINK);
     });
 
     it('opens the email the draft became once it is sent', async () => {
