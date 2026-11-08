@@ -30,7 +30,8 @@ import {
   type RecordingStore,
 } from '../../../src/keptRecordings';
 import { forgetEverything } from '../../../src/session/forget';
-import { WorkingOffline } from '../../../src/offline';
+import { WorkingOffline, stand } from '../../../src/offline';
+import { fetchSentEmails, followSentEmail, sentEmailsAvailable } from '../../../src/api/sentEmails';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
@@ -83,6 +84,13 @@ const held = vi.hoisted(() => ({
    */
   pending: false,
   settle: () => {},
+}));
+
+vi.mock('../../../src/api/sentEmails', () => ({
+  fetchSentEmails: vi.fn(),
+  followSentEmail: vi.fn(),
+  /** Whether the Workspace has a mailbox to list sent mail from; none unless a case says so. */
+  sentEmailsAvailable: vi.fn(() => Promise.resolve(false)),
 }));
 
 vi.mock('../../../src/itemForm', async (importOriginal) => ({
@@ -2031,6 +2039,130 @@ describe('Capture', () => {
    * contract tier; that a browser really records is the walk in
    * tests/e2e/capture.test.ts.
    */
+  describe('Follow a sent email… is offered where a mailbox can be read, and lists what was sent', () => {
+    const SENT = {
+      sourceAccountId: 'src-gmail',
+      connectorId: 'gmail',
+      mailbox: 'anna@example.com',
+      conversationId: 'thread-1',
+      subject: 'Quote for the kitchen renovation',
+      to: 'Marc Lambrecht',
+      sentAt: '2026-10-08T09:15:00.000Z',
+      link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/thread-1',
+      excerpt: 'Attached is the quote.',
+    };
+    const entry = () => screen.queryByRole('button', { name: 'Follow a sent email…' });
+
+    beforeEach(() => {
+      vi.mocked(fetchSentEmails).mockReset();
+      vi.mocked(followSentEmail).mockReset();
+      vi.mocked(sentEmailsAvailable).mockReset();
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(true);
+      vi.mocked(fetchSentEmails).mockResolvedValue({ emails: [SENT], failing: [] });
+    });
+    afterEach(() => stand({ connecting: true, found: false, chosen: false }));
+
+    it('is not shown with no mailbox in the Workspace, and shown with one', async () => {
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(false);
+      const without = await thePage();
+      await settled();
+      expect(entry()).toBeNull();
+      without.unmount();
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(true);
+
+      await thePage();
+
+      expect(await screen.findByRole('button', { name: 'Follow a sent email…' })).toBeEnabled();
+      expect(vi.mocked(sentEmailsAvailable)).toHaveBeenLastCalledWith('ws-home');
+    });
+
+    it('is shown unavailable offline, saying it needs a connection', async () => {
+      await thePage();
+      await screen.findByRole('button', { name: 'Follow a sent email…' });
+
+      act(() => stand({ connecting: false, found: true, chosen: false }));
+
+      expect(screen.getByRole('button', { name: 'Follow a sent email…' })).toBeDisabled();
+      expect(screen.getByText('Needs a connection.')).toBeVisible();
+    });
+
+    it('lists the sent emails in place of the note, and Back returns to the note as it was', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada');
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+
+      const row = await screen.findByRole('button', { name: /Quote for the kitchen renovation/ });
+      expect(row).toHaveTextContent('To Marc Lambrecht');
+      expect(vi.mocked(fetchSentEmails)).toHaveBeenCalledWith('ws-home');
+      expect(screen.queryByLabelText('What is on your mind?')).toBeNull();
+      await user.click(screen.getByRole('button', { name: '← Back to the note' }));
+      expect(box()).toHaveValue('Ask Ada');
+    });
+
+    it('follows the pick as Where and File on chose it, and says what it followed', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await user.click(await screen.findByRole('textbox', { name: 'Find a Panel to file on' }));
+      const search = await screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+      await user.type(search, 'Falcon');
+      await user.click(await within(await screen.findByRole('list', { name: 'Panels to file on' })).findByRole('button', { name: 'FalconToday' }));
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+
+      await waitFor(() =>
+        expect(vi.mocked(followSentEmail)).toHaveBeenCalledWith('ws-work', {
+          sourceAccountId: 'src-gmail',
+          conversationId: 'thread-1',
+          subject: 'Quote for the kitchen renovation',
+          to: 'Marc Lambrecht',
+          sentAt: '2026-10-08T09:15:00.000Z',
+          link: SENT.link,
+          excerpt: 'Attached is the quote.',
+          decided: true,
+          panelIds: ['p-falcon'],
+        }),
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent('Following “Quote for the kitchen renovation” → Falcon');
+      await user.click(screen.getByRole('button', { name: 'Open it' }));
+      expect(held.open).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
+    });
+
+    it('says the Item was already followed, not made, where an open one follows the conversation', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '22222222-2222-4222-8222-222222222222', made: false });
+      const user = await thePage();
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Already following “Quote for the kitchen renovation”');
+      expect(screen.getByRole('status')).not.toHaveTextContent('→');
+    });
+
+    it('closes the form once followed only where no note was typed, so a half-written one is not lost', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const typed = vi.fn();
+      const user = await thePage({ onKept: typed });
+      await user.type(box(), 'Ask Ada');
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+      await screen.findByRole('status');
+      expect(typed).not.toHaveBeenCalled();
+      expect(box()).toHaveValue('Ask Ada');
+    });
+
+    it('closes the form once followed where nothing was typed', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const bare = vi.fn();
+      const user = await thePage({ onKept: bare });
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+      await waitFor(() => expect(bare).toHaveBeenCalledTimes(1));
+    });
+  });
+
   describe('dictation is offered only where the browser can record and the page has a transcriber', () => {
     afterEach(() => vi.useRealTimers());
 

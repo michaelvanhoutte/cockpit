@@ -104,6 +104,14 @@ export async function graphAnswer(url: URL, init?: RequestInit): Promise<Respons
   const path = url.pathname.replace('/v1.0/me/', '');
   if (path === 'mailFolders/deleteditems') return Response.json(deletedItemsAnswer());
   if (path === 'mailFolders/sentitems') return Response.json(sentItemsAnswer());
+  if (path === 'mailFolders/sentitems/messages') {
+    // Sent Items, a draft not among them, newest first ("Follow a sent email… in Capture", issue 1710).
+    const sent = messages
+      .filter((one) => one.folder === SENT_ITEMS_ID && !one.draft)
+      .sort((a, b) => Date.parse(b.receivedAt ?? '2026-10-01T08:30:00Z') - Date.parse(a.receivedAt ?? '2026-10-01T08:30:00Z'))
+      .slice(0, Number(url.searchParams.get('$top') ?? 10));
+    return Response.json(messagesPage(sent.map(message), undefined, url.searchParams.get('$select')?.split(',')));
+  }
   if (path === 'messages' && init?.method === 'POST') return draftMade(null, String(init.body ?? ''));
   const replying = /^messages\/(.+)\/createReply$/.exec(path);
   if (replying && init?.method === 'POST') return draftMade(decodeURIComponent(replying[1]!), String(init.body ?? ''));

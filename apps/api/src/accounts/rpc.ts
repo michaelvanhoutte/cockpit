@@ -40,6 +40,7 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { DraftClick, DraftWantedAnswer } from './drafts.js';
+import type { ListingAsk, SentPick } from './sent.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 /**
@@ -503,6 +504,10 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick,
   ): Awaitable<Answer<null>>;
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Awaitable<Answer<ListingAsk>>;
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(accountName: string, pick: SentPick): Awaitable<Answer<{ itemId: string; made: boolean }>>;
   resealCredential(
     accountName: string,
     sourceAccountId: string,

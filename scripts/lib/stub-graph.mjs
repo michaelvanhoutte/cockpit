@@ -15,7 +15,9 @@
 // a `PATCH` of its flag or categories, conditional on `If-Match` as Exchange
 // makes it, and the drafts *Email…* makes (`POST /me/messages`, `POST
 // /me/messages/{id}/createReply`, "Email… makes an Outlook draft the Item then
-// follows", issue 1709). Nothing here ships.
+// follows", issue 1709), and the mail sent from the mailbox (`GET
+// /me/mailFolders/sentitems/messages`, "Follow a sent email… in Capture", issue 1710).
+// Nothing here ships.
 //
 
 /** The folders a stand-in mailbox holds a message in. */
@@ -26,8 +28,8 @@ const DRAFTS = 'stub-drafts-folder';
 
 /**
  * What every stand-in mailbox starts with: two flagged messages, one plain text
- * and one HTML, one carrying the category Cockpit with no subject, and one
- * nobody marked.
+ * and one HTML, one carrying the category Cockpit with no subject, one nobody
+ * marked, and three sent from the mailbox, which Sent Items holds.
  */
 function seededMessages() {
   return [
@@ -58,12 +60,39 @@ function seededMessages() {
       text: 'Nothing here needs following up.',
       at: '2026-10-04T07:00:00Z',
     }),
+    message('AAkALgStubSentKitchen', {
+      subject: 'Quote for the kitchen renovation',
+      from: ME,
+      to: [{ name: 'Marc Lambrecht', address: 'marc@example.com' }],
+      text: 'Hi Marc, attached is the quote we spoke about on Monday. Let me know what you think.',
+      at: '2026-10-08T09:15:00Z',
+      folder: SENT_ITEMS,
+    }),
+    message('AAkALgStubSentOffer', {
+      subject: 'Offer for the new office lease',
+      from: ME,
+      to: [{ name: 'Sofie Maes', address: 'sofie@example.com' }, { name: '', address: 'legal@example.com' }],
+      text: 'Sofie, our offer for the lease is below. We can sign before the end of the month.',
+      at: '2026-10-06T14:40:00Z',
+      folder: SENT_ITEMS,
+    }),
+    message('AAkALgStubSentDinner', {
+      subject: 'Dinner with Steven Noels',
+      from: ME,
+      to: [{ name: 'Steven Noels', address: 'steven@example.com' }],
+      text: 'Steven, are you free one evening next week for dinner?',
+      at: '2026-10-05T18:05:00Z',
+      folder: SENT_ITEMS,
+    }),
   ];
 }
 
+/** The mailbox owner, as the mail they sent names them: the stand-in does not know the address, so the display name stands in. */
+const ME = { name: 'Michael', address: 'michael@example.com' };
+
 let versions = 0;
 
-function message(id, { subject, from, text, html, flagged = false, categories = [], at, folder = INBOX, conversation = `stub-conversation-of-${id}` }) {
+function message(id, { subject, from, to = [ME], text, html, flagged = false, categories = [], at, folder = INBOX, conversation = `stub-conversation-of-${id}` }) {
   return {
     id,
     conversationId: conversation,
@@ -71,6 +100,8 @@ function message(id, { subject, from, text, html, flagged = false, categories = 
     bodyPreview: (html === undefined ? text : html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 255),
     parentFolderId: folder,
     receivedDateTime: at,
+    sentDateTime: at,
+    toRecipients: to.map(({ name, address }) => ({ emailAddress: { name, address } })),
     subject,
     categories,
     flag: { flagStatus: flagged ? 'flagged' : 'notFlagged' },
@@ -141,6 +172,17 @@ export function createStubGraph({ mailboxOfToken, json }) {
     };
   }
 
+  /** `GET /me/mailFolders/sentitems/messages`: what is in Sent Items, not a draft, newest `sentDateTime` first, the first `$top` of them. */
+  function sentListing(mailbox, url) {
+    const select = url.searchParams.get('$select')?.split(',') ?? ['id'];
+    const size = Number(url.searchParams.get('$top') ?? 10);
+    const sent = mailbox.messages
+      .filter((one) => one.parentFolderId === SENT_ITEMS && !one.isDraft)
+      .sort((a, b) => Date.parse(b.sentDateTime) - Date.parse(a.sentDateTime))
+      .slice(0, size);
+    return { value: sent.map((one) => Object.fromEntries(select.map((field) => [field, shown(one)[field]]))) };
+  }
+
   /**
    * `POST /me/messages` and `POST /me/messages/{id}/createReply`: a draft in the
    * Drafts folder, in a conversation of its own or the message's, answered as
@@ -185,6 +227,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
 
     if (path === 'mailFolders/deleteditems') return json(response, { id: DELETED_ITEMS });
     if (path === 'mailFolders/sentitems') return json(response, { id: SENT_ITEMS });
+    if (path === 'mailFolders/sentitems/messages' && request.method === 'GET') return json(response, sentListing(mailbox, url));
     if (path === 'messages' && request.method === 'GET') return json(response, listing(mailbox, url, origin));
     if (path === 'messages' && request.method === 'POST') return makeDraft(mailbox, null, request, response);
     const replying = /^messages\/([^/]+)\/createReply$/.exec(path);
@@ -256,6 +299,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         draft.isDraft = false;
         draft.parentFolderId = SENT_ITEMS;
         draft.receivedDateTime = new Date().toISOString();
+        draft.sentDateTime = draft.receivedDateTime;
       } else {
         draft.parentFolderId = DELETED_ITEMS;
       }

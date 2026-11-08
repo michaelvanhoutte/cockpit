@@ -111,6 +111,9 @@ export async function startStubIssuer({ port, seedPath }) {
    * takes `from=` for who sent it, `text=` for what it says, or `sent` for a
    * reply sent from this mailbox ("A Gmail starred conversation is one Item
    * whose status follows who wrote last", issue 1705).
+   * `POST /gmail-stub/send?email=&subject=&to=&text=` sends an email from the
+   * mailbox in a conversation of its own, which `users.messages.list` with the
+   * Sent label then lists first ("Follow a sent email… in Capture", issue 1710).
    * `POST /gmail-stub/linkedin?email=` delivers a LinkedIn message notification
    * in a conversation of its own, as LinkedIn sends one: `name=` for who wrote,
    * `text=` for what, `subject=`, `conversation=` for LinkedIn's thread id, and `starred`
@@ -123,7 +126,7 @@ export async function startStubIssuer({ port, seedPath }) {
     const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
     const starring = action === 'star' || action === 'unstar';
     // Starring needs no label, as a mailbox followed by star needs none.
-    if (!cockpit && !starring && action !== 'linkedin') return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
+    if (!cockpit && !starring && action !== 'linkedin' && action !== 'send') return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
     mailbox.historyId += 1;
     const at = String(mailbox.historyId);
     const messageOf = (id, threadId, labelIds, subject, from, words) => ({
@@ -141,6 +144,17 @@ export async function startStubIssuer({ port, seedPath }) {
         body: { size: words.length, data: base64url(words) },
       },
     });
+    if (action === 'send') {
+      // An email sent from this mailbox, in a conversation of its own, as Gmail files one: the Sent label and no Inbox.
+      const id = `sent-${at}`;
+      const words = url.searchParams.get('text') ?? 'Sent a moment ago.';
+      const sent = messageOf(id, id, ['SENT'], url.searchParams.get('subject') ?? 'Sent just now', `Michael <${email}>`, words);
+      sent.snippet = words;
+      sent.payload.headers.push({ name: 'To', value: url.searchParams.get('to') ?? 'Steven Noels <steven@example.com>' });
+      mailbox.threads.push({ id, historyId: at, messages: [sent] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId: id }], messagesAdded: [{ message: { id, threadId: id, labelIds: sent.labelIds } }] });
+      return json(response, { thread: id, message: id, historyId: at });
+    }
     if (action === 'linkedin') {
       const id = `linkedin-${at}`;
       const name = url.searchParams.get('name') ?? 'Steven Noels';
@@ -324,7 +338,7 @@ export async function startStubIssuer({ port, seedPath }) {
     if (graph.handle(url, request, response, issuer)) return;
     if (verify.handle(url, request, response)) return;
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
-    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar|linkedin)$/);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar|linkedin|send)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
     const onDraft = url.pathname.match(/^\/gmail-stub\/(send-draft|delete-draft)$/);
     if (onDraft && request.method === 'POST') return actOnDraft(onDraft[1], url, response);
@@ -523,6 +537,18 @@ export async function startStubIssuer({ port, seedPath }) {
           .map((message) => ({ id: message.id, threadId: thread.id })),
       );
       return json(response, { messages: sentBy, resultSizeEstimate: sentBy.length });
+    }
+    if (path === 'messages' && url.searchParams.get('labelIds') === 'SENT') {
+      // `users.messages.list` of the mail sent from the mailbox, newest first as Gmail lists it ("Follow a sent email… in Capture", issue 1710).
+      const sent = mailbox.threads
+        .flatMap((thread) =>
+          thread.messages
+            .filter((message) => message.labelIds.includes('SENT') && !message.labelIds.includes('TRASH'))
+            .map((message) => ({ id: message.id, threadId: thread.id, at: Number(message.internalDate) })),
+        )
+        .sort((a, b) => b.at - a.at)
+        .slice(0, Number(url.searchParams.get('maxResults') ?? 100));
+      return json(response, { messages: sent.map(({ id, threadId }) => ({ id, threadId })), resultSizeEstimate: sent.length });
     }
     if (path === 'messages') {
       // `users.messages.list`: the emails carrying a label, the bin left out as
@@ -903,8 +929,32 @@ export function stubMailbox(email) {
           ),
         ],
       },
+      ...sentThreads(message, text),
     ],
   };
+}
+
+/**
+ * The mail every stand-in mailbox has sent, which `users.messages.list` with the
+ * Sent label lists ("Follow a sent email… in Capture", issue 1710): one email
+ * each in three conversations, none labelled Cockpit or starred.
+ */
+function sentThreads(message, text) {
+  const sent = (id, at, to, subject, words) => ({
+    id,
+    historyId: '1000',
+    messages: [
+      {
+        ...message(id, id, at, ['SENT'], { Subject: subject, From: 'Michael <michael@example.com>', To: to }, text('text/plain', words)),
+        snippet: words,
+      },
+    ],
+  });
+  return [
+    sent('18f0a1b2c3d4e6a1', '2026-10-08T09:15:00Z', 'Marc Lambrecht <marc@example.com>', 'Quote for the kitchen renovation', 'Hi Marc, attached is the quote we spoke about on Monday. Let me know what you think.'),
+    sent('18f0a1b2c3d4e6a2', '2026-10-06T14:40:00Z', 'Sofie Maes <sofie@example.com>, legal@example.com', 'Offer for the new office lease', 'Sofie, our offer for the lease is below. We can sign before the end of the month.'),
+    sent('18f0a1b2c3d4e6a3', '2026-10-05T18:05:00Z', 'Steven Noels <steven@example.com>', 'Dinner with Steven Noels', 'Steven, are you free one evening next week for dinner?'),
+  ];
 }
 
 /** Text going into an attribute or a body, with what would end either taken out. */

@@ -3,11 +3,14 @@ import type { Page } from '@playwright/test';
 import { isLinkedWorktree, portsFor } from '../../scripts/lib/ports.mjs';
 import {
   chooseRowAction,
+  closeCapture,
   closeSettings,
+  dashboardBar,
   deleteWorkspace,
   expect,
   itemRow,
   makeWorkspace,
+  openCapture,
   openFirstWorkspace,
   openSettings,
   press,
@@ -15,7 +18,7 @@ import {
   test,
   uniqueTitle,
 } from './support/app';
-import { giveToTheInbox } from './support/arrange';
+import { arrange, giveAWorkspace, giveToTheInbox } from './support/arrange';
 
 const root = resolve(__dirname, '..', '..');
 /** The stub the stack runs, which stands in for Gmail's mailbox as well as for Google's sign-in. */
@@ -107,7 +110,80 @@ async function connectedByStar(page: Page, isMobile: boolean): Promise<void> {
   await closeSettings(page, isMobile);
 }
 
+/**
+ * Connect on the Gmail card choosing the star, by the address its button goes
+ * to rather than the button: a phone has no Settings to press it in. Waits until
+ * the first check has read where the mailbox stands.
+ */
+async function connectedByStarFromTheAddress(page: Page, isMobile: boolean): Promise<void> {
+  const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+  const askedBefore = (await askedOfGmail()).length;
+  await page.goto(`/v1/workspaces/${workspaceId}/connections/gmail/connect?choice=star`);
+  await page.getByRole('link', { name: MAILBOX, exact: true }).click();
+  await expect.poll(async () => (await askedOfGmail()).slice(askedBefore)).toContain('profile');
+  // Coming back from Google opens Settings on its Connections at a desk, and nothing on a phone.
+  if (!isMobile) await closeSettings(page, isMobile);
+}
+
 test.describe('Triage', () => {
+  test.describe('Follow a sent email… in Capture lists the mailbox’s newest sent mail, and a pick is an Item waiting for a reply', () => {
+    test('lists the newest first, one entry a row, and picking the first reads Gmail · You wrote in the Inbox, Waiting since', async ({
+      page,
+      isMobile,
+    }) => {
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Followed sent');
+      await giveAWorkspace(page, workspace);
+      await page.reload();
+      await switchTo(page, workspace, isMobile);
+      await connectedByStarFromTheAddress(page, isMobile);
+
+      // An email sent from the mailbox just now, so it is the newest whatever the mailbox held before.
+      const subject = uniqueTitle('Quote for the kitchen');
+      await fetch(
+        `${issuer}/gmail-stub/send?${new URLSearchParams({ email: MAILBOX, subject, to: 'Marc Lambrecht <marc@example.com>', text: 'Attached is the quote.' })}`,
+        { method: 'POST' },
+      );
+
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: 'Follow a sent email…' }), isMobile);
+      const list = page.getByRole('region', { name: 'Follow a sent email' });
+      const entries = list.locator('[data-sent-email]');
+      await expect(entries.first()).toContainText(subject);
+      await expect(entries.first()).toContainText('To Marc Lambrecht');
+      await expect(entries.nth(1)).toBeVisible();
+      expect(await entries.count()).toBeLessThanOrEqual(10);
+
+      // One entry a row, each the width of the list; on a phone the list is the width of the page.
+      const boxes = await entries.evaluateAll((all) => all.map((one) => one.getBoundingClientRect().toJSON() as DOMRect));
+      const listBox = (await list.boundingBox())!;
+      for (const [at, box] of boxes.entries()) {
+        expect(Math.abs(box.width - listBox.width), `entry ${at} is as wide as the list`).toBeLessThanOrEqual(2);
+        if (at > 0) expect(box.top, `entry ${at} is under the one before`).toBeGreaterThanOrEqual(boxes[at - 1]!.bottom - 1);
+      }
+      if (isMobile) expect(listBox.width).toBeGreaterThan(page.viewportSize()!.width * 0.85);
+
+      await press(entries.first(), isMobile);
+      await expect(page.getByRole('status').filter({ hasText: `Following “${subject}” → Inbox` })).toBeVisible();
+      await closeCapture(page, isMobile);
+
+      // A phone draws the Inbox as a screen of its own.
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      const row = itemRow(page, subject);
+      await expect(row).toBeVisible();
+      await expect(row.getByText(/^Waiting since/)).toBeVisible();
+      await expect(row.getByText('Gmail · You wrote just now')).toBeVisible();
+      await expect(row.getByRole('link', { name: 'Open the latest email in Gmail' })).toHaveAttribute('href', /#all\/sent-\d+$/);
+
+      const workspaceId = new URL(page.url()).pathname.split('/')[2]!;
+      const listed = (await (await page.request.get(`/v1/workspaces/${workspaceId}/connections`)).json()) as {
+        sourceAccounts: { id: string; connectorId: string }[];
+      };
+      await arrange(page, 'disconnect_source_account', { sourceAccountId: listed.sourceAccounts.find((one) => one.connectorId === 'gmail')!.id });
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
+
   test.describe('a followed Gmail conversation’s row says who wrote last, and its status follows', () => {
     test('reads Steven replied on his reply, To do, then You wrote with Waiting since on yours, and opens the conversation', async ({
       page,

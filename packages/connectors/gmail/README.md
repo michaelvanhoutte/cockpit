@@ -229,6 +229,24 @@ turns:
   host still waits on is asked for (`drafts.get`); gone, with no message sent
   from the mailbox in its conversation since, it is reported gone.
 
+## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
+
+`listRecentSent` is on demand while a person waits and changes nothing.
+
+- **`users.messages.list` with `labelIds=SENT&maxResults=30`** (three times the
+  limit) answers the ids of the newest sent emails, newest first, of which the
+  newest of each conversation is kept (up to ten) (the bin and spam are left out as Gmail
+  leaves them); **each is read once with `format=metadata`** and the `Subject` and
+  `To` headers, which gives its conversation (`threadId`), time (`internalDate`)
+  and `snippet`, HTML-escaped by Gmail and unescaped here. At most 14 calls: a
+  refresh, the list, the mailbox's address where no check saved it, ten reads.
+- A message that is a draft, in the bin, or has no conversation or time is not
+  listed. A `To` header is shown as a person reads it: a name where there is one,
+  else the address.
+- The link is the conversation's, in the connected mailbox, as a followed one's is.
+
+
+
 ## Not yet known
 
 - **Whether a draft made, opened and sent in real Gmail behaves as the stand-in
