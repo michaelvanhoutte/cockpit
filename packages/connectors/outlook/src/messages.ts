@@ -285,7 +285,6 @@ export interface MailTurn {
   readonly at: string;
   readonly excerpt: string;
   readonly link: string | null;
-  readonly flagged: boolean;
 }
 
 /**
@@ -311,7 +310,6 @@ export function turnPage(
       at: new Date(at).toISOString(),
       excerpt: cutTo(oneLine(typeof one.bodyPreview === 'string' ? one.bodyPreview : ''), 280),
       link: typeof one.webLink === 'string' && one.webLink ? one.webLink : null,
-      flagged: one.flag?.flagStatus === 'flagged',
     });
   }
   return { turns, nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null };

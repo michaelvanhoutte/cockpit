@@ -49,28 +49,17 @@ export async function foldersOf(mailbox: Mailbox, deletedItems?: string): Promis
   return { sentItems: sent, deletedItems: deleted };
 }
 
-/** One conversation read whole: where it stands, and which of its messages carry the flag. */
-export interface ConversationState {
-  readonly read: ConversationRead | null;
-  readonly flagged: string[];
-}
-
-/** Every message of one conversation, a page at a time. */
-export async function conversationMessages(mailbox: Mailbox, conversationId: string, folders: Folders): Promise<{ turns: MailTurn[]; flaggedIds: string[] }> {
+/** Every message of one conversation that was sent or received outside Deleted Items, a page at a time. */
+export async function conversationMessages(mailbox: Mailbox, conversationId: string, folders: Folders): Promise<MailTurn[]> {
   const turns: MailTurn[] = [];
-  const flaggedIds: string[] = [];
   let next: string | null =
     `messages?$filter=${encodeURIComponent(`conversationId eq '${conversationId.replace(/'/g, "''")}'`)}&$select=${TURN_FIELDS}&$top=${TURN_PAGE_SIZE}`;
   while (next) {
-    const answer = await mailbox.get(next);
-    // Flagged anywhere counts for Done, even in Deleted Items; only sent mail outside it is a turn.
-    const everything = (answer as { value?: { id?: string; flag?: { flagStatus?: string } }[] } | null)?.value ?? [];
-    for (const one of everything) if (one.flag?.flagStatus === 'flagged' && typeof one.id === 'string') flaggedIds.push(one.id);
-    const page = turnPage(answer, folders);
+    const page = turnPage(await mailbox.get(next), folders);
     turns.push(...page.turns);
     next = page.nextLink;
   }
-  return { turns, flaggedIds };
+  return turns;
 }
 
 /** Where a conversation stands, from its messages: null when nothing in it is a message that was sent. */

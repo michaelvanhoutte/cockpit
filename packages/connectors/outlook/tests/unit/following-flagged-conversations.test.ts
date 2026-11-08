@@ -67,6 +67,23 @@ describe('Capture', () => {
       expect(next.listings.at(-1)?.count).toBe(2);
     });
 
+    it('still brings the conversation in from a second flagged message when the first was unflagged before it was read', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { flag: 'flagged', conversation: 'c-1', subject: 'Dinner?', receivedAt: '2026-10-09T08:00:00Z' });
+      world.arrives('m-2', { flag: 'flagged', conversation: 'c-1', subject: 'Dinner?', receivedAt: '2026-10-09T09:00:00Z' });
+      let first = true;
+      world.beforeRead = (id) => {
+        if (!first) return;
+        first = false;
+        world.unflag(id);
+      };
+      const host = signedInHost();
+
+      await world.connector({ now: () => NOW }).sync(host);
+
+      expect([...host.filed.keys()]).toEqual(['conversation:c-1']);
+    });
+
     it('reports a flag put on again after Done as the same Item reopened, following', async () => {
       const { world, host } = await aFollowedConversation();
       world.complete('m-1');

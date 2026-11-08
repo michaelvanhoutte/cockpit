@@ -170,6 +170,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
     reported[sourceId] = names;
   }
   let turnsSince = state.turnsSince;
+  let turnsOutOfCalls = false;
   try {
     let followed: Set<string> | null = null;
     let folders: Folders | null = null;
@@ -182,21 +183,27 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
         const since = state.turnsSince ?? new Date(runStart.getTime() - OVERLAP_MS).toISOString();
         const turns = await reportTurnsSince(host, mailbox, await foldersNow(), followed, since, runStart);
         turnsSince = turns.next;
-        if (turns.moreToDo) moreToDo = true;
+        if (turns.moreToDo) {
+          moreToDo = true;
+          turnsOutOfCalls = true;
+        }
       } else {
         turnsSince = new Date(runStart.getTime() - OVERLAP_MS).toISOString();
       }
     }
     // A run out of calls reading turns leaves the bringing in to the next.
-    if (!moreToDo || !byConversation) {
+    if (!turnsOutOfCalls || !byConversation) {
       for (const messageId of listing.messageIds) {
         if (known.has(messageId) || readBefore.has(messageId)) continue;
         if (byConversation) {
           const conversationId = listing.conversations[messageId]!;
           if (!followed!.has(conversationId)) {
             const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now);
-            if (brought) reported[conversationKey(conversationId)] = brought;
-            followed!.add(conversationId);
+            // Only once it was brought in: another flagged message of it must not be skipped for one that was gone.
+            if (brought) {
+              reported[conversationKey(conversationId)] = brought;
+              followed!.add(conversationId);
+            }
           }
         } else {
           const names = await bringIn(host, mailbox, mark, listing.deletedItems, messageId, now);
@@ -323,7 +330,7 @@ async function bringInConversation(
   const message = messageFrom(answer, mark, deletedItems);
   if (!message) return null;
   const whole = await conversationMessages(mailbox, message.conversationId, await foldersNow());
-  const conversation = standingOf(whole.turns, message.conversationId);
+  const conversation = standingOf(whole, message.conversationId);
   const sourceId = conversationKey(message.conversationId);
   const filing = await host.emitItem({
     sourceId,
