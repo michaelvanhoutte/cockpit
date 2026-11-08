@@ -1,4 +1,4 @@
-import { SourceError, type ConnectorHost } from '@cockpit/connector-sdk';
+import { SourceError, type ConnectorHost, type OnDemandHost } from '@cockpit/connector-sdk';
 import {
   credentialIn,
   credentialRefreshed,
@@ -113,6 +113,8 @@ const IMMUTABLE_IDS = 'IdType="ImmutableId"';
 /** One request to Graph: a read where it carries no `body`, a change where it does. */
 interface GraphRequest {
   readonly prefer: string;
+  /** A change is a `PATCH` unless it says otherwise. */
+  readonly method?: 'PATCH' | 'POST';
   readonly body?: unknown;
   readonly ifMatch?: string | undefined;
 }
@@ -122,7 +124,7 @@ export class Mailbox {
   readonly #origin: string;
 
   constructor(
-    private readonly host: ConnectorHost,
+    private readonly host: Pick<ConnectorHost | OnDemandHost, 'setCredentials'>,
     private readonly config: OutlookConnectorConfig,
     private credential: OutlookCredential,
     private readonly calls: { left: number },
@@ -152,6 +154,15 @@ export class Mailbox {
    */
   patch(path: string, body: unknown, options: { ifMatch?: string } = {}): Promise<unknown> {
     return this.#ask(`${this.#origin}/v1.0/me/${path}`, { prefer: IMMUTABLE_IDS, body, ifMatch: options.ifMatch });
+  }
+
+  /**
+   * One thing made under `/v1.0/me/` (a draft, a reply draft) - Graph's answer, or
+   * null where what it is made from is not there. **Never retried**: a draft
+   * made twice is two drafts in a mailbox, which nothing can take back.
+   */
+  post(path: string, body: unknown): Promise<unknown> {
+    return this.#ask(`${this.#origin}/v1.0/me/${path}`, { prefer: IMMUTABLE_IDS, method: 'POST', body });
   }
 
   async #ask(url: string, request: GraphRequest): Promise<unknown> {
@@ -189,7 +200,7 @@ export class Mailbox {
     if (request.ifMatch !== undefined) headers['if-match'] = request.ifMatch;
     try {
       return await (this.config.fetch ?? fetch)(url, {
-        ...(request.body === undefined ? {} : { method: 'PATCH', body: JSON.stringify(request.body) }),
+        ...(request.body === undefined ? {} : { method: request.method ?? 'PATCH', body: JSON.stringify(request.body) }),
         headers,
       });
     } catch (error) {

@@ -184,8 +184,43 @@ Following the category is per message, as before.
 - **Names** of a conversation Item are the union of the categories of its
   flagged messages, reported when they change.
 
+## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
+
+*Email…* and *Reply…* are `makeDraft`, on demand while a person waits, for a
+connection following the flag only (`startsConversations`), the one whose check
+reads turns. Under the Mail.ReadWrite grant the connection already holds:
+
+- **A new conversation's draft** is `POST /me/messages` with the Item's title
+  as subject (one line, at most 200 characters), an empty plain-text body and no
+  recipient (https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0).
+- **A reply** is `POST /me/messages/{id}/createReply` on the conversation's
+  newest message that is not a draft and not in Deleted Items, so Graph
+  addresses it and puts it in the conversation
+  (https://learn.microsoft.com/en-us/graph/api/message-createreply?view=graph-rest-1.0).
+  Two reads come first: the two folder ids, and the conversation.
+- **The draft's `webLink`** opens it in Outlook on the web; it is the link for
+  the draft and, once sent, for the conversation. Immutable ids are asked for as
+  everywhere, so the draft keeps its id while it is edited and sent.
+- **At most eight calls**, a refresh included. Never retried: a draft made
+  twice is two drafts.
+- **A check** reads each draft the host still waits on once, after the turns of
+  the run (`GET /me/messages/{id}?$select=id,isDraft,parentFolderId`). Still a
+  draft outside Deleted Items, it changes nothing. Otherwise, sent (a message
+  now, or an id Graph no longer knows) or deleted (moved to Deleted Items), the
+  conversation is read: a message in Sent Items after the draft's `after` is
+  your turn, reported here since the read of received mail may never show it
+  (sent while the Item was done, or before the cursor); none, and the draft is
+  reported gone.
+
 ## Not yet known
 
+- **Whether a draft made, opened and sent in real Outlook behaves as the
+  stand-in does**: `webLink` opening a draft for writing (rather than a read
+  view), its id staying the same through editing and sending (the check copes
+  with either), `createReply` on a message of your own addressing it to whom it
+  went, and how long the calls take ("Measure Email… and Follow a sent email…
+  on test mailboxes", issue 1704, was skipped). The draft shapes come from
+  Graph's documentation; the contract test has no case for them.
 - **Whether Exchange gives a sent message a `receivedDateTime` of when it was
   sent**, and whether `conversationId` accepts `eq` in a filter, as written
   above. The contract test (`reads the mail received since…`) settles both; it

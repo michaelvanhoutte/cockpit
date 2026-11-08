@@ -1,5 +1,6 @@
 import type { ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
 import { NotAnswering, OutOfCalls, mailboxOf, type Mailbox, type OutlookConnectorConfig } from './graph.js';
+import { checkDrafts } from './drafts.js';
 import { OVERLAP_MS, conversationMessages, foldersOf, reportTurnsSince, standingOf, type Folders } from './conversations.js';
 import {
   COCKPIT_CATEGORY,
@@ -42,8 +43,9 @@ import {
  * `conversation:` and the conversation's id, following it. Between the listing
  * and that, one read of the mail received since the last run (every folder,
  * `conversations.ts`) reports each message in a followed conversation as a
- * turn. An Item made of one message before stays as it was (`seen`), and never
- * follows.
+ * turn, and each draft *Email…* made that is still waited on is read once
+ * (`drafts.ts`, issue 1709). An Item made of one message before stays as it was
+ * (`seen`), and never follows.
  */
 
 /** How many messages Graph is asked for at a time: a listing reads only ids, so a page costs one call whatever its size. */
@@ -186,6 +188,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
         if (turns.moreToDo) {
           moreToDo = true;
           turnsOutOfCalls = true;
+        } else {
+          // Once the turns are reported, so a draft sent and read as a turn this run is no longer waited on.
+          await checkDrafts(host, mailbox, listing.deletedItems, foldersNow);
         }
       } else {
         turnsSince = new Date(runStart.getTime() - OVERLAP_MS).toISOString();

@@ -624,6 +624,37 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual(recent.value.map((one) => one.conversationId), [conversation, conversation, conversation]);
   });
 
+  // What Email… makes, and what a person then does with it ("Email… makes an
+  // Outlook draft the Item then follows", issue 1709).
+  it('makes a draft, new or a reply, then sends one where it stands and deletes another unsent, as a walk asks', async () => {
+    const token = await accessTokenFor('graph-drafting@example.com');
+    const at = (path) => `${issuer.origin}/graph-stub/${path}`;
+    const act = (path) => fetch(at(path), { method: 'POST' });
+    const { id: original, conversation } = await act('flag?email=graph-drafting%40example.com&subject=Dinner').then((answer) => answer.json());
+    const post = (path, body) =>
+      graph(token, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((answer) => answer.json());
+
+    const sending = await post('messages', { subject: 'Plan a dinner', body: { contentType: 'text', content: '' } });
+    const replying = await post(`messages/${original}/createReply`, {});
+    assert.equal(sending.isDraft, true);
+    assert.equal(replying.conversationId, conversation);
+    assert.equal(replying.subject, 'RE: Dinner');
+    assert.match(sending.webLink, /ItemID=/);
+    assert.equal((await graph(token, 'messages/no-such-message/createReply', { method: 'POST', body: '{}' })).status, 404);
+    const listed = await (await fetch(at('drafts?email=graph-drafting%40example.com'))).json();
+    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'RE: Dinner']);
+
+    await act(`send-draft?email=graph-drafting%40example.com&id=${sending.id}`);
+    await act(`delete-draft?email=graph-drafting%40example.com&id=${replying.id}`);
+
+    const sentItems = (await (await graph(token, 'mailFolders/sentitems?$select=id')).json()).id;
+    const deletedItems = (await (await graph(token, 'mailFolders/deleteditems?$select=id')).json()).id;
+    const sent = await (await graph(token, `messages/${sending.id}`)).json();
+    assert.deepEqual([sent.isDraft, sent.parentFolderId], [false, sentItems]);
+    const deleted = await (await graph(token, `messages/${replying.id}`)).json();
+    assert.deepEqual([deleted.isDraft, deleted.parentFolderId], [true, deletedItems]);
+  });
+
   it('flags a new message with the categories a walk names, and adds one to it later', async () => {
     const at = (path) => `${issuer.origin}/graph-stub/${path}`;
     const { id } = await fetch(at('flag?email=graph-tagging%40example.com&category=Customer%20Atlas'), {

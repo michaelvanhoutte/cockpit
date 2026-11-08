@@ -1,6 +1,9 @@
 // The Outlook connector's own recorded shapes, which its contract suite keeps
 // true to Graph (packages/connectors/outlook/tests/contract).
 import {
+  DELETED_ITEMS_ID,
+  DRAFTS_ID,
+  SENT_ITEMS_ID,
   categoriesAnswer,
   deletedItemsAnswer,
   message,
@@ -32,6 +35,7 @@ let pageSize = 100;
 export function graphIsEmpty(): void {
   messages = [];
   graphCalls.length = 0;
+  graphDrafts.length = 0;
   pageSize = 100;
 }
 
@@ -51,6 +55,44 @@ export function graphMessage(id: string): Held | undefined {
   return messages.find((one) => one.id === id);
 }
 
+/** Every draft Graph was asked to make, oldest first ("Email… makes an Outlook draft the Item then follows", issue 1709): its id, its subject, and the message it replies to (null for a new conversation). */
+export const graphDrafts: { id: string; subject: string; replyTo: string | null }[] = [];
+
+/** `POST /me/messages` and `POST /me/messages/{id}/createReply`: the draft in the Drafts folder, in a conversation of its own or the message's. */
+function draftMade(replyTo: string | null, body: string): Response {
+  const original = replyTo === null ? undefined : messages.find((one) => one.id === replyTo);
+  if (replyTo !== null && !original) return Response.json({ error: { code: 'ErrorItemNotFound', message: 'Not found.' } }, { status: 404 });
+  const n = graphDrafts.length + 1;
+  const asked = JSON.parse(body || '{}') as { subject?: string };
+  const subject = original ? `RE: ${message(original).subject}` : (asked.subject ?? '');
+  graphDrafts.push({ id: `draft-m-${n}`, subject, replyTo });
+  const draft: Held = {
+    id: `draft-m-${n}`,
+    draft: true,
+    folder: DRAFTS_ID,
+    from: { name: 'Anna', address: 'anna@example.com' },
+    subject,
+    text: '',
+    receivedAt: new Date().toISOString(), // clock-ok: the connector reads mail received since the real time it last ran
+    ...(original ? { conversation: message(original).conversationId } : {}),
+  };
+  messages.push(draft);
+  return Response.json(message(draft), { status: 201 });
+}
+
+/** The draft sent from Outlook where it stands: a message in Sent Items now, with the id it had. */
+export function graphSends(id: string): void {
+  const one = graphMessage(id)!;
+  one.draft = false;
+  one.folder = SENT_ITEMS_ID;
+  one.receivedAt = new Date().toISOString(); // clock-ok: see draftMade
+}
+
+/** The draft deleted unsent: Outlook moves it to Deleted Items. */
+export function graphDeletes(id: string): void {
+  graphMessage(id)!.folder = DELETED_ITEMS_ID;
+}
+
 /** Answers a call to Graph, or Microsoft's token endpoint's refresh. */
 export async function graphAnswer(url: URL, init?: RequestInit): Promise<Response> {
   const call = `${init?.method ?? 'GET'} ${url.pathname.replace('/v1.0/me/', '')}${url.search ? decodeURIComponent(url.search) : ''}`;
@@ -62,6 +104,9 @@ export async function graphAnswer(url: URL, init?: RequestInit): Promise<Respons
   const path = url.pathname.replace('/v1.0/me/', '');
   if (path === 'mailFolders/deleteditems') return Response.json(deletedItemsAnswer());
   if (path === 'mailFolders/sentitems') return Response.json(sentItemsAnswer());
+  if (path === 'messages' && init?.method === 'POST') return draftMade(null, String(init.body ?? ''));
+  const replying = /^messages\/(.+)\/createReply$/.exec(path);
+  if (replying && init?.method === 'POST') return draftMade(decodeURIComponent(replying[1]!), String(init.body ?? ''));
   if (path === 'messages') {
     const filter = url.searchParams.get('$filter') ?? '';
     const flagged = filter.includes('flagStatus');
