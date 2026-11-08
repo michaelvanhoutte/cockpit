@@ -751,7 +751,11 @@ test.describe("Triage", () => {
       );
 
       const purpose = uniqueTitle("Plan a dinner with Steven Noels");
-      await giveToTheInbox(page, [purpose]);
+      // Into this Workspace by name: one captured to no Workspace may be routed to another before the row is looked for.
+      await giveToTheInbox(page, [purpose], {
+        id: new URL(page.url()).pathname.split("/")[2]!,
+        name: workspace,
+      });
       if (isMobile)
         await press(
           dashboardBar(page).getByRole("link", { name: "Inbox" }),
