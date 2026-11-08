@@ -88,6 +88,13 @@ describe('Triage', () => {
       expect(conversationCountLine(conversation, NOW)).toBe(line);
     });
 
+    it('reads Draft started while a draft Email… made is unsent, with nothing to show on hover yet', () => {
+      const drafting = aConversation({ draftStarted: true, lastBy: 'you', lastFrom: null, lastExcerpt: '', messageCount: 1 });
+
+      expect(conversationLine(drafting, 'Gmail', NOW)).toBe('Gmail · Draft started');
+      expect(latestText(drafting)).toBe('');
+    });
+
     it('opens the latest email at its source, and only a web address', () => {
       expect(openLabel(aConversation(), 'Gmail')).toBe('Open the latest email in Gmail');
       expect(conversationOpensAt(aConversation())).toBe('https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1');

@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -74,7 +74,14 @@ import {
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
 import { captureDay } from '../domain/capture-day.js';
-import { applyConversationTurn, turnDueDate } from '../domain/conversations.js';
+import {
+  applyConversationTurn,
+  applyDropDraft,
+  applyStartDraft,
+  statusBeforeDraftIn,
+  statusBeforeDraftOf,
+  turnDueDate,
+} from '../domain/conversations.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
@@ -224,6 +231,14 @@ export class WaitRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'WaitRefusedError';
+  }
+}
+
+/** *Email…* refused on an Item whose conversation no mailbox of this connection reaches, in the words the person is told (issue 1708). */
+export class DraftRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DraftRefusedError';
   }
 }
 
@@ -2619,6 +2634,52 @@ export function runCommand<N extends CommandName>(
         withWhom: cmd.withWhom,
         stoppedAt: null,
       };
+      if (cmd.draft) {
+        // The draft Email… made, recorded (issue 1708): no turn is applied, the
+        // Item staying In progress as `start_draft` left it. A new conversation
+        // takes over the row that stood in for it under the click's id; a
+        // followed one keeps where it stands and records the draft alone.
+        const draft = cmd.draft;
+        const atConnection = (conversationId: string) =>
+          and(
+            eq(itemConversations.tenantId, tenantId),
+            eq(itemConversations.itemId, cmd.itemId),
+            eq(itemConversations.connectorId, cmd.connectorId),
+            eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+            eq(itemConversations.conversationId, conversationId),
+          );
+        const standIn = atConnection(`${DRAFT_STARTING_PREFIX}${draft.startedBy}`);
+        if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+        db.transaction((tx) => {
+          const stoodIn = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(standIn).get();
+          const followed = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(atConnection(cmd.conversationId)).get();
+          if (stoodIn && !followed) {
+            tx.update(itemConversations)
+              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id })
+              .where(standIn)
+              .run();
+          } else if (followed) {
+            tx.update(itemConversations).set({ draftId: draft.id, stoppedAt: null }).where(atConnection(cmd.conversationId)).run();
+          } else {
+            // The row that stood in is gone - another click on Email… took it
+            // over meanwhile - so this draft's conversation gets one of its own.
+            tx.insert(itemConversations)
+              .values({
+                tenantId,
+                itemId: cmd.itemId,
+                connectorId: cmd.connectorId,
+                externalAccountKey: cmd.externalAccountKey,
+                conversationId: cmd.conversationId,
+                ...standing,
+                draftId: draft.id,
+                statusBeforeDraft: statusBeforeDraftOf(existing, true),
+              })
+              .run();
+          }
+          tx.insert(commands).values(commandRow).run();
+        });
+        break;
+      }
       const held = db
         .select({ lastAt: itemConversations.lastAt, stoppedAt: itemConversations.stoppedAt })
         .from(itemConversations)
@@ -2687,11 +2748,19 @@ export function runCommand<N extends CommandName>(
         eq(itemConversations.conversationId, cmd.conversationId),
       );
       const followed = db
-        .select({ lastAt: itemConversations.lastAt, messageCount: itemConversations.messageCount })
+        .select({
+          lastAt: itemConversations.lastAt,
+          messageCount: itemConversations.messageCount,
+          statusBeforeDraft: itemConversations.statusBeforeDraft,
+        })
         .from(itemConversations)
         .where(where)
         .get();
-      const newer = followed !== undefined && (cmd.standing === true || cmd.at > followed.lastAt);
+      // A conversation a draft of Email… started holds nothing but the draft
+      // until it is sent (issue 1708): its first message is newer than the
+      // draft's own stamp whatever the two clocks say, and is its first.
+      const opening = statusBeforeDraftIn(followed?.statusBeforeDraft ?? null)?.opened === true && cmd.standing !== true;
+      const newer = followed !== undefined && (cmd.standing === true || opening || cmd.at > followed.lastAt);
       const updated = newer ? turnApplied(db, tenantId, existing, cmd.by, cmd.issuedAt, cmd.connectionDays) : null;
       if (!followed || updated === null) {
         db.insert(commands).values(commandRow).run();
@@ -2707,13 +2776,129 @@ export function runCommand<N extends CommandName>(
               lastFrom: cmd.from,
               lastAt: cmd.at,
               lastExcerpt: cmd.excerpt,
-              messageCount: followed.messageCount + 1,
+              messageCount: opening ? 1 : followed.messageCount + 1,
+              ...(opening ? { startedAt: cmd.at } : {}),
               ...(cmd.by === 'them' && cmd.from ? { withWhom: cmd.from } : {}),
+              // A message in it ends the wait on a draft (issue 1708): yours is
+              // the draft sent, and theirs sets the status the draft would put back.
+              draftId: null,
+              statusBeforeDraft: null,
             })
             .where(where)
             .run();
         }
         writeTurnStatus(tx, tenantId, updated, cmd.by, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'start_draft': {
+      // Email… or Reply… pressed (issue 1708), logged under the click's id
+      // before the source is asked: the Item In progress, the status it had kept
+      // on the conversation's row so a draft never made or deleted unsent puts
+      // it back. A reply's row is the followed conversation's; a new
+      // conversation's is one standing in under the click's id until the draft
+      // names it - an unrecorded one this Item already has is taken over, its
+      // status before kept, so a click after one that stopped halfway leaves no
+      // second row.
+      const cmd = payload as CommandPayload<'start_draft'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing || !couldStillBeActedOn(existing)) throw new ItemNotFoundError(cmd.itemId);
+      const ofTheItem = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+      );
+      const row = (conversationId: string) => and(ofTheItem, eq(itemConversations.conversationId, conversationId));
+      const replyingIn =
+        cmd.replyIn === null
+          ? null
+          : db.select({ statusBeforeDraft: itemConversations.statusBeforeDraft }).from(itemConversations).where(row(cmd.replyIn)).get();
+      if (cmd.replyIn !== null && !replyingIn) throw new ItemNotFoundError(cmd.itemId);
+      const standingIn =
+        cmd.replyIn === null
+          ? db
+              .select({ conversationId: itemConversations.conversationId, statusBeforeDraft: itemConversations.statusBeforeDraft })
+              .from(itemConversations)
+              .where(and(ofTheItem, sql`${itemConversations.conversationId} LIKE ${`${DRAFT_STARTING_PREFIX}%`}`, isNull(itemConversations.draftId)))
+              .get()
+          : undefined;
+      const keptBefore = replyingIn?.statusBeforeDraft ?? standingIn?.statusBeforeDraft ?? null;
+      const before = keptBefore ?? statusBeforeDraftOf(existing, cmd.replyIn === null);
+      const updated = applyStartDraft(existing, cmd.issuedAt);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.update(items)
+          .set(asStored(updated))
+          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+          .run();
+        if (cmd.replyIn !== null) {
+          tx.update(itemConversations).set({ statusBeforeDraft: before, draftId: null }).where(row(cmd.replyIn)).run();
+        } else {
+          const standIn = {
+            conversationId: `${DRAFT_STARTING_PREFIX}${cmd.commandId}`,
+            link: '',
+            lastBy: 'you' as const,
+            lastFrom: null,
+            lastAt: cmd.issuedAt,
+            lastExcerpt: '',
+            messageCount: 1,
+            startedAt: cmd.issuedAt,
+            withWhom: null,
+            draftId: null,
+            statusBeforeDraft: before,
+            stoppedAt: null,
+          };
+          if (standingIn) tx.update(itemConversations).set(standIn).where(row(standingIn.conversationId)).run();
+          else {
+            tx.insert(itemConversations)
+              .values({ tenantId, itemId: cmd.itemId, connectorId: cmd.connectorId, externalAccountKey: cmd.externalAccountKey, ...standIn })
+              .run();
+          }
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'drop_draft': {
+      // A draft never made, or deleted unsent (issue 1708): only while the row
+      // still waits on that draft - `draftId` null for one never recorded - and
+      // the status before put back only while the Item is still In progress as
+      // the click left it (`applyDropDraft`). A conversation the draft started
+      // is no longer followed: its row goes, there being no conversation left.
+      const cmd = payload as CommandPayload<'drop_draft'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const where = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+        eq(itemConversations.conversationId, cmd.conversationId),
+      );
+      const held = db
+        .select({ draftId: itemConversations.draftId, statusBeforeDraft: itemConversations.statusBeforeDraft })
+        .from(itemConversations)
+        .where(where)
+        .get();
+      const before = statusBeforeDraftIn(held?.statusBeforeDraft ?? null);
+      if (!held || !before || held.draftId !== cmd.draftId) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const updated = applyDropDraft(existing, before, cmd.issuedAt);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (updated) {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
+        if (before.opened) tx.delete(itemConversations).where(where).run();
+        else tx.update(itemConversations).set({ draftId: null, statusBeforeDraft: null }).where(where).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

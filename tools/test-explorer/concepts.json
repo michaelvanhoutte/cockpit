@@ -174,7 +174,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 19,
+      "browserWalks": 20,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -200,7 +200,12 @@
         "apps/web/src/swipe.ts",
         "apps/api/src/domain/conversations.ts",
         "packages/shared/src/domain/conversation.ts",
-        "apps/web/src/conversationLine.ts"
+        "apps/web/src/conversationLine.ts",
+        "apps/web/src/emailDraft.ts",
+        "apps/web/src/components/EmailButton.tsx",
+        "apps/api/src/accounts/drafts.ts",
+        "apps/api/src/connectors/drafts.ts",
+        "packages/connectors/gmail/src/drafts.ts"
       ]
     },
     {

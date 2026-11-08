@@ -204,7 +204,37 @@ so); replace them with a captured one when there is one.
 - **A star on another notification of a followed conversation adds to its Item**
   and makes no second one.
 
+## Drafts Email… makes
+
+*Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
+issue 1708) are `makeDraft`, on demand while a person waits, for a connection
+following the star only (`startsConversations`), the one whose check reads
+turns:
+
+- **`users.drafts.create`** with a `raw` RFC 2822 message under the modify grant
+  the connection holds: the Item's title as subject (an RFC 2047 encoded word
+  outside ASCII), no To, an empty plain-text body; Gmail adds the From.
+- **A reply** names the conversation's `threadId` and carries `In-Reply-To` and
+  `References` for its latest message that is not a draft, behind *Re:* and that
+  message's subject (or the newest one with a subject), as Gmail threads one; it
+  is addressed as Gmail's Reply is, to the latest message's Reply-To or From, or
+  to its To where it was yours. One metadata read of the conversation first.
+- **At most four calls**: a refresh, the profile where no check saved the address
+  yet, that read, and the draft. Never retried: a draft made twice is two drafts.
+- **The link** opens the draft for writing, `#drafts?compose=<message id>`, in the
+  connected mailbox.
+- **A check** reads a draft's conversation as any followed one: the draft sent,
+  whether its message keeps its id (Draft off, Sent on) or comes back as a new
+  one, is a turn of yours. Once the history is read to the end, each draft the
+  host still waits on is asked for (`drafts.get`); gone, with no message sent
+  from the mailbox in its conversation since, it is reported gone.
+
 ## Not yet known
+
+- **Whether a draft made, opened and sent in real Gmail behaves as the stand-in
+  does**: the `#drafts?compose=` link opening a reply draft, the draft's id
+  staying the same while it is edited, and how long the call takes ("Measure
+  Email… and Follow a sent email… on test mailboxes", issue 1704, was skipped).
 
 - **Whether a real LinkedIn notification reads as the fixtures say**, and whether
   `messages.list` with `q=from:` finds it. Both are reconstructed from the

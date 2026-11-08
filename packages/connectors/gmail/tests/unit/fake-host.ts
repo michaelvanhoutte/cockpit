@@ -2,6 +2,7 @@ import type {
   CompleteListing,
   ConnectorHost,
   ConversationTurn,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   SourceItem,
@@ -37,6 +38,10 @@ export class FakeHost implements ConnectorHost {
   readonly following = new Set<string>();
   /** Conversations whose Item is finished, which the host no longer hands over. */
   readonly finished = new Set<string>();
+  /** Drafts Email… made that the host's store waits on, as a case says. */
+  readonly draftsMade: DraftWaiting[] = [];
+  /** Every draft reported gone, in order. */
+  readonly draftsGone: { conversationId: string; draftId: string }[] = [];
 
   constructor(options: { choice?: string | null; credential: Record<string, string> }) {
     this.choice = options.choice === undefined ? 'label' : options.choice;
@@ -50,6 +55,7 @@ export class FakeHost implements ConnectorHost {
     for (const [id, item] of this.filed) next.filed.set(id, item);
     for (const id of this.following) next.following.add(id);
     for (const id of this.finished) next.finished.add(id);
+    next.draftsMade.push(...this.draftsMade);
     return next;
   }
 
@@ -105,6 +111,17 @@ export class FakeHost implements ConnectorHost {
 
   async reportTurn(turn: ConversationTurn): Promise<void> {
     this.turns.push(turn);
+  }
+
+  /** The drafts still waited on: as a real host does, less those whose conversation this run reported a turn of yours in. */
+  async draftsWaiting(): Promise<DraftWaiting[]> {
+    return this.draftsMade.filter(
+      (draft) => !this.turns.some((turn) => turn.conversationId === draft.conversationId && turn.by === 'you'),
+    );
+  }
+
+  async reportDraftGone(draft: { conversationId: string; draftId: string }): Promise<void> {
+    this.draftsGone.push({ conversationId: draft.conversationId, draftId: draft.draftId });
   }
 
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {

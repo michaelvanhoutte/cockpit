@@ -91,6 +91,13 @@ export class FakeHost implements ConnectorHost {
     this.turns.push(turn);
   }
 
+  /** Outlook makes no draft yet (issue 1709): nothing is ever waited on. */
+  async draftsWaiting(): Promise<[]> {
+    return [];
+  }
+
+  async reportDraftGone(): Promise<void> {}
+
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
     this.logged.push({ level, message, data });
   }

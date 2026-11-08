@@ -40,6 +40,13 @@ export interface AccountSnapshot {
   agentRuns: AgentRun[];
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
+  /**
+   * The Workspace's connections, oldest first, for the Worker to say which
+   * *Email…* may use ("Email… makes a Gmail draft the Item then follows", issue
+   * 1708): never sent on as they are. Optional, so a fixture without it is a
+   * Workspace with nothing connected.
+   */
+  connections?: { id: string; connectorId: string; displayName: string; follows: string | null }[];
 }
 
 /**

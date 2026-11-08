@@ -33,8 +33,54 @@ export const conversationSchema = z.object({
   startedAt: z.iso.datetime(),
   /** Who the conversation is with: the latest sender who is not you, where there is one. */
   withWhom: z.string().nullable(),
+  /**
+   * A draft *Email…* or *Reply…* made in it is still unsent ("Email… makes a
+   * Gmail draft the Item then follows", issue 1708): the line reads *Draft
+   * started*. Optional: absent reads as none.
+   */
+  draftStarted: z.boolean().optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
+
+/**
+ * What the id of a conversation *Email…* is starting begins with, until the
+ * source has made the draft and named the conversation (issue 1708): the row
+ * says *Draft started* meanwhile, opens nothing, and is never read for turns.
+ */
+export const DRAFT_STARTING_PREFIX = 'draft:';
+
+/** Whether a conversation is one *Email…* is still starting, whose source has not named it yet. */
+export function isDraftStarting(conversation: Pick<Conversation, 'conversationId'>): boolean {
+  return conversation.conversationId.startsWith(DRAFT_STARTING_PREFIX);
+}
+
+/**
+ * A Workspace connection *Email…* can make a draft in (issue 1708): one whose
+ * connector starts conversations under the choice it follows, named as the
+ * Connections window names it.
+ */
+export const mailboxSchema = z.object({
+  sourceAccountId: z.string(),
+  connectorId: z.string(),
+  name: z.string(),
+});
+export type Mailbox = z.infer<typeof mailboxSchema>;
+
+/**
+ * *Email…* or *Reply…* asking for a draft (issue 1708). `clickId` is the
+ * click's own id, so the same click resent after a timeout answers the draft
+ * already made rather than making a second. Stamped on the store's clock, not
+ * the device's.
+ */
+export const draftAskedSchema = z.object({
+  clickId: z.uuid(),
+  sourceAccountId: z.string().min(1),
+});
+export type DraftAsked = z.infer<typeof draftAskedSchema>;
+
+/** Where the draft made opens at its source, for the tab opened at the click. */
+export const draftMadeSchema = z.object({ link: z.string() });
+export type DraftMadeAnswer = z.infer<typeof draftMadeSchema>;
 
 /**
  * What the id of a LinkedIn conversation starts with ("Follow the LinkedIn

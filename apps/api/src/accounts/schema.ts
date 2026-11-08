@@ -1698,8 +1698,13 @@ export const itemAdditions = sqliteTable(
  * - **`last_by` is `you` or `them`** as the source sees it (Gmail's Sent label),
  *   and `last_*` are the latest message's, replaced only by a newer one.
  * - **`message_count`** counts the messages the source reported, one per turn.
- * - **`draft_id` and `status_before_draft`** are for *Email…* (a later unit),
- *   null until then.
+ * - **`draft_id` and `status_before_draft`** are *Email…*'s ("Email… makes a
+ *   Gmail draft the Item then follows", issue 1708): the source's id of the
+ *   draft waited on, null until it is recorded, and the Item's status before
+ *   the click as `StatusBeforeDraft` JSON (domain/conversations.ts), whose
+ *   `opened` says the draft started the conversation. Both null once a turn
+ *   arrives or the draft is dropped. A conversation still starting is keyed
+ *   `draft:<click id>` until the draft names it.
  * - **No CHECK on the texts' lengths**: the caps are product numbers, held by
  *   the commands' schemas on the way in.
  */

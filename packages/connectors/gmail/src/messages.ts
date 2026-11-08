@@ -675,7 +675,7 @@ function firstRecipientIn(to: string | null): string | null {
 }
 
 /** Where Gmail shows a conversation, or one email, in the connected mailbox. */
-function conversationLink(id: string, mailboxAddress: string): string {
+export function conversationLink(id: string, mailboxAddress: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(id)}`;
 }
 

@@ -30,6 +30,8 @@ import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
   ConversationTurn,
+  DraftMade,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -37,6 +39,7 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
+import type { DraftClick, DraftWantedAnswer } from './drafts.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 /**
@@ -474,6 +477,38 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     forms: NameForms,
   ): Awaitable<Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>>;
   followedPulledConversations(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<string[]>>;
+  pulledDraftsWaiting(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<DraftWaiting[]>>;
+  reportPulledDraftGone(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    draft: { conversationId: string; draftId: string },
+    commandId: string,
+  ): Awaitable<Answer<'dropped' | 'not waited on' | 'disconnected'>>;
+  /**
+   * *Email…* and *Reply…* (issue 1708): the Item In progress under the click's
+   * id, then the draft the Worker had the source make recorded, or dropped
+   * where it could not; and a credential rotated meanwhile saved while the
+   * stored one is still the one opened.
+   */
+  wantDraft(
+    accountName: string,
+    ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick,
+  ): Awaitable<Answer<DraftWantedAnswer>>;
+  recordDraft(
+    accountName: string,
+    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick,
+  ): Awaitable<Answer<null>>;
+  dropDraft(
+    accountName: string,
+    drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick,
+  ): Awaitable<Answer<null>>;
+  resealCredential(
+    accountName: string,
+    sourceAccountId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Awaitable<Answer<'saved' | 'not saved'>>;
   recordPulledTurn(
     accountName: string,
     sourceAccountId: string,

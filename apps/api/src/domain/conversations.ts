@@ -43,6 +43,67 @@ export function turnDueDate(by: ConversationTurnBy, recordedAt: string, zones: r
  *   source's own change is clamped for (`applySourceStateChange`); its
  *   `updatedAt` is kept rather than moved back.
  */
+/**
+ * The status an Item had when *Email…* or *Reply…* was pressed on it, kept on
+ * its conversation's row (`status_before_draft`) until the draft is sent or
+ * gone ("Email… makes a Gmail draft the Item then follows", issue 1708), and
+ * whether the draft started the conversation - which, deleted unsent, leaves
+ * nothing to follow.
+ */
+export interface StatusBeforeDraft {
+  startedAt: string | null;
+  waitingSince: string | null;
+  opened: boolean;
+}
+
+/** `status_before_draft` as stored, read - or null where no draft is waited on, or the text is not one this wrote. */
+export function statusBeforeDraftIn(stored: string | null): StatusBeforeDraft | null {
+  if (stored === null) return null;
+  try {
+    const held = JSON.parse(stored) as Partial<StatusBeforeDraft>;
+    const time = (value: unknown) => (typeof value === 'string' ? value : null);
+    return { startedAt: time(held.startedAt), waitingSince: time(held.waitingSince), opened: held.opened === true };
+  } catch {
+    return null;
+  }
+}
+
+/** The Item's status as a draft's row keeps it. */
+export function statusBeforeDraftOf(item: Item, opened: boolean): string {
+  return JSON.stringify({ startedAt: item.startedAt, waitingSince: item.waitingSince, opened } satisfies StatusBeforeDraft);
+}
+
+/**
+ * *Email…* pressed: In progress, started now unless it already was, the wait
+ * taken off - as *In progress* on Status makes it (`applySetStarted`). Stamped
+ * on the store's clock, so never refused as stale; a later `updatedAt` is kept.
+ */
+export function applyStartDraft(item: Item, at: string): Item {
+  return {
+    ...item,
+    startedAt: item.startedAt ?? at,
+    waitingSince: null,
+    updatedAt: at < item.updatedAt ? item.updatedAt : at,
+  };
+}
+
+/**
+ * A draft never made, or deleted unsent: the status the Item had before the
+ * click put back - only while it is still In progress as the click left it,
+ * since a status set by hand meanwhile is the person's later word. Null where
+ * nothing changes: the Item finished, dismissed, or moved on.
+ */
+export function applyDropDraft(item: Item, before: StatusBeforeDraft, at: string): Item | null {
+  if (item.completedAt !== null || item.deletedAt !== null) return null;
+  if (item.startedAt === null || item.waitingSince !== null) return null;
+  return {
+    ...item,
+    startedAt: before.startedAt,
+    waitingSince: before.waitingSince,
+    updatedAt: at < item.updatedAt ? item.updatedAt : at,
+  };
+}
+
 export function applyConversationTurn(
   item: Item,
   turn: { by: ConversationTurnBy; recordedAt: string },

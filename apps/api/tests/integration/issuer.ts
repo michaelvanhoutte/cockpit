@@ -295,6 +295,54 @@ function labelsChanged(answer: unknown, change: { addLabelIds?: string[]; remove
 /** Every refresh Google was asked for, oldest first, by the refresh token it named. */
 export const refreshes: string[] = [];
 
+/**
+ * Every draft `users.drafts.create` made, oldest first ("Email… makes a Gmail
+ * draft the Item then follows", issue 1708): its id, its message's, its
+ * conversation's, and the message it was asked for decoded from `raw`. The
+ * draft's message joins its conversation - a new one where none was named -
+ * as Gmail keeps a draft, labelled Draft.
+ */
+export const gmailDrafts: { id: string; messageId: string; threadId: string; text: string }[] = [];
+
+/** `users.drafts.create`, answered as Gmail answers it. */
+function draftMade(body: string): Response {
+  const asked = JSON.parse(body) as { message: { raw: string; threadId?: string } };
+  const n = gmailDrafts.length + 1;
+  const messageId = `draft-m-${n}`;
+  const threadId = asked.message.threadId ?? messageId;
+  const text = new TextDecoder().decode(
+    Uint8Array.from(atob(asked.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+  );
+  const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.replace(/\r$/, '') ?? '';
+  const draft = {
+    id: messageId,
+    threadId,
+    labelIds: ['DRAFT'],
+    internalDate: String(Date.UTC(2026, 9, 9, 12, n)),
+    payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: subject }], body: { size: 0 } },
+  };
+  const thread = mailbox.threads.find((one) => one.id === threadId);
+  if (thread) ((thread.answer as { messages: unknown[] }).messages ??= []).push(draft);
+  else mailbox.threads.push({ id: threadId, labelled: false, answer: { id: threadId, historyId: mailbox.historyId, messages: [draft] } });
+  gmailDrafts.push({ id: `r-${n}`, messageId, threadId, text });
+  return Response.json({ id: `r-${n}`, message: { id: messageId, threadId, labelIds: ['DRAFT'] } });
+}
+
+/** `users.drafts.get`: the draft while its message is still a draft in the mailbox, else not found. */
+function draftRead(id: string): Response {
+  const draft = gmailDrafts.find((one) => one.id === id);
+  const held =
+    draft &&
+    mailbox.threads.some((thread) =>
+      ((thread.answer as { messages?: { id?: string; labelIds?: string[] }[] }).messages ?? []).some(
+        (message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT'),
+      ),
+    );
+  return held
+    ? Response.json({ id, message: { id: draft.messageId, threadId: draft.threadId, labelIds: ['DRAFT'] } })
+    : Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+}
+
 /** How Google answers a refresh: as it does, refusing the sign-in, or not answering usefully. */
 let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
 
@@ -310,6 +358,7 @@ export function gmailIsEmpty(): void {
   mailbox = { labels: { labels: [] }, historyId: '1', threads: [], history: [], historyLapsed: false };
   gmailCalls.length = 0;
   gmailModifies.length = 0;
+  gmailDrafts.length = 0;
   refreshes.length = 0;
   refreshing = 'answers';
   gmailFailing = null;
@@ -405,6 +454,9 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
 async function answered(url: URL, init?: RequestInit): Promise<Response> {
   const path = url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '');
   if (path === 'labels') return Response.json(mailbox.labels);
+  if (path === 'drafts' && init?.method === 'POST') return draftMade(String(init.body));
+  const draft = /^drafts\/([^/]+)$/.exec(path);
+  if (draft) return draftRead(decodeURIComponent(draft[1]!));
   if (path === 'profile') {
     return Response.json({ emailAddress: 'anna@example.com', messagesTotal: 10, threadsTotal: 10, historyId: mailbox.historyId });
   }

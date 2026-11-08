@@ -40,12 +40,15 @@ import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
   ConversationTurn,
+  DraftMade,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
+import type { DraftClick, DraftWantedAnswer } from './drafts.js';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
@@ -370,6 +373,20 @@ export interface Account {
   checkNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
+  /**
+   * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows", issue
+   * 1708): the Item In progress under the click's id and what the source needs
+   * to make the draft, then the draft recorded or dropped, and a credential the
+   * source rotated meanwhile saved while the stored one is still the one opened.
+   */
+  wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick): Promise<DraftWantedAnswer>;
+  recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick): Promise<null>;
+  dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
+  resealCredential(
+    sourceAccountId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Promise<'saved' | 'not saved'>;
 }
 
 /**
@@ -395,6 +412,10 @@ export interface PulledRun {
   followedConversations(): Promise<string[]>;
   /** Records a turn in a followed conversation under the caller's derived id, which sets the Item's status (issue 1705). */
   recordTurn(turn: ConversationTurn, commandId: string): Promise<'recorded' | 'not followed' | 'disconnected'>;
+  /** The drafts Email… made that the connection's open Items still wait on (issue 1708). */
+  draftsWaiting(): Promise<DraftWaiting[]>;
+  /** A draft found gone unsent, under the caller's derived id: the Item's status put back (issue 1708). */
+  draftGone(draft: { conversationId: string; draftId: string }, commandId: string): Promise<'dropped' | 'not waited on' | 'disconnected'>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
   reportNames(report: NamesReport, forms: NameForms): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
@@ -528,6 +549,9 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.followedPulledConversations(accountName, sourceAccountId, runId)),
       recordTurn: async (turn, commandId) =>
         unwrap(await store.recordPulledTurn(accountName, sourceAccountId, runId, turn, commandId)),
+      draftsWaiting: async () => unwrap(await store.pulledDraftsWaiting(accountName, sourceAccountId, runId)),
+      draftGone: async (draft, commandId) =>
+        unwrap(await store.reportPulledDraftGone(accountName, sourceAccountId, runId, draft, commandId)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>
@@ -538,6 +562,11 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       end: async (failing, moreToDo, did, status) =>
         unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did, status)),
     }),
+    wantDraft: async (ask) => unwrap(await store.wantDraft(accountName, ask)),
+    recordDraft: async (record) => unwrap(await store.recordDraft(accountName, record)),
+    dropDraft: async (drop) => unwrap(await store.dropDraft(accountName, drop)),
+    resealCredential: async (sourceAccountId, was, sealed) =>
+      unwrap(await store.resealCredential(accountName, sourceAccountId, was, sealed)),
   };
 }
 

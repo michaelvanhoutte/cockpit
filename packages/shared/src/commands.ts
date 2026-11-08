@@ -745,8 +745,50 @@ export const followConversationSchema = commandEnvelopeSchema.extend({
   withWhom: z.string().max(TITLE_LENGTH).nullable(),
   /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
   connectionDays: dueInDaysSchema.nullable(),
+  /**
+   * The draft *Email…* or *Reply…* made in it ("Email… makes a Gmail draft the
+   * Item then follows", issue 1708), recorded under the click that asked for it
+   * (`startedBy`, the id `start_draft` was logged under). With it, no turn is
+   * applied: the Item stays In progress until the draft is sent or deleted. A
+   * new conversation's row takes where it stands from here; a followed one's
+   * keeps its own and only records the draft. `link` is where the draft opens,
+   * which the same click resent is answered with from this change's log entry.
+   */
+  draft: z.object({ id: z.string().min(1).max(500), startedBy: z.uuid(), link: z.url().max(2_000) }).optional(),
 });
 export type FollowConversationCommand = z.infer<typeof followConversationSchema>;
+
+/**
+ * start_draft - *Email…* or *Reply…* pressed on an Item (issue 1708), logged
+ * under the click's own id before the source is asked for the draft: the Item
+ * goes In progress, keeping the status it had so a draft never made or deleted
+ * unsent can put it back. `replyIn` is the followed conversation the draft
+ * replies in, or null for a new one, whose row stands in for it until the
+ * draft is recorded (`DRAFT_STARTING_PREFIX`). Self-sent, by the route that
+ * makes the draft.
+ */
+export const startDraftSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  connectorId: z.string().min(1),
+  externalAccountKey: z.string().min(1),
+  replyIn: z.string().min(1).max(500).nullable(),
+});
+export type StartDraftCommand = z.infer<typeof startDraftSchema>;
+
+/**
+ * drop_draft - a draft that was never made, or was deleted unsent (issue
+ * 1708): the Item gets back the status it had before the click, while it is
+ * still In progress as the click left it, and a conversation the draft would
+ * have started is no longer followed. `draftId` is the draft the row must
+ * still be waiting on, or null for one never recorded. Self-sent, by the route
+ * whose draft failed and by a pulled check that found the draft gone.
+ */
+export const dropDraftSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  draftId: z.string().min(1).max(500).nullable(),
+});
+export type DropDraftCommand = z.infer<typeof dropDraftSchema>;
 
 /**
  * record_conversation_turn - a message in a conversation an Item follows, as its
@@ -1170,6 +1212,8 @@ export const commandSchemas = {
   bring_back_occurrence: bringBackOccurrenceSchema,
   follow_conversation: followConversationSchema,
   record_conversation_turn: recordConversationTurnSchema,
+  start_draft: startDraftSchema,
+  drop_draft: dropDraftSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
@@ -1215,7 +1259,10 @@ export type SelfSentCommandName =
   | 'bring_back_occurrence'
   // Sent by the account's store on a pulled check (see `followConversationSchema` above).
   | 'follow_conversation'
-  | 'record_conversation_turn';
+  | 'record_conversation_turn'
+  // Sent by the route that makes a draft, and `drop_draft` by a pulled check too (see `startDraftSchema` above).
+  | 'start_draft'
+  | 'drop_draft';
 
 /**
  * The commands a client sends, which is every command with a generic JSON

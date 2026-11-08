@@ -1010,6 +1010,7 @@ export function ItemList({
       onOpen={() => openItem(item.id)}
       openRun={runsByItem.get(item.id)}
       conversation={conversationOf(data?.conversations, item.id)}
+      mailboxes={data?.mailboxes}
       onSendToClaude={(from: HTMLElement | null) => {
         openedFrom.current = from;
         setSendingToClaude(item);

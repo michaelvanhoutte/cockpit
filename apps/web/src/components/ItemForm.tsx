@@ -29,6 +29,7 @@ import {
   type AttachmentContentType,
   type Item,
   type ItemFormPresentation,
+  type Mailbox,
   type ItemStatus,
   type Priority,
   filingsThatFile,
@@ -50,6 +51,8 @@ import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { ConversationSection } from './ConversationSection';
+import { EmailButton } from './EmailButton';
+import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { conversationSourceName } from '../conversationLine';
 import { DescriptionBox } from './DescriptionBox';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
@@ -350,7 +353,18 @@ function TheForm({
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
   const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
-  const followed = conversationOf(data?.conversations, itemId);
+  const draftingAt = useDraftStarting(itemId);
+  const heldConversation = conversationOf(data?.conversations, itemId);
+  /** The conversation the section draws: *Draft started* from a click on *Email…* or *Reply…* on (issue 1708). */
+  const followed =
+    draftingAt && !heldConversation?.draftStarted ? draftBeingStarted(itemId, draftingAt, heldConversation) : heldConversation;
+  /** *Email…* or *Reply…*, where a mailbox of the Workspace can make the draft (issue 1708). */
+  const emailEntry = item && !item.completedAt ? emailEntryFor(heldConversation, data?.mailboxes, lastMailboxIn(workspaceId)) : null;
+  const emailWith = (mailbox: Mailbox) => {
+    void emailFromItem(queryClient, { workspaceId, itemId, mailbox }).then((answer) => {
+      if (!answer.made && item) offerToUndo({ what: `“${itemLabel(item)}” is back as it was. ${answer.why}` });
+    });
+  };
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -2194,12 +2208,20 @@ function TheForm({
                       {/* The conversation this Item follows, from the row the Workspace
                         read carries ("Show the conversation an Item follows in its
                         form", issue 1706); none for an Item that follows none. */}
-                      {followed && (
+                      {followed ? (
                         <ConversationSection
                           conversation={followed}
                           sourceName={conversationSourceName(followed, data?.sourceNames)}
                           now={Date.now()}
+                          reply={emailEntry?.label === 'Reply…' && <EmailButton entry={emailEntry} onEmail={emailWith} />}
                         />
+                      ) : (
+                        // An Item following nothing offers Email… where the section would be (issue 1708).
+                        emailEntry && (
+                          <div className="flex justify-end">
+                            <EmailButton entry={emailEntry} onEmail={emailWith} />
+                          </div>
+                        )
                       )}
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Conversation } from '@cockpit/shared';
 import { conversationCountLine, conversationOpensAt, openLabel, whoWroteWhen } from '../conversationLine';
 
@@ -8,17 +9,21 @@ import { conversationCountLine, conversationOpensAt, openLabel, whoWroteWhen } f
  * lines, and who it is with and how many messages since when. Drawn from the
  * conversation row the Workspace read already carries, so opening the form
  * waits on nothing. An Item that follows none has no section: the caller draws
- * nothing. *Reply…* is not drawn yet; the unit that builds Email… adds it.
+ * nothing. **Reply…** sits under it where a mailbox can make the reply ("Email…
+ * makes a Gmail draft the Item then follows", issue 1708), handed in by the caller.
  */
 export function ConversationSection({
   conversation,
   sourceName,
   now,
+  reply,
 }: {
   conversation: Conversation;
   /** What the source is called, by its connector's name for it (*Gmail*), never its id. */
   sourceName: string;
   now: number;
+  /** *Reply…*, where a mailbox can make the reply; absent where none can, as on a LinkedIn conversation. */
+  reply?: ReactNode;
 }) {
   const opensAt = conversationOpensAt(conversation);
   const countLine = conversationCountLine(conversation, now);
@@ -46,7 +51,12 @@ export function ConversationSection({
         {conversation.lastExcerpt && (
           <p className="line-clamp-3 text-sm leading-snug text-ink-soft">“{conversation.lastExcerpt}”</p>
         )}
-        {countLine && <p className="text-xs text-ink-faint">{countLine}</p>}
+        {(countLine || reply) && (
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="min-w-0 text-xs text-ink-faint">{countLine}</p>
+            {reply}
+          </div>
+        )}
       </div>
     </section>
   );
