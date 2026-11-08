@@ -106,6 +106,14 @@ export interface ConnectorManifest {
    * a source that is only pushed to is never woken for nothing.
    */
   pulled?: boolean;
+  /**
+   * Whether an Item can start a conversation here, and under which of the
+   * connection's choices: the values its `choice` options take under which
+   * `makeDraft` makes a draft whose conversation the connection then reads
+   * turns for ("Email… makes a Gmail draft the Item then follows", issue
+   * 1708). Absent: no Item starts one, and *Email…* is not offered.
+   */
+  startsConversations?: { underChoices: readonly string[] };
   auth: OAuthDescriptor | TextedCodeDescriptor | { kind: 'none' };
 }
 
@@ -335,6 +343,56 @@ export interface ConversationTurn extends ConversationMessage {
 }
 
 /**
+ * What *Email…* asks a connector to make (issue 1708): a draft with this
+ * subject and no recipient, or a reply in the conversation `replyIn` names.
+ */
+export interface DraftWanted {
+  subject: string;
+  /** The source's id of the conversation the Item follows, for a reply; null for a new conversation. */
+  replyIn: string | null;
+}
+
+/** The draft a connector made, and where it lives. */
+export interface DraftMade {
+  /** The source's own id for the draft, which `draftsWaiting` hands back. */
+  draftId: string;
+  /** The conversation it is in: a new one's id, or `replyIn`. */
+  conversationId: string;
+  /** Where the source opens the draft, for the tab opened at the click. */
+  draftLink: string;
+  /** Where the source shows the conversation once the draft is sent. */
+  conversationLink: string;
+}
+
+/** A draft an open Item still waits on: its conversation, its id, and the time after which a message of yours means it was sent. */
+export interface DraftWaiting {
+  conversationId: string;
+  draftId: string;
+  /**
+   * The conversation's latest message the Item knew of when the draft was
+   * made; null for a conversation the draft started, where any message of
+   * yours in it is the draft sent.
+   */
+  after: string | null;
+}
+
+/**
+ * What the host offers a connector asked for something on demand, during a
+ * person's request rather than on the cadence ("Email… makes a Gmail draft the
+ * Item then follows", issue 1708): the connection's credential, opened once,
+ * a rotated one handed back, and the connector's own saved state to read -
+ * never to write, since a run may hold it meanwhile.
+ */
+export interface OnDemandHost {
+  getCredentials(): Promise<Record<string, string>>;
+  /** As `ConnectorHost.setCredentials`: saved only while the stored one is still the one opened. */
+  setCredentials(credentials: Record<string, string>): Promise<void>;
+  /** The connector's private state as the last run saved it, or null. */
+  getState(): Promise<unknown>;
+  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
+}
+
+/**
  * An Item's names as the source holds them now, reported whenever the set
  * changes on an Item the connector already emitted (`ConnectorHost.reportNames`).
  * Whole, never a difference: the host works out what is new since the last
@@ -497,6 +555,21 @@ export interface ConnectorHost extends ConnectedAccountHost {
    */
   reportTurn(turn: ConversationTurn): Promise<void>;
 
+  /**
+   * The drafts `makeDraft` made that open Items still wait on, as this is
+   * asked: none sent yet as far as the host has heard (a turn of yours in the
+   * conversation ends the wait). Asked once the conversations' turns of a run
+   * are reported, so a draft sent and read this run is not among them.
+   */
+  draftsWaiting(): Promise<DraftWaiting[]>;
+
+  /**
+   * Reports a draft gone from the source with no message of yours sent in its
+   * conversation since `after`: deleted unsent. The host puts the Item's
+   * status back; a draft it no longer waits on changes nothing.
+   */
+  reportDraftGone(draft: Pick<DraftWaiting, 'conversationId' | 'draftId'>): Promise<void>;
+
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;
 }
@@ -611,4 +684,12 @@ export interface Connector {
    * out is handed over again next time.
    */
   mirrorOpenState?(host: ConnectorHost, wanted: OpenStateWanted[]): Promise<MirroredOpenStates>;
+
+  /**
+   * Makes a draft at the source, on demand while a person waits, for a
+   * connector whose manifest `startsConversations` (issue 1708). Throws
+   * `SourceError`, worded for the person, where the source would not; **a
+   * draft made cannot be taken back**, so it is called once per click.
+   */
+  makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
 }

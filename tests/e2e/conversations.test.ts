@@ -15,6 +15,7 @@ import {
   test,
   uniqueTitle,
 } from './support/app';
+import { giveToTheInbox } from './support/arrange';
 
 const root = resolve(__dirname, '..', '..');
 /** The stub the stack runs, which stands in for Gmail's mailbox as well as for Google's sign-in. */
@@ -151,6 +152,40 @@ test.describe('Triage', () => {
       await checkedAgain(page);
       await expect(row.getByText('Gmail · You wrote just now')).toBeVisible();
       await expect(row.getByText(/^Waiting since/)).toBeVisible();
+
+      await openSettings(page, 'Connections', isMobile);
+      await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);
+      await press(page.getByRole('button', { name: `Yes, disconnect ${MAILBOX}` }), isMobile);
+      await expect(page.getByRole('dialog').getByText(/Nothing connected yet/)).toBeVisible();
+      await closeSettings(page, isMobile);
+      await deleteWorkspace(page, workspace, isMobile);
+    });
+  });
+
+  test.describe('Email… opens the draft it made in a new tab, and the row says the draft is started', () => {
+    test('opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'a phone has no Connections, only Appearance');
+      await openFirstWorkspace(page, isMobile);
+      const workspace = uniqueTitle('Emailed');
+      await makeWorkspace(page, workspace, isMobile);
+      await switchTo(page, workspace, isMobile);
+      await connectedByStar(page, isMobile);
+      // The draft's own page is Gmail's, which no walk may reach: answered here, so only its address is checked.
+      await page.context().route('https://mail.google.com/**', (route) => route.fulfill({ body: 'the draft' }));
+
+      const purpose = uniqueTitle('Plan a dinner with Steven Noels');
+      await giveToTheInbox(page, [purpose]);
+      const row = itemRow(page, purpose);
+      await expect(row).toBeVisible();
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      const [tab] = await Promise.all([page.waitForEvent('popup'), press(page.getByRole('menuitem', { name: 'Email…' }), isMobile)]);
+
+      await expect(tab).toHaveURL(/#drafts\?compose=draft-\d+$/);
+      await expect(row.getByText('Gmail · Draft started')).toBeVisible();
+      await expect(row.getByText('In progress')).toBeVisible();
+      const drafts = (await (await fetch(`${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`)).json()) as { subject: string }[];
+      expect(drafts.map((one) => one.subject)).toContain(purpose);
+      await tab.close();
 
       await openSettings(page, 'Connections', isMobile);
       await chooseRowAction(page, MAILBOX, 'Disconnect', isMobile);

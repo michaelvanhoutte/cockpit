@@ -7,6 +7,7 @@ import {
   type GmailConnectorConfig,
   type Mailbox,
 } from './mailbox.js';
+import { latestSentSince } from './drafts.js';
 import { LINKEDIN_PREFIX, NOTIFICATION_SEARCH, linkedInConversationOf, linkedInNotificationIn } from './linkedin.js';
 import {
   STARRED,
@@ -233,7 +234,10 @@ class Reading {
     const markId = await this.#markId();
     for (let attempt = 0; attempt < 2; attempt++) {
       if (this.state.historyId === null || this.state.listing) await this.#list(markId);
-      if ((await this.#readHistory(markId)) === 'caught up') return;
+      if ((await this.#readHistory(markId)) === 'caught up') {
+        if (this.choice === 'star') await this.#checkDrafts();
+        return;
+      }
       // The position lapsed: the complete listing, from a fresh position.
       this.state.historyId = null;
       this.state.history = pageStart();
@@ -577,6 +581,26 @@ class Reading {
     // Followed from here on where it now is, so a message added to it on a
     // later page of this run is read as a turn too.
     if (read) this.#following?.add(read.id);
+  }
+
+  /**
+   * The drafts *Email…* made that open Items still wait on ("Email… makes a
+   * Gmail draft the Item then follows", issue 1708), asked once the history is
+   * read to the end, so a draft sent and read as a turn this run is no longer
+   * among them. One still in Gmail changes nothing. One gone is reported gone
+   * - deleted unsent - unless its conversation holds a message sent from this
+   * mailbox since: the draft sent, whose turn is reported here, since the
+   * history may never report it (sent while the Item was done, or while the
+   * position lapsed). A turn reported twice is applied once.
+   */
+  async #checkDrafts(): Promise<void> {
+    for (const draft of await this.host.draftsWaiting()) {
+      if ((await this.mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`)) !== null) continue;
+      const thread = await this.mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
+      const sent = thread === null ? null : latestSentSince(thread, draft.after);
+      if (sent !== null) await this.#reportTurn(sent, draft.conversationId);
+      else await this.host.reportDraftGone({ conversationId: draft.conversationId, draftId: draft.draftId });
+    }
   }
 
   /** Reports the names of a conversation read, whole; the host works out what is new. */

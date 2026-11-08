@@ -326,6 +326,10 @@ export async function startStubIssuer({ port, seedPath }) {
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
     const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar|linkedin)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
+    const onDraft = url.pathname.match(/^\/gmail-stub\/(send-draft|delete-draft)$/);
+    if (onDraft && request.method === 'POST') return actOnDraft(onDraft[1], url, response);
+    // Every draft Cockpit had the mailbox make, oldest first, for a walk to send or delete one (issue 1708).
+    if (url.pathname === '/gmail-stub/drafts') return json(response, heldMailbox(url.searchParams.get('email') ?? '').drafts);
     // What a walk reads back of a conversation Cockpit changed (issue 728):
     // whether it is labelled Cockpit now, or starred (issue 823), and every
     // change Cockpit asked for.
@@ -553,6 +557,17 @@ export async function startStubIssuer({ port, seedPath }) {
         resultSizeEstimate: labelled.length,
       });
     }
+    if (path === 'drafts' && request.method === 'POST') return makeDraft(mailbox, request, response);
+    const readDraft = path.match(/^drafts\/([^/]+)$/);
+    if (readDraft) {
+      // `users.drafts.get`: the draft while its message is still a draft, else gone - sent or deleted.
+      const draft = mailbox.drafts.find((one) => one.id === decodeURIComponent(readDraft[1]));
+      const held = draft && findMessage(mailbox, draft.message);
+      if (!held || !held.message.labelIds.includes('DRAFT')) {
+        return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+      }
+      return json(response, { id: draft.id, message: { id: draft.message, threadId: draft.thread, labelIds: held.message.labelIds } });
+    }
     const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
     if (modified && request.method === 'POST') return modifyThread(mailbox, modified, request, response);
     const modifiedEmail = path.match(/^messages\/([^/]+)\/modify$/);
@@ -565,6 +580,87 @@ export async function startStubIssuer({ port, seedPath }) {
     const foundRead = readEmail && findMessage(mailbox, decodeURIComponent(readEmail[1]));
     if (foundRead) return json(response, foundRead.message);
     json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+  }
+
+  /**
+   * `users.drafts.create` ("Email… makes a Gmail draft the Item then follows",
+   * issue 1708): the message `raw` holds, labelled Draft, in the conversation
+   * named - a new one where none is - leaving the history record Gmail does for
+   * a message added.
+   */
+  function makeDraft(mailbox, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let asked;
+      try {
+        asked = JSON.parse(body || '{}');
+      } catch {
+        return json(response, { error: { code: 400, message: 'Invalid JSON payload received.' } }, 400);
+      }
+      const raw = Buffer.from(asked.message?.raw ?? '', 'base64url').toString('utf8');
+      const headers = raw
+        .split('\r\n\r\n')[0]
+        .split('\r\n')
+        .map((line) => /^([^:]+): (.*)$/.exec(line))
+        .filter(Boolean)
+        .map(([, name, value]) => ({ name, value }));
+      mailbox.historyId += 1;
+      const at = String(mailbox.historyId);
+      const id = `draft-${at}`;
+      const threadId = asked.message?.threadId ?? id;
+      const thread = mailbox.threads.find((one) => one.id === threadId);
+      if (asked.message?.threadId && !thread) return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+      const message = {
+        id,
+        threadId,
+        labelIds: ['DRAFT'],
+        snippet: '',
+        internalDate: String(Date.now()),
+        payload: { mimeType: 'text/plain', headers: [...headers, { name: 'From', value: mailbox.email }], body: { size: 0, data: '' } },
+      };
+      if (thread) thread.messages.push(message);
+      else mailbox.threads.push({ id: threadId, historyId: at, messages: [message] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId }], messagesAdded: [{ message: { id, threadId, labelIds: message.labelIds } }] });
+      const draft = { id: `r-${at}`, message: id, thread: threadId, subject: headers.find((one) => one.name === 'Subject')?.value ?? '' };
+      mailbox.drafts.push(draft);
+      json(response, { id: draft.id, message: { id, threadId, labelIds: message.labelIds } });
+    });
+  }
+
+  /**
+   * What a person does to a draft in Gmail (issue 1708): `POST
+   * /gmail-stub/send-draft?email=&draft=` sends it where it stands - Draft off,
+   * Sent on, the same message, as the history Gmail leaves for a draft sent -
+   * and `/gmail-stub/delete-draft` deletes it unsent, with its conversation
+   * where that held nothing else.
+   */
+  function actOnDraft(action, url, response) {
+    const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+    const draft = mailbox.drafts.find((one) => one.id === url.searchParams.get('draft'));
+    const found = draft && findMessage(mailbox, draft.message);
+    if (!found || !found.message.labelIds.includes('DRAFT')) return json(response, { error: 'no such draft' }, 404);
+    const { thread, message } = found;
+    mailbox.historyId += 1;
+    if (action === 'send-draft') {
+      message.labelIds = ['SENT'];
+      message.internalDate = String(Date.now());
+      mailbox.history.push({
+        id: String(mailbox.historyId),
+        messages: [{ id: message.id, threadId: thread.id }],
+        labelsRemoved: [{ message: { id: message.id, threadId: thread.id, labelIds: message.labelIds }, labelIds: ['DRAFT'] }],
+        labelsAdded: [{ message: { id: message.id, threadId: thread.id, labelIds: message.labelIds }, labelIds: ['SENT'] }],
+      });
+    } else {
+      thread.messages = thread.messages.filter((one) => one !== message);
+      if (thread.messages.length === 0) mailbox.threads = mailbox.threads.filter((one) => one !== thread);
+      mailbox.history.push({
+        id: String(mailbox.historyId),
+        messages: [{ id: message.id, threadId: thread.id }],
+        messagesDeleted: [{ message: { id: message.id, threadId: thread.id } }],
+      });
+    }
+    json(response, { draft: draft.id, message: message.id, thread: thread.id, historyId: String(mailbox.historyId) });
   }
 
   /**
@@ -750,6 +846,8 @@ export function stubMailbox(email) {
     history: [],
     // Every path Gmail was asked for, oldest first (`/gmail-stub/asked`).
     asked: [],
+    // Every draft `users.drafts.create` made, oldest first: its id, its message's and its conversation's (`/gmail-stub/drafts`).
+    drafts: [],
     threads: [
       {
         id: '18f0a1b2c3d4e5f1',

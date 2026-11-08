@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { itemStatus, type Item } from '@cockpit/shared';
-import { applyConversationTurn, turnDueDate } from '../../../src/domain/conversations.js';
+import {
+  applyConversationTurn,
+  applyDropDraft,
+  applyStartDraft,
+  statusBeforeDraftIn,
+  statusBeforeDraftOf,
+  turnDueDate,
+} from '../../../src/domain/conversations.js';
 import { captureItem } from '../../../src/domain/items.js';
 
 /**
@@ -130,6 +137,53 @@ describe('Triage', () => {
       // 23:30 in Brussels on the 7th is already the 8th there.
       expect(turnDueDate('you', '2026-10-07T22:30:00.000Z', BRUSSELS, { connectionDays: null, followUpDays: 3 })).toBe('2026-10-11');
       expect(turnDueDate('you', '2026-10-07T22:30:00.000Z', [], { connectionDays: null, followUpDays: 3 })).toBe('2026-10-10');
+    });
+  });
+
+  describe('Email… puts an Item In progress, and a draft never made or deleted unsent puts back the status it had', () => {
+    const CLICKED = '2026-10-07T12:00:00.000Z';
+    const PUT_BACK = '2026-10-07T12:05:00.000Z';
+    const STARTED = { startedAt: '2026-10-05T09:00:00.000Z', updatedAt: '2026-10-05T09:00:00.000Z' };
+
+    it.each([
+      { situation: 'to do', item: anItem(), back: 'to_do' },
+      { situation: 'in progress', item: anItem(STARTED), back: 'in_progress' },
+      { situation: 'waiting for a reply', item: anItem(WAITING), back: 'waiting' },
+    ])('an Item $situation goes In progress, and comes back $back', ({ item, back }) => {
+      const before = statusBeforeDraftIn(statusBeforeDraftOf(item, true))!;
+
+      const drafting = applyStartDraft(item, CLICKED);
+      const after = applyDropDraft(drafting, before, PUT_BACK)!;
+
+      expect(itemStatus(drafting)).toBe('in_progress');
+      expect(itemStatus(after)).toBe(back);
+      expect({ startedAt: after.startedAt, waitingSince: after.waitingSince }).toEqual({
+        startedAt: item.startedAt,
+        waitingSince: item.waitingSince,
+      });
+    });
+
+    it('keeps the start of an Item already In progress', () => {
+      expect(applyStartDraft(anItem(STARTED), CLICKED).startedAt).toBe(STARTED.startedAt);
+    });
+
+    it.each([
+      { situation: 'set To do by hand meanwhile', change: { startedAt: null } },
+      { situation: 'set Waiting for reply meanwhile', change: { waitingSince: PUT_BACK } },
+      { situation: 'done meanwhile', change: { completedAt: PUT_BACK } },
+      { situation: 'dismissed meanwhile', change: { deletedAt: PUT_BACK } },
+    ])('puts nothing back on an Item $situation', ({ change }) => {
+      const item = anItem(WAITING);
+      const drafting = { ...applyStartDraft(item, CLICKED), ...change };
+
+      expect(applyDropDraft(drafting, statusBeforeDraftIn(statusBeforeDraftOf(item, true))!, PUT_BACK)).toBeNull();
+    });
+
+    it('says whether the draft started its conversation, and reads nothing it did not write', () => {
+      expect(statusBeforeDraftIn(statusBeforeDraftOf(anItem(), true))?.opened).toBe(true);
+      expect(statusBeforeDraftIn(statusBeforeDraftOf(anItem(), false))?.opened).toBe(false);
+      expect(statusBeforeDraftIn(null)).toBeNull();
+      expect(statusBeforeDraftIn('not json')).toBeNull();
     });
   });
 });

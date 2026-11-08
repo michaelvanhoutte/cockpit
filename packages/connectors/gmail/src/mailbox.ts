@@ -122,7 +122,7 @@ export class Mailbox {
   #token: string | null;
 
   constructor(
-    private readonly host: ConnectorHost,
+    private readonly host: Pick<ConnectorHost, 'setCredentials'>,
     private readonly config: GmailConnectorConfig,
     private credential: GmailCredential,
     private readonly calls: { left: number },

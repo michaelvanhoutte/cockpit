@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useContext, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { RecurringMark } from './RecurringMark';
@@ -15,12 +15,15 @@ import {
   type AgentRun,
   type Conversation,
   type Item,
+  type Mailbox,
   type ItemStatus,
   type PanelFit,
   type Priority,
   type RepeatRule,
 } from '@cockpit/shared';
+import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
@@ -114,6 +117,7 @@ export function ItemRow({
   onSendToClaude,
   recurring,
   conversation,
+  mailboxes,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
@@ -297,8 +301,15 @@ export function ItemRow({
    * Resolved by the list, as `openRun` is.
    */
   conversation?: Conversation | undefined;
+  /**
+   * The Workspace's connections *Email…* can make a draft in ("Email… makes a
+   * Gmail draft the Item then follows", issue 1708): none, and the row offers
+   * no *Email…*. Handed in by the list, from the Workspace read.
+   */
+  mailboxes?: readonly Mailbox[] | undefined;
 }) {
   const command = useCommand();
+  const queryClient = useContext(QueryClientContext);
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const waited = waitedSince(item.createdAt, Date.now());
@@ -337,8 +348,20 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  /** To do, In progress, Waiting for reply or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`. */
-  const status = itemStatus(item);
+  /** The connector a draft is being made at for this Item, while *Email…* waits on it (issue 1708), or null. */
+  const draftingAt = useDraftStarting(item.id);
+  /**
+   * To do, In progress, Waiting for reply or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`.
+   * In progress from the click on *Email…*, before the server has answered (issue 1708).
+   */
+  const status = draftingAt ? 'in_progress' : itemStatus(item);
+  /** The conversation the row's line draws, *Draft started* from that click on (issue 1708). */
+  const shownConversation = draftingAt && !conversation?.draftStarted ? draftBeingStarted(item.id, draftingAt, conversation) : conversation;
+  /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
+  const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
+  const emailWith = (mailbox: Mailbox) => {
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item) }, offerToUndo);
+  };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
 
@@ -493,7 +516,7 @@ export function ItemRow({
   const label = itemLabel(item);
   const atSource = openableAtSource(item, sourceNames);
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
-  const conversationAt = conversation ? conversationOpensAt(conversation) : null;
+  const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -840,6 +863,37 @@ export function ItemRow({
       // Waiting for reply", issue 1463). Choosing the state it is already in
       // changes nothing; Waiting for reply asks how long, as the entry does.
       [
+        // Email… or Reply… (issue 1708): one mailbox is used as it is; several
+        // are asked between, the last used first. The draft opens in a tab the
+        // choice itself opens, so no pop-up blocker refuses it.
+        emailEntry &&
+          (emailEntry.mailboxes.length === 1 ? (
+            <M.Item key="email" className={menuItemClass} onSelect={() => emailWith(emailEntry.mailboxes[0]!)}>
+              {emailEntry.label}
+            </M.Item>
+          ) : (
+            <M.Sub key="email">
+              <M.SubTrigger className={subTriggerClass}>
+                <span>{emailEntry.label}</span>
+                <span aria-hidden="true" className="text-xs text-ink-faint">
+                  ▸
+                </span>
+              </M.SubTrigger>
+              <M.Portal>
+                <M.SubContent
+                  sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
+                  style={{ width: SUBMENU_WIDTH_PX }}
+                  className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
+                >
+                  {emailEntry.mailboxes.map((mailbox) => (
+                    <M.Item key={mailbox.sourceAccountId} className={menuItemClass} onSelect={() => emailWith(mailbox)}>
+                      <span className="truncate">{mailbox.name}</span>
+                    </M.Item>
+                  ))}
+                </M.SubContent>
+              </M.Portal>
+            </M.Sub>
+          )),
         <M.Item key="wait" className={menuItemClass} onSelect={askToWait}>
           {status === 'waiting' ? 'Wait again…' : 'Wait for reply…'}
         </M.Item>,
@@ -1372,14 +1426,15 @@ export function ItemRow({
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </span>
               ))}
-            {conversation ? (
+            {shownConversation ? (
               <>
                 {/* Who wrote last in the conversation this Item follows, in
                     place of the source and sender, its latest lines on hover
                     ("A Gmail starred conversation is one Item whose status
-                    follows who wrote last", issue 1705). */}
-                <span className="truncate" title={latestText(conversation)}>
-                  {conversationLine(conversation, conversationSourceName(conversation, sourceNames), Date.now())}
+                    follows who wrote last", issue 1705) - or *Draft started*
+                    while a draft Email… made is unsent (issue 1708). */}
+                <span className="truncate" title={latestText(shownConversation)}>
+                  {conversationLine(shownConversation, conversationSourceName(shownConversation, sourceNames), Date.now())}
                 </span>
                 {conversationAt && (
                   <a
@@ -1387,8 +1442,8 @@ export function ItemRow({
                     target="_blank"
                     rel="noopener noreferrer"
                     onContextMenu={(event) => event.stopPropagation()}
-                    title={openLabel(conversation, conversationSourceName(conversation, sourceNames))}
-                    aria-label={openLabel(conversation, conversationSourceName(conversation, sourceNames))}
+                    title={openLabel(shownConversation, conversationSourceName(shownConversation, sourceNames))}
+                    aria-label={openLabel(shownConversation, conversationSourceName(shownConversation, sourceNames))}
                     className="shrink-0 underline"
                   >
                     Open ↗

@@ -300,6 +300,22 @@ function pulledHost(
       await run.recordTurn(turn, await derivedUuid(`pulled-turn:${named}`));
     },
 
+    /** The drafts Email… made that this connection's open Items still wait on (issue 1708). */
+    draftsWaiting: () => run.draftsWaiting(),
+
+    /**
+     * A draft gone unsent, recorded in the store, which puts the Item's status
+     * back (issue 1708). Its id derives from the connection and the draft, so a
+     * draft reported gone twice is dropped once.
+     */
+    async reportDraftGone(draft): Promise<void> {
+      const named = JSON.stringify([begun.workspaceId, connectorId, begun.externalAccountKey, draft.conversationId, draft.draftId]);
+      await run.draftGone(
+        { conversationId: draft.conversationId, draftId: draft.draftId },
+        await derivedUuid(`pulled-draft-gone:${named}`),
+      );
+    },
+
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
 }

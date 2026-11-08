@@ -53,14 +53,20 @@ export function conversationLine(conversation: Conversation, sourceName: string,
   return `${sourceName} · ${whoWroteWhen(conversation, now)}`;
 }
 
-/** The line without its source: *Steven replied yesterday*. */
+/** What the line says while a draft *Email…* made is unsent ("Email… makes a Gmail draft the Item then follows", issue 1708). */
+export const DRAFT_STARTED = 'Draft started';
+
+/** The line without its source: *Steven replied yesterday*, or *Draft started* while a draft of yours is unsent. */
 export function whoWroteWhen(conversation: Conversation, now: number): string {
+  if (conversation.draftStarted) return DRAFT_STARTED;
   const verb = conversation.messageCount === 1 || conversation.lastBy === 'you' ? 'wrote' : 'replied';
   return `${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
 }
 
 /** The line's hover: who wrote the latest message, and its first lines. */
 export function latestText(conversation: Conversation): string {
+  // A draft not yet sent has no lines to show.
+  if (!conversation.lastExcerpt) return '';
   const who = conversation.lastBy === 'you' ? 'You' : (conversation.lastFrom ?? conversation.withWhom ?? '');
   return who ? `${who}: ${conversation.lastExcerpt}` : conversation.lastExcerpt;
 }

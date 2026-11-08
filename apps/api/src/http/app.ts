@@ -160,6 +160,8 @@ import {
 } from '../auth/register.js';
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
+import { DraftNotMadeError, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { draftAskedSchema, draftMadeSchema } from '@cockpit/shared/draft';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
 import { forgetAddressAfterLettingGo, holdAddress } from '../email/register.js';
 import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';
@@ -800,6 +802,44 @@ const connectionHistoryRoute = createRoute({
 });
 
 /**
+ * *Email…* and *Reply…* on an Item ("Email… makes a Gmail draft the Item then
+ * follows", issue 1708) are this route: a POST to the Item and not a
+ * command, since the source is asked during it and its answer is the draft's
+ * link the tab opened at the click is pointed at. Its changes are logged as
+ * commands on the way (`start_draft`, `follow_conversation`, `drop_draft`).
+ */
+const draftRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/items/{itemId}/draft',
+  request: {
+    params: z.object({ workspaceId: z.string(), itemId: z.string() }),
+    body: { content: { 'application/json': { schema: draftAskedSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The draft made, or the one this click made already: where it opens',
+      content: { 'application/json': { schema: draftMadeSchema } },
+    },
+    400: {
+      description: 'An Item whose conversation no mailbox of this connection reaches',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Unknown Item, or no connection of this Workspace that makes drafts',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'This click’s draft was not made before',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    502: {
+      description: 'The source would not make the draft, and why: the Item has its status back',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * *Check now* on one pulled connection ("Check a pulled connection now, from
  * its row or its history", issue 1143): its check made due at once through the
  * path a person's change takes, labelled *Check now*. A POST to the
@@ -1349,11 +1389,20 @@ const routes = app
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    const snapshot = await account.snapshot(workspaceId);
+    const { connections = [], ...snapshot } = await account.snapshot(workspaceId);
     // Opening a Workspace is opening its Dashboards: the read the app makes
     // each time one is shown (issue 653).
     await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
-    return c.json({ ...snapshot, sourceNames: sourceNames(c.env), generatedAt: new Date().toISOString() }, 200);
+    return c.json(
+      {
+        ...snapshot,
+        // The connections Email… may use, which only the registry can say (issue 1708).
+        mailboxes: mailboxesOf(c.env, connections),
+        sourceNames: sourceNames(c.env),
+        generatedAt: new Date().toISOString(),
+      },
+      200,
+    );
   })
   .openapi(finishedItemsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
@@ -1405,6 +1454,21 @@ const routes = app
     // Throws where the row is not a live connection of this Workspace, which
     // `onError` answers with the 404 every connection route gives.
     return c.json(await account.connectionHistory(workspaceId, sourceAccountId), 200);
+  })
+  .openapi(draftRoute, async (c) => {
+    const { workspaceId, itemId } = c.req.valid('param');
+    const { clickId, sourceAccountId } = c.req.valid('json');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    try {
+      const link = await makeTheDraft(c.env, account, accountName, { workspaceId, itemId, sourceAccountId, clickId });
+      return c.json({ link }, 200);
+    } catch (error) {
+      // The source's refusal, in its words: a 502, the fault being the source's
+      // and not the request's. Everything else is `onError`'s.
+      if (error instanceof DraftNotMadeError) return c.json({ error: error.message }, 502);
+      throw error;
+    }
   })
   .openapi(checkConnectionNowRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');

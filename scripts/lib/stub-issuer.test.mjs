@@ -297,6 +297,33 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.equal((await read(token, 'messages/no-such-message?format=full')).status, 404);
   });
 
+  // What Email… makes, and what a person then does with it ("Email… makes a
+  // Gmail draft the Item then follows", issue 1708).
+  it('makes a draft from its raw message, then sends one where it stands and deletes another unsent, as a walk asks', async () => {
+    const token = await accessTokenFor('drafts@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=drafts%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const draftOf = (subject) =>
+      fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ message: { raw: Buffer.from(`Subject: ${subject}\r\n\r\n`).toString('base64url') } }),
+      }).then((answer) => answer.json());
+
+    const sending = await draftOf('Plan a dinner');
+    const deleting = await draftOf('Never mind');
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=drafts%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'Never mind']);
+    assert.equal((await read(token, `drafts/${sending.id}?format=minimal`)).status, 200);
+
+    await act('send-draft', `draft=${sending.id}`);
+    await act('delete-draft', `draft=${deleting.id}`);
+
+    assert.equal((await read(token, `drafts/${sending.id}?format=minimal`)).status, 404);
+    assert.deepEqual((await (await read(token, `messages/${sending.message.id}?format=full`)).json()).labelIds, ['SENT']);
+    assert.equal((await read(token, `threads/${deleting.message.threadId}?format=minimal`)).status, 404);
+  });
+
   it('takes the label off, moves to the bin and labels again, each leaving the listing as Gmail would', async () => {
     const token = await accessTokenFor('closing@example.com');
     const act = (what, query) =>

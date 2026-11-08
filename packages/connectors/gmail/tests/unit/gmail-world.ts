@@ -101,6 +101,13 @@ export class GmailWorld {
     if (modify) return this.#modify(decodeURIComponent(modify[1]!), JSON.parse(String(init?.body)));
     const modifyEmail = /^messages\/([^/]+)\/modify$/.exec(path);
     if (modifyEmail) return this.#modifyEmail(decodeURIComponent(modifyEmail[1]!), JSON.parse(String(init?.body)));
+    if (path === 'drafts' && method === 'POST') return this.#makeDraft(JSON.parse(String(init?.body)));
+    const readDraft = /^drafts\/([^/]+)$/.exec(path);
+    if (readDraft) {
+      const draft = this.#drafts.get(decodeURIComponent(readDraft[1]!));
+      const held = draft && this.#threads.some((thread) => thread.messages.some((one) => one.id === draft.messageId && one.labelIds.includes('DRAFT')));
+      return held ? json({ id: decodeURIComponent(readDraft[1]!), message: { id: draft.messageId, threadId: draft.threadId } }) : json({ error: { code: 404 } }, 404);
+    }
     const readEmail = /^messages\/([^/]+)$/.exec(path);
     if (readEmail) {
       const id = decodeURIComponent(readEmail[1]!);
@@ -180,6 +187,39 @@ export class GmailWorld {
     thread.messages.push(draft);
     this.#record({ added: draft.id, threadId, labelIds: draft.labelIds });
     return draft.id;
+  }
+
+  /** Every draft `users.drafts.create` was asked for, in order: its message decoded from `raw`, and the conversation it was asked in. */
+  readonly draftsAsked: { text: string; threadId: string | null }[] = [];
+  readonly #drafts = new Map<string, { messageId: string; threadId: string }>();
+
+  /** A draft sent from Gmail where it stands, by the draft's id (`users.drafts.create` answered it). */
+  sendsTheDraft(draftId: string, sentAt = '2026-10-09T12:30:00Z'): void {
+    const { messageId } = this.#drafts.get(draftId)!;
+    this.#email(messageId).internalDate = String(Date.parse(sentAt));
+    this.sendsDraft(messageId);
+  }
+
+  /** A draft deleted from Gmail unsent, by the draft's id. */
+  deletesTheDraft(draftId: string): void {
+    this.deleteEmail(this.#drafts.get(draftId)!.messageId);
+  }
+
+  #makeDraft(body: { message: { raw: string; threadId?: string } }): Response {
+    const text = new TextDecoder().decode(Uint8Array.from(atob(body.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+    this.draftsAsked.push({ text, threadId: body.message.threadId ?? null });
+    const n = this.#drafts.size + 1;
+    const messageId = `draft-message-${n}`;
+    const threadId = body.message.threadId ?? messageId;
+    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: '', labelled: false, from: `Anna Peeters <${ADDRESS}>` });
+    draft.labelIds = ['DRAFT'];
+    const thread = this.#threads.find((one) => one.id === threadId);
+    if (thread) thread.messages.push(draft);
+    else this.#threads.unshift({ id: threadId, messages: [draft] });
+    this.#record({ added: messageId, threadId, labelIds: draft.labelIds });
+    const id = `r-${n}`;
+    this.#drafts.set(id, { messageId, threadId });
+    return json({ id, message: { id: messageId, threadId, labelIds: draft.labelIds } });
   }
 
   /** The messages read one by one, in order - what a run spent on reading turns. */

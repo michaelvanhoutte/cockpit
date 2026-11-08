@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { additionSchema } from '../domain/addition.js';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
-import { conversationSchema } from '../domain/conversation.js';
+import { conversationSchema, mailboxSchema } from '../domain/conversation.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
@@ -77,6 +77,12 @@ export const workspaceSnapshotSchema = z.object({
    * draws each row's source and sender, as before.
    */
   conversations: z.array(conversationSchema).optional(),
+  /**
+   * The Workspace's connections *Email…* can make a draft in, oldest first
+   * ("Email… makes a Gmail draft the Item then follows", issue 1708): none, and
+   * no row offers it. Optional, as `conversations` is.
+   */
+  mailboxes: z.array(mailboxSchema).optional(),
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,

@@ -1,8 +1,10 @@
-import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
-import { CONVERSATION_EXCERPT_LENGTH, TITLE_LENGTH, cutTo } from '@cockpit/shared';
+import { and, asc, eq, inArray, isNotNull, isNull, like, lte, min, not, notExists, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
+import { CONVERSATION_EXCERPT_LENGTH, DRAFT_STARTING_PREFIX, TITLE_LENGTH, cutTo } from '@cockpit/shared';
 import type {
   CompleteListing,
   ConversationTurn,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -33,6 +35,7 @@ import {
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { dueDateOnArrival } from '../domain/due-in-days.js';
+import { statusBeforeDraftIn } from '../domain/conversations.js';
 import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
@@ -359,6 +362,12 @@ export function filePulledItem(
       followTheConversation(db, accountName, holds, link.itemId, item, ids.followCommandId, at);
       return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
     }
+    // A mark on a conversation an open Item follows already - one Email… made
+    // follow it, which no link names (issue 1708) - adds to that Item rather
+    // than making another.
+    if (item.conversation && followedBy(db, accountName, holds, item.conversation.id).get()) {
+      return { answer: 'already-known', named: null };
+    }
     const message = item.capturedMessage ?? item.title;
     if (!message) throw new Error('a pulled item carries neither a message nor a title');
     const names = item.names ? namesToRecord(item.names) : null;
@@ -493,9 +502,11 @@ function cut<T extends string | null>(text: T, limit: number): T {
 
 /**
  * The conversations this connection's open Items follow, by the source's id -
- * what a run hands its connector to read turns for (issue 1705). Only the
- * Items this connection filed in its own Workspace, so another Workspace's
- * Item following the same mailbox's conversation is never this run's.
+ * what a run hands its connector to read turns for (issue 1705). Of the Items
+ * a connection brought in, only those this one filed in its own Workspace, so
+ * another Workspace's Item following the same mailbox's conversation is never
+ * this run's; an Item Email… made follow one (issue 1708) is every run's at
+ * that mailbox, a turn read twice being applied once.
  */
 export function followedPulledConversations(
   db: AccountDb,
@@ -541,7 +552,9 @@ export function recordPulledTurn(
     {
       commandId,
       issuedAt: at,
-      workspaceId: holds.workspaceId,
+      // The Item's own Workspace, whose open tabs read it again: an Item Email…
+      // made follow a conversation may be read by another Workspace's connection.
+      workspaceId: followed.itemWorkspaceId,
       itemId: followed.itemId,
       connectorId: holds.connectorId,
       externalAccountKey: holds.externalAccountKey,
@@ -558,9 +571,75 @@ export function recordPulledTurn(
 }
 
 /**
- * The open Items of this connection's Workspace that follow a conversation at
- * its account, by the Items' own links to the connection - one, or all of
- * them where no conversation is named.
+ * The drafts Email… made that this connection's open Items still wait on
+ * ("Email… makes a Gmail draft the Item then follows", issue 1708): what a run
+ * hands its connector to look for once it has read the turns.
+ */
+export function pulledDraftsWaiting(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+): DraftWaiting[] {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return [];
+  return followedBy(db, accountName, holds)
+    .all()
+    .flatMap((row) => {
+      const before = statusBeforeDraftIn(row.statusBeforeDraft);
+      if (row.draftId === null || !before) return [];
+      return [{ conversationId: row.conversationId, draftId: row.draftId, after: before.opened ? null : row.lastAt }];
+    });
+}
+
+/**
+ * A draft the connector found gone unsent, through `drop_draft`, which puts
+ * the Item's status back (issue 1708). Its id is the caller's, derived from
+ * the draft, so a draft reported twice changes things once; a draft no open
+ * Item of this connection waits on changes nothing.
+ */
+export function reportPulledDraftGone(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  draft: { conversationId: string; draftId: string },
+  commandId: string,
+  at: string,
+): 'dropped' | 'not waited on' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  const waiting = followedBy(db, accountName, holds, draft.conversationId)
+    .all()
+    .find((row) => row.draftId === draft.draftId);
+  if (!waiting) return 'not waited on';
+  runCommand(
+    db,
+    accountName,
+    'drop_draft',
+    {
+      commandId,
+      issuedAt: at,
+      workspaceId: waiting.itemWorkspaceId,
+      itemId: waiting.itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: draft.conversationId,
+      draftId: draft.draftId,
+    },
+    { fromTheSource: true },
+  );
+  return 'dropped';
+}
+
+/** The links checked for an Item no connection to a mailbox brought in (`followedBy`). */
+const broughtIn = alias(pulledLinks, 'brought_in');
+
+/**
+ * The open Items that follow a conversation at this connection's account -
+ * one, or all of them where no conversation is named: those it brought in,
+ * by their links to it, and those no connection to this mailbox brought in,
+ * whose Email… started or replied in one there.
  */
 function followedBy(
   db: AccountDb,
@@ -569,9 +648,16 @@ function followedBy(
   conversationId?: string,
 ) {
   return db
-    .select({ itemId: itemConversations.itemId, conversationId: itemConversations.conversationId })
+    .select({
+      itemId: itemConversations.itemId,
+      itemWorkspaceId: items.workspaceId,
+      conversationId: itemConversations.conversationId,
+      lastAt: itemConversations.lastAt,
+      draftId: itemConversations.draftId,
+      statusBeforeDraft: itemConversations.statusBeforeDraft,
+    })
     .from(itemConversations)
-    .innerJoin(
+    .leftJoin(
       pulledLinks,
       and(
         eq(pulledLinks.tenantId, accountName),
@@ -587,6 +673,28 @@ function followedBy(
         eq(itemConversations.tenantId, accountName),
         eq(itemConversations.connectorId, holds.connectorId),
         eq(itemConversations.externalAccountKey, holds.externalAccountKey),
+        // Brought in by this connection, or an Item no connection to this
+        // mailbox brought in, whose Email… started or replied in the
+        // conversation here (issue 1708): whatever Workspace it is in now, an
+        // undecided Inbox Item or one moved since included.
+        or(
+          isNotNull(pulledLinks.itemId),
+          notExists(
+            db
+              .select({ itemId: broughtIn.itemId })
+              .from(broughtIn)
+              .where(
+                and(
+                  eq(broughtIn.tenantId, accountName),
+                  eq(broughtIn.itemId, itemConversations.itemId),
+                  eq(broughtIn.connectorId, holds.connectorId),
+                  eq(broughtIn.externalAccountKey, holds.externalAccountKey),
+                ),
+              ),
+          ),
+        ),
+        // Not a conversation Email… is still starting, which the source has not named.
+        not(like(itemConversations.conversationId, `${DRAFT_STARTING_PREFIX}%`)),
         ...(conversationId === undefined ? [] : [eq(itemConversations.conversationId, conversationId)]),
         // Not stopped: reopened in Cockpit while unmarked at the source.
         isNull(itemConversations.stoppedAt),
