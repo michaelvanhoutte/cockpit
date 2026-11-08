@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -2787,6 +2787,12 @@ describe('Triage', () => {
     let making: ((link: string) => void)[] = [];
     const stillMaking = () => new Promise<string>((resolve) => making.push(resolve));
 
+    // The chunk a click fetches before asking for the draft (emailDraftClick.ts), loaded once
+    // here so a case waits on the click's behaviour, not on the module's first transform.
+    beforeAll(async () => {
+      await import('../../../src/emailDraftClick');
+    });
+
     beforeEach(() => {
       opened = { location: { href: '' }, opener: {}, close: vi.fn() };
       vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
@@ -2820,7 +2826,9 @@ describe('Triage', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
 
       expect(window.open).toHaveBeenCalledWith('', '_blank');
-      expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-work' }));
+      await waitFor(() =>
+        expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-work' })),
+      );
       expect(await screen.findByText('Gmail · Draft started')).toBeInTheDocument();
       await user.click(screen.getByLabelText('Item actions'));
       expect(await screen.findByRole('menuitem', { name: /^Status/ })).toHaveTextContent('In progress');
@@ -2874,6 +2882,7 @@ describe('Triage', () => {
       await user.click(screen.getByLabelText('Item actions'));
       await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
 
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalled());
       expect(mockMakeADraft).toHaveBeenCalledTimes(1);
       expect(window.open).toHaveBeenCalledTimes(1);
     });
@@ -2891,7 +2900,9 @@ describe('Triage', () => {
 
       expect(asked.map((one) => one.textContent)).toEqual(['michael@home.example', 'michael@work.example']);
       await user.keyboard('{ArrowDown}{Enter}');
-      expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-work' }));
+      await waitFor(() =>
+        expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-work' })),
+      );
     });
 
     it.each([
