@@ -2151,13 +2151,14 @@ describe('Capture', () => {
       await screen.findByRole('status');
       expect(typed).not.toHaveBeenCalled();
       expect(box()).toHaveValue('Ask Ada');
+    });
 
+    it('closes the form once followed where nothing was typed', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
       const bare = vi.fn();
-      await thePage({ onKept: bare });
-      const entries = await screen.findAllByRole('button', { name: 'Follow a sent email…' });
-      await user.click(entries[entries.length - 1]!);
-      const rows = await screen.findAllByRole('button', { name: /Quote for the kitchen renovation/ });
-      await user.click(rows[rows.length - 1]!);
+      const user = await thePage({ onKept: bare });
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
       await waitFor(() => expect(bare).toHaveBeenCalledTimes(1));
     });
   });

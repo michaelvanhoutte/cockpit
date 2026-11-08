@@ -110,7 +110,7 @@ export function sentEmailIn(answer: unknown, mailboxAddress: string): SentEmail 
 export function recipientsIn(header: string | null): string | null {
   if (!header) return null;
   // A group (`undisclosed-recipients:;`, `Team: a@x.com, b@x.com;`) is its members, if it names any.
-  const group = /^\s*[^:"<>,@]+:(.*);\s*$/.exec(header);
+  const group = /^[^:"<>,@;]+:([^;]*);$/.exec(header.trim());
   const names = (group ? group[1]! : header)
     // A comma inside quotes is part of a name, not a separator.
     .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)

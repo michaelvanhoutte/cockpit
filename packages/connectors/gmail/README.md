@@ -233,8 +233,9 @@ turns:
 
 `listRecentSent` is on demand while a person waits and changes nothing.
 
-- **`users.messages.list` with `labelIds=SENT&maxResults=10`** answers the ids of
-  the newest sent emails, newest first (the bin and spam are left out as Gmail
+- **`users.messages.list` with `labelIds=SENT&maxResults=30`** (three times the
+  limit) answers the ids of the newest sent emails, newest first, of which the
+  newest of each conversation is kept (up to ten) (the bin and spam are left out as Gmail
   leaves them); **each is read once with `format=metadata`** and the `Subject` and
   `To` headers, which gives its conversation (`threadId`), time (`internalDate`)
   and `snippet`, HTML-escaped by Gmail and unescaped here. At most 14 calls: a

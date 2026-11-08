@@ -29,7 +29,7 @@ export class DraftNotMadeError extends Error {
 /** What a click resent after its draft failed is told. */
 export const DRAFT_FAILED_BEFORE = 'This draft was not made. Try again.';
 
-/** Whether a connection may start a conversation from an Item: its connector makes drafts, under the choice it follows. */
+/** Whether a connection may take an on-demand mail action (`method`: making a draft, or listing sent mail): its connector has it, under the choice it follows. */
 export function startsConversations(
   connector: Connector | undefined,
   follows: string | null,

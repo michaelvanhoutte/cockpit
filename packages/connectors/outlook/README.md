@@ -215,10 +215,10 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 
 `listRecentSent` is on demand while a person waits and changes nothing: one
-`GET /me/mailFolders/sentitems/messages?$top=10&$orderby=sentDateTime desc` with
+`GET /me/mailFolders/sentitems/messages?$top=30&$orderby=sentDateTime desc` with
 `$select=id,conversationId,subject,toRecipients,sentDateTime,bodyPreview,webLink,isDraft`
 (https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0).
-A draft or a message with no conversation or time is not listed. The link is the
+Three times the limit is asked for and the newest message of each conversation kept. A draft or a message with no conversation or time is not listed. The link is the
 message's `webLink`, which opens it in Outlook on the web.
 
 

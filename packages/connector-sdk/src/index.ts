@@ -715,7 +715,7 @@ export interface Connector {
   makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
 
   /**
-   * Lists the newest `limit` emails sent from the mailbox, newest first, on
+   * Lists the newest `limit` emails sent, one for each conversation (its newest), from the mailbox, newest first, on
    * demand while a person waits ("Follow a sent email… in Capture", issue
    * 1710), for a connector whose manifest `startsConversations`. Throws
    * `SourceError`, worded for the person, where the source would not answer.

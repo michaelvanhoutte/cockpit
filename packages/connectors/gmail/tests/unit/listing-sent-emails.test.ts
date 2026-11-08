@@ -51,7 +51,7 @@ describe('Triage', () => {
       ]);
     });
 
-    it('asks for the ten newest in the Sent label alone, reads each once, and changes nothing', async () => {
+    it('asks for thirty in the Sent label alone, keeps ten conversations, reads each once, and changes nothing', async () => {
       const world = new GmailWorld();
       for (let n = 1; n <= 12; n += 1) {
         world.sends(`t-${n}`, `Mail ${n}`, 'x@example.com', `2026-10-${String(n).padStart(2, '0')}T09:00:00Z`);

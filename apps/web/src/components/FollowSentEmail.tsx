@@ -6,7 +6,7 @@ import { agoLabel } from '../conversationLine';
 
 /**
  * *Follow a sent email…* in Capture ("Follow a sent email… in Capture", issue
- * 1710): the last ten emails sent from the Workspace's mail connections,
+ * 1710): the last ten conversations written in from the Workspace's mail connections,
  * newest first, read from the sources when this opens; picking one makes an
  * Item that follows that conversation, Waiting for reply, titled with the
  * subject, and filed as a capture with *File on* would file it.
@@ -79,8 +79,7 @@ export function FollowSentEmail({
       </div>
       {sent.data && sent.data.emails.length > 0 && (
         <p className="text-sm text-ink-faint">
-          {sent.data.emails.length === 1 ? 'Your last sent email' : `Your last ${sent.data.emails.length} sent emails, newest first`}. Pick one
-          to follow its conversation: it waits for a reply.
+          Your recent sent emails, one a conversation, newest first. Pick one to follow its conversation: it waits for a reply.
         </p>
       )}
 

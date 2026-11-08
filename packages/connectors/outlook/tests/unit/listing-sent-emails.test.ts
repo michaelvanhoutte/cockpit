@@ -65,7 +65,7 @@ describe('Triage', () => {
       ]);
     });
 
-    it('asks Sent Items alone for the newest ten, in one read, and changes nothing', async () => {
+    it('asks Sent Items alone for thirty, keeps ten conversations, in one read, and changes nothing', async () => {
       const world = new GraphWorld();
       for (let n = 1; n <= 12; n += 1) {
         world.arrives(`sent-${n}`, { folder: SENT_ITEMS_ID, receivedAt: `2026-10-${String(n).padStart(2, '0')}T09:00:00Z` });

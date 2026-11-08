@@ -819,10 +819,13 @@ export function CaptureNote({
             setFollowed({ ...result, filedOn: result.made ? filedHere.map((one) => one.name).join(', ') : '' });
             setFollowing(false);
             if (!result.made) return;
-            setFiled((was) => (was === filed ? [] : was));
             void queryClient.invalidateQueries({ queryKey: ['snapshot', target] });
-            // Only where nothing was typed here: whoever closes this on hearing it would take a half-written note with it.
-            if (noteNow.current.trim() === '' && queued.length === 0) saidNow.current.onKept?.();
+            // Only where nothing was typed here: whoever closes this on hearing it would take a half-written note with it,
+            // and the note keeps the Panels chosen for it.
+            if (noteNow.current.trim() === '' && queuedRef.current.length === 0) {
+              setFiled((was) => (was === filed ? [] : was));
+              saidNow.current.onKept?.();
+            }
           }}
         />
       </Suspense>
