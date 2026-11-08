@@ -36,6 +36,8 @@ const NAMED_AT_A_TIME = 50;
  * ends it: the line before it extended where the check is alike
  * (`whatACheckWrites`), a line of its own otherwise. A check that did
  * anything is a line of its own, keeping what it did (issue 1141).
+ * startedAt is when the check's run took its hold (issue 1725); a line that
+ * is extended keeps its first, and a delivery has none.
  */
 export function recordCheck(
   tx: InATransaction,
@@ -45,6 +47,7 @@ export function recordCheck(
   ended: CheckEnded,
   did: CheckDid,
   at: string,
+  startedAt: string | null = null,
 ): void {
   const previous = tx
     .select({
@@ -87,6 +90,7 @@ export function recordCheck(
       lastAt: at,
       did: kept === null ? null : JSON.stringify(kept),
       listed,
+      startedAt,
     })
     .run();
 }
@@ -178,6 +182,7 @@ export function connectionHistoryOf(
       lastAt: connectionHistory.lastAt,
       did: connectionHistory.did,
       listed: connectionHistory.listed,
+      startedAt: connectionHistory.startedAt,
     })
     .from(connectionHistory)
     .where(and(eq(connectionHistory.tenantId, accountName), eq(connectionHistory.sourceAccountId, sourceAccountId)))

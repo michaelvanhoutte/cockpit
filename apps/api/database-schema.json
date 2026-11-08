@@ -2246,6 +2246,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "listed"
+            },
+            {
+              "name": "started_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "startedAt"
             }
           ],
           "indexes": [

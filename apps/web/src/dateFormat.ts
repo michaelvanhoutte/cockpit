@@ -38,6 +38,7 @@ const SHAPES = {
   dateTime: { dateStyle: 'medium', timeStyle: 'short' },
   date: { dateStyle: 'medium' },
   time: { hour: '2-digit', minute: '2-digit' },
+  timeToTheSecond: { hour: '2-digit', minute: '2-digit', second: '2-digit' },
   weekdayAndDay: { weekday: 'short', day: 'numeric', month: 'short' },
   dayAndMonth: { day: 'numeric', month: 'short' },
   dayAndMonthAndYear: { day: 'numeric', month: 'short', year: '2-digit' },
@@ -87,6 +88,9 @@ export const momentDateLabel = (instant: string | number | Date) => at('date', i
 
 /** The clock time of a moment in the device's zone. */
 export const timeOfDayLabel = (instant: string | number | Date) => at('time', instant);
+
+/** The clock time of a moment to the second, in the device's zone. */
+export const timeToTheSecondLabel = (instant: string | number | Date) => at('timeToTheSecond', instant);
 
 /**
  * When a note was added to an Item, as its *Details* tab says it (*Added 14:32*,

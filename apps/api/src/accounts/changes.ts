@@ -188,6 +188,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CONVERSATIONS,
     ITEM_CONVERSATIONS_STOPPED,
     ITEM_CONVERSATIONS_DRAFT_LINK,
+    CONNECTION_HISTORY_STARTED_AT,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1658,6 +1659,16 @@ const ITEM_CONVERSATIONS_STOPPED: Change = {
 const ITEM_CONVERSATIONS_DRAFT_LINK: Change = {
   name: '0102-item-conversations-draft-link',
   statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `draft_link` text' }],
+};
+
+/**
+ * Adds when a check began to its line of a connection's history (`0103-connection-history-started-at`,
+ * issue 1725): NULL for a delivery and for every line written before it, which
+ * a release before it ignores. Expand only.
+ */
+const CONNECTION_HISTORY_STARTED_AT: Change = {
+  name: '0103-connection-history-started-at',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `started_at` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

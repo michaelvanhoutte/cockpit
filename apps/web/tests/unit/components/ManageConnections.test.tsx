@@ -1390,6 +1390,7 @@ describe('Connector management', () => {
     firstAt: at(16, 9, 5),
     lastAt: at(16, 9, 5),
     did: didNothing,
+    startedAt: null,
     ...over,
   });
 
@@ -1617,7 +1618,7 @@ describe('Connector management', () => {
       const history = await openHistory();
 
       expect(within(history).getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual(['Today', 'Yesterday']);
-      expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Worked')).toBeInTheDocument();
+      expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Scheduled check · finished · worked')).toBeInTheDocument();
     });
 
     it('names the year of a day from another year, and keeps the same date a year apart as two days', async () => {
@@ -1640,14 +1641,20 @@ describe('Connector management', () => {
       {
         situation: 'a single check that worked, with why it ran',
         held: line({ reason: 'follow-up' }),
-        says: 'Worked',
-        detail: ' · Follow-up',
+        says: 'Follow-up check · finished · worked',
+        detail: null,
       },
       {
         situation: 'a single check a person asked for',
         held: line({ reason: 'check-now' }),
-        says: 'Worked',
-        detail: ' · Check now',
+        says: 'Manual check · finished · worked',
+        detail: null,
+      },
+      {
+        situation: 'a single check with its start, ending when it finished and how long it took (issue 1725)',
+        held: line({ reason: 'check-now', startedAt: new Date(new Date(at(16, 9, 5)).getTime() - 3000).toISOString() }),
+        says: 'Manual check · finished in 3 s · worked',
+        detail: null,
       },
       {
         situation: 'a folded quiet line, with its span',
@@ -1659,8 +1666,8 @@ describe('Connector management', () => {
       {
         situation: 'a single failure, with why it ran and its message',
         held: line({ outcome: 'failed', message: 'unavailable' }),
-        says: 'Failed',
-        detail: ' · Scheduled · unavailable',
+        says: 'Scheduled check · failed',
+        detail: ' · unavailable',
       },
       {
         situation: 'a folded failure, with its span and message',
@@ -1672,25 +1679,25 @@ describe('Connector management', () => {
       {
         situation: 'a failure whose message was cut, marked so',
         held: line({ outcome: 'failed', message: 'a long story', messageCut: true }),
-        says: 'Failed',
-        detail: ' · Scheduled · a long story…',
+        says: 'Scheduled check · failed',
+        detail: ' · a long story…',
       },
       {
         situation: 'a failure with a status and a message, the status first',
         held: line({ outcome: 'failed', message: 'unavailable', status: 503 }),
-        says: 'Failed',
-        detail: ' · Scheduled · HTTP 503 · unavailable',
+        says: 'Scheduled check · failed',
+        detail: ' · HTTP 503 · unavailable',
       },
       {
         situation: 'a failure with a status and no message, the status alone',
         held: line({ outcome: 'failed', status: 403 }),
-        says: 'Failed',
-        detail: ' · Scheduled · HTTP 403',
+        says: 'Scheduled check · failed',
+        detail: ' · HTTP 403',
       },
       {
         situation: 'a failure that said nothing',
         held: line({ outcome: 'failed', reason: 'a reason from a later release' }),
-        says: 'Failed',
+        says: 'failed',
         detail: null,
       },
     ])('$situation', async ({ held: one, says, detail, span }) => {
@@ -1718,8 +1725,8 @@ describe('Connector management', () => {
       showWindow();
       const history = await openHistory();
 
-      const row = within(history).getByText('Worked').closest('li')!;
-      expect(row.textContent).toContain('Worked · Scheduled · Brought in 2, Sent back 1, Refused 1');
+      const row = within(history).getByText('Scheduled check · finished · worked').closest('li')!;
+      expect(row.textContent).toContain('Scheduled check · finished · worked · Brought in 2, Sent back 1, Refused 1');
       expect(row.textContent).toContain('New: Invoice 2026-118 from Acme, Re: Q4 planning');
       expect(row.textContent).toContain('Sent back: Lunch on Thursday? (dismissed)');
       expect(row.textContent).toContain('Refused: an Item no longer in Cockpit');
@@ -1736,7 +1743,7 @@ describe('Connector management', () => {
       showWindow();
       const history = await openHistory();
 
-      expect(within(history).getByText('Worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
+      expect(within(history).getByText('Scheduled check · finished · worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
     });
 
     it('says No checks yet where there are none', async () => {
@@ -1755,21 +1762,21 @@ describe('Connector management', () => {
       held.history = [line({})];
       await userEvent.click(retry);
 
-      expect(await within(history).findByText('Worked')).toBeInTheDocument();
+      expect(await within(history).findByText('Scheduled check · finished · worked')).toBeInTheDocument();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
 
     it('reads it again on opening it again, never drawing the read before', async () => {
       held.history = [line({})];
       showWindow();
-      expect(await within(await openHistory()).findByText('Worked')).toBeInTheDocument();
+      expect(await within(await openHistory()).findByText('Scheduled check · finished · worked')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
 
       held.history = 'fails';
       const again = await openHistory();
 
       expect(await within(again).findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-      expect(within(again).queryByText('Worked')).toBeNull();
+      expect(within(again).queryByText('Scheduled check · finished · worked')).toBeNull();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
   });
@@ -1876,7 +1883,7 @@ describe('Connector management', () => {
       held.olderRemain = olderRemain;
       showWindow();
       const history = await openHistory();
-      await within(history).findByText('Worked');
+      await within(history).findByText('Scheduled check · finished · worked');
 
       expect(within(history).queryByText(/^Older days follow/)?.textContent ?? null).toBe(says);
     });
