@@ -49,14 +49,14 @@ export function ItemFormConversation({
         now={Date.now()}
         // Reply… in a followed conversation, or Email… again on one a click
         // left starting, which only a new draft mends.
-        reply={entry && held && <EmailButton entry={entry} onEmail={emailWith} />}
+        reply={entry && held && <EmailButton entry={entry} onEmail={emailWith} sourceNames={sourceNames} />}
       />
     );
   }
   // An Item following nothing offers Email… where the section would be.
   return entry ? (
     <div className="flex justify-end">
-      <EmailButton entry={entry} onEmail={emailWith} />
+      <EmailButton entry={entry} onEmail={emailWith} sourceNames={sourceNames} />
     </div>
   ) : null;
 }

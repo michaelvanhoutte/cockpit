@@ -2906,7 +2906,7 @@ describe('Triage', () => {
       await user.keyboard('{ArrowRight}');
       const asked = await screen.findAllByRole('menuitem', { name: /^michael@/ });
 
-      expect(asked.map((one) => one.textContent)).toEqual(['michael@home.example', 'michael@work.example']);
+      expect(asked.map((one) => one.textContent)).toEqual(['michael@home.exampleGmail', 'michael@work.exampleGmail']);
       await user.keyboard('{ArrowDown}{Enter}');
       await waitFor(() =>
         expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-work' })),
@@ -2925,6 +2925,85 @@ describe('Triage', () => {
       await screen.findByRole('menuitem', { name: 'Wait for reply…' });
 
       expect(screen.queryByRole('menuitem', { name: /^(Email|Reply)…/ })?.textContent ?? null).toBe(offers);
+    });
+  });
+
+  describe('the mailbox choice heads its mailboxes From and gives each its connection name over its source', () => {
+    const GMAIL: Mailbox = { sourceAccountId: 'sa-gmail', connectorId: 'gmail', name: 'vanhoutte.michael@gmail.com' };
+    const OUTLOOK: Mailbox = { sourceAccountId: 'sa-outlook', connectorId: 'outlook', name: 'michael@work.example' };
+    const SECOND_GMAIL: Mailbox = { sourceAccountId: 'sa-gmail-2', connectorId: 'gmail', name: 'michael@home.example' };
+    const NAMES = { gmail: 'Gmail', outlook: 'Outlook' };
+    const theChoice = async (mailboxes: Mailbox[], user = userEvent.setup()) => {
+      aRow({ extra: { mailboxes, sourceNames: NAMES } });
+      await user.click(screen.getByLabelText('Item actions'));
+      (await screen.findByRole('menuitem', { name: /^Email…/ })).focus();
+      await user.keyboard('{ArrowRight}');
+      return user;
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      localStorage.clear();
+    });
+
+    it('opens with From, then the two mailboxes, each its name over its source', async () => {
+      await theChoice([GMAIL, OUTLOOK]);
+
+      const asked = await screen.findAllByRole('menuitem', { name: /@/ });
+      expect(screen.getByText('From')).toBeInTheDocument();
+      expect(asked.map((one) => one.textContent)).toEqual(['vanhoutte.michael@gmail.comGmail', 'michael@work.exampleOutlook']);
+      expect(within(asked[0]!).getByText('Gmail')).toBeInTheDocument();
+      expect(within(asked[1]!).getByText('Outlook')).toBeInTheDocument();
+    });
+
+    it('lets the keyboard land only on the mailboxes, and does nothing on a click of From', async () => {
+      const user = await theChoice([GMAIL, OUTLOOK]);
+      await screen.findAllByRole('menuitem', { name: /@/ });
+
+      expect(screen.getByText('From')).not.toHaveAttribute('role', 'menuitem');
+      await user.click(screen.getByText('From'));
+      expect(mockMakeADraft).not.toHaveBeenCalled();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('menuitem', { name: /vanhoutte\.michael@gmail\.com/ })).toHaveFocus();
+    });
+
+    it('reads two connections of one source each by its own name over the same source, the last used first', async () => {
+      localStorage.setItem('cockpit.lastMailbox', JSON.stringify({ 'ws-work': 'sa-gmail-2' }));
+      await theChoice([GMAIL, SECOND_GMAIL]);
+
+      const asked = await screen.findAllByRole('menuitem', { name: /@/ });
+      expect(asked.map((one) => one.textContent)).toEqual(['michael@home.exampleGmail', 'vanhoutte.michael@gmail.comGmail']);
+    });
+
+    it('shows a name past the limit whole on hover, its line cut by the menu', async () => {
+      const long: Mailbox = { ...OUTLOOK, name: 'a.very.long.shared.mailbox.address.for.the.whole.team@subsidiary.example.com' };
+      await theChoice([GMAIL, long]);
+
+      const name = await screen.findByText(long.name);
+      expect(name).toHaveAttribute('title', long.name);
+      expect(name).toHaveClass('truncate');
+    });
+
+    it('makes the draft at the mailbox picked', async () => {
+      const user = await theChoice([GMAIL, OUTLOOK]);
+      mockMakeADraft.mockReturnValue(new Promise<string>(() => {}));
+      vi.spyOn(window, 'open').mockReturnValue({ location: { href: '' }, opener: {}, close: vi.fn() } as unknown as Window);
+
+      await user.click(await screen.findByRole('menuitem', { name: /michael@work\.example/ }));
+
+      await waitFor(() =>
+        expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-1', expect.objectContaining({ sourceAccountId: 'sa-outlook' })),
+      );
+    });
+
+    it('asks nothing and heads nothing where there is one mailbox', async () => {
+      const user = userEvent.setup();
+      aRow({ extra: { mailboxes: [GMAIL], sourceNames: NAMES } });
+
+      await user.click(screen.getByLabelText('Item actions'));
+
+      expect(await screen.findByRole('menuitem', { name: 'Email…' })).toBeInTheDocument();
+      expect(screen.queryByText('From')).toBeNull();
     });
   });
 });

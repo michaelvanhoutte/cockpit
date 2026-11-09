@@ -8,6 +8,7 @@ import type {
   Addition,
   Attachment,
   Conversation,
+  Mailbox,
   Filing,
   Item,
   Panel,
@@ -56,6 +57,9 @@ const held = vi.hoisted(() => ({
   attachments: [] as Attachment[],
   additions: [] as Addition[],
   conversations: [] as Conversation[],
+  mailboxes: [] as Mailbox[],
+  /** Sources the Workspace names beyond the usual three, where a case needs one. */
+  alsoNamed: {} as Record<string, string>,
   series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
@@ -219,6 +223,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.attachments,
       held.additions,
       held.conversations,
+      held.mailboxes,
       held.series,
       held.itemFormPresentation,
     ],
@@ -234,12 +239,13 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         attachments: held.attachments,
         additions: held.additions,
         conversations: held.conversations,
+        mailboxes: held.mailboxes,
         series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
         followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
-        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' },
+        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
       } as unknown as WorkspaceSnapshot;
     },
   }),
@@ -432,6 +438,8 @@ beforeEach(() => {
   held.attachments = [];
   held.additions = [];
   held.conversations = [];
+  held.mailboxes = [];
+  held.alsoNamed = {};
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
@@ -3145,6 +3153,29 @@ describe('Item editing', () => {
 
       expect(screen.getByRole('region', { name: 'Conversation' })).toBeVisible();
       expect(screen.queryByRole('link', { name: /Open the latest email/ })).toBeNull();
+    });
+  });
+
+  /**
+   * "Email…'s mailbox menu says it is the From" (issue 1723): the form's own
+   * Email… asks which of several mailboxes as the row's menu does; what the
+   * menu reads like is EmailButton's, drawn here through the form.
+   */
+  describe('Email… on the form asks which of several mailboxes under a From heading, each with its source', () => {
+    it('opens with From, then each mailbox its name over its source', async () => {
+      held.alsoNamed = { outlook: 'Outlook' };
+      held.mailboxes = [
+        { sourceAccountId: 'sa-gmail', connectorId: 'gmail', name: 'vanhoutte.michael@gmail.com' },
+        { sourceAccountId: 'sa-outlook', connectorId: 'outlook', name: 'michael@work.example' },
+      ];
+      const user = userEvent.setup();
+      await theForm();
+
+      await user.click(await screen.findByRole('button', { name: 'Email…' }));
+
+      const asked = await screen.findAllByRole('menuitem');
+      expect(screen.getByText('From')).toBeInTheDocument();
+      expect(asked.map((one) => one.textContent)).toEqual(['vanhoutte.michael@gmail.comGmail', 'michael@work.exampleOutlook']);
     });
   });
 

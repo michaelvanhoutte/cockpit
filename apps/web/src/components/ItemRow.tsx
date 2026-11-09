@@ -34,6 +34,7 @@ import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTh
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
+import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
 import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type SourceNames } from '../itemSource';
 import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
@@ -880,14 +881,11 @@ export function ItemRow({
                 </span>
               </M.SubTrigger>
               <M.Portal>
-                <M.SubContent
-                  sideOffset={roomBesideTheMenu ? 0 : -SUBMENU_WIDTH_PX}
-                  style={{ width: SUBMENU_WIDTH_PX }}
-                  className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
-                >
+                <M.SubContent sideOffset={roomBesideTheMenu ? 0 : -320} className={mailboxMenuClass}>
+                  <div className={fromHeadingClass}>From</div>
                   {emailEntry.mailboxes.map((mailbox) => (
                     <M.Item key={mailbox.sourceAccountId} className={menuItemClass} onSelect={() => emailWith(mailbox)}>
-                      <span className="truncate">{mailbox.name}</span>
+                      <MailboxChoice mailbox={mailbox} names={sourceNames} />
                     </M.Item>
                   ))}
                 </M.SubContent>

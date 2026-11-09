@@ -493,8 +493,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 | Cold open → glanceable dashboard (installed PWA, warm cache), counting the server's read | **< 1s** |
 | Capture: entry point → note persisted (excluding typing) | **< 2s** |
 | Panel interactions (filter, drag, reorder, switch dashboard) | **< 100ms** |
-| Initial JS bundle (compressed) | **< 240KB**, hard CI gate |
-| Any one file fetched separately (compressed) | **< 240KB**, same gate, charged on its own |
+| Initial JS bundle (compressed) | **< 241KB**, hard CI gate |
+| Any one file fetched separately (compressed) | **< 241KB**, same gate, charged on its own |
 | The server's answer on opening (the Workspace list) | held at most **3s**, then the saved reads are drawn and a later answer replaces them; nothing shows for the first 300ms |
 | Cold open's check for a new version (a waiting service worker, or the browser asked for one) | holds the app **at most 1.5s**; an answer after that shows the message over the open app |
 
@@ -517,6 +517,8 @@ Budgets are gates, not aspirations; exceeding one makes restoring it priority wo
 **Moved from 235KB to 236KB for Recurring items** ("Make, change and delete recurring items from the Recurring items modal", issue 1449): the menu entry and the code that fetches the modal on click are in the entry.
 
 **Moved from 236KB to 240KB at once, by the engineer's decision**, after "Choose which of two possible duplicates to keep, from the warning" (issue 1451) left the entry a byte under the 235KB gate, its cards already a chunk of their own, and Recurring items then needed a move of its own: as at 230KB, a gate with no headroom fails the next feature that touches the entry.
+
+**Moved from 240KB to 241KB, by the engineer's decision**, for the mailbox menu of Email… and Reply… ("Conversation follow-up: Email…'s mailbox menu does not say it is the From…", issue 1723): its From heading and each mailbox's source line sit in the row menu, which is in the entry, and left it 26 bytes over once trimmed.
 
 One standing rule follows: **heavy dependencies are lazy-loaded or rejected**, which the bundle gate makes mechanical.
 
