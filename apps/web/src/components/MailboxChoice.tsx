@@ -10,7 +10,7 @@ import { sourceNamed, type SourceNames } from '../itemSource';
  */
 
 /** Its width: the longest choice's, from 12rem to 20rem; a longer name ends in "…" inside it. */
-export const mailboxMenuClass = 'z-floating w-max min-w-48 max-w-80 rounded-md border border-shade/10 bg-surface p-1 shadow-lg';
+export const mailboxMenuClass = 'w-max min-w-48 max-w-80 z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg';
 
 /** The heading: small and grey, never an entry. */
 export const fromHeadingClass = 'px-2 py-1 text-xs text-ink-faint';
@@ -22,7 +22,7 @@ export function MailboxChoice({ mailbox, names }: { mailbox: Mailbox; names: Sou
       <div className="truncate" title={mailbox.name}>
         {mailbox.name}
       </div>
-      <div className="truncate text-xs text-ink-faint">{sourceNamed(names, mailbox.connectorId)}</div>
+      <div className="text-xs text-ink-faint">{sourceNamed(names, mailbox.connectorId)}</div>
     </>
   );
 }
