@@ -224,8 +224,10 @@ turns:
   to its To where it was yours. One metadata read of the conversation first.
 - **At most four calls**: a refresh, the profile where no check saved the address
   yet, that read, and the draft. Never retried: a draft made twice is two drafts.
-- **The link** opens the Drafts folder, `#drafts`, in the connected mailbox, the
-  new draft at its top. No link opens one draft: `#drafts?compose=` takes
+- **A reply's link** opens its conversation, `#all/<message id>` of the message
+  replied to, where Gmail shows the draft open under the last email.
+- **A new email's link** opens the Drafts folder, `#drafts`, in the connected
+  mailbox, the new draft at its top. No link opens one draft: `#drafts?compose=` takes
   Gmail's own token, not the API's id, and opens a blank message given the id,
   and real Gmail answers `#drafts/<message id>` with "the conversation cannot be
   loaded". The conversation's link, until the draft

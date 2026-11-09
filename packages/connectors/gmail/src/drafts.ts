@@ -58,7 +58,8 @@ export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorC
     return {
       draftId: made.id,
       conversationId: made.threadId,
-      draftLink: draftLink(address),
+      // A reply opens in its conversation, a new email in the Drafts folder.
+      draftLink: reply?.latestId ? conversationLink(reply.latestId, address) : draftLink(address),
       // The message replied to, or the draft itself where it starts the
       // conversation: never the conversation's id, which is its first message's.
       conversationLink: conversationLink(reply?.latestId ?? made.messageId, address),
@@ -180,8 +181,9 @@ export function draftIn(answer: unknown): { id: string; messageId: string; threa
 }
 
 /**
- * Where Gmail shows a draft, in the connected mailbox: the Drafts folder, the
- * draft at its top. No link opens one draft: `#drafts?compose=` wants Gmail's
+ * Where Gmail shows a new email's draft, in the connected mailbox: the Drafts
+ * folder, the draft at its top. A reply's draft opens in its conversation
+ * instead, where Gmail shows it open under the last email. No link opens one draft: `#drafts?compose=` wants Gmail's
  * own token and opens a blank message given the API's id, and `#drafts/<id>`
  * says the conversation cannot be loaded, as a real mailbox showed ("Conversation
  * follow-up: Open, previews, drafts and Check now misbehave on real Gmail and
@@ -212,7 +214,11 @@ export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorC
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
     const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`);
     const messageId = draftStillThere(answer);
-    if (messageId !== null) return { draftLink: draftLink(await addressOf(host, mailbox)) };
+    if (messageId !== null) {
+      const address = await addressOf(host, mailbox);
+      // A reply (a conversation known before it) opens in its conversation, as when it was made.
+      return { draftLink: draft.after !== null ? conversationLink(draft.conversationId, address) : draftLink(address) };
+    }
     const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
     return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
   } catch (error) {

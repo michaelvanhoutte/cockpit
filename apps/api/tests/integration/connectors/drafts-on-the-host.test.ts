@@ -32,6 +32,7 @@ import { historyRecord, labelsAnswer, message } from '../../../../../packages/co
 const ANNA = { email: 'anna@example.com', subject: 'google-anna' };
 
 /** Where Gmail opens the first draft made, and shows a message of the mailbox. */
+/** Where a new email's draft opens. */
 const DRAFT_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const MESSAGE_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
 
@@ -493,7 +494,8 @@ describe('Triage', () => {
       const replying = await aReplyStarted();
 
       expect((await theItem(started)).conversation?.link).toBe(DRAFT_LINK);
-      expect((await theItem(replying)).conversation?.link).toBe(DRAFT_LINK);
+      // A reply opens in its conversation, where Gmail shows the draft under the last email.
+      expect((await theItem(replying)).conversation?.link).toBe(`${MESSAGE_LINK}t-1`);
     });
 
     it('opens the email the draft became once it is sent', async () => {

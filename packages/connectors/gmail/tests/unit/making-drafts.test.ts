@@ -12,7 +12,7 @@ import { rawDraft } from '../../src/drafts.js';
  * (apps/api/tests/integration/connectors/drafts-on-the-host.test.ts).
  */
 
-/** Where a draft opens: the Drafts folder, since no link opens one draft in real Gmail (issue 1720). */
+/** Where a new email's draft opens: the Drafts folder, since no link opens one draft in real Gmail (issue 1720). */
 const DRAFTS = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
 
@@ -78,7 +78,8 @@ describe('Triage', () => {
       expect(made.conversationId).toBe('t-1');
       // The message replied to, not the conversation, whose id is its first message's (issue 1720).
       expect(made.conversationLink).toBe(`${LINK}t-1-r1`);
-      expect(made.draftLink).toBe(DRAFTS);
+      // Its conversation, where Gmail shows the draft open under the last email.
+      expect(made.draftLink).toBe(`${LINK}t-1-r1`);
     });
 
     it('folds a long conversation’s References one message id a line, inside the line length mail allows', () => {
@@ -251,6 +252,17 @@ describe('Triage', () => {
 
       expect(await world.connector().findDraft!(onDemand(host), draft)).toEqual(found);
       expect(world.draftsAsked).toHaveLength(asked);
+    });
+
+    it('opens a reply draft still unsent in its conversation', async () => {
+      const world = new GmailWorld();
+      const host = signedInHost({ choice: 'star' });
+      world.arrives('t-1', 'Dinner one of these weeks?', 'Shall we?', ['star']);
+      const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: 't-1' });
+
+      const found = await world.connector().findDraft!(onDemand(host), { conversationId: 't-1', draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' });
+
+      expect(found).toEqual({ draftLink: `${LINK}t-1` });
     });
 
     it('counts a reply draft deleted unsent as gone, a message of yours from before it not making it sent', async () => {
