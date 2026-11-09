@@ -428,12 +428,12 @@ test.describe("Triage", () => {
         press(page.getByRole("menuitem", { name: "Email…" }), isMobile),
       ]);
 
-      await expect(tab).toHaveURL(/#drafts$/);
+      await expect(tab).toHaveURL(/#drafts\?compose=[B-Zb-z]+$/);
       await expect(row.getByText("Gmail · Draft started")).toBeVisible();
-      // While it is unsent, Open goes to the draft (issue 1720).
+      // While it is unsent, Open goes to the draft itself (issue 1720).
       await expect(
         row.getByRole("link", { name: "Open the draft in Gmail" }),
-      ).toHaveAttribute("href", /#drafts$/);
+      ).toHaveAttribute("href", /#drafts\?compose=[B-Zb-z]+$/);
       await expect(row.getByText("In progress")).toBeVisible();
       const drafts = (await (
         await fetch(
