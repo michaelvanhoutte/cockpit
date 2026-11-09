@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type DraftWaiting, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { ADDRESS, GmailWorld, signedInHost } from './gmail-world.js';
-import { draftLink, rawDraft } from '../../src/drafts.js';
+import { draftLink, rawDraft, replyDraftLink } from '../../src/drafts.js';
 
 /**
  * L1, against a fake host and Gmail faked at the network: *Email…* and
@@ -52,7 +52,7 @@ describe('Triage', () => {
       });
     });
 
-    it('opens one draft with the code Gmail itself shows for it, built from the conversation and draft ids', () => {
+    it('opens a new email’s draft with the code Gmail itself shows for it, built from the conversation and draft ids', () => {
       // Made-up ids. The code was worked out apart from this source, by the rule a real
       // draft's code decoded to and rebuilt from exactly (issue 1720).
       expect(draftLink('anna@example.com', '18f0a1b2c3d4e5f6', 'r-1234567890123456789')).toBe(
@@ -61,7 +61,15 @@ describe('Triage', () => {
       );
     });
 
-    it('links a reply to its own draft, made and found again while unsent', async () => {
+    it('opens a reply’s draft in its conversation with the code Gmail itself shows for it, built from the conversation and latest email', () => {
+      // Made-up ids, encoded apart from this source by the rule a real reply draft's code decoded to and rebuilt from exactly (issue 1720).
+      expect(replyDraftLink('anna@example.com', '18f0a1b2c3d4e5f6', '18f0a1b2c3d4f7a8')).toBe(
+        'https://mail.google.com/mail/?authuser=anna%40example.com#drafts/' +
+          'WhctKKZWmlNphNphVBVCCVgcQqpQdgxjVhBGHPxmgcVSwhNnpjlTmtdlGJcKnJcNKpMLBGq',
+      );
+    });
+
+    it('links a reply to its draft by the conversation’s latest email, made and found again while unsent', async () => {
       const world = new GmailWorld();
       const host = signedInHost({ choice: 'star' });
       world.arrives('1a1c', 'Dinner one of these weeks?', 'Shall we?', ['star']);
@@ -69,8 +77,7 @@ describe('Triage', () => {
       const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: '1a1c' });
       const found = await world.connector().findDraft!(onDemand(host), { conversationId: '1a1c', draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' });
 
-      expect(made.draftLink).toBe(draftLink(ADDRESS, '1a1c', made.draftId));
-      expect(made.draftLink).toContain('#drafts?compose=');
+      expect(made.draftLink).toBe(replyDraftLink(ADDRESS, '1a1c', '1a1c'));
       expect(found).toEqual({ draftLink: made.draftLink });
     });
 

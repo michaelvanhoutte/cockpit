@@ -224,15 +224,16 @@ turns:
   to its To where it was yours. One metadata read of the conversation first.
 - **At most four calls**: a refresh, the profile where no check saved the address
   yet, that read, and the draft. Never retried: a draft made twice is two drafts.
-- **The link** opens the draft itself: `#drafts?compose=` with the code Gmail's
-  own address bar shows for it, built from the conversation and draft ids. Gmail
-  does not document the code; one real draft's decoded to
-  `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>` in base64,
-  then rewritten in Gmail's alphabet of consonants, and the link built from the
-  API's ids opened that draft ("Conversation follow-up: Open, previews, drafts
-  and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
-  Should Gmail change the code, the
-  link opens a blank message over the Drafts folder. The conversation's link, until the draft
+- **The link** opens the draft itself, by the code Gmail's own address bar shows
+  for it: text in base64, then rewritten in Gmail's alphabet of consonants. Gmail
+  does not document it; links built this way from the API's ids opened a real
+  new email's draft and a real reply's ("Conversation follow-up: Open, previews,
+  drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+  A new email's is `#drafts?compose=` over
+  `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>`; a reply's is
+  `#drafts/` over `f:<conversation id in decimal>|msg-f:<latest email's id in decimal>`,
+  the conversation opening with the draft under that email. Should Gmail change
+  the code, the link opens a blank message. The conversation's link, until the draft
   is sent, names the message replied to, or the draft where it starts the
   conversation.
 - **Reply… with a draft already waited on** asks first what became of it
@@ -241,7 +242,7 @@ turns:
   the mailbox in its conversation since), the host is told so and makes nothing;
   otherwise, gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most four calls:
   a refresh, the draft, the profile where no check saved the address yet, and
-  the conversation.
+  the conversation, read for a reply still there or a draft no longer there.
 - **A check** reads a draft's conversation as any followed one: the draft sent,
   whether its message keeps its id (Draft off, Sent on) or comes back as a new
   one, is a turn of yours. Once the history is read to the end, each draft the

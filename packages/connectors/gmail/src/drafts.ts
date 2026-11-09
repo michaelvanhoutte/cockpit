@@ -58,7 +58,7 @@ export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorC
     return {
       draftId: made.id,
       conversationId: made.threadId,
-      draftLink: draftLink(address, made.threadId, made.id),
+      draftLink: reply?.latestId ? replyDraftLink(address, made.threadId, reply.latestId) : draftLink(address, made.threadId, made.id),
       // The message replied to, or the draft itself where it starts the
       // conversation: never the conversation's id, which is its first message's.
       conversationLink: conversationLink(reply?.latestId ?? made.messageId, address),
@@ -180,31 +180,52 @@ export function draftIn(answer: unknown): { id: string; messageId: string; threa
 }
 
 /**
- * Where Gmail opens one draft, in the connected mailbox: `#drafts?compose=`
- * with the code Gmail's own address bar shows for it. Gmail does not document
- * that code; a real mailbox's decodes to `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>`,
- * written in base64 and then in Gmail's own alphabet of consonants, and a link
- * built that way from the API's ids opened the draft ("Conversation follow-up:
- * Open, previews, drafts and Check now misbehave on real Gmail and Outlook
- * mailboxes", issue 1720). Should Gmail change the code, the link would open a
- * blank message over the Drafts folder, as a code Gmail did not make did before.
- * A conversation id that is not hexadecimal, as Gmail's always are, gets the
- * Drafts folder, the draft at its top.
+ * Where Gmail opens one draft, in the connected mailbox, by the code Gmail's
+ * own address bar shows for it. Gmail does not document the code. Real
+ * mailboxes' decoded to text written in base64 and then in Gmail's alphabet of
+ * consonants, and links built that way from the API's ids opened each draft
+ * ("Conversation follow-up: Open, previews, drafts and Check now misbehave on
+ * real Gmail and Outlook mailboxes", issue 1720):
+ *
+ * - a new email's draft: `#drafts?compose=` over
+ *   `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>`;
+ * - a reply's (`replyDraftLink`): `#drafts/` over
+ *   `f:<conversation id in decimal>|msg-f:<latest email's id in decimal>`,
+ *   which opens the conversation with the draft open under that email.
+ *
+ * Should Gmail change the code, the link would open a blank message, as a code
+ * Gmail did not make did before. Ids that are not hexadecimal, as Gmail's always
+ * are, get the Drafts folder, the draft at its top.
  */
 export function draftLink(mailboxAddress: string, conversationId: string, draftId: string): string {
-  const drafts = `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts`;
-  if (!/^[0-9a-f]+$/i.test(conversationId)) return drafts;
+  if (!isHex(conversationId)) return drafts(mailboxAddress);
   const named = `f:${BigInt(`0x${conversationId}`)}|msg-a:${draftId}+msg-a:${draftId}`;
-  return `${drafts}?compose=${inGmailsAlphabet(btoa(named).replace(/=+$/, ''))}`;
+  return `${drafts(mailboxAddress)}?compose=${inGmailsAlphabet(named)}`;
+}
+
+/** Where Gmail opens a reply's draft: its conversation, at the latest email, the draft open under it. */
+export function replyDraftLink(mailboxAddress: string, conversationId: string, latestId: string): string {
+  if (!isHex(conversationId) || !isHex(latestId)) return drafts(mailboxAddress);
+  const named = `f:${BigInt(`0x${conversationId}`)}|msg-f:${BigInt(`0x${latestId}`)}`;
+  return `${drafts(mailboxAddress)}/${inGmailsAlphabet(named)}`;
+}
+
+/** The Drafts folder: where a draft opens whose ids are not Gmail's. */
+function drafts(mailboxAddress: string): string {
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts`;
+}
+
+function isHex(id: string): boolean {
+  return /^[0-9a-f]+$/i.test(id);
 }
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXZbcdfghjklmnpqrstvwxz';
 
-/** Base64 text rewritten in Gmail's consonants: the same number, its digits read in base 64 and written in base 40. */
-function inGmailsAlphabet(base64: string): string {
+/** Text in base64 rewritten in Gmail's consonants: the same number, its digits read in base 64 and written in base 40. */
+function inGmailsAlphabet(text: string): string {
   let number = 0n;
-  for (const digit of base64) number = number * 64n + BigInt(BASE64.indexOf(digit));
+  for (const digit of btoa(text).replace(/=+$/, '')) number = number * 64n + BigInt(BASE64.indexOf(digit));
   let out = '';
   for (; number > 0n; number /= 40n) out = CONSONANTS[Number(number % 40n)] + out;
   return out;
@@ -212,8 +233,8 @@ function inGmailsAlphabet(base64: string): string {
 
 /**
  * The calls one look for a draft may spend: a refresh, the draft, the mailbox's
- * address where no run has saved it yet, and the conversation where the draft
- * is no longer there.
+ * address where no run has saved it yet, and the conversation - for a reply
+ * still there, whose link names its latest email, or for a draft no longer there.
  */
 const CALLS_PER_LOOK = 4;
 
@@ -231,7 +252,13 @@ export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorC
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
     const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`);
     const messageId = draftStillThere(answer);
-    if (messageId !== null) return { draftLink: draftLink(await addressOf(host, mailbox), draft.conversationId, draft.draftId) };
+    if (messageId !== null) {
+      const address = await addressOf(host, mailbox);
+      if (draft.after === null) return { draftLink: draftLink(address, draft.conversationId, draft.draftId) };
+      // A reply: its link names the conversation's latest email, one read of the conversation away.
+      const latest = replyToLatestIn(await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`))?.latestId;
+      return { draftLink: latest ? replyDraftLink(address, draft.conversationId, latest) : drafts(address) };
+    }
     const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
     return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
   } catch (error) {
