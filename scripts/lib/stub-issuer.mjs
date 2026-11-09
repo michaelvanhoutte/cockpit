@@ -633,7 +633,8 @@ export async function startStubIssuer({ port, seedPath }) {
         .map(([, name, value]) => ({ name, value }));
       mailbox.historyId += 1;
       const at = String(mailbox.historyId);
-      const id = `draft-${at}`;
+      // Hexadecimal, as Gmail's ids are, so a draft's link is the one real Gmail gets.
+      const id = `dd${at}`;
       const threadId = asked.message?.threadId ?? id;
       const thread = mailbox.threads.find((one) => one.id === threadId);
       if (asked.message?.threadId && !thread) return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);

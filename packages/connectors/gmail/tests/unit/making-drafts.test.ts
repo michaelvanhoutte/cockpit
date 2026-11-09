@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type DraftWaiting, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { ADDRESS, GmailWorld, signedInHost } from './gmail-world.js';
-import { rawDraft } from '../../src/drafts.js';
+import { draftLink, rawDraft } from '../../src/drafts.js';
 
 /**
  * L1, against a fake host and Gmail faked at the network: *Email…* and
@@ -12,7 +12,7 @@ import { rawDraft } from '../../src/drafts.js';
  * (apps/api/tests/integration/connectors/drafts-on-the-host.test.ts).
  */
 
-/** Where a new email's draft opens: the Drafts folder, since no link opens one draft in real Gmail (issue 1720). */
+/** Where a draft opens whose conversation id is not Gmail's hexadecimal, as the fake's are: the Drafts folder. */
 const DRAFTS = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
 
@@ -52,6 +52,28 @@ describe('Triage', () => {
       });
     });
 
+    it('opens one draft with the code Gmail itself shows for it, built from the conversation and draft ids', () => {
+      // Made-up ids. The code was worked out apart from this source, by the rule a real
+      // draft's code decoded to and rebuilt from exactly (issue 1720).
+      expect(draftLink('anna@example.com', '18f0a1b2c3d4e5f6', 'r-1234567890123456789')).toBe(
+        'https://mail.google.com/mail/?authuser=anna%40example.com#drafts?compose=' +
+          'hJzgZqtJzKKxPfMHhtRpQMQhbpHdmWdwJVMgfdWnJtzrNBRNdNQqHKWPLpFGFjPQbgLNnCBmVlZzkxwqzHLSZjTpTlqfcbPcMZlPlwBLRpJdLFrBJcNb',
+      );
+    });
+
+    it('links a reply to its own draft, made and found again while unsent', async () => {
+      const world = new GmailWorld();
+      const host = signedInHost({ choice: 'star' });
+      world.arrives('1a1c', 'Dinner one of these weeks?', 'Shall we?', ['star']);
+
+      const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: '1a1c' });
+      const found = await world.connector().findDraft!(onDemand(host), { conversationId: '1a1c', draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' });
+
+      expect(made.draftLink).toBe(draftLink(ADDRESS, '1a1c', made.draftId));
+      expect(made.draftLink).toContain('#drafts?compose=');
+      expect(found).toEqual({ draftLink: made.draftLink });
+    });
+
     it('encodes a subject outside ASCII so Gmail reads it back whole', async () => {
       const world = new GmailWorld();
 
@@ -78,8 +100,7 @@ describe('Triage', () => {
       expect(made.conversationId).toBe('t-1');
       // The message replied to, not the conversation, whose id is its first message's (issue 1720).
       expect(made.conversationLink).toBe(`${LINK}t-1-r1`);
-      // Its conversation, where Gmail shows the draft open under the last email.
-      expect(made.draftLink).toBe(`${LINK}t-1-r1`);
+      expect(made.draftLink).toBe(DRAFTS);
     });
 
     it('folds a long conversation’s References one message id a line, inside the line length mail allows', () => {
@@ -252,17 +273,6 @@ describe('Triage', () => {
 
       expect(await world.connector().findDraft!(onDemand(host), draft)).toEqual(found);
       expect(world.draftsAsked).toHaveLength(asked);
-    });
-
-    it('opens a reply draft still unsent in its conversation', async () => {
-      const world = new GmailWorld();
-      const host = signedInHost({ choice: 'star' });
-      world.arrives('t-1', 'Dinner one of these weeks?', 'Shall we?', ['star']);
-      const made = await world.connector().makeDraft!(onDemand(host), { subject: 'Plan', replyIn: 't-1' });
-
-      const found = await world.connector().findDraft!(onDemand(host), { conversationId: 't-1', draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' });
-
-      expect(found).toEqual({ draftLink: `${LINK}t-1` });
     });
 
     it('counts a reply draft deleted unsent as gone, a message of yours from before it not making it sent', async () => {

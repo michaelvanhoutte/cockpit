@@ -224,13 +224,15 @@ turns:
   to its To where it was yours. One metadata read of the conversation first.
 - **At most four calls**: a refresh, the profile where no check saved the address
   yet, that read, and the draft. Never retried: a draft made twice is two drafts.
-- **A reply's link** opens its conversation, `#all/<message id>` of the message
-  replied to, where Gmail shows the draft open under the last email.
-- **A new email's link** opens the Drafts folder, `#drafts`, in the connected
-  mailbox, the new draft at its top. No link opens one draft: `#drafts?compose=` takes
-  Gmail's own token, not the API's id, and opens a blank message given the id,
-  and real Gmail answers `#drafts/<message id>` with "the conversation cannot be
-  loaded". The conversation's link, until the draft
+- **The link** opens the draft itself: `#drafts?compose=` with the code Gmail's
+  own address bar shows for it, built from the conversation and draft ids. Gmail
+  does not document the code; one real draft's decoded to
+  `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>` in base64,
+  then rewritten in Gmail's alphabet of consonants, and the link built from the
+  API's ids opened that draft ("Conversation follow-up: Open, previews, drafts
+  and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+  Should Gmail change the code, the
+  link opens a blank message over the Drafts folder. The conversation's link, until the draft
   is sent, names the message replied to, or the draft where it starts the
   conversation.
 - **Reply… with a draft already waited on** asks first what became of it
