@@ -400,8 +400,8 @@ test.describe("Triage", () => {
     });
   });
 
-  test.describe("Email… opens the draft it made in a new tab, and the row says the draft is started", () => {
-    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress", async ({
+  test.describe("Email… opens the draft it made in a new tab, and Reply… with points asks Claude for the draft; the row says the draft is started", () => {
+    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress; then Reply… asks what Claude should say and opens the draft holding what was written", async ({
       page,
       isMobile,
     }) => {
@@ -445,48 +445,10 @@ test.describe("Triage", () => {
       expect(drafts.map((one) => one.subject)).toContain(purpose);
       await tab.close();
 
-      await openSettings(page, "Connections", isMobile);
-      await chooseRowAction(page, MAILBOX, "Disconnect", isMobile);
-      await press(
-        page.getByRole("button", { name: `Yes, disconnect ${MAILBOX}` }),
-        isMobile,
-      );
-      await expect(
-        page.getByRole("dialog").getByText(/Nothing connected yet/),
-      ).toBeVisible();
-      await closeSettings(page, isMobile);
-      await deleteWorkspace(page, workspace, isMobile);
-    });
-  });
-
-  /**
-   * Draft with Claude ("Mail follow-up: Reply… in Gmail makes an empty draft: have
-   * Claude write it from the Item, your points and the conversation", issue 1730):
-   * the box, the tab opened at the press and the row, with Gmail and Claude both
-   * the stack's stand-ins. What the real model writes is the contract tier's; what
-   * the request does with it, the Worker's tests'.
-   */
-  test.describe("Reply… with points asks Claude for the draft and opens the draft it made in a new tab", () => {
-    test("asks what Claude should say, then opens a tab at the mailbox’s drafts and reads Gmail · Draft started, In progress, the draft holding what was written", async ({
-      page,
-      isMobile,
-    }) => {
-      test.skip(isMobile, "a phone has no Connections, only Appearance");
-      await openFirstWorkspace(page, isMobile);
-      const workspace = uniqueTitle("Drafted by Claude");
-      await makeWorkspace(page, workspace, isMobile);
-      await switchTo(page, workspace, isMobile);
-      await connectedByStar(page, isMobile);
-      // The draft's own page is Gmail's, which no walk may reach: answered here, so only its address is checked.
-      await page
-        .context()
-        .route("https://mail.google.com/**", (route) =>
-          route.fulfill({ body: "the draft" }),
-        );
-
-      const purpose = uniqueTitle("Plan a dinner with Steven Noels");
+      // Where the Item follows a conversation Claude can write the reply: Reply… asks what it should say (issue 1730). What the real model writes is the contract tier's.
+      const followed = uniqueTitle("Plan a dinner with Steven Noels");
       const { thread } = await inGmail("star", {
-        subject: purpose,
+        subject: followed,
         text: "Shall we have dinner one of these weeks?",
       });
       await checkedAgain(page);
@@ -496,10 +458,10 @@ test.describe("Triage", () => {
         text: "Thursday evening?",
       });
       await checkedAgain(page);
-      const row = itemRow(page, purpose);
-      await expect(row.getByText("Gmail · Steven replied just now")).toBeVisible();
+      const followedRow = itemRow(page, followed);
+      await expect(followedRow.getByText("Gmail · Steven replied just now")).toBeVisible();
 
-      await press(row.getByRole("button", { name: "Item actions" }), isMobile);
+      await press(followedRow.getByRole("button", { name: "Item actions" }), isMobile);
       await press(page.getByRole("menuitem", { name: "Reply…", exact: true }), isMobile);
       const box = page.getByRole("dialog", {
         name: /Anything Claude should say/,
@@ -509,25 +471,25 @@ test.describe("Triage", () => {
       await expect(
         box.getByRole("button", { name: "Write it myself" }),
       ).toBeDisabled();
-      const [tab] = await Promise.all([
+      const [claudeTab] = await Promise.all([
         page.waitForEvent("popup"),
         press(box.getByRole("button", { name: "Draft with Claude" }), isMobile),
       ]);
 
-      await expect(tab).toHaveURL(/#drafts(\/[B-Zb-z]+)?$/);
+      await expect(claudeTab).toHaveURL(/#drafts(\/[B-Zb-z]+)?$/);
       await expect(box).toBeHidden();
       // The Inbox column is narrow enough to cut the source's line to nothing, so it is checked in the row, not by sight.
-      await expect(row.getByText("Gmail · Draft started")).toBeAttached();
-      await expect(row.getByText("In progress")).toBeVisible();
-      const drafts = (await (
+      await expect(followedRow.getByText("Gmail · Draft started")).toBeAttached();
+      await expect(followedRow.getByText("In progress")).toBeVisible();
+      const claudeDrafts = (await (
         await fetch(
           `${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`,
         )
       ).json()) as { thread: string; body: string }[];
-      const draft = drafts.find((one) => one.thread === thread);
+      const draft = claudeDrafts.find((one) => one.thread === thread);
       expect(draft?.body).toContain("Points: only after 8pm");
       expect(draft?.body).toContain("shown 2 messages");
-      await tab.close();
+      await claudeTab.close();
 
       await openSettings(page, "Connections", isMobile);
       await chooseRowAction(page, MAILBOX, "Disconnect", isMobile);
