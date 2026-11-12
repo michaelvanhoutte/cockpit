@@ -734,9 +734,11 @@ test.describe("Triage", () => {
       const row = itemRow(page, purpose);
       await expect(row).toBeVisible();
       await press(row.getByRole("button", { name: "Item actions" }), isMobile);
+      await press(page.getByRole("menuitem", { name: "Email…" }), isMobile);
+      // Outlook too asks first what Claude should say; Write it myself makes the empty draft.
       const [tab] = await Promise.all([
         page.waitForEvent("popup"),
-        press(page.getByRole("menuitem", { name: "Email…" }), isMobile),
+        press(page.getByRole("button", { name: "Write it myself" }), isMobile),
       ]);
 
       await expect(tab).toHaveURL(/ItemID=AAkALgStubDraft\d+/);
