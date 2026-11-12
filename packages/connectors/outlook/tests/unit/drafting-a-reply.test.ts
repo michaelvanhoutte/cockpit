@@ -300,6 +300,10 @@ describe('Triage', () => {
       { situation: 'words added after them', content: '<html><body><div>Hi Steven, Thursday & Friday. Or Saturday</div><hr></body></html>' },
       { situation: 'other words first', content: '<html><body><div>PS</div><div>Hi Steven, Thursday & Friday.</div></body></html>' },
       { situation: 'some of them gone', content: '<html><body><div>Hi Steven,</div><hr></body></html>' },
+      {
+        situation: 'an image pasted among them, which Graph counts in no attachment',
+        content: '<html><body><div>Hi Steven,</div><div><img src="cid:image001.png"></div><div>Thursday &amp; Friday.</div><hr></body></html>',
+      },
     ])('finds none where the draft has $situation', ({ content }) => {
       expect(wordsReplaced({ contentType: 'html', content }, 'Hi Steven,\n\nThursday & Friday.', 'Hello')).toBeNull();
     });

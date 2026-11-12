@@ -240,6 +240,8 @@ export class GmailWorld {
     this.draftsUpdated.push({ id, text, threadId: body.message.threadId ?? null });
     draft.raw = body.message.raw;
     const held = this.#email(draft.messageId);
+    // As Gmail reads the new message back: its words, a look after the rewrite seeing them.
+    held.payload = message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text) }).payload;
     return json({ id, message: { id: held.id, threadId: draft.threadId, labelIds: held.labelIds } });
   }
 
@@ -266,13 +268,7 @@ export class GmailWorld {
     const n = this.#drafts.size + 1;
     const messageId = `draft-message-${n}`;
     const threadId = body.message.threadId ?? messageId;
-    // Its words as Gmail reads them back: the body after the headers, decoded as its encoding says.
-    const [headers = '', ...rest] = text.split('\r\n\r\n');
-    const after = rest.join('\r\n\r\n');
-    const words = /^Content-Transfer-Encoding: base64$/im.test(headers)
-      ? new TextDecoder().decode(Uint8Array.from(atob(after.replace(/\s+/g, '')), (c) => c.charCodeAt(0)))
-      : after;
-    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: words, labelled: false, from: `Anna Peeters <${ADDRESS}>` });
+    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), labelled: false, from: `Anna Peeters <${ADDRESS}>` });
     draft.labelIds = ['DRAFT'];
     const thread = this.#threads.find((one) => one.id === threadId);
     if (thread) thread.messages.push(draft);
@@ -569,6 +565,15 @@ export class GmailWorld {
     }
     return json(modifyAnswer({ id: thread.id, historyId: String(this.#historyId), messages: thread.messages }));
   }
+}
+
+/** A draft's words as Gmail reads them back from its raw message: the body after the headers, decoded as its encoding says. */
+function wordsOfRaw(text: string): string {
+  const [headers = '', ...rest] = text.split('\r\n\r\n');
+  const after = rest.join('\r\n\r\n');
+  return /^Content-Transfer-Encoding: base64$/im.test(headers)
+    ? new TextDecoder().decode(Uint8Array.from(atob(after.replace(/\s+/g, '')), (c) => c.charCodeAt(0)))
+    : after;
 }
 
 function json(body: unknown, status = 200): Response {

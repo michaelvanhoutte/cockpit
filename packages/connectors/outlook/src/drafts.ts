@@ -268,9 +268,18 @@ function endOfWordsInHtml(content: string, start: number, was: string): number |
   return end === content.length || content[end] === '<' ? end : null;
 }
 
-/** What one piece of HTML shows: a block's edge or a line break as a space, a character reference as its character, any other tag as nothing. */
+/**
+ * What one piece of HTML shows: a block's edge or a line break as a space, a
+ * character reference as its character, any other tag as nothing - but an
+ * image or other embedded content as a character no words hold, since Graph
+ * counts a pasted image in no `hasAttachments`, and replacing the words around
+ * it would lose it.
+ */
 function shownBy(piece: string): string {
-  if (piece.startsWith('<')) return /^<\/?(br|p|div|li|tr|td|h[1-6]|blockquote|hr|table)\b/i.test(piece) ? ' ' : '';
+  if (piece.startsWith('<')) {
+    if (/^<(img|picture|object|embed|iframe|video|audio|svg|canvas)\b/i.test(piece)) return '￼';
+    return /^<\/?(br|p|div|li|tr|td|h[1-6]|blockquote|hr|table)\b/i.test(piece) ? ' ' : '';
+  }
   // A space a reference stands for (`&nbsp;`) comes back trimmed to nothing.
   if (piece.length > 1 && piece.startsWith('&')) return plainTextOf(piece) || ' ';
   return piece;
