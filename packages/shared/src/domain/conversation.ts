@@ -54,6 +54,9 @@ export function isDraftStarting(conversation: Pick<Conversation, 'conversationId
   return conversation.conversationId.startsWith(DRAFT_STARTING_PREFIX);
 }
 
+/** The most characters the points for Claude to say may run to ("Draft with Claude", issue 1730): a box for a few lines, not a document. */
+export const DRAFT_POINTS_LIMIT = 2000;
+
 /**
  * A Workspace connection *Email…* can make a draft in (issue 1708): one whose
  * connector starts conversations under the choice it follows, named as the
@@ -63,6 +66,13 @@ export const mailboxSchema = z.object({
   sourceAccountId: z.string(),
   connectorId: z.string(),
   name: z.string(),
+  /**
+   * Claude can write the draft made here ("Mail follow-up: Reply… in Gmail
+   * makes an empty draft…", issue 1730): its connector reads a conversation
+   * for a reply, this environment has a Claude key it may spend, and the
+   * account is not the guest. Absent: no box, and the empty draft as before.
+   */
+  claudeDrafts: z.boolean().optional(),
 });
 export type Mailbox = z.infer<typeof mailboxSchema>;
 

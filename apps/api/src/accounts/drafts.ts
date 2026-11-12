@@ -52,7 +52,7 @@ export type DraftWantedAnswer =
   | { status: 'recorded'; link: string }
   | { status: 'failed' }
   | ({ status: 'look'; draft: DraftWaiting } & AskingTheSource)
-  | ({ status: 'make'; subject: string; replyIn: string | null } & AskingTheSource);
+  | ({ status: 'make'; subject: string; description: string | null; replyIn: string | null } & AskingTheSource);
 
 /** Refused: a LinkedIn conversation is answered in LinkedIn, which no mailbox reaches. */
 export const LINKEDIN_HAS_NO_DRAFT = 'A LinkedIn conversation is answered in LinkedIn.';
@@ -128,7 +128,7 @@ export function wantDraft(
     ...place,
     replyIn,
   });
-  return { status: 'make', subject: item.title, replyIn, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
+  return { status: 'make', subject: item.title, description: item.description, replyIn, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
 }
 
 /**

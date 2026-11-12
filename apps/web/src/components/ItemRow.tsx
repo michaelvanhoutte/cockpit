@@ -361,7 +361,7 @@ export function ItemRow({
   /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
   const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
   const emailWith = (mailbox: Mailbox) => {
-    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item) }, offerToUndo);
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation }, offerToUndo);
   };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();

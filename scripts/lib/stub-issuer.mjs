@@ -649,7 +649,11 @@ export async function startStubIssuer({ port, seedPath }) {
       if (thread) thread.messages.push(message);
       else mailbox.threads.push({ id: threadId, historyId: at, messages: [message] });
       mailbox.history.push({ id: at, messages: [{ id, threadId }], messagesAdded: [{ message: { id, threadId, labelIds: message.labelIds } }] });
-      const draft = { id: `r-${at}`, message: id, thread: threadId, subject: headers.find((one) => one.name === 'Subject')?.value ?? '' };
+      // What the draft says, as a walk reads it back: the body after the headers, decoded as its encoding says (issue 1730).
+      const [head = '', ...rest] = raw.split('\r\n\r\n');
+      const afterHeaders = rest.join('\r\n\r\n');
+      const draftText = /^Content-Transfer-Encoding: base64$/im.test(head) ? Buffer.from(afterHeaders, 'base64').toString('utf8') : afterHeaders;
+      const draft = { id: `r-${at}`, message: id, thread: threadId, subject: headers.find((one) => one.name === 'Subject')?.value ?? '', body: draftText };
       mailbox.drafts.push(draft);
       json(response, { id: draft.id, message: { id, threadId, labelIds: message.labelIds } });
     });

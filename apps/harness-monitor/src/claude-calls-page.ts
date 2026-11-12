@@ -86,6 +86,7 @@ const FEATURE_NAMES: Record<string, string> = {
   'choose-a-panel': 'Choose a panel',
   'remember-a-sentence': 'Remember a sentence',
   'resolve-a-place': 'Resolve a place',
+  'draft-a-reply': 'Draft a reply',
   'read-what-a-note-means': 'Read what a note means',
   'transcribe-a-recording': 'Transcribe a recording',
 };

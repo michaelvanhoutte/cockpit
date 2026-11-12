@@ -356,6 +356,34 @@ export interface DraftWanted {
   subject: string;
   /** The source's id of the conversation the Item follows, for a reply; null for a new conversation. */
   replyIn: string | null;
+  /**
+   * The text of the draft's body, written by the host and handed over as it is
+   * (issue 1730). Absent: an empty body. A connector never writes it itself.
+   */
+  body?: string;
+}
+
+/**
+ * One message of a conversation as a reply to it is written from
+ * (`readConversationForReply`, issue 1730): who, when, and the text the message
+ * itself adds, with the earlier emails it quotes taken out.
+ */
+export interface MessageForReply {
+  by: 'you' | 'them';
+  /** Who sent it, as its source names them; null where it names nobody. */
+  from: string | null;
+  /** When it was sent, an ISO instant. */
+  at: string;
+  /** Its own text without what it quotes, at most `ReplyReadLimits.characters` characters. */
+  text: string;
+}
+
+/** How much of a conversation `readConversationForReply` may answer with. */
+export interface ReplyReadLimits {
+  /** The newest this many messages, oldest first. */
+  messages: number;
+  /** Each message's text is cut to this many characters. */
+  characters: number;
 }
 
 /** The draft a connector made, and where it lives. */
@@ -748,4 +776,13 @@ export interface Connector {
    * Changes nothing at the source.
    */
   listRecentSent?(host: OnDemandHost, limit: number): Promise<SentEmail[]>;
+
+  /**
+   * Reads the newest messages of a conversation for a reply to be written from,
+   * on demand while a person waits (issue 1730), for a connector that can make a
+   * draft with a body it is handed. Oldest first, drafts and messages in the
+   * bin left out. Throws `SourceError`, worded for the person, where the source
+   * would not answer. Changes nothing at the source.
+   */
+  readConversationForReply?(host: OnDemandHost, conversationId: string, limits: ReplyReadLimits): Promise<MessageForReply[]>;
 }

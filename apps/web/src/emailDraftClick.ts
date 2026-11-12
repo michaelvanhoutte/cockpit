@@ -29,9 +29,14 @@ export async function makeTheDraft(
   queryClient: QueryClient | undefined,
   { workspaceId, itemId, mailbox, label }: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string },
   tab: Window | null,
+  claude?: { points: string },
 ): Promise<string | null> {
   try {
-    const link = await makeADraft(workspaceId, itemId, { clickId: uuidv7(), sourceAccountId: mailbox.sourceAccountId });
+    const link = await makeADraft(workspaceId, itemId, {
+      clickId: uuidv7(),
+      sourceAccountId: mailbox.sourceAccountId,
+      ...(claude ? { withClaude: true, points: claude.points } : {}),
+    });
     rememberMailbox(workspaceId, mailbox.sourceAccountId);
     if (tab) tab.location.href = link;
     else window.open(link, '_blank', 'noopener');

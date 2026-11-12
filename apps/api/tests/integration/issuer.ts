@@ -126,6 +126,7 @@ export async function issuerIsReachable(): Promise<void> {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.origin === GMAIL_API) return gmailAnswer(url, init);
+    if (url.origin === ANTHROPIC_API) return claudeAnswer(input, init);
     if (url.origin === GRAPH_API) return graphAnswer(url, init);
     if (url.origin === VERIFY_API) return verifyAnswer(url, init);
     if (url.origin !== ISSUER) {
@@ -212,6 +213,7 @@ export function issuerAnswersTogether(expected: number): {
 /** Puts the issuer back out of reach, and forgets what it was going to say. */
 export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
+  claudeIsForgotten();
   gmailIsEmpty();
   graphIsEmpty();
   verifyIsEmpty();
@@ -294,6 +296,76 @@ function labelsChanged(answer: unknown, change: { addLabelIds?: string[]; remove
 
 /** Every refresh Google was asked for, oldest first, by the refresh token it named. */
 export const refreshes: string[] = [];
+
+/**
+ * Claude, as a draft is written by it ("Mail follow-up: Reply… in Gmail makes an
+ * empty draft: have Claude write it from the Item, your points and the
+ * conversation", issue 1730): the Messages API answering in its documented shape
+ * (the contract tier checks the real one, apps/api/tests/contract/one-call.test.ts),
+ * writing what a case says it writes, failing, or going silent until the request
+ * is abandoned - what the SDK's own timer does at the cut-off.
+ */
+export const ANTHROPIC_API = 'https://api.anthropic.com';
+
+/** Every request Claude was asked, oldest first: the model, the room for the answer, what it was told and what it was shown. */
+export const claudeAsked: { model: string; maxTokens: number; system: string; message: string }[] = [];
+
+type ClaudeWill = { writes: { language: string; body: string } } | { answers: number } | 'goes silent';
+let claudeWill: ClaudeWill = { writes: { language: 'English', body: 'Hi,\n\nThanks for your mail.\n\nAnna' } };
+
+/** Claude writing this body in this language, from now on. */
+export function claudeWrites(body: string, language = 'English'): void {
+  claudeWill = { writes: { language, body } };
+}
+
+/** Claude answering every request with this error status, as an overloaded API does. */
+export function claudeAnswersWith(status: number): void {
+  claudeWill = { answers: status };
+}
+
+/** Claude not answering until the request is abandoned. */
+export function claudeGoesSilent(): void {
+  claudeWill = 'goes silent';
+}
+
+export function claudeIsForgotten(): void {
+  claudeAsked.length = 0;
+  claudeWill = { writes: { language: 'English', body: 'Hi,\n\nThanks for your mail.\n\nAnna' } };
+}
+
+async function claudeAnswer(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const sent = JSON.parse(input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}')) as {
+    model: string;
+    max_tokens: number;
+    system: { text: string }[];
+    messages: { content: string }[];
+  };
+  claudeAsked.push({
+    model: sent.model,
+    maxTokens: sent.max_tokens,
+    system: sent.system.map((block) => block.text).join('\n\n'),
+    message: sent.messages[0]!.content,
+  });
+  if (claudeWill === 'goes silent') {
+    return new Promise<Response>((_, reject) => {
+      const abandoned = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+      if (init?.signal?.aborted) abandoned();
+      init?.signal?.addEventListener('abort', abandoned);
+    });
+  }
+  if ('answers' in claudeWill) {
+    return Response.json({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, { status: claudeWill.answers });
+  }
+  return Response.json({
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    model: sent.model,
+    content: [{ type: 'text', text: JSON.stringify(claudeWill.writes) }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 1200, output_tokens: 150 },
+  });
+}
 
 /**
  * Every draft `users.drafts.create` made, oldest first ("Email… makes a Gmail

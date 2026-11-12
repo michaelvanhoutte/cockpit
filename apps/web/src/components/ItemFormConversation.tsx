@@ -39,7 +39,7 @@ export function ItemFormConversation({
   /** *Email…* or *Reply…*, where a mailbox of the Workspace can make the draft. */
   const entry = item && !item.completedAt ? emailEntryFor(held, mailboxes, lastMailboxIn(workspaceId)) : null;
   const emailWith = (mailbox: Mailbox) => {
-    if (item) void emailFromItem(queryClient, { workspaceId, itemId, mailbox, label: itemLabel(item) }, offerToUndo);
+    if (item) void emailFromItem(queryClient, { workspaceId, itemId, mailbox, label: itemLabel(item), followed: held }, offerToUndo);
   };
   if (shown) {
     return (

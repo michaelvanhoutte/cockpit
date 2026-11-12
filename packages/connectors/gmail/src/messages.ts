@@ -496,7 +496,7 @@ export function senderIn(from: string | null): string | null {
 }
 
 /** The message's text: its first plain-text part, else its first HTML part with the tags taken out. */
-function textOf(payload: GmailPart | null | undefined): string {
+export function textOf(payload: GmailPart | null | undefined): string {
   const plain = firstPart(payload, 'text/plain');
   if (plain !== null) return plain.replace(/\r\n?/g, '\n');
   const html = firstPart(payload, 'text/html');
