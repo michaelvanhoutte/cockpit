@@ -82,8 +82,8 @@ describe('Triage', () => {
       expect(prompt).toMatchObject({ version: 'v1', model: 'claude-sonnet-5-5' });
     });
 
-    it('is held to 4,000 tokens out and a 20 second cut-off', () => {
-      expect(REPLY_LIMITS).toEqual({ maxTokens: 4_000, cutoffMs: 20_000 });
+    it('is held to 1,000 tokens out and a 20 second cut-off', () => {
+      expect(REPLY_LIMITS).toEqual({ maxTokens: 1_000, cutoffMs: 20_000 });
     });
   });
 });

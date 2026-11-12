@@ -614,7 +614,7 @@ describe('Triage', () => {
 
       expect(res.status).toBe(200);
       expect(claudeAsked).toHaveLength(1);
-      expect(claudeAsked[0]).toMatchObject({ model: 'claude-sonnet-5-5', maxTokens: 4000 });
+      expect(claudeAsked[0]).toMatchObject({ model: 'claude-sonnet-5-5', maxTokens: 1000 });
       const shown = claudeAsked[0]!.message;
       expect(shown).toContain('Item title: "Dinner one of these weeks?"');
       expect(shown).toContain('Points to make this time: "only after 8pm"');

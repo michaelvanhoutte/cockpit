@@ -20,7 +20,7 @@ export const REPLY_READ = { messages: 10, characters: 4_000 } as const;
 const ITEM_CHARACTERS = { title: 300, description: 2_000 } as const;
 
 /** What the answer may run to, and how long it is waited for: a person is waiting on the request. */
-export const REPLY_LIMITS = { maxTokens: 4_000, cutoffMs: 20_000 } as const;
+export const REPLY_LIMITS = { maxTokens: 1_000, cutoffMs: 20_000 } as const;
 
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work. The person keeps an item for an email conversation and asks you to write the body of their next email in it. They read and edit the draft before they send it.
 
