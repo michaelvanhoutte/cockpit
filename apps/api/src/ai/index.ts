@@ -182,7 +182,7 @@ export interface AiService {
    * The body of an email, written as the person from the Item, the points they
    * typed and the conversation's latest messages ("Mail follow-up: Reply… in
    * Gmail makes an empty draft…", issue 1730). **The one call a person waits
-   * on**: held to 1,000 tokens out and cut off at 20 seconds, and **never
+   * on**: held to 4,000 tokens out and cut off at 20 seconds, and **never
    * repeated**, since a retry would run past the cut-off. Answers a refusal
    * rather than throwing for anything the model itself said; a call that fails
    * or passes the cut-off throws, and no draft is made.

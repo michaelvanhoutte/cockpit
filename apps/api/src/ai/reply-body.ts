@@ -12,8 +12,8 @@ import { z } from 'zod';
 export type ReplyWritten = { body: string } | { discarded: string };
 
 /**
- * The most characters a body may run to. The call is held to 1,000 tokens, which
- * is well under this; anything longer is not what was asked for.
+ * The most characters a body may run to. The call is held to 4,000 tokens, room for the reasoning as well as the answer; a body
+ * past this is not a reply to an email, whatever the cap allowed.
  */
 export const REPLY_BODY_LIMIT = 8_000;
 

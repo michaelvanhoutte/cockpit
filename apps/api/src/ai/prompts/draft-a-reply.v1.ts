@@ -105,7 +105,7 @@ export function renderBrief(brief: ReplyBrief): string {
           'Conversation so far, oldest first:',
           ...messages.map(
             (one) =>
-              `--- ${one.by === 'you' ? 'You' : onOneLine(one.from ?? 'The other person')} wrote, ${one.at}:\n${indented(shortened(one.text.trim(), REPLY_READ.characters))}`,
+              `--- ${one.by === 'you' ? 'You' : onOneLine(one.from ?? 'The other person')} wrote, ${onOneLine(one.at)}:\n${indented(shortened(one.text.trim(), REPLY_READ.characters))}`,
           ),
         ].join('\n\n'),
   ].join('\n');
