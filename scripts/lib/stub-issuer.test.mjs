@@ -324,6 +324,22 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.equal((await read(token, `threads/${deleting.message.threadId}?format=minimal`)).status, 404);
   });
 
+  // What Claude wrote into a draft, which a walk reads back (issue 1730).
+  it('lists a draft with the body it was made with, decoded from the encoding it was sent in', async () => {
+    const token = await accessTokenFor('drafts-with-a-body@example.com');
+    const body = 'Dag Steven,\r\n\r\nDonderdag past ✓ [hoe laat?]';
+    const raw = ['Subject: Plan', 'Content-Transfer-Encoding: base64', '', Buffer.from(body).toString('base64')].join('\r\n');
+
+    await fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: { raw: Buffer.from(raw).toString('base64url') } }),
+    });
+
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=drafts-with-a-body%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => one.body), [body]);
+  });
+
   // The mail sent from the mailbox, which Follow a sent email… lists (issue 1710).
   it('lists the mail sent from the mailbox, newest first, with each email carrying its recipients and snippet', async () => {
     const token = await accessTokenFor('sending@example.com');

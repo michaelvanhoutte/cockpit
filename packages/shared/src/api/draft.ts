@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DRAFT_POINTS_LIMIT } from '../domain/conversation.js';
 
 /**
  * The draft request behind *Email…* and *Reply…* ("Email… makes a Gmail draft
@@ -15,6 +16,15 @@ import { z } from 'zod';
 export const draftAskedSchema = z.object({
   clickId: z.uuid(),
   sourceAccountId: z.string().min(1),
+  /**
+   * Claude writes the draft's body, from the Item and `points` ("Mail
+   * follow-up: Reply… in Gmail makes an empty draft: have Claude write it from
+   * the Item, your points and the conversation", issue 1730). Absent: the empty
+   * draft Email… and Reply… make otherwise.
+   */
+  withClaude: z.boolean().optional(),
+  /** What the person typed for Claude to say, optional; read only with `withClaude`. */
+  points: z.string().max(DRAFT_POINTS_LIMIT).optional(),
 });
 export type DraftAsked = z.infer<typeof draftAskedSchema>;
 

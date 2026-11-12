@@ -400,8 +400,8 @@ test.describe("Triage", () => {
     });
   });
 
-  test.describe("Email… opens the draft it made in a new tab, and the row says the draft is started", () => {
-    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress", async ({
+  test.describe("Email… opens the draft it made in a new tab, and Reply… with points asks Claude for the draft; the row says the draft is started", () => {
+    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress; then Reply… asks what Claude should say and opens the draft holding what was written", async ({
       page,
       isMobile,
     }) => {
@@ -423,9 +423,11 @@ test.describe("Triage", () => {
       const row = itemRow(page, purpose);
       await expect(row).toBeVisible();
       await press(row.getByRole("button", { name: "Item actions" }), isMobile);
+      await press(page.getByRole("menuitem", { name: "Email…" }), isMobile);
+      // Where Claude can write the draft the press first asks what it should say; Write it myself makes the empty draft.
       const [tab] = await Promise.all([
         page.waitForEvent("popup"),
-        press(page.getByRole("menuitem", { name: "Email…" }), isMobile),
+        press(page.getByRole("button", { name: "Write it myself" }), isMobile),
       ]);
 
       await expect(tab).toHaveURL(/#drafts\?compose=[B-Zb-z]+$/);
@@ -442,6 +444,52 @@ test.describe("Triage", () => {
       ).json()) as { subject: string }[];
       expect(drafts.map((one) => one.subject)).toContain(purpose);
       await tab.close();
+
+      // Where the Item follows a conversation Claude can write the reply: Reply… asks what it should say (issue 1730). What the real model writes is the contract tier's.
+      const followed = uniqueTitle("Plan a dinner with Steven Noels");
+      const { thread } = await inGmail("star", {
+        subject: followed,
+        text: "Shall we have dinner one of these weeks?",
+      });
+      await checkedAgain(page);
+      await inGmail("reply", {
+        thread,
+        from: "Steven Noels <steven@example.com>",
+        text: "Thursday evening?",
+      });
+      await checkedAgain(page);
+      const followedRow = itemRow(page, followed);
+      await expect(followedRow.getByText("Gmail · Steven replied just now")).toBeVisible();
+
+      await press(followedRow.getByRole("button", { name: "Item actions" }), isMobile);
+      await press(page.getByRole("menuitem", { name: "Reply…", exact: true }), isMobile);
+      const box = page.getByRole("dialog", {
+        name: /Anything Claude should say/,
+      });
+      await expect(box).toBeVisible();
+      await box.getByRole("textbox").fill("only after 8pm");
+      await expect(
+        box.getByRole("button", { name: "Write it myself" }),
+      ).toBeDisabled();
+      const [claudeTab] = await Promise.all([
+        page.waitForEvent("popup"),
+        press(box.getByRole("button", { name: "Draft with Claude" }), isMobile),
+      ]);
+
+      await expect(claudeTab).toHaveURL(/#drafts(\/[B-Zb-z]+)?$/);
+      await expect(box).toBeHidden();
+      // The Inbox column is narrow enough to cut the source's line to nothing, so it is checked in the row, not by sight.
+      await expect(followedRow.getByText("Gmail · Draft started")).toBeAttached();
+      await expect(followedRow.getByText("In progress")).toBeVisible();
+      const claudeDrafts = (await (
+        await fetch(
+          `${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`,
+        )
+      ).json()) as { thread: string; body: string }[];
+      const draft = claudeDrafts.find((one) => one.thread === thread);
+      expect(draft?.body).toContain("Points: only after 8pm");
+      expect(draft?.body).toContain("shown 2 messages");
+      await claudeTab.close();
 
       await openSettings(page, "Connections", isMobile);
       await chooseRowAction(page, MAILBOX, "Disconnect", isMobile);

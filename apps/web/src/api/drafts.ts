@@ -31,7 +31,7 @@ export class DraftRefused extends Error {
 export async function makeADraft(
   workspaceId: string,
   itemId: string,
-  ask: { clickId: string; sourceAccountId: string },
+  ask: { clickId: string; sourceAccountId: string; withClaude?: boolean; points?: string },
 ): Promise<string> {
   const res = await api.v1.workspaces[':workspaceId'].items[':itemId'].draft.$post({ param: { workspaceId, itemId }, json: ask });
   if (res.ok) return draftMadeSchema.parse(await res.json()).link;

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
+import { aTab, askForPoints } from './draftAsk';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, type Conversation, type Mailbox } from '@cockpit/shared';
 
 /**
@@ -64,6 +65,17 @@ export function draftBeingStarted(itemId: string, connectorId: string, followed:
   };
 }
 
+/**
+ * Whether *Email…* or *Reply…* first asks what Claude should say ("Mail
+ * follow-up: Reply… in Gmail makes an empty draft…", issue 1730): the mailbox
+ * says Claude can write its drafts (a key to spend, not the guest, a connector
+ * that can read a conversation), and no draft is live in the conversation, which
+ * Reply… opens as it always has.
+ */
+export function asksWhatClaudeShouldSay(mailbox: Mailbox, followed: Conversation | undefined): boolean {
+  return mailbox.claudeDrafts === true && followed?.draftStarted !== true;
+}
+
 /** Where this browser keeps the mailbox it last made a draft in, per Workspace. */
 export const LAST_USED_KEY = 'cockpit.lastMailbox';
 
@@ -101,24 +113,35 @@ export function useDraftStarting(itemId: string): string | null {
  * draft asked for, and the tab pointed at it. Refused, the tab closes and the
  * line the row or form says is offered with Undo. The Workspace is read again
  * either way, so the row draws what the server holds.
+ *
+ * **Where Claude can write the draft the click first asks what it should say**
+ * (`asksWhatClaudeShouldSay`): the tab then opens with the press that answers,
+ * and a Cancel opens nothing and asks nothing of the server.
  */
 export async function emailFromItem(
   queryClient: QueryClient | undefined,
-  ask: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string },
+  ask: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string; followed?: Conversation | undefined },
   offer: (undo: { what: string }) => void,
 ): Promise<void> {
   const { itemId, mailbox } = ask;
   // A second press while the first is still making its draft makes no second draft.
   if (starting.has(itemId)) return;
-  const tab = window.open('', '_blank');
-  // The draft's page gets no hold on this one, as a link's `noopener` gives none.
-  if (tab) tab.opener = null;
+  let tab: Window | null;
+  let claude: { points: string } | undefined;
+  if (asksWhatClaudeShouldSay(mailbox, ask.followed)) {
+    const choice = await askForPoints(ask.label);
+    if (!choice) return;
+    tab = choice.tab;
+    if (choice.mode === 'claude') claude = { points: choice.points };
+  } else {
+    tab = aTab();
+  }
   starting.set(itemId, mailbox.connectorId);
   changed();
   let line: string | null;
   try {
     const { makeTheDraft } = await import('./emailDraftClick');
-    line = await makeTheDraft(queryClient, ask, tab);
+    line = await makeTheDraft(queryClient, ask, tab, claude);
   } catch {
     // The chunk could not be fetched (offline, or a deploy since): nothing was asked of the server.
     tab?.close();

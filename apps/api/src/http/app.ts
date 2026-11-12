@@ -160,7 +160,7 @@ import {
 } from '../auth/register.js';
 import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
-import { DraftNotMadeError, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
@@ -1455,7 +1455,7 @@ const routes = app
       {
         ...snapshot,
         // The connections Email… may use, which only the registry can say (issue 1708).
-        mailboxes: mailboxesOf(c.env, connections),
+        mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
         sourceNames: sourceNames(c.env),
         generatedAt: new Date().toISOString(),
       },
@@ -1515,11 +1515,17 @@ const routes = app
   })
   .openapi(draftRoute, async (c) => {
     const { workspaceId, itemId } = c.req.valid('param');
-    const { clickId, sourceAccountId } = c.req.valid('json');
+    const { clickId, sourceAccountId, withClaude, points } = c.req.valid('json');
     const accountName = c.get('visitor').accountName;
     const account = await openAccount(c.env, accountName);
     try {
-      const link = await makeTheDraft(c.env, account, accountName, { workspaceId, itemId, sourceAccountId, clickId });
+      const link = await makeTheDraft(
+        c.env,
+        account,
+        accountName,
+        { workspaceId, itemId, sourceAccountId, clickId },
+        withClaude ? { points: points ?? '' } : undefined,
+      );
       return c.json({ link }, 200);
     } catch (error) {
       // The source's refusal, in its words: a 502, the fault being the source's

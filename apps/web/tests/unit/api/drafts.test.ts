@@ -29,4 +29,22 @@ describe('Triage', () => {
       await expect(asked).rejects.toMatchObject({ message: body.error, status, putBack });
     });
   });
+
+  describe('a draft asked of Claude carries the points the person typed', () => {
+    it('sends that Claude is to write it, and the points, in the request', async () => {
+      const fetched = vi.fn().mockResolvedValue(new Response(JSON.stringify({ link: 'https://mail.google.com/mail/#drafts' }), { status: 200 }));
+      vi.stubGlobal('fetch', fetched);
+
+      const link = await makeADraft('ws-work', 'item-1', {
+        clickId: '0190b6a2-7a6e-7c3d-9f00-000000000001',
+        sourceAccountId: 'sa-work',
+        withClaude: true,
+        points: 'only after 8pm',
+      });
+
+      expect(link).toBe('https://mail.google.com/mail/#drafts');
+      const sent = fetched.mock.calls[0]![0] instanceof Request ? await (fetched.mock.calls[0]![0] as Request).json() : JSON.parse(String(fetched.mock.calls[0]![1].body));
+      expect(sent).toMatchObject({ withClaude: true, points: 'only after 8pm', sourceAccountId: 'sa-work' });
+    });
+  });
 });

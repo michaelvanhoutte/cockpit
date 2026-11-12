@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { STARTING_GIVES_UP_AFTER_MS, type AgentRun, type Conversation, type Item, type Mailbox } from '@cockpit/shared';
 import { CommandRefused } from '../../../src/api/client';
 import { DraftRefused, makeADraft } from '../../../src/api/drafts';
+import { DraftAsk } from '../../../src/components/DraftAsk';
 import { ItemRow } from '../../../src/components/ItemRow';
 import { HOLD_DRIFT_PX, HOLD_MS } from '../../../src/hold';
 import { SWIPE_THRESHOLD_PX } from '../../../src/swipe';
@@ -3004,6 +3005,184 @@ describe('Triage', () => {
 
       expect(await screen.findByRole('menuitem', { name: 'Email…' })).toBeInTheDocument();
       expect(screen.queryByText('From')).toBeNull();
+    });
+  });
+});
+
+describe('Triage', () => {
+  /**
+   * The box Email… and Reply… ask before a draft, where Claude can write it ("Mail
+   * follow-up: Reply… in Gmail makes an empty draft…", issue 1730): the row's
+   * wiring to it and the box's own state, F1 with the draft's request replaced at
+   * the client's edge. That the request carries the points through to the draft is
+   * the Worker's (apps/api/tests/integration/connectors/drafts-on-the-host.test.ts).
+   */
+  describe('Email… and Reply… first ask what Claude should say, where Claude can write the draft', () => {
+    const CLAUDE: Mailbox = { sourceAccountId: 'sa-work', connectorId: 'gmail', name: 'michael@work.example', claudeDrafts: true };
+    const FOLLOWED: Conversation = {
+      itemId: 'item-1',
+      source: 'gmail',
+      conversationId: 't-1',
+      link: 'https://mail.google.com/mail/#all/t-1',
+      lastBy: 'them',
+      lastFrom: 'Steven Noels',
+      lastAt: '2026-08-12T09:00:00.000Z',
+      lastExcerpt: 'Thursday?',
+      messageCount: 1,
+      startedAt: '2026-08-12T09:00:00.000Z',
+      withWhom: 'Steven Noels',
+    };
+    const QUESTION = /Anything Claude should say\?/;
+    let opened: { location: { href: string }; opener: unknown; close: ReturnType<typeof vi.fn> };
+
+    beforeAll(async () => {
+      await import('../../../src/emailDraftClick');
+    });
+
+    beforeEach(() => {
+      opened = { location: { href: '' }, opener: {}, close: vi.fn() };
+      vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
+      mockMakeADraft.mockReset();
+      mockMakeADraft.mockResolvedValue('https://mail.google.com/mail/#drafts');
+    });
+
+    afterEach(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      vi.restoreAllMocks();
+      localStorage.clear();
+    });
+
+    /** The row, the box beside it, and Email… (or Reply…) pressed. */
+    async function pressed(extra: Partial<React.ComponentProps<typeof ItemRow>>, label = 'Email…') {
+      const user = userEvent.setup();
+      render(<DraftAsk />);
+      // An Item of its own: an earlier case's draft that never answers keeps its Item "starting" for the rest of the file.
+      aRow({ item: anItem({ id: 'item-box' }), extra });
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: label }));
+      return user;
+    }
+
+    it('asks before any tab is opened or any draft is asked for, and says which Item it is for', async () => {
+      await pressed({ mailboxes: [CLAUDE] });
+
+      expect(await screen.findByRole('textbox', { name: QUESTION })).toBeInTheDocument();
+      expect(screen.getByText('(optional)')).toBeInTheDocument();
+      expect(within(screen.getByRole('dialog')).getByText('Make appointment with Novy')).toBeInTheDocument();
+      expect(window.open).not.toHaveBeenCalled();
+      expect(mockMakeADraft).not.toHaveBeenCalled();
+    });
+
+    it('draws Cancel, Write it myself and Draft with Claude in that order', async () => {
+      await pressed({ mailboxes: [CLAUDE] });
+
+      const box = await screen.findByRole('dialog');
+      expect(within(box).getAllByRole('button').map((one) => one.textContent)).toEqual(['Cancel', 'Write it myself', 'Draft with Claude']);
+    });
+
+    it('asks Claude for the draft with the points typed, opening the tab with that press', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+
+      await user.type(await screen.findByRole('textbox', { name: QUESTION }), 'only after 8pm');
+      await user.click(screen.getByRole('button', { name: 'Draft with Claude' }));
+
+      expect(window.open).toHaveBeenCalledTimes(1);
+      await waitFor(() =>
+        expect(mockMakeADraft).toHaveBeenCalledWith(
+          'ws-work',
+          'item-box',
+          expect.objectContaining({ sourceAccountId: 'sa-work', withClaude: true, points: 'only after 8pm' }),
+        ),
+      );
+      await waitFor(() => expect(opened.location.href).toBe('https://mail.google.com/mail/#drafts'));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('asks Claude for a draft with no points when none are typed', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+
+      await user.click(await screen.findByRole('button', { name: 'Draft with Claude' }));
+
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-box', expect.objectContaining({ withClaude: true, points: '' })));
+    });
+
+    it('makes the empty draft level 1 makes, without Claude, from Write it myself', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+
+      await user.click(await screen.findByRole('button', { name: 'Write it myself' }));
+
+      expect(window.open).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalledTimes(1));
+      expect(mockMakeADraft.mock.calls[0]![2]).not.toHaveProperty('withClaude');
+      expect(mockMakeADraft.mock.calls[0]![2]).not.toHaveProperty('points');
+    });
+
+    it('disables Write it myself once anything is typed, so typed points are never thrown away, and enables it again when cleared', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+      const field = await screen.findByRole('textbox', { name: QUESTION });
+      const writeMyself = screen.getByRole('button', { name: 'Write it myself' });
+      expect(writeMyself).toBeEnabled();
+
+      await user.type(field, 'x');
+      expect(writeMyself).toBeDisabled();
+      await user.clear(field);
+      expect(writeMyself).toBeEnabled();
+    });
+
+    it('opens no tab and asks nothing of the server on Cancel', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(window.open).not.toHaveBeenCalled();
+      expect(mockMakeADraft).not.toHaveBeenCalled();
+    });
+
+    it('opens empty every time, the points typed before not kept', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE] });
+      await user.type(await screen.findByRole('textbox', { name: QUESTION }), 'only after 8pm');
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      await user.click(screen.getByLabelText('Item actions'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
+
+      expect(await screen.findByRole('textbox', { name: QUESTION })).toHaveValue('');
+    });
+
+    it('says Claude could not draft it beside the Item put back, and opens nothing, where the Worker says so', async () => {
+      mockMakeADraft.mockRejectedValue(new DraftRefused("Couldn't make the draft: Claude could not draft it.", 502, true));
+      const user = await pressed({ mailboxes: [CLAUDE] });
+
+      await user.click(await screen.findByRole('button', { name: 'Draft with Claude' }));
+
+      expect(await screen.findByText(/is back as it was\. Couldn't make the draft: Claude could not draft it\./)).toBeInTheDocument();
+      expect(opened.close).toHaveBeenCalled();
+    });
+
+    it('asks nothing where the mailbox has no Claude to write the draft: no key, or the guest account', async () => {
+      await pressed({ mailboxes: [{ ...CLAUDE, claudeDrafts: false }] });
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(window.open).toHaveBeenCalledWith('', '_blank');
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalledTimes(1));
+      expect(mockMakeADraft.mock.calls[0]![2]).not.toHaveProperty('withClaude');
+    });
+
+    it('asks nothing on Reply… where a draft is already started, opening it as before', async () => {
+      await pressed({ mailboxes: [CLAUDE], conversation: { ...FOLLOWED, itemId: 'item-box', draftStarted: true } }, 'Reply…');
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(window.open).toHaveBeenCalledWith('', '_blank');
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalledTimes(1));
+      expect(mockMakeADraft.mock.calls[0]![2]).not.toHaveProperty('withClaude');
+    });
+
+    it('asks on Reply… in a followed conversation with no draft started', async () => {
+      await pressed({ mailboxes: [CLAUDE], conversation: { ...FOLLOWED, itemId: 'item-box' } }, 'Reply…');
+
+      expect(await screen.findByRole('textbox', { name: QUESTION })).toBeInTheDocument();
+      expect(mockMakeADraft).not.toHaveBeenCalled();
     });
   });
 });

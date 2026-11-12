@@ -352,6 +352,11 @@ const api = start(
      */
     '--var',
     'REMEMBER_OFFER_STAND_IN:true',
+    // And Claude's drafts of a reply (issue 1730): a fixed text echoing the points, so Reply… and Email…
+    // ask what Claude should say against the stand-in mailbox and spend no key. What the real model
+    // writes is the contract tier's question (apps/api/src/ai/reply-stand-in.ts).
+    '--var',
+    'DRAFT_STAND_IN:true',
   ],
   'test api',
   '36',

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import type { EditToRemember, ItemToPlace, ItemToPropose } from '../../src/ai/index.js';
+import type { EditToRemember, ItemToPlace, ItemToPropose, ReplyBrief } from '../../src/ai/index.js';
 import type { PlaceTreeWorkspace } from '../../src/domain/spoken-path.js';
 import { A_CONTRACT_RUN, claude, hasAKey } from './support/claude.js';
 
@@ -96,5 +96,20 @@ describe('Agents', () => {
     // Declining to offer is an answer the code read; any other `none` is the answer not parsing.
     if ('none' in read) expect(read.none).toBe('nothing worth remembering');
     else expect(read).toHaveProperty('offer');
+  });
+});
+
+describe('Triage', () => {
+  hasAKey();
+
+  it('draft-a-reply.v1 answers with a body, not a discard', async () => {
+    const brief: ReplyBrief = {
+      title: 'Plan a dinner with Steven Noels',
+      description: 'Tuesday or Thursday evening, in Ghent',
+      points: 'Thursday works for me, only after 8pm',
+      messages: [{ by: 'them', from: 'Steven Noels', at: '2026-10-01T08:00:00.000Z', text: 'Shall we have dinner again? Tuesday or Thursday?' }],
+    };
+    const answer = await asking.writeAReply(brief, A_CONTRACT_RUN);
+    expect(answer, JSON.stringify(answer)).toHaveProperty('body');
   });
 });

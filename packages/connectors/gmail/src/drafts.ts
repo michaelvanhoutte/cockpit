@@ -1,4 +1,13 @@
-import { SourceError, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import {
+  SourceError,
+  type DraftFound,
+  type DraftMade,
+  type DraftWaiting,
+  type DraftWanted,
+  type MessageForReply,
+  type OnDemandHost,
+  type ReplyReadLimits,
+} from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   ChangeRefused,
@@ -9,7 +18,7 @@ import {
   SignInLost,
   type GmailConnectorConfig,
 } from './mailbox.js';
-import { DRAFT, SENT, conversationLink, headerOf, sentAt, type GmailMessage } from './messages.js';
+import { DRAFT, SENT, conversationLink, cutTo, headerOf, sentAt, textOf, turnFrom, withoutQuotedText, type GmailMessage } from './messages.js';
 
 /**
  * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
@@ -51,7 +60,7 @@ export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorC
       reply = replyToLatestIn(await mailbox.get(`threads/${encodeURIComponent(wanted.replyIn)}?${query}`));
       if (!reply) throw new SourceError('the conversation is no longer in Gmail');
     }
-    const raw = rawDraft(reply ?? { subject: wanted.subject, to: null, inReplyTo: null, references: null });
+    const raw = rawDraft(reply ?? { subject: wanted.subject, to: null, inReplyTo: null, references: null }, wanted.body);
     const answer = await mailbox.post('drafts', { message: { raw, ...(wanted.replyIn !== null ? { threadId: wanted.replyIn } : {}) } });
     const made = draftIn(answer);
     if (!made) throw new SourceError('Gmail answered without the draft it made');
@@ -65,6 +74,40 @@ export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorC
     };
   } catch (error) {
     throw inTheirWords(error);
+  }
+}
+
+/** The calls one read of a conversation for a reply may spend: a refresh, and the conversation. */
+const CALLS_PER_READ = 2;
+
+/**
+ * The newest `limits.messages` messages of a conversation, oldest first, each
+ * as its own words (issue 1730): who sent it, when, and its text without the
+ * earlier emails it quotes, cut to `limits.characters`. A draft or a message in
+ * the bin is not part of what is answered. Changes nothing in the mailbox.
+ */
+export async function readGmailConversationForReply(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  conversationId: string,
+  limits: ReplyReadLimits,
+): Promise<MessageForReply[]> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_READ });
+    const answer = (await mailbox.get(`threads/${encodeURIComponent(conversationId)}?format=full`)) as { messages?: unknown } | null;
+    if (!answer) throw new SourceError('the conversation is no longer in Gmail');
+    const held = Array.isArray(answer.messages) ? (answer.messages as GmailMessage[]) : [];
+    const turns: MessageForReply[] = [];
+    for (const message of held) {
+      const turn = turnFrom(message);
+      if (!turn) continue;
+      turns.push({ by: turn.by, from: turn.from, at: turn.at, text: cutTo(withoutQuotedText(textOf(message.payload)).trim(), limits.characters) });
+    }
+    return turns.sort((a, b) => a.at.localeCompare(b.at)).slice(-limits.messages);
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not be read for the reply');
   }
 }
 
@@ -124,10 +167,11 @@ function oneHeader(value: string | null): string | null {
 
 /**
  * The draft as RFC 2822 text in Gmail's URL-safe base64, which `raw` takes:
- * its headers, an empty plain-text body, and a subject outside ASCII encoded
+ * its headers, a plain-text body (empty unless the host handed one over, then
+ * in base64), and a subject outside ASCII encoded
  * as RFC 2047 says. Gmail adds the From.
  */
-export function rawDraft(draft: ReplyTo): string {
+export function rawDraft(draft: ReplyTo, body = ''): string {
   const lines = [
     ...(draft.to ? [`To: ${draft.to}`] : []),
     `Subject: ${encodedWord(oneHeader(draft.subject) ?? '')}`,
@@ -136,8 +180,10 @@ export function rawDraft(draft: ReplyTo): string {
     ...(draft.references ? [`References: ${draft.references.split(/\s+/).filter(Boolean).join('\r\n ')}`] : []),
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
+    // Base64 whatever the text holds, so no character or line of it can break the message.
+    ...(body ? ['Content-Transfer-Encoding: base64'] : []),
     '',
-    '',
+    body ? base64(body.replace(/\r\n?|\n/g, '\r\n')).replace(/.{1,76}/g, '$&\r\n').trimEnd() : '',
   ];
   return base64url(lines.join('\r\n'));
 }

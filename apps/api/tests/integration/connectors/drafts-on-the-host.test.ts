@@ -14,7 +14,20 @@ import {
   startFromEmpty,
   storeNamed,
 } from '../seed.js';
-import { gmailAnswersWith, gmailCalls, gmailDrafts, gmailHolds, googleRefreshes, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
+import {
+  claudeAnswersWith,
+  claudeAsked,
+  claudeGoesSilent,
+  claudeWrites,
+  gmailAnswersWith,
+  gmailCalls,
+  gmailDrafts,
+  gmailHolds,
+  googleRefreshes,
+  issuerIsForgotten,
+  issuerIsReachable,
+  issuerWillIdentify,
+} from '../issuer.js';
 import { historyRecord, labelsAnswer, message } from '../../../../../packages/connectors/gmail/tests/gmail-payloads.js';
 
 /**
@@ -57,6 +70,20 @@ class Mailbox {
     this.#record({ added: first.id, threadId, labelIds: first.labelIds });
     first.labelIds = [...first.labelIds, 'STARRED'];
     this.#record({ labelled: first.id, threadId, with: ['STARRED'], labelIds: first.labelIds });
+  }
+
+  /** A reply arriving in a conversation, from the other person unless said, sent at the instant given. */
+  replies(threadId: string, { text, at, from }: { text: string; at: string; from?: string }): void {
+    const thread = this.threads.find((one) => one.id === threadId)!;
+    const reply = message(threadId, {
+      id: `${threadId}-r${thread.answer.messages.length}`,
+      sentAt: at,
+      plain: text,
+      labelled: false,
+      ...(from ? { from } : {}),
+    });
+    thread.answer.messages.push(reply);
+    this.#record({ added: reply.id, threadId, labelIds: reply.labelIds });
   }
 
   /** The draft Email… made, sent from Gmail where it stands: the Draft label off, Sent on. */
@@ -211,10 +238,16 @@ async function waitingForReply(itemId: string): Promise<void> {
 }
 
 /** *Email…* or *Reply…* clicked on an Item, through the mailbox named, under the click's own id. */
-function emailed(itemId: string, sourceAccountId: string, clickId: string = crypto.randomUUID(), userId?: string): Promise<Response> {
+function emailed(
+  itemId: string,
+  sourceAccountId: string,
+  clickId: string = crypto.randomUUID(),
+  userId?: string,
+  more: { withClaude?: boolean; points?: string } = {},
+): Promise<Response> {
   return asUser(
     `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/draft`,
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clickId, sourceAccountId }) },
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clickId, sourceAccountId, ...more }) },
     userId,
   );
 }
@@ -523,6 +556,342 @@ describe('Triage', () => {
       expect((await theItem(itemId)).conversation).toEqual(
         expect.objectContaining({ link: `${MESSAGE_LINK}draft-m-1`, draftStarted: true }),
       );
+    });
+  });
+
+  /**
+   * Draft with Claude ("Mail follow-up: Reply… in Gmail makes an empty draft: have
+   * Claude write it from the Item, your points and the conversation", issue 1730):
+   * the request reads the conversation, has Claude write the body through the
+   * gateway, and has Gmail make the draft with it. Claude is faked at the network
+   * beside Gmail (`../issuer.ts`); how the real model writes is the contract tier's
+   * (tests/contract/draft-a-reply.v1.test.ts), and how the connector reads and
+   * writes the mail the connector's own (packages/connectors/gmail/tests/unit/drafting-a-reply.test.ts).
+   */
+  describe('Draft with Claude makes one Gmail draft whose body is Claude’s answer', () => {
+    let realKey: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+    });
+
+    /** The body of the draft Gmail was asked to make, decoded as its encoding says. */
+    function bodyOfDraft(text: string): string {
+      const [headers, ...rest] = text.split('\r\n\r\n');
+      const body = rest.join('\r\n\r\n');
+      if (!/^Content-Transfer-Encoding: base64$/im.test(headers!)) return body;
+      return new TextDecoder().decode(Uint8Array.from(atob(body.replace(/\s+/g, '')), (c) => c.charCodeAt(0)));
+    }
+
+    /** A conversation starred and brought in, its Item, and the mailbox it is followed in. */
+    async function aFollowedConversation(): Promise<{ connection: string; itemId: string }> {
+      const connection = await connected();
+      mailbox.starred('t-1', 'Dinner one of these weeks?');
+      return { connection, itemId: await broughtIn() };
+    }
+
+    async function broughtIn(): Promise<string> {
+      await nextCheckRuns();
+      return (await opened()).items.find((one) => one.sourceId === 't-1')!.id;
+    }
+
+    const at = (minute: number) => new Date(Date.UTC(2026, 9, 2, 8, minute)).toISOString();
+
+    it('asks Claude with the title, the description, the points and the conversation without what it quotes, and makes the draft with its answer', async () => {
+      const { connection, itemId } = await aFollowedConversation();
+      mailbox.replies('t-1', {
+        from: 'Steven Noels <steven@example.com>',
+        text: 'Thursday evening?\n\nOn Fri, 2 Oct 2026 at 09:00, Anna Peeters <anna@example.com> wrote:\n> Shall we have dinner?',
+        at: at(1),
+      });
+      await nextCheckRuns();
+      claudeWrites('Hi Steven,\n\nOnly after 8pm works for me.\n\nAnna');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'only after 8pm' });
+
+      expect(res.status).toBe(200);
+      expect(claudeAsked).toHaveLength(1);
+      expect(claudeAsked[0]).toMatchObject({ model: 'claude-sonnet-5-5', maxTokens: 1000 });
+      const shown = claudeAsked[0]!.message;
+      expect(shown).toContain('Item title: "Dinner one of these weeks?"');
+      expect(shown).toContain('Points to make this time: "only after 8pm"');
+      expect(shown).toContain('Thursday evening?');
+      expect(shown).not.toContain('Shall we have dinner?');
+      expect(gmailDrafts).toHaveLength(1);
+      expect(gmailDrafts[0]!.threadId).toBe('t-1');
+      expect(bodyOfDraft(gmailDrafts[0]!.text)).toBe('Hi Steven,\r\n\r\nOnly after 8pm works for me.\r\n\r\nAnna');
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('in progress');
+      expect(item.conversation).toEqual(expect.objectContaining({ conversationId: 't-1', draftStarted: true }));
+    });
+
+    it('reads no conversation for an Item following nothing, and makes a new draft titled with the Item, with nobody to send it to', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      const asked = gmailCalls.length;
+      claudeWrites('Hi Steven, which evening suits you? [which evening?]');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: '' });
+
+      expect(res.status).toBe(200);
+      expect(gmailCalls.slice(asked).filter((call) => call.startsWith('threads/'))).toEqual([]);
+      expect(claudeAsked[0]!.message).toContain('Conversation so far: (none: this email starts it)');
+      expect(claudeAsked[0]!.message).toContain('Points to make this time: (none)');
+      const [draft] = gmailDrafts;
+      expect(draft!.text).toMatch(/^Subject: Plan a dinner with Steven Noels\r$/m);
+      expect(draft!.text).not.toMatch(/^To: /m);
+      expect(bodyOfDraft(draft!.text)).toBe('Hi Steven, which evening suits you? [which evening?]');
+    });
+
+    it('shows Claude only the last 10 messages of a conversation of 30', async () => {
+      const { connection, itemId } = await aFollowedConversation();
+      for (let n = 1; n < 30; n += 1) mailbox.replies('t-1', { text: `Message ${n}`, at: at(n) });
+
+      await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' });
+
+      const shown = claudeAsked[0]!.message;
+      expect(shown.match(/ wrote, /g)).toHaveLength(10);
+      expect(shown).toContain('Message 29');
+      expect(shown).toContain('Message 20');
+      expect(shown).not.toContain('Message 19');
+    });
+
+    it('cuts one message far over the cap before it reaches Claude', async () => {
+      const { connection, itemId } = await aFollowedConversation();
+      mailbox.replies('t-1', { text: 'x'.repeat(60_000), at: at(1) });
+
+      await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' });
+
+      expect(claudeAsked[0]!.message.match(/x{100,}/)![0]).toHaveLength(4000);
+    });
+
+    it('brings a body with non-ASCII text and line breaks into the draft intact', async () => {
+      const { connection, itemId } = await aFollowedConversation();
+      claudeWrites('Dag Steven,\n\nDonderdag past mij prima ✓ — om [hoe laat?] in Gent?\n\nGroet,\nAnna', 'Dutch');
+
+      await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'donderdag' });
+
+      expect(bodyOfDraft(gmailDrafts[0]!.text)).toBe('Dag Steven,\r\n\r\nDonderdag past mij prima ✓ — om [hoe laat?] in Gent?\r\n\r\nGroet,\r\nAnna');
+    });
+
+    it('asks Claude once and makes one draft for a click sent twice, answering the second with the first’s link', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      const clickId = crypto.randomUUID();
+
+      const first = await (await emailed(itemId, connection, clickId, undefined, { withClaude: true, points: 'yes' })).json();
+      const again = await emailed(itemId, connection, clickId, undefined, { withClaude: true, points: 'yes' });
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual(first);
+      expect(claudeAsked).toHaveLength(1);
+      expect(gmailDrafts).toHaveLength(1);
+    });
+
+    it('opens a draft already started without asking Claude again', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      expect((await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' })).status).toBe(200);
+
+      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'something else' });
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ link: DRAFT_LINK });
+      expect(claudeAsked).toHaveLength(1);
+      expect(gmailDrafts).toHaveLength(1);
+    });
+  });
+
+  describe('when Claude cannot draft, nothing is drafted and the Item is put back', () => {
+    let realKey: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+    });
+
+    const COULD_NOT = { error: "Couldn't make the draft: Claude could not draft it.", putBack: true };
+
+    /** An Item that was Waiting for reply, so putting it back is told from leaving it In progress. */
+    async function aWaitingItem(): Promise<{ connection: string; itemId: string }> {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      await waitingForReply(itemId);
+      return { connection, itemId };
+    }
+
+    async function nothingWasKept(itemId: string): Promise<void> {
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('waiting');
+      expect(item.conversation).toBeUndefined();
+      expect(gmailDrafts).toEqual([]);
+    }
+
+    it('makes no draft where Claude answers an error, asking it once and not again', async () => {
+      const { connection, itemId } = await aWaitingItem();
+      claudeAnswersWith(529);
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual(COULD_NOT);
+      expect(claudeAsked).toHaveLength(1);
+      await nothingWasKept(itemId);
+    });
+
+    // The one case that waits the cut-off out: the SDK's timer is what ends the call, and it cannot be
+    // faked under the runtime the Worker runs in (a held clock hangs the store's own requests).
+    it('makes no draft where Claude has not answered in 20 seconds', { timeout: 40_000 }, async () => {
+      const { connection, itemId } = await aWaitingItem();
+      claudeGoesSilent();
+      const started = performance.now();
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' });
+
+      expect(performance.now() - started).toBeGreaterThanOrEqual(19_000);
+      expect(performance.now() - started).toBeLessThan(30_000);
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual(COULD_NOT);
+      expect(claudeAsked).toHaveLength(1);
+      expect((await env.DB.prepare("SELECT outcome FROM provider_calls WHERE operation = 'draft-a-reply'").all<{ outcome: string }>()).results).toEqual([
+        { outcome: 'timed-out' },
+      ]);
+      await nothingWasKept(itemId);
+    });
+
+    it('puts the Item back where Gmail refuses the draft after Claude answered, the call recorded all the same', async () => {
+      const { connection, itemId } = await aWaitingItem();
+      gmailAnswersWith(401, (call) => call === 'drafts');
+      googleRefreshes('refuses');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: "Couldn't make the draft: Google no longer accepts the sign-in. Connect again.", putBack: true });
+      expect(claudeAsked).toHaveLength(1);
+      expect((await env.DB.prepare("SELECT outcome FROM provider_calls WHERE operation = 'draft-a-reply'").all<{ outcome: string }>()).results).toEqual([
+        { outcome: 'ok' },
+      ]);
+      await nothingWasKept(itemId);
+    });
+
+    it('refuses points over the limit before anything is called', async () => {
+      const { connection, itemId } = await aWaitingItem();
+      const asked = gmailCalls.length;
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'x'.repeat(2001) });
+
+      expect(res.status).toBe(400);
+      expect(claudeAsked).toHaveLength(0);
+      expect(gmailCalls.length).toBe(asked);
+      await nothingWasKept(itemId);
+    });
+
+    it('refuses an Item of another account, calling nothing', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      const asked = gmailCalls.length;
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), OTHER_USER_ID, { withClaude: true, points: 'yes' });
+
+      expect(res.status).toBe(404);
+      expect(claudeAsked).toHaveLength(0);
+      expect(gmailCalls.length).toBe(asked);
+      expect(statusOf(await theItem(itemId))).toBe('to do');
+    });
+  });
+
+  describe('every draft made with Claude is recorded like Cockpit’s other Claude calls', () => {
+    let realKey: string | undefined;
+    let realGuestSignIn: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      realGuestSignIn = env.GUEST_SIGN_IN;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+      if (realGuestSignIn === undefined) delete env.GUEST_SIGN_IN;
+      else env.GUEST_SIGN_IN = realGuestSignIn;
+    });
+
+    it('records one call under the draft prompt’s name, with its cost and for whom it was made', async () => {
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+
+      expect((await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' })).status).toBe(200);
+
+      const rows = (await env.DB.prepare('SELECT * FROM provider_calls').all<Record<string, unknown>>()).results;
+      expect(rows).toEqual([
+        expect.objectContaining({
+          operation: 'draft-a-reply',
+          prompt_version: 'draft-a-reply.v1',
+          triggered_by: 'draft-asked-in-app',
+          model: 'claude-sonnet-5-5',
+          outcome: 'ok',
+          item_id: itemId,
+          tokens_in: 1200,
+          tokens_out: 150,
+        }),
+      ]);
+      expect(rows[0]!.cost_usd).toBeGreaterThan(0);
+    });
+
+    it('refuses the guest account a draft with Claude, calling neither Claude nor Gmail', async () => {
+      env.GUEST_SIGN_IN = 'true';
+      const back = await SELF.fetch('http://cockpit.test/v1/sign-in/guest', { redirect: 'manual' });
+      const guest = back.headers
+        .getSetCookie()
+        .map((cookie) => cookie.split(';')[0]!)
+        .find((cookie) => cookie.startsWith('cockpit_session=') && !cookie.endsWith('='))!;
+      const asked = gmailCalls.length;
+
+      const res = await SELF.fetch(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${crypto.randomUUID()}/draft`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: guest },
+        body: JSON.stringify({ clickId: crypto.randomUUID(), sourceAccountId: 'sa-1', withClaude: true, points: 'yes' }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'Claude cannot draft here.' });
+      expect(claudeAsked).toHaveLength(0);
+      expect(gmailCalls.length).toBe(asked);
+    });
+
+    it('offers a draft with Claude only where the environment has a key it may spend', async () => {
+      env.ANTHROPIC_API_KEY = '';
+      const connection = await connected();
+
+      expect((await opened()).mailboxes).toEqual([expect.not.objectContaining({ claudeDrafts: true })]);
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+      expect((await opened()).mailboxes).toEqual([expect.objectContaining({ sourceAccountId: connection, claudeDrafts: true })]);
+    });
+
+    it('writes the local stacks’ stand-in reply into the draft, asking no model and recording no call, where the stack has no key', async () => {
+      env.ANTHROPIC_API_KEY = '';
+      env.DRAFT_STAND_IN = 'true';
+      try {
+        const connection = await connected();
+        const itemId = await captured('Plan a dinner with Steven Noels');
+
+        const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'only after 8pm' });
+
+        expect(res.status).toBe(200);
+        expect(claudeAsked).toHaveLength(0);
+        expect((await env.DB.prepare('SELECT count(*) AS n FROM provider_calls').first<{ n: number }>())!.n).toBe(0);
+        expect(gmailDrafts[0]!.text).toContain('Content-Transfer-Encoding: base64');
+        const body = new TextDecoder().decode(
+          Uint8Array.from(atob(gmailDrafts[0]!.text.split('\r\n\r\n')[1]!.replace(/\s+/g, '')), (c) => c.charCodeAt(0)),
+        );
+        expect(body).toContain('Points: only after 8pm');
+      } finally {
+        env.DRAFT_STAND_IN = '';
+      }
     });
   });
 });

@@ -31,6 +31,8 @@ export interface CallAbout {
 export type Trigger =
   | 'captured-in-app'
   | 'dictated-in-app'
+  /** Draft with Claude was pressed on Email… or Reply… (issue 1730). */
+  | 'draft-asked-in-app'
   | 'mcp'
   | 'panel-settled'
   /** An Item's words or filing changed, so what to do with it is proposed again (issue 1161). */

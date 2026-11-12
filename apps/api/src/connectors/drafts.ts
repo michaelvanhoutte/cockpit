@@ -1,7 +1,12 @@
 import { SourceError, type Connector, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { Mailbox } from '@cockpit/shared';
 import type { Env } from '../env.js';
-import { ConflictInAccountError, NotFoundInAccountError, type Account } from '../accounts/index.js';
+import { ConflictInAccountError, NotFoundInAccountError, RefusedByAccountError, type Account } from '../accounts/index.js';
+import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
+import { aiFor, type ReplyBrief } from '../ai/index.js';
+import { standInReply } from '../ai/reply-stand-in.js';
+import { REPLY_READ } from '../ai/prompts/draft-a-reply.v1.js';
+import { hasClaudeKey } from '../gateway/environment.js';
 import { derivedUuid } from '../domain/derived-uuid.js';
 import { open, seal, sealingKey, type Sealed } from './credential-crypto.js';
 import { connectors, getConnector } from './registry.js';
@@ -46,6 +51,21 @@ export const DRAFT_SENT = 'That draft was sent. Cockpit shows it in a moment; pr
 /** What a click is told where another click recorded a draft while this one looked for the one before. */
 export const DRAFT_RECORDED_MEANWHILE = 'Another draft was started meanwhile. Try again to open it.';
 
+/** What a click is told where Claude cannot draft here: no key it may spend, or the shared guest account. */
+export const CLAUDE_CANNOT_DRAFT = 'Claude cannot draft here.';
+
+/** Why a draft was not made where Claude failed or passed its cut-off. */
+export const CLAUDE_DID_NOT_DRAFT = 'Claude could not draft it.';
+
+/**
+ * Whether Claude may write a draft for this account: the environment has a key
+ * it may spend, and the account is not the guest's, which everybody shares and
+ * which never calls the model (issue 1730).
+ */
+export function claudeMayDraft(env: Env, accountName: string): boolean {
+  return (env.DRAFT_STAND_IN === 'true' || hasClaudeKey(env)) && accountName !== GUEST_ACCOUNT_NAME;
+}
+
 /** The sealed credential a store's answer carries. */
 function sealedIn(answer: Sealed): Sealed {
   return { sealedCredential: answer.sealedCredential, credentialNonce: answer.credentialNonce };
@@ -65,11 +85,18 @@ export function startsConversations(
 export function mailboxesOf(
   env: Env,
   connections: readonly { id: string; connectorId: string; displayName: string; follows: string | null }[],
+  claudeMay = false,
 ): Mailbox[] {
   const registered = new Map(connectors(env).map((one) => [one.manifest.id, one]));
   return connections
     .filter((one) => startsConversations(registered.get(one.connectorId), one.follows))
-    .map((one) => ({ sourceAccountId: one.id, connectorId: one.connectorId, name: one.displayName }));
+    .map((one) => ({
+      sourceAccountId: one.id,
+      connectorId: one.connectorId,
+      name: one.displayName,
+      // Offered only where the connector can read a conversation for Claude (Gmail, until Outlook can).
+      ...(claudeMay && registered.get(one.connectorId)?.readConversationForReply ? { claudeDrafts: true as const } : {}),
+    }));
 }
 
 /**
@@ -92,12 +119,17 @@ export async function makeTheDraft(
   account: Account,
   accountName: string,
   ask: { workspaceId: string; itemId: string; sourceAccountId: string; clickId: string },
+  claude?: { points: string },
 ): Promise<string> {
+  // Refused before anything is logged, asked or paid for.
+  if (claude && !claudeMayDraft(env, accountName)) throw new RefusedByAccountError(CLAUDE_CANNOT_DRAFT);
   const held = (await account.sourceAccounts(ask.workspaceId)).find((one) => one.id === ask.sourceAccountId);
   const connector = held ? getConnector(env, held.connectorId) : undefined;
   if (!held || !startsConversations(connector, held.follows ?? null)) {
     throw new NotFoundInAccountError(`no connection ${ask.sourceAccountId} of this workspace makes drafts`);
   }
+  // Refused with the rest, before the Item is marked as starting.
+  if (claude && !connector!.readConversationForReply) throw new RefusedByAccountError(CLAUDE_CANNOT_DRAFT);
   const named = JSON.stringify([accountName, ask.clickId]);
   const click = {
     clickId: ask.clickId,
@@ -136,7 +168,10 @@ export async function makeTheDraft(
   const where = { workspaceId: ask.workspaceId, itemId: ask.itemId, sourceAccountId: ask.sourceAccountId, ...click };
   let draft;
   try {
-    draft = await connector!.makeDraft!(host, { subject: wanted.subject, replyIn: wanted.replyIn });
+    const body = claude
+      ? await claudeWritesTheBody(env, connector!, host, accountName, ask.itemId, { title: wanted.subject, description: wanted.description, points: claude.points }, wanted.replyIn)
+      : undefined;
+    draft = await connector!.makeDraft!(host, { subject: wanted.subject, replyIn: wanted.replyIn, ...(body === undefined ? {} : { body }) });
   } catch (error) {
     // Nothing was made: the Item has its status back, and the person is told why.
     await account.dropDraft({ ...where, replyIn: wanted.replyIn });
@@ -148,6 +183,41 @@ export async function makeTheDraft(
   // progress with no link - the design's worst case, which a later click mends.
   await account.recordDraft({ ...where, draft });
   return draft.draftLink;
+}
+
+/**
+ * The body of a reply, written while the person waits (issue 1730): the
+ * conversation's latest messages read from the source (none for an email that
+ * starts one), then one Claude call through the gateway. **Claude gets only
+ * words** - the recipient, subject and thread are the mailbox's, made by the
+ * connector, never by Claude. A failed or late call, or an answer that is no
+ * body, makes no draft.
+ */
+async function claudeWritesTheBody(
+  env: Env,
+  connector: Connector,
+  host: OnDemandHost,
+  accountName: string,
+  itemId: string,
+  brief: { title: string; description: string | null; points: string },
+  replyIn: string | null,
+): Promise<string> {
+  // The local stacks' stand-in is checked first, so a stack deliberately given one never spends a key.
+  const ai = env.DRAFT_STAND_IN === 'true' ? { writeAReply: async (asked: ReplyBrief) => standInReply(asked) } : aiFor(env);
+  if (!ai || !connector.readConversationForReply) throw new SourceError(CLAUDE_DID_NOT_DRAFT);
+  const messages = replyIn === null ? [] : await connector.readConversationForReply(host, replyIn, REPLY_READ);
+  let written;
+  try {
+    written = await ai.writeAReply({ ...brief, messages }, { accountName, itemId, triggeredBy: 'draft-asked-in-app' });
+  } catch (error) {
+    logged(connector.manifest.id, 'warn', 'Claude could not write a draft', error instanceof Error ? error.message : String(error));
+    throw new SourceError(CLAUDE_DID_NOT_DRAFT);
+  }
+  if ('discarded' in written) {
+    logged(connector.manifest.id, 'warn', 'Claude wrote no usable draft', written.discarded);
+    throw new SourceError(CLAUDE_DID_NOT_DRAFT);
+  }
+  return written.body;
 }
 
 /** The connection's credential opened in the Worker, a rotated one sealed back only over the one opened. */

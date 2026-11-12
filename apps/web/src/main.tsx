@@ -9,6 +9,7 @@ import { HoldForTheServer, Opening } from './opening';
 import { createAppRouter } from './router';
 import { Updating } from './components/Updating';
 import { UndoWhatJustHappened } from './undo';
+import { DraftAsk } from './components/DraftAsk';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -56,6 +57,7 @@ createRoot(document.getElementById('root')!).render(
         <UndoWhatJustHappened>
           <HoldForTheServer>
             <RouterProvider router={router} />
+            <DraftAsk />
           </HoldForTheServer>
         </UndoWhatJustHappened>
       </Updating>
