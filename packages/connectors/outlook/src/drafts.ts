@@ -90,6 +90,9 @@ export async function makeOutlookDraft(host: OnDemandHost, config: OutlookConnec
 /** The calls one read of a conversation for a reply may spend: a refresh, the two folders, a page or two of the conversation, and one read of each message. */
 const CALLS_PER_READ = 20;
 
+/** The message bodies read at once. */
+const READS_AT_ONCE = 3;
+
 /**
  * The newest `limits.messages` messages of a conversation, oldest first, each
  * as its own words (issue 1731): who sent it, when, and the part of its body
@@ -116,14 +119,21 @@ export async function readOutlookConversationForReply(
     const whole = await conversationMessages(mailbox, conversationId, await foldersOf(mailbox));
     if (whole.length === 0) throw new SourceError('the conversation is no longer in Outlook');
     const newest = [...whole].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-limits.messages);
-    return await Promise.all(
-      newest.map(async (turn): Promise<MessageForReply> => {
-        const read = await mailbox.get(`messages/${encodeURIComponent(turn.messageId)}?$select=id,uniqueBody`, { bodyAsText: true });
-        // A message gone since the listing, or sent with no body, is told by its preview.
-        const text = uniqueTextOf(read) ?? turn.excerpt;
-        return { by: turn.by, from: turn.from, at: turn.at, text: cutTo(text, limits.characters) };
-      }),
-    );
+    const read: MessageForReply[] = [];
+    // A few at a time: Outlook allows an app about four requests at once to one mailbox.
+    for (let from = 0; from < newest.length; from += READS_AT_ONCE) {
+      read.push(
+        ...(await Promise.all(
+          newest.slice(from, from + READS_AT_ONCE).map(async (turn): Promise<MessageForReply> => {
+            const body = await mailbox.get(`messages/${encodeURIComponent(turn.messageId)}?$select=id,uniqueBody`, { bodyAsText: true });
+            // A message gone since the listing, or sent with no body, is told by its preview.
+            const text = uniqueTextOf(body) ?? turn.excerpt;
+            return { by: turn.by, from: turn.from, at: turn.at, text: cutTo(text, limits.characters) };
+          }),
+        )),
+      );
+    }
+    return read;
   } catch (error) {
     throw inTheirWords(error, 'Outlook could not be read for the reply');
   }

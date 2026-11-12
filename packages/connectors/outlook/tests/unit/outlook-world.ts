@@ -62,7 +62,22 @@ export class GraphWorld {
   /** What the token endpoint answers a refresh with. */
   refresh: { status: number; body: unknown } = { status: 200, body: refreshAnswer() };
 
+  /** The most requests to Graph that were ever waiting for an answer at once. */
+  mostAtOnce = 0;
+  #waiting = 0;
+
   readonly fetch: typeof fetch = async (input, init) => {
+    this.#waiting += 1;
+    this.mostAtOnce = Math.max(this.mostAtOnce, this.#waiting);
+    try {
+      await new Promise((done) => setTimeout(done, 0));
+      return await this.#answer(input, init);
+    } finally {
+      this.#waiting -= 1;
+    }
+  };
+
+  readonly #answer: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     const method = init?.method ?? 'GET';
     this.requests.push(`${method} ${url.pathname}${decodeURIComponent(url.search)}`);

@@ -206,13 +206,13 @@ export function messageFrom(answer: unknown, mark: Mark, deletedItems: string): 
  * What one message adds to its conversation, as Graph answers
  * `GET /me/messages/{id}?$select=uniqueBody` (the part of the body that is
  * unique to the message): plain text, with any earlier email it still quotes
- * cut off (issue 1731). Null where the answer holds no body, so the caller can
+ * cut off (issue 1731). Null where the answer holds no body or no words, so the caller can
  * fall back on the message's preview.
  */
 export function uniqueTextOf(answer: unknown): string | null {
   const { uniqueBody } = (answer ?? {}) as GraphMessage;
   if (typeof uniqueBody?.content !== 'string') return null;
-  return withoutQuotedText(bodyText(uniqueBody).trim()).trim();
+  return withoutQuotedText(bodyText(uniqueBody).trim()).trim() || null;
 }
 
 /** The name in a From, or its address where it gives none. */

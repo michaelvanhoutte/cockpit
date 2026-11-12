@@ -129,6 +129,16 @@ describe('Triage', () => {
 
       expect(read.map((one) => one.text)).toEqual(Array.from({ length: 10 }, (_, n) => `Message ${n + 20}`));
       expect(world.readsInFull()).toHaveLength(10);
+      expect(world.mostAtOnce).toBeLessThanOrEqual(3);
+    });
+
+    it('tells a message whose own body holds no words by its preview', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { conversation: 'c-1', text: 'Dinner on Thursday?', unique: '' });
+
+      const [only] = await world.connector().readConversationForReply!(onDemand(signedInHost()), 'c-1', LIMITS);
+
+      expect(only!.text).toBe('Dinner on Thursday?');
     });
 
     it('cuts a message far over the limit to it', async () => {
