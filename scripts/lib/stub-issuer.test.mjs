@@ -695,8 +695,19 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.equal(replying.subject, 'RE: Dinner');
     assert.match(sending.webLink, /ItemID=/);
     assert.equal((await graph(token, 'messages/no-such-message/createReply', { method: 'POST', body: '{}' })).status, 404);
+    // A draft takes a body: a new one as it is made, a reply's by an update that leaves the email it quotes.
+    const withBody = await post('messages', { subject: 'With words', body: { contentType: 'text', content: 'Hi Steven' } });
+    assert.equal(withBody.body.content, 'Hi Steven');
+    assert.match(replying.body.content, /divRplyFwdMsg/);
+    const updated = await graph(token, `messages/${replying.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: { contentType: 'html', content: '<div>Words</div>' + replying.body.content } }),
+    }).then((answer) => answer.json());
+    assert.match(updated.body.content, /^<div>Words<\/div>/);
+    assert.equal((await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json())).uniqueBody.contentType, 'html');
     const listed = await (await fetch(at('drafts?email=graph-drafting%40example.com'))).json();
-    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'RE: Dinner']);
+    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'RE: Dinner', 'With words']);
 
     await act(`send-draft?email=graph-drafting%40example.com&id=${sending.id}`);
     await act(`delete-draft?email=graph-drafting%40example.com&id=${replying.id}`);

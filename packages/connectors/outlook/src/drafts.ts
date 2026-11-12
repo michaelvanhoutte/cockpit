@@ -1,4 +1,14 @@
-import { SourceError, type ConnectorHost, type DraftFound, type DraftMade, type DraftWaiting, type DraftWanted, type OnDemandHost } from '@cockpit/connector-sdk';
+import {
+  SourceError,
+  type ConnectorHost,
+  type DraftFound,
+  type DraftMade,
+  type DraftWaiting,
+  type DraftWanted,
+  type MessageForReply,
+  type OnDemandHost,
+  type ReplyReadLimits,
+} from '@cockpit/connector-sdk';
 import { credentialIn } from './credential.js';
 import {
   Changed,
@@ -11,7 +21,7 @@ import {
   type OutlookConnectorConfig,
 } from './graph.js';
 import { conversationMessages, foldersOf, type Folders } from './conversations.js';
-import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, type MailTurn } from './messages.js';
+import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, uniqueTextOf, type MailTurn } from './messages.js';
 
 /**
  * *Email…* and *Reply…* ("Email… makes an Outlook draft the Item then follows",
@@ -28,6 +38,14 @@ import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, type MailTurn } from './m
  *
  * Both answer the draft with its `id`, `conversationId` and `webLink`, which
  * opens it in Outlook on the web. **Made once, never retried here.**
+ *
+ * **A draft handed a body** (Claude's, issue 1731): a new draft carries it as
+ * its plain-text body. A reply's `createReply` takes no request body in the
+ * documentation as it stands, so the reply is made as above and its body is then
+ * updated
+ * (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0:
+ * `body` is "updatable only if isDraft = true"), the words put above the earlier
+ * email Outlook quotes in it, as Outlook's own Reply puts the person's.
  */
 
 /**
@@ -41,10 +59,11 @@ export async function makeOutlookDraft(host: OnDemandHost, config: OutlookConnec
     const credential = credentialIn(await host.getCredentials());
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_DRAFT });
+    const text = wanted.body;
     let answer: unknown;
     if (wanted.replyIn === null) {
       const subject = cutTo(oneLine(wanted.subject), TITLE_LENGTH);
-      answer = await mailbox.post('messages', { subject, body: { contentType: 'text', content: '' } });
+      answer = await mailbox.post('messages', { subject, body: { contentType: 'text', content: text ?? '' } });
     } else {
       const latest = await latestIn(mailbox, wanted.replyIn);
       if (!latest) throw new SourceError('the conversation is no longer in Outlook');
@@ -53,6 +72,10 @@ export async function makeOutlookDraft(host: OnDemandHost, config: OutlookConnec
     }
     const made = draftIn(answer);
     if (!made) throw new SourceError('Outlook answered without the draft it made');
+    if (wanted.replyIn !== null && text !== undefined) {
+      const updated = await mailbox.patch(`messages/${encodeURIComponent(made.id)}`, { body: replyBody(answer, text) });
+      if (updated === null) throw new SourceError('the draft is no longer in Outlook');
+    }
     return {
       draftId: made.id,
       conversationId: made.conversationId,
@@ -62,6 +85,83 @@ export async function makeOutlookDraft(host: OnDemandHost, config: OutlookConnec
   } catch (error) {
     throw inTheirWords(error);
   }
+}
+
+/** The calls one read of a conversation for a reply may spend: a refresh, the two folders, a page or two of the conversation, and one read of each message. */
+const CALLS_PER_READ = 20;
+
+/** The message bodies read at once. */
+const READS_AT_ONCE = 3;
+
+/**
+ * The newest `limits.messages` messages of a conversation, oldest first, each
+ * as its own words (issue 1731): who sent it, when, and the part of its body
+ * that is unique to it (`uniqueBody`, read as text) without any earlier email it
+ * still quotes, cut to `limits.characters`. A draft or a message in Deleted Items
+ * is not part of what is answered. Changes nothing in the mailbox.
+ *
+ * The conversation is listed with the light fields first and the bodies read
+ * only for the messages kept, so a long conversation's bodies are never all
+ * fetched
+ * (https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0,
+ * https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0).
+ */
+export async function readOutlookConversationForReply(
+  host: OnDemandHost,
+  config: OutlookConnectorConfig,
+  conversationId: string,
+  limits: ReplyReadLimits,
+): Promise<MessageForReply[]> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_READ });
+    const whole = await conversationMessages(mailbox, conversationId, await foldersOf(mailbox));
+    if (whole.length === 0) throw new SourceError('the conversation is no longer in Outlook');
+    const newest = [...whole].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-limits.messages);
+    const read: MessageForReply[] = [];
+    // A few at a time: Outlook allows an app about four requests at once to one mailbox.
+    for (let from = 0; from < newest.length; from += READS_AT_ONCE) {
+      read.push(
+        ...(await Promise.all(
+          newest.slice(from, from + READS_AT_ONCE).map(async (turn): Promise<MessageForReply> => {
+            const body = await mailbox.get(`messages/${encodeURIComponent(turn.messageId)}?$select=id,uniqueBody`, { bodyAsText: true });
+            // A message gone since the listing, or sent with no body, is told by its preview.
+            const text = uniqueTextOf(body) ?? turn.excerpt;
+            return { by: turn.by, from: turn.from, at: turn.at, text: cutTo(text, limits.characters) };
+          }),
+        )),
+      );
+    }
+    return read;
+  } catch (error) {
+    throw inTheirWords(error, 'Outlook could not be read for the reply');
+  }
+}
+
+/**
+ * The body a reply draft is updated to: the words above the earlier email the
+ * draft Graph made quotes, in the format that draft holds (HTML as Outlook
+ * stores it, else text), or the words alone where the draft holds no body.
+ */
+export function replyBody(draft: unknown, words: string): { contentType: 'text' | 'html'; content: string } {
+  const { body } = (draft ?? {}) as { body?: { contentType?: unknown; content?: unknown } | null };
+  const quoted = typeof body?.content === 'string' ? body.content : '';
+  if (typeof body?.contentType === 'string' && body.contentType.toLowerCase() === 'html' && quoted) {
+    const lines = words
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((line) => (line ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))
+      .join('');
+    const open = /<body\b[^>]*>/i.exec(quoted);
+    const at = open ? open.index + open[0].length : 0;
+    return { contentType: 'html', content: `${quoted.slice(0, at)}${lines}<div><br></div>${quoted.slice(at)}` };
+  }
+  return { contentType: 'text', content: quoted ? `${words}\n\n${quoted}` : words };
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** The id of the message a reply answers: the newest of the conversation that is not a draft or in Deleted Items, or null where none is left. */

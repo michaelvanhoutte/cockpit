@@ -94,7 +94,7 @@ export function mailboxesOf(
       sourceAccountId: one.id,
       connectorId: one.connectorId,
       name: one.displayName,
-      // Offered only where the connector can read a conversation for Claude (Gmail, until Outlook can).
+      // Offered only where the connector can read a conversation for Claude (Gmail and Outlook).
       ...(claudeMay && registered.get(one.connectorId)?.readConversationForReply ? { claudeDrafts: true as const } : {}),
     }));
 }

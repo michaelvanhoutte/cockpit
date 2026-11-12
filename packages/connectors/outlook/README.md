@@ -219,6 +219,26 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
   conversation after `after`), the host is told so and makes nothing; otherwise
   a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most seven calls: a refresh, the draft, the two
   folders and a page or two of the conversation.
+- **A draft Claude writes** ("Mail follow-up: Email… and Reply… in Outlook make
+  an empty draft: have Claude write it", issue 1731) is made with the body the
+  Worker hands over. A new draft carries it as its plain-text `body`. `createReply`
+  takes no request body in Graph's documentation, so a reply is made as above and
+  its `body` is then updated with `PATCH /me/messages/{id}`, which Graph allows
+  only while `isDraft` is true
+  (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0):
+  the words go above the email Outlook quotes in the draft, as HTML
+  (`<div>` a line, escaped) where the draft is HTML, else as text. **A refused
+  update leaves the empty reply draft in the mailbox**, which the Worker does not
+  know of, so the person is told the draft was not made. Still eight calls.
+- **The conversation read for a reply** (`readConversationForReply`): the
+  conversation is listed with the light turn fields as a check lists it, the
+  newest ten kept, and each read once for `uniqueBody`, "the part of the body of
+  the message that is unique to the current message", not returned by default
+  (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0),
+  with `Prefer: outlook.body-content-type="text"`. HTML that comes back anyway is
+  turned to text, and a quoted earlier email that is still in it is cut as the
+  excerpt cuts it. The ten reads run together; a message with no `uniqueBody` is
+  told by its preview. At most twenty calls.
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 

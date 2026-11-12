@@ -62,7 +62,22 @@ export class GraphWorld {
   /** What the token endpoint answers a refresh with. */
   refresh: { status: number; body: unknown } = { status: 200, body: refreshAnswer() };
 
+  /** The most requests to Graph that were ever waiting for an answer at once. */
+  mostAtOnce = 0;
+  #waiting = 0;
+
   readonly fetch: typeof fetch = async (input, init) => {
+    this.#waiting += 1;
+    this.mostAtOnce = Math.max(this.mostAtOnce, this.#waiting);
+    try {
+      await new Promise((done) => setTimeout(done, 0));
+      return await this.#answer(input, init);
+    } finally {
+      this.#waiting -= 1;
+    }
+  };
+
+  readonly #answer: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     const method = init?.method ?? 'GET';
     this.requests.push(`${method} ${url.pathname}${decodeURIComponent(url.search)}`);
@@ -111,7 +126,7 @@ export class GraphWorld {
    * message's.
    */
   #makeDraft(replyTo: string | null, body: BodyInit | null | undefined): Response {
-    const asked = JSON.parse(String(body ?? '{}')) as { subject?: string };
+    const asked = JSON.parse(String(body ?? '{}')) as { subject?: string; body?: { content?: string } };
     const original = replyTo === null ? undefined : this.#find(replyTo);
     if (replyTo !== null && !original) return json({ error: { code: 'ErrorItemNotFound' } }, 404);
     const n = this.draftsAsked.length + 1;
@@ -123,7 +138,10 @@ export class GraphWorld {
       folder: DRAFTS_ID,
       from: { name: 'Anna', address: 'anna@example.com' },
       subject: replyTo === null ? (asked.subject ?? '') : `RE: ${message(original!).subject}`,
-      text: '',
+      // A reply draft holds the email it answers, quoted, in HTML as Outlook writes it (message-createreply's example).
+      ...(replyTo === null
+        ? { text: asked.body?.content ?? '' }
+        : { html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> ${message(original!).from?.emailAddress.name}<br><b>Sent:</b> Thursday</div><div>${message(original!).bodyPreview}</div></body></html>` }),
       receivedAt: this.madeAt,
       conversation: replyTo === null ? `conversation-of-draft-${n}` : message(original!).conversationId,
     };
@@ -151,6 +169,11 @@ export class GraphWorld {
   /** Every change written to a message, in order: its body and the version it was conditional on. */
   readonly writes: { id: string; body: unknown; ifMatch: string | null }[] = [];
 
+  /** The body of a message as Outlook shows it. */
+  bodyOf(id: string): { contentType: string; content: string } {
+    return message(this.#get(id)).body;
+  }
+
   /** The flag of a message as Outlook shows it. */
   flagOf(id: string): string {
     return this.#get(id).flag ?? 'notFlagged';
@@ -170,11 +193,18 @@ export class GraphWorld {
     this.beforeWrite(id);
     const found = this.#find(id);
     if (!found) return json({ error: { code: 'ErrorItemNotFound' } }, 404);
-    const change = JSON.parse(String(body)) as { flag?: { flagStatus?: Stored['flag'] }; categories?: string[] };
+    const change = JSON.parse(String(body)) as { flag?: { flagStatus?: Stored['flag'] }; categories?: string[]; body?: { contentType: string; content: string } };
     this.writes.push({ id: found.id, body: change, ifMatch });
     if (ifMatch !== null && ifMatch !== versionOf(found)) return json(VERSION_CHANGED, 412);
     if (change.flag?.flagStatus) found.flag = change.flag.flagStatus;
     if (change.categories) found.categories = [...change.categories];
+    if (change.body) {
+      if (!found.draft) return json({ error: { code: 'ErrorInvalidRequest' } }, 400);
+      delete found.html;
+      delete found.text;
+      if (change.body.contentType === 'html') found.html = change.body.content;
+      else found.text = change.body.content;
+    }
     this.#changed(found);
     return json(message(found));
   }

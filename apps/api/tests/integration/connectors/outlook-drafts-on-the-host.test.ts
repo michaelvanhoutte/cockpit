@@ -5,8 +5,8 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import { mailboxesOf } from '../../../src/connectors/drafts.js';
 import { ACCOUNT_NAME, WORKSPACE_ID, asUser, inTheStore, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
-import { issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
-import { graphDeletes, graphDrafts, graphHolds, graphSends } from '../graph.js';
+import { claudeAsked, claudeWrites, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
+import { graphCalls, graphDeletes, graphDrafts, graphHolds, graphMessage, graphRefuses, graphSends } from '../graph.js';
 import type { MessageOptions } from '../../../../../packages/connectors/outlook/tests/graph-payloads.js';
 
 /**
@@ -126,11 +126,16 @@ async function captured(title: string): Promise<string> {
 }
 
 /** *Email…* or *Reply…* clicked on an Item, through the mailbox named, under the click's own id. */
-function emailed(itemId: string, sourceAccountId: string, clickId: string = crypto.randomUUID()): Promise<Response> {
+function emailed(
+  itemId: string,
+  sourceAccountId: string,
+  clickId: string = crypto.randomUUID(),
+  more: { withClaude?: boolean; points?: string } = {},
+): Promise<Response> {
   return asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/draft`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ clickId, sourceAccountId }),
+    body: JSON.stringify({ clickId, sourceAccountId, ...more }),
   });
 }
 
@@ -308,6 +313,109 @@ describe('Triage', () => {
 
       expect(await theItem(itemId)).toEqual(before);
       expect(await inTheStore((sql) => sql.exec("SELECT count(*) AS n FROM commands WHERE name = 'drop_draft'").one().n)).toBe(0);
+    });
+  });
+
+  /**
+   * Draft with Claude through an Outlook connection ("Mail follow-up: Email… and
+   * Reply… in Outlook make an empty draft: have Claude write it", issue 1731): the
+   * request reads the conversation, has Claude write the body through the gateway,
+   * and has Outlook make the draft with it. Claude and Graph are faked at the
+   * network (`../issuer.ts`, `../graph.ts`); how the real model writes is the
+   * contract tier's, how the connector reads and writes mail its own
+   * (packages/connectors/outlook/tests/unit/drafting-a-reply.test.ts), and the cases
+   * that do not depend on the connector are the Gmail unit's walk of the same route
+   * (drafts-on-the-host.test.ts).
+   */
+  describe('Draft with Claude makes one Outlook draft whose body is Claude’s answer', () => {
+    let realKey: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+    });
+
+    const at = (minute: number) => new Date(Date.UTC(2026, 9, 2, 8, minute)).toISOString();
+
+    /** A flagged conversation c-1 of the messages given after its first, brought in as an Item. */
+    async function aFollowedConversation(later: MessageOptions[] = []): Promise<{ connection: string; itemId: string }> {
+      graphHolds([
+        { id: 'm-0', flag: 'flagged', conversation: 'c-1', subject: 'Dinner one of these weeks?', receivedAt: at(0), text: 'Shall we have dinner?' },
+        ...later,
+      ]);
+      const connection = await connected();
+      return { connection, itemId: (await opened()).items.find((one) => one.sourceId === 'conversation:c-1')!.id };
+    }
+
+    it('shows Claude only the last 10 messages of a conversation of 30, each without the email it quotes, and puts its answer in the reply draft', async () => {
+      const later: MessageOptions[] = [];
+      for (let n = 1; n < 29; n += 1) later.push({ id: `m-${n}`, conversation: 'c-1', receivedAt: at(n), text: `Message ${n}` });
+      const quoting =
+        '<html><body><p>Thursday evening?</p><hr><div><b>From:</b> Anna<br><b>Sent:</b> Friday</div><p>Message 28</p></body></html>';
+      later.push({ id: 'm-29', conversation: 'c-1', receivedAt: at(29), html: quoting, unique: quoting });
+      const { connection, itemId } = await aFollowedConversation(later);
+      claudeWrites('Hi Steven,\n\nOnly after 8pm works for me.\n\nAnna');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: 'only after 8pm' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ link: DRAFT_LINK('draft-m-1') });
+      expect(claudeAsked).toHaveLength(1);
+      expect(claudeAsked[0]).toMatchObject({ model: 'claude-sonnet-5-5', maxTokens: 1000 });
+      const shown = claudeAsked[0]!.message;
+      expect(shown).toContain('Item title: "Dinner one of these weeks?"');
+      expect(shown).toContain('Points to make this time: "only after 8pm"');
+      expect(shown.match(/ wrote, /g)).toHaveLength(10);
+      expect(shown).toContain('Message 28');
+      expect(shown).toContain('Thursday evening?');
+      expect(shown).not.toContain('Message 19');
+      expect(shown).not.toContain('Friday');
+      expect(graphDrafts).toEqual([{ id: 'draft-m-1', subject: 'RE: About m-29', replyTo: 'm-29' }]);
+      const stored = graphMessage('draft-m-1')!;
+      expect(stored.html).toContain('<div>Only after 8pm works for me.</div>');
+      expect(stored.html).toContain('divRplyFwdMsg');
+      expect(statusOf(await theItem(itemId))).toBe('in progress');
+    });
+
+    it('reads no conversation for an Item following nothing, and makes a new draft titled with the Item and the answer as its body', async () => {
+      graphHolds([]);
+      const connection = await connected();
+      const itemId = await captured('Plan a dinner with Steven Noels');
+      const asked = graphCalls.length;
+      claudeWrites('Hi Steven, which evening suits you? [which evening?]');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: '' });
+
+      expect(res.status).toBe(200);
+      expect(graphCalls.slice(asked).filter((call) => call.includes('conversationId'))).toEqual([]);
+      expect(claudeAsked[0]!.message).toContain('Conversation so far: (none: this email starts it)');
+      expect(graphDrafts).toEqual([{ id: 'draft-m-1', subject: 'Plan a dinner with Steven Noels', replyTo: null }]);
+      expect(graphMessage('draft-m-1')!.text).toBe('Hi Steven, which evening suits you? [which evening?]');
+    });
+
+    it('puts the Item back where Outlook refuses the body after Claude answered, the call recorded all the same', async () => {
+      const { connection, itemId } = await aFollowedConversation();
+      graphRefuses((call) => call.startsWith('PATCH messages/'));
+      claudeWrites('Hi Steven');
+
+      const res = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: 'yes' });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: "Couldn't make the draft: Outlook refused the draft (403)", putBack: true });
+      expect(claudeAsked).toHaveLength(1);
+      expect((await env.DB.prepare("SELECT outcome FROM provider_calls WHERE operation = 'draft-a-reply'").all<{ outcome: string }>()).results).toEqual([
+        { outcome: 'ok' },
+      ]);
+      expect((await theItem(itemId)).conversation?.draftStarted).toBeFalsy();
+    });
+
+    it('offers a draft with Claude through an Outlook connection where the environment has a key it may spend', async () => {
+      graphHolds([]);
+      const connection = await connected();
+
+      expect((await opened()).mailboxes).toEqual([expect.objectContaining({ sourceAccountId: connection, claudeDrafts: true })]);
     });
   });
 });

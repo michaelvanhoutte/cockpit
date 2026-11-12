@@ -53,6 +53,8 @@ export interface MessageOptions {
   readonly from?: { name?: string; address: string } | null;
   readonly text?: string;
   readonly html?: string;
+  /** What the message adds to its conversation (uniqueBody), in the format of its body; the whole body unless said. */
+  readonly unique?: string;
   readonly receivedAt?: string;
   /** Whom it was sent to; this mailbox unless said. */
   readonly to?: readonly { name?: string; address: string }[];
@@ -84,6 +86,7 @@ export function message(options: MessageOptions) {
     flag: { flagStatus: options.flag ?? 'notFlagged' },
     from: from ? { emailAddress: { name: from.name ?? '', address: from.address } } : null,
     body: { contentType: html ? 'html' : 'text', content },
+    uniqueBody: { contentType: html ? 'html' : 'text', content: options.unique ?? content },
     webLink: `https://outlook.office365.com/owa/?ItemID=${encodeURIComponent(options.id)}&exvsurl=1&viewmodel=ReadMessageItem`,
   };
 }

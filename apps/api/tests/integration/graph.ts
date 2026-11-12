@@ -36,7 +36,14 @@ export function graphIsEmpty(): void {
   messages = [];
   graphCalls.length = 0;
   graphDrafts.length = 0;
+  graphRefusing = null;
   pageSize = 100;
+}
+
+/** Graph refusing the next call whose `METHOD path` this matches, with this status - as an Outlook that will not take a draft does. */
+let graphRefusing: { when: (call: string) => boolean; status: number } | null = null;
+export function graphRefuses(when: (call: string) => boolean, status = 403): void {
+  graphRefusing = { when, status };
 }
 
 /** What the mailbox holds, and how many messages a page of a listing carries. */
@@ -63,7 +70,7 @@ function draftMade(replyTo: string | null, body: string): Response {
   const original = replyTo === null ? undefined : messages.find((one) => one.id === replyTo);
   if (replyTo !== null && !original) return Response.json({ error: { code: 'ErrorItemNotFound', message: 'Not found.' } }, { status: 404 });
   const n = graphDrafts.length + 1;
-  const asked = JSON.parse(body || '{}') as { subject?: string };
+  const asked = JSON.parse(body || '{}') as { subject?: string; body?: { content?: string } };
   const subject = original ? `RE: ${message(original).subject}` : (asked.subject ?? '');
   graphDrafts.push({ id: `draft-m-${n}`, subject, replyTo });
   const draft: Held = {
@@ -72,7 +79,10 @@ function draftMade(replyTo: string | null, body: string): Response {
     folder: DRAFTS_ID,
     from: { name: 'Anna', address: 'anna@example.com' },
     subject,
-    text: '',
+    // A reply draft holds the email it answers, quoted, in HTML as Outlook writes it (message-createreply's example).
+    ...(original
+      ? { html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> Steven<br><b>Sent:</b> Thursday</div><div>${message(original).bodyPreview}</div></body></html>` }
+      : { text: asked.body?.content ?? '' }),
     receivedAt: new Date().toISOString(), // clock-ok: the connector reads mail received since the real time it last ran
     ...(original ? { conversation: message(original).conversationId } : {}),
   };
@@ -97,6 +107,11 @@ export function graphDeletes(id: string): void {
 export async function graphAnswer(url: URL, init?: RequestInit): Promise<Response> {
   const call = `${init?.method ?? 'GET'} ${url.pathname.replace('/v1.0/me/', '')}${url.search ? decodeURIComponent(url.search) : ''}`;
   graphCalls.push(call);
+  if (graphRefusing?.when(call)) {
+    const { status } = graphRefusing;
+    graphRefusing = null;
+    return Response.json({ error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } }, { status });
+  }
   const token = new Headers(init?.headers).get('authorization') ?? '';
   if (!token.startsWith('Bearer ') || token.length <= 'Bearer '.length) {
     return Response.json({ error: { code: 'InvalidAuthenticationToken', message: 'Access token is empty.' } }, { status: 401 });
@@ -140,7 +155,17 @@ export async function graphAnswer(url: URL, init?: RequestInit): Promise<Respons
   const held = one && messages.find((candidate) => candidate.id === decodeURIComponent(one[1]!));
   if (!held) return Response.json({ error: { code: 'ErrorItemNotFound', message: 'Not found.' } }, { status: 404 });
   if (init?.method === 'PATCH') {
-    const change = JSON.parse(String(init.body)) as { flag?: { flagStatus: 'flagged' | 'complete' }; categories?: string[] };
+    const change = JSON.parse(String(init.body)) as {
+      flag?: { flagStatus: 'flagged' | 'complete' };
+      categories?: string[];
+      body?: { contentType: string; content: string };
+    };
+    if (change.body) {
+      delete held.html;
+      delete held.text;
+      if (change.body.contentType === 'html') held.html = change.body.content;
+      else held.text = change.body.content;
+    }
     if (change.flag) held.flag = change.flag.flagStatus;
     if (change.categories) held.categories = change.categories;
     return Response.json(message(held));
