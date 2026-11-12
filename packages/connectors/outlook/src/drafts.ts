@@ -277,7 +277,7 @@ function endOfWordsInHtml(content: string, start: number, was: string): number |
  */
 function shownBy(piece: string): string {
   if (piece.startsWith('<')) {
-    if (/^<(img|picture|object|embed|iframe|video|audio|svg|canvas)\b/i.test(piece)) return '￼';
+    if (/^<(img|picture|object|embed|iframe|video|audio|svg|canvas)\b/i.test(piece)) return '\uFFFC';
     return /^<\/?(br|p|div|li|tr|td|h[1-6]|blockquote|hr|table)\b/i.test(piece) ? ' ' : '';
   }
   // A space a reference stands for (`&nbsp;`) comes back trimmed to nothing.

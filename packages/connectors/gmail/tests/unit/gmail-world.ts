@@ -241,7 +241,7 @@ export class GmailWorld {
     draft.raw = body.message.raw;
     const held = this.#email(draft.messageId);
     // As Gmail reads the new message back: its words, a look after the rewrite seeing them.
-    held.payload = message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text) }).payload;
+    held.payload = message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), from: `Anna Peeters <${ADDRESS}>` }).payload;
     return json({ id, message: { id: held.id, threadId: draft.threadId, labelIds: held.labelIds } });
   }
 

@@ -249,8 +249,9 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
   top, compared spacing and markup aside, keeping the gap and the quoted email
   byte for byte, with a `PATCH` conditional on the version read
   (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0).
-  Words not found where they go, or a save in between (412), is `changed`, and
-  nothing is written. Three calls.
+  Words not found where they go, an image among them (which `hasAttachments`
+  leaves out), or a save in between (412), is `changed`, and nothing is
+  written. Three calls.
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 
