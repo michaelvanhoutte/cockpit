@@ -1,5 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
-import { findOutlookDraft, makeOutlookDraft } from './drafts.js';
+import { findOutlookDraft, makeOutlookDraft, readOutlookConversationForReply } from './drafts.js';
 import { listOutlookSent } from './sent.js';
 import type { OutlookConnectorConfig } from './graph.js';
 import { outlookAccountFrom, outlookSignIn } from './sign-in.js';
@@ -61,6 +61,8 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
     findDraft: (host, draft) => findOutlookDraft(host, config, draft),
 
     listRecentSent: (host, limit) => listOutlookSent(host, config, limit),
+
+    readConversationForReply: (host, conversationId, limits) => readOutlookConversationForReply(host, config, conversationId, limits),
 
     // No `revoke`: Microsoft offers no revoke of one application's grant, and
     // the only call that ends a person's tokens signs them out everywhere.

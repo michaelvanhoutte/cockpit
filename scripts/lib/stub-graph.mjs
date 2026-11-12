@@ -107,6 +107,8 @@ function message(id, { subject, from, to = [ME], text, html, flagged = false, ca
     flag: { flagStatus: flagged ? 'flagged' : 'notFlagged' },
     from: { emailAddress: { name: from.name, address: from.address } },
     body: html === undefined ? { contentType: 'text', content: text } : { contentType: 'html', content: html },
+    // What the message adds to its conversation: the stand-in's messages quote nothing, so it is the body.
+    uniqueBody: html === undefined ? { contentType: 'text', content: text } : { contentType: 'html', content: html },
     webLink: `https://outlook.office365.com/owa/?ItemID=${encodeURIComponent(id)}&exvsurl=1&viewmodel=ReadMessageItem`,
     version: ++versions,
   };
@@ -204,7 +206,12 @@ export function createStubGraph({ mailboxOfToken, json }) {
     const draft = message(`AAkALgStubDraft${mailbox.counter}`, {
       subject: original ? `RE: ${original.subject}` : (asked.subject ?? ''),
       from: { name: 'Michael', address: mailbox.email },
-      text: '',
+      // A reply holds the email it answers, quoted, in HTML as Outlook writes it; a new draft, the text it is handed.
+      ...(original
+        ? {
+            html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> ${original.from.emailAddress.name}<br><b>Sent:</b> ${original.sentDateTime}</div><div>${original.bodyPreview}</div></body></html>`,
+          }
+        : { text: asked.body?.content ?? '' }),
       at: new Date().toISOString(),
       folder: DRAFTS,
       conversation: original?.conversationId,
@@ -250,6 +257,13 @@ export function createStubGraph({ mailboxOfToken, json }) {
       }
       if (change.flag?.flagStatus) held.flag = { flagStatus: change.flag.flagStatus };
       if (Array.isArray(change.categories)) held.categories = change.categories;
+      // A draft's body, which only a draft takes (message-update: "updatable only if isDraft = true").
+      if (change.body) {
+        if (!held.isDraft) return json(response, { error: { code: 'ErrorInvalidRequest', message: 'The body of a sent message cannot be changed.' } }, 400);
+        held.body = { contentType: change.body.contentType, content: change.body.content };
+        held.uniqueBody = held.body;
+        held.bodyPreview = String(change.body.content).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255);
+      }
       held.version = ++versions;
       return json(response, shown(held));
     }
@@ -273,14 +287,14 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * /graph-stub/send-draft?email=&id=` sends a draft Cockpit had the mailbox make
    * where it stands (a message in Sent Items now, with the id it had), `POST
    * /graph-stub/delete-draft?email=&id=` deletes it unsent (to Deleted Items), and
-   * `GET /graph-stub/drafts?email=` lists the drafts the mailbox holds.
+   * `GET /graph-stub/drafts?email=` lists the drafts the mailbox holds, with their bodies.
    */
   function act(action, url, request, response) {
     const email = url.searchParams.get('email') ?? '';
     const mailbox = heldMailbox(email);
     if (action === 'asked') return json(response, mailbox.asked);
     if (action === 'drafts') {
-      return json(response, mailbox.messages.filter((one) => one.isDraft).map((one) => ({ id: one.id, subject: one.subject, conversationId: one.conversationId })));
+      return json(response, mailbox.messages.filter((one) => one.isDraft).map((one) => ({ id: one.id, subject: one.subject, conversationId: one.conversationId, body: one.body })));
     }
     if (action === 'message') {
       const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
