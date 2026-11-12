@@ -66,3 +66,10 @@ export function useDraftQuestion(): Asking | null {
 export function cancelDraftQuestion(): void {
   asking?.answer(null);
 }
+
+/** A new tab, opened by the press that starts a draft, whose page gets no hold on this one (as a link's `noopener` gives none). */
+export function aTab(): Window | null {
+  const tab = window.open('', '_blank');
+  if (tab) tab.opener = null;
+  return tab;
+}

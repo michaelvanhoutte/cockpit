@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import { askForPoints } from './draftAsk';
+import { aTab, askForPoints } from './draftAsk';
 import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, type Conversation, type Mailbox } from '@cockpit/shared';
 
 /**
@@ -133,15 +133,8 @@ export async function emailFromItem(
     if (!choice) return;
     tab = choice.tab;
     if (choice.mode === 'claude') claude = { points: choice.points };
-    // Pressed again while the question was open.
-    if (starting.has(itemId)) {
-      tab?.close();
-      return;
-    }
   } else {
-    tab = window.open('', '_blank');
-    // The draft's page gets no hold on this one, as a link's `noopener` gives none.
-    if (tab) tab.opener = null;
+    tab = aTab();
   }
   starting.set(itemId, mailbox.connectorId);
   changed();

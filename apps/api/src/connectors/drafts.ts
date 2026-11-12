@@ -128,6 +128,8 @@ export async function makeTheDraft(
   if (!held || !startsConversations(connector, held.follows ?? null)) {
     throw new NotFoundInAccountError(`no connection ${ask.sourceAccountId} of this workspace makes drafts`);
   }
+  // Refused with the rest, before the Item is marked as starting.
+  if (claude && !connector!.readConversationForReply) throw new RefusedByAccountError(CLAUDE_CANNOT_DRAFT);
   const named = JSON.stringify([accountName, ask.clickId]);
   const click = {
     clickId: ask.clickId,

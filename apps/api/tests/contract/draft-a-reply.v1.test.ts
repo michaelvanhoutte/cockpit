@@ -46,7 +46,7 @@ const A_DAY_OR_TIME =
 const DUTCH = /\b(de|het|een|ik|je|jij|u|we|wij|niet|dat|dit|van|voor|met|graag|bedankt|groet|groeten|hallo|dag|zou|kan|kun)\b/i;
 const ENGLISH = /\b(hi|hello|the|and|would|could|thanks|regards|works|please|with|your)\b/i;
 
-describe('Triage', () => {
+describe('Draft a reply', () => {
   it('has a key to ask with and a token to record its calls under', expectAKeyAndARecord);
 
   describe('a reply is written in the language of the conversation', () => {

@@ -20,7 +20,7 @@ export const REPLY_READ = { messages: 10, characters: 4_000 } as const;
 const ITEM_CHARACTERS = { title: 300, description: 2_000 } as const;
 
 /** What the answer may run to, and how long it is waited for: a person is waiting on the request. */
-export const REPLY_LIMITS = { maxTokens: 1_000, cutoffMs: 20_000 } as const;
+export const REPLY_LIMITS = { maxTokens: 4_000, cutoffMs: 20_000 } as const;
 
 const INSTRUCTIONS = `You are part of Cockpit, one person's inbox for their own work. The person keeps an item for an email conversation and asks you to write the body of their next email in it. They read and edit the draft before they send it.
 
@@ -80,6 +80,16 @@ export function buildDraftAReply(brief: ReplyBrief): {
   };
 }
 
+/** A name is one line, so it cannot start a turn of its own. */
+function onOneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** Every line of a message is indented, so none can read as the `--- You wrote` line that opens a turn. */
+function indented(text: string): string {
+  return text.replace(/^/gm, '    ');
+}
+
 export function renderBrief(brief: ReplyBrief): string {
   const description = brief.description?.trim() ?? '';
   const points = brief.points.trim();
@@ -95,7 +105,7 @@ export function renderBrief(brief: ReplyBrief): string {
           'Conversation so far, oldest first:',
           ...messages.map(
             (one) =>
-              `--- ${one.by === 'you' ? 'You' : (one.from ?? 'The other person')} wrote, ${one.at}:\n${shortened(one.text.trim(), REPLY_READ.characters)}`,
+              `--- ${one.by === 'you' ? 'You' : onOneLine(one.from ?? 'The other person')} wrote, ${one.at}:\n${indented(shortened(one.text.trim(), REPLY_READ.characters))}`,
           ),
         ].join('\n\n'),
   ].join('\n');

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { DRAFT_POINTS_LIMIT } from '@cockpit/shared';
-import { cancelDraftQuestion, useDraftQuestion, type Asking, type DraftAnswer } from '../draftAsk';
+import { aTab, cancelDraftQuestion, useDraftQuestion, type Asking, type DraftAnswer } from '../draftAsk';
 
 /**
  * The box *Email…* and *Reply…* ask before a draft is made where Claude can
@@ -22,13 +22,6 @@ export function DraftAsk() {
   // A box taken away cannot be answered, and the click waiting on it would wait for ever.
   useEffect(() => cancelDraftQuestion, []);
   return question ? <Box key={question.id} question={question} /> : null;
-}
-
-/** A new tab, opened by the press that answers, whose page gets no hold on this one. */
-function aTab(): Window | null {
-  const tab = window.open('', '_blank');
-  if (tab) tab.opener = null;
-  return tab;
 }
 
 function Box({ question }: { question: Asking }) {
