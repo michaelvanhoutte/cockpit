@@ -342,6 +342,7 @@ export async function startStubIssuer({ port, seedPath }) {
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
     const onDraft = url.pathname.match(/^\/gmail-stub\/(send-draft|delete-draft)$/);
     if (onDraft && request.method === 'POST') return actOnDraft(onDraft[1], url, response);
+    if (url.pathname === '/gmail-stub/edit-draft' && request.method === 'POST') return editDraft(url, response);
     // Every draft Cockpit had the mailbox make, oldest first, for a walk to send or delete one (issue 1708).
     if (url.pathname === '/gmail-stub/drafts') return json(response, heldMailbox(url.searchParams.get('email') ?? '').drafts);
     // What a walk reads back of a conversation Cockpit changed (issue 728):
@@ -592,7 +593,14 @@ export async function startStubIssuer({ port, seedPath }) {
       if (!held || !held.message.labelIds.includes('DRAFT')) {
         return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
       }
-      return json(response, { id: draft.id, message: { id: draft.message, threadId: draft.thread, labelIds: held.message.labelIds } });
+      // `users.drafts.update`: the draft's message replaced, the draft keeping its id (issue 1732).
+      if (request.method === 'PUT') return updateDraft(mailbox, draft, held.message, request, response);
+      const message = { id: draft.message, threadId: draft.thread, labelIds: held.message.labelIds };
+      // With `format=full` its payload, with `format=raw` the message itself, as Gmail reads a draft back (issue 1732).
+      const format = url.searchParams.get('format');
+      if (format === 'full') return json(response, { id: draft.id, message: { ...message, payload: held.message.payload } });
+      if (format === 'raw') return json(response, { id: draft.id, message: { ...message, raw: draft.raw } });
+      return json(response, { id: draft.id, message });
     }
     const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
     if (modified && request.method === 'POST') return modifyThread(mailbox, modified, request, response);
@@ -638,25 +646,78 @@ export async function startStubIssuer({ port, seedPath }) {
       const threadId = asked.message?.threadId ?? id;
       const thread = mailbox.threads.find((one) => one.id === threadId);
       if (asked.message?.threadId && !thread) return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+      // What the draft says, as a walk reads it back: the body after the headers, decoded as its encoding says (issue 1730).
+      const draftText = bodyOfRaw(raw);
       const message = {
         id,
         threadId,
         labelIds: ['DRAFT'],
         snippet: '',
         internalDate: String(Date.now()),
-        payload: { mimeType: 'text/plain', headers: [...headers, { name: 'From', value: mailbox.email }], body: { size: 0, data: '' } },
+        payload: { mimeType: 'text/plain', headers: [...headers, { name: 'From', value: mailbox.email }], body: { size: draftText.length, data: base64url(draftText) } },
       };
       if (thread) thread.messages.push(message);
       else mailbox.threads.push({ id: threadId, historyId: at, messages: [message] });
       mailbox.history.push({ id: at, messages: [{ id, threadId }], messagesAdded: [{ message: { id, threadId, labelIds: message.labelIds } }] });
-      // What the draft says, as a walk reads it back: the body after the headers, decoded as its encoding says (issue 1730).
-      const [head = '', ...rest] = raw.split('\r\n\r\n');
-      const afterHeaders = rest.join('\r\n\r\n');
-      const draftText = /^Content-Transfer-Encoding: base64$/im.test(head) ? Buffer.from(afterHeaders, 'base64').toString('utf8') : afterHeaders;
-      const draft = { id: `r-${at}`, message: id, thread: threadId, subject: headers.find((one) => one.name === 'Subject')?.value ?? '', body: draftText };
+      const draft = {
+        id: `r-${at}`,
+        message: id,
+        thread: threadId,
+        subject: headers.find((one) => one.name === 'Subject')?.value ?? '',
+        body: draftText,
+        raw: asked.message?.raw ?? '',
+        // How many times Cockpit wrote it again in place (issue 1732).
+        rewritten: 0,
+      };
       mailbox.drafts.push(draft);
       json(response, { id: draft.id, message: { id, threadId, labelIds: message.labelIds } });
     });
+  }
+
+  /**
+   * `users.drafts.update` ("Mail follow-up: a Claude draft looks like any other
+   * and cannot be redone…", issue 1732): the draft's message replaced by the one
+   * `raw` holds, in the same conversation and under the same draft id, leaving
+   * the history record Gmail does for a message changed.
+   */
+  function updateDraft(mailbox, draft, message, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let asked;
+      try {
+        asked = JSON.parse(body || '{}');
+      } catch {
+        return json(response, { error: { code: 400, message: 'Invalid JSON payload received.' } }, 400);
+      }
+      const raw = Buffer.from(asked.message?.raw ?? '', 'base64url').toString('utf8');
+      const text = bodyOfRaw(raw);
+      message.payload = { ...message.payload, body: { size: text.length, data: base64url(text) } };
+      draft.body = text;
+      draft.raw = asked.message?.raw ?? '';
+      draft.rewritten += 1;
+      mailbox.historyId += 1;
+      json(response, { id: draft.id, message: { id: message.id, threadId: draft.thread, labelIds: message.labelIds } });
+    });
+  }
+
+  /**
+   * A person editing a draft in Gmail (issue 1732): `POST
+   * /gmail-stub/edit-draft?email=&draft=&text=` writes its body anew, so
+   * Cockpit finds it changed and leaves it as theirs.
+   */
+  function editDraft(url, response) {
+    const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+    const draft = mailbox.drafts.find((one) => one.id === url.searchParams.get('draft'));
+    const found = draft && findMessage(mailbox, draft.message);
+    if (!found || !found.message.labelIds.includes('DRAFT')) return json(response, { error: 'no such draft' }, 404);
+    const text = url.searchParams.get('text') ?? '';
+    const raw = Buffer.from(draft.raw, 'base64url').toString('utf8');
+    const head = raw.split('\r\n\r\n')[0].replace(/\r\nContent-Transfer-Encoding: base64/i, '');
+    draft.raw = base64url(`${head}\r\n\r\n${text}`);
+    draft.body = text;
+    found.message.payload = { ...found.message.payload, body: { size: text.length, data: base64url(text) } };
+    json(response, { draft: draft.id, body: text });
   }
 
   /**
@@ -981,4 +1042,11 @@ function challengeFor(verifier) {
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
+}
+
+/** A message's body from its raw text, decoded as its encoding says. */
+function bodyOfRaw(raw) {
+  const [head = '', ...rest] = raw.split('\r\n\r\n');
+  const afterHeaders = rest.join('\r\n\r\n');
+  return /^Content-Transfer-Encoding: base64$/im.test(head) ? Buffer.from(afterHeaders, 'base64').toString('utf8') : afterHeaders;
 }

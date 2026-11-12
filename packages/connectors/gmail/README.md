@@ -243,6 +243,17 @@ turns:
   otherwise, gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most four calls:
   a refresh, the draft, the profile where no check saved the address yet, and
   the conversation, read for a reply still there or a draft no longer there.
+- **Claude's draft written again** ("Mail follow-up: a Claude draft looks like
+  any other and cannot be redone: say Claude drafted it, and redo it while you
+  have not edited it", issue 1732). The look (`findDraft` with `{ text: true }`)
+  reads the draft with `format=full` in place of `minimal`, in the same call:
+  its plain text, or none where it is more than text and alternatives (a file
+  added). `rewriteDraft` reads it with `format=raw`, keeps every header byte for
+  byte but the three that describe the body, writes the new body as `makeDraft`
+  writes one, and replaces the message with `users.drafts.update`, naming its
+  conversation again; the draft keeps its id
+  (https://developers.google.com/gmail/api/reference/rest/v1/users.drafts/update).
+  A draft that became more than text is `changed`. Three calls.
 - **A check** reads a draft's conversation as any followed one: the draft sent,
   whether its message keeps its id (Draft off, Sent on) or comes back as a new
   one, is a turn of yours. Once the history is read to the end, each draft the

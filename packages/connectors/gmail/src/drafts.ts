@@ -1,7 +1,9 @@
 import {
   SourceError,
   type DraftFound,
+  type DraftLook,
   type DraftMade,
+  type DraftRewrite,
   type DraftWaiting,
   type DraftWanted,
   type MessageForReply,
@@ -183,9 +185,14 @@ export function rawDraft(draft: ReplyTo, body = ''): string {
     // Base64 whatever the text holds, so no character or line of it can break the message.
     ...(body ? ['Content-Transfer-Encoding: base64'] : []),
     '',
-    body ? base64(body.replace(/\r\n?|\n/g, '\r\n')).replace(/.{1,76}/g, '$&\r\n').trimEnd() : '',
+    body ? inBase64Lines(body) : '',
   ];
   return base64url(lines.join('\r\n'));
+}
+
+/** A body as the message carries it: its lines ending CRLF, in base64, 76 characters a line. */
+function inBase64Lines(body: string): string {
+  return base64(body.replace(/\r\n?|\n/g, '\r\n')).replace(/.{1,76}/g, '$&\r\n').trimEnd();
 }
 
 /**
@@ -291,24 +298,122 @@ const CALLS_PER_LOOK = 4;
  * `after`; or null for one Gmail no longer has, or has in the bin - which
  * counts as deleted unsent (`draftStillThere`).
  */
-export async function findGmailDraft(host: OnDemandHost, config: GmailConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
+export async function findGmailDraft(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  draft: DraftWaiting,
+  read?: DraftLook,
+): Promise<DraftFound | null> {
   try {
     const credential = credentialIn(await host.getCredentials());
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
-    const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=minimal`);
+    // Its words too where they are asked for, in the same read (issue 1732).
+    const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=${read?.text ? 'full' : 'minimal'}`);
     const messageId = draftStillThere(answer);
     if (messageId !== null) {
       const address = await addressOf(host, mailbox);
-      if (draft.after === null) return { draftLink: draftLink(address, draft.conversationId, draft.draftId) };
+      const words = read?.text ? { text: wordsOfDraft(answer) } : {};
+      if (draft.after === null) return { draftLink: draftLink(address, draft.conversationId, draft.draftId), ...words };
       // A reply: its link names the conversation's latest email, one read of the conversation away.
       const latest = replyToLatestIn(await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`))?.latestId;
-      return { draftLink: latest ? replyDraftLink(address, draft.conversationId, latest) : drafts(address) };
+      return { draftLink: latest ? replyDraftLink(address, draft.conversationId, latest) : drafts(address), ...words };
     }
     const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
     return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
   } catch (error) {
     throw inTheirWords(error, 'Gmail could not look for the draft');
+  }
+}
+
+/**
+ * The words a draft holds, as `users.drafts.get` with `format=full` answers it
+ * (issue 1732): its plain text - the only words a Gmail draft holds, Gmail
+ * quoting nothing into a draft made through the API. Null where it is more
+ * than words (an attachment or an inline image added), which a rewrite would
+ * lose, so it counts as edited.
+ */
+export function wordsOfDraft(answer: unknown): string | null {
+  const payload = (answer as { message?: GmailMessage } | null)?.message?.payload;
+  const type = typeof payload?.mimeType === 'string' ? payload.mimeType.toLowerCase() : '';
+  return type === 'text/plain' || type === 'multipart/alternative' ? textOf(payload) : null;
+}
+
+/** The calls one rewrite may spend: a refresh, the draft as it is, and the draft replaced. */
+const CALLS_PER_REWRITE = 3;
+
+/**
+ * Claude's unsent draft written again in place ("Mail follow-up: a Claude draft
+ * looks like any other and cannot be redone…", issue 1732), with
+ * `users.drafts.update`, which replaces the draft's message and keeps the
+ * draft's id (https://developers.google.com/gmail/api/reference/rest/v1/users.drafts/update).
+ * The draft is read as it stands (`format=raw`), so every header it carries - to
+ * whom, the subject, the message it answers, anyone added since - is kept as it
+ * is and only the body replaced; its conversation is named again, as an update
+ * that names none would take the draft out of it. `changed` where the draft now
+ * holds more than words. The words themselves were compared by the host from
+ * the look just before.
+ */
+export async function rewriteGmailDraft(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  draft: DraftWaiting,
+  rewrite: DraftRewrite,
+): Promise<'rewritten' | 'changed'> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_REWRITE });
+    const path = `drafts/${encodeURIComponent(draft.draftId)}`;
+    const answer = (await mailbox.get(`${path}?format=raw`)) as { message?: { raw?: unknown; threadId?: unknown } } | null;
+    if (draftStillThere(answer) === null) throw new SourceError('the draft is no longer in Gmail');
+    const raw = typeof answer?.message?.raw === 'string' ? withBody(bytesOf(answer.message.raw), rewrite.body) : null;
+    if (raw === null) return 'changed';
+    const threadId = typeof answer?.message?.threadId === 'string' ? answer.message.threadId : draft.conversationId;
+    const updated = await mailbox.put(path, { id: draft.draftId, message: { raw, threadId } });
+    if (updated === null) throw new SourceError('the draft is no longer in Gmail');
+    return 'rewritten';
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not write the draft again');
+  }
+}
+
+/** The MIME headers a body brings, which a rewrite replaces with its own. */
+const BODY_HEADERS = /^(mime-version|content-type|content-transfer-encoding)$/i;
+
+/**
+ * A message, its raw bytes one character each, with its body replaced by
+ * `body` as `rawDraft` writes one - every other header kept byte for byte - in
+ * Gmail's URL-safe base64; or null where the message is more than words (a
+ * part other than text, or no header block at all).
+ */
+export function withBody(raw: string, body: string): string | null {
+  const end = /\r?\n\r?\n/.exec(raw);
+  if (!end) return null;
+  // Each header with the lines that continue it.
+  const fields = raw.slice(0, end.index).split(/\r?\n(?![ \t])/);
+  const type = fields.find((field) => /^content-type:/i.test(field));
+  const mimeType = type ? type.slice('content-type:'.length).split(';')[0]!.trim().toLowerCase() : 'text/plain';
+  if (mimeType !== 'text/plain' && mimeType !== 'multipart/alternative') return null;
+  const kept = fields.filter((field) => !BODY_HEADERS.test(field.split(':')[0]!.trim())).map((field) => field.replace(/\r?\n/g, '\r\n'));
+  const lines = [
+    ...kept,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    inBase64Lines(body),
+  ];
+  return btoa(lines.join('\r\n')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Gmail's URL-safe base64 as raw bytes, one character each: a message's headers kept exactly, whatever their charset. */
+function bytesOf(data: string): string {
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  try {
+    return atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+  } catch {
+    return '';
   }
 }
 

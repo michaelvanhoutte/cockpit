@@ -1,7 +1,8 @@
-import { SourceError, type Connector, type OnDemandHost } from '@cockpit/connector-sdk';
+import { SourceError, type Connector, type DraftWaiting, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { Mailbox } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { ConflictInAccountError, NotFoundInAccountError, RefusedByAccountError, type Account } from '../accounts/index.js';
+import type { DraftClick } from '../accounts/drafts.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import { aiFor, type ReplyBrief } from '../ai/index.js';
 import { standInReply } from '../ai/reply-stand-in.js';
@@ -137,21 +138,27 @@ export async function makeTheDraft(
     droppedId: await derivedUuid(`draft-dropped:${named}`),
     replacedId: await derivedUuid(`draft-replaced:${named}`),
   };
+  const where = { workspaceId: ask.workspaceId, itemId: ask.itemId, sourceAccountId: ask.sourceAccountId, ...click };
   let wanted = await account.wantDraft({ ...ask, ...click });
   if (wanted.status === 'look') {
     const look = wanted;
     const lookHost = onDemandHost(env, account, ask.sourceAccountId, sealedIn(look), look.state, look.connectorId);
+    // Draft with Claude on Claude's own draft: its words are read back with the look, to rewrite it if unchanged (issue 1732).
+    const redrafting = claude && look.claude && connector!.rewriteDraft ? { ...look.claude, points: claude.points } : null;
     let found;
     try {
       if (!connector!.findDraft) throw new SourceError('this mailbox cannot be asked for the draft started before');
-      found = await connector!.findDraft(lookHost, look.draft);
+      found = redrafting ? await connector!.findDraft(lookHost, look.draft, { text: true }) : await connector!.findDraft(lookHost, look.draft);
     } catch (error) {
       // Nothing was changed, so nothing is put back.
       if (error instanceof SourceError) throw new DraftNotMadeError(error.message, false);
       logged(look.connectorId, 'error', 'a draft could not be looked for', error instanceof Error ? error.message : String(error));
       throw new DraftNotMadeError('something went wrong', false);
     }
-    if (found && 'draftLink' in found) return found.draftLink;
+    if (found && 'draftLink' in found) {
+      if (!redrafting) return found.draftLink;
+      return claudeRedrafts(env, account, connector!, lookHost, { ...where, accountName }, look.draft, { ...found, ...redrafting });
+    }
     if (found) {
       // Changes nothing: the check records the sent message, as it would have at its next turn.
       await account.checkNow(ask.workspaceId, ask.sourceAccountId).catch(() => undefined);
@@ -165,10 +172,10 @@ export async function makeTheDraft(
   if (wanted.status === 'failed') throw new ConflictInAccountError(DRAFT_FAILED_BEFORE);
 
   const host = onDemandHost(env, account, ask.sourceAccountId, sealedIn(wanted), wanted.state, wanted.connectorId);
-  const where = { workspaceId: ask.workspaceId, itemId: ask.itemId, sourceAccountId: ask.sourceAccountId, ...click };
   let draft;
+  let body: string | undefined;
   try {
-    const body = claude
+    body = claude
       ? await claudeWritesTheBody(env, connector!, host, accountName, ask.itemId, { title: wanted.subject, description: wanted.description, points: claude.points }, wanted.replyIn)
       : undefined;
     draft = await connector!.makeDraft!(host, { subject: wanted.subject, replyIn: wanted.replyIn, ...(body === undefined ? {} : { body }) });
@@ -181,8 +188,78 @@ export async function makeTheDraft(
   }
   // Made: what fails from here leaves a draft the mailbox holds and the Item In
   // progress with no link - the design's worst case, which a later click mends.
-  await account.recordDraft({ ...where, draft });
+  // Claude's draft is recorded with the fingerprint of what Claude wrote (issue 1732).
+  await account.recordDraft({ ...where, draft, claudeDigest: body === undefined ? null : await fingerprintOf(body) });
   return draft.draftLink;
+}
+
+/**
+ * Draft with Claude asked again on Claude's own unsent draft ("Mail follow-up:
+ * a Claude draft looks like any other and cannot be redone…", issue 1732),
+ * once the look has found it still there and read its words back:
+ *
+ * - **Unchanged** (its words match the fingerprint, spacing aside): Claude
+ *   writes it again and the connector rewrites the same draft in place, then
+ *   the new fingerprint is recorded. The answer is the same draft's link.
+ * - **Edited in the mailbox, or unreadable**: no Claude call, nothing written
+ *   to the mailbox; the fingerprint is cleared, so the draft is yours from
+ *   now on, and the answer opens it.
+ *
+ * A Claude call or a rewrite that fails changes nothing: Claude's draft and its
+ * fingerprint stay, nothing was put back, and the person is told why. A
+ * rewrite whose fingerprint is not then recorded leaves a draft whose words no
+ * longer match, which the next ask keeps as yours. Recorded under the click's
+ * derived id, so the click resent opens the draft without a second rewrite.
+ */
+async function claudeRedrafts(
+  env: Env,
+  account: Account,
+  connector: Connector,
+  host: OnDemandHost,
+  where: { accountName: string; workspaceId: string; itemId: string; sourceAccountId: string } & DraftClick,
+  waiting: DraftWaiting,
+  found: { draftLink: string; text?: string | null | undefined; digest: string; subject: string; description: string | null; points: string },
+): Promise<string> {
+  const { accountName, ...record } = where;
+  const draft = { draftId: waiting.draftId, conversationId: waiting.conversationId, draftLink: found.draftLink, conversationLink: found.draftLink };
+  const was = found.text ?? null;
+  if (was === null || (await fingerprintOf(was)) !== found.digest) {
+    await account.recordDraft({ ...record, draft, claudeDigest: null });
+    return found.draftLink;
+  }
+  let rewritten: { outcome: 'rewritten' | 'changed'; body: string };
+  try {
+    // A conversation the draft started holds nothing but the draft: none to read.
+    const body = await claudeWritesTheBody(
+      env,
+      connector,
+      host,
+      accountName,
+      where.itemId,
+      { title: found.subject, description: found.description, points: found.points },
+      waiting.after === null ? null : waiting.conversationId,
+    );
+    rewritten = { outcome: await connector.rewriteDraft!(host, waiting, { was, body }), body };
+  } catch (error) {
+    // Nothing was changed: Claude's draft and its fingerprint stay, and nothing is put back.
+    if (error instanceof SourceError) throw new DraftNotMadeError(error.message, false);
+    logged(connector.manifest.id, 'error', 'a draft could not be written again', error instanceof Error ? error.message : String(error));
+    throw new DraftNotMadeError('something went wrong', false);
+  }
+  const claudeDigest = rewritten.outcome === 'rewritten' ? await fingerprintOf(rewritten.body) : null;
+  await account.recordDraft({ ...record, draft, claudeDigest });
+  return found.draftLink;
+}
+
+/**
+ * The fingerprint of a draft's text (issue 1732): SHA-256, in hex, of the text
+ * with every run of spacing made one space and the ends trimmed, so a mailbox
+ * that changes its line breaks, or keeps it as HTML read back as text, still
+ * matches the words Claude wrote.
+ */
+export async function fingerprintOf(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text.replace(/\s+/g, ' ').trim()));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**

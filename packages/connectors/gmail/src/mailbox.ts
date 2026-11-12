@@ -140,13 +140,18 @@ export class Mailbox {
     return this.#ask(path, body);
   }
 
-  async #ask(path: string, body?: unknown): Promise<unknown> {
+  /** One replacement through Gmail's API (`users.drafts.update`, issue 1732) - its answer, or null where what it names is not there. */
+  put(path: string, body: unknown): Promise<unknown> {
+    return this.#ask(path, body, 'PUT');
+  }
+
+  async #ask(path: string, body?: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<unknown> {
     const token = this.#token ?? (await this.#refresh());
-    let response = await this.#call(path, token, body);
+    let response = await this.#call(path, token, body, method);
     if (response.status === 401) {
       // A token Google has stopped accepting early is refreshed once; a
       // second refusal is the sign-in's.
-      response = await this.#call(path, await this.#refresh(), body);
+      response = await this.#call(path, await this.#refresh(), body, method);
       if (response.status === 401) throw new SignInLost();
     }
     if (response.status === 404) return null;
@@ -162,7 +167,7 @@ export class Mailbox {
     return response.json();
   }
 
-  async #call(path: string, token: string, body?: unknown): Promise<Response> {
+  async #call(path: string, token: string, body: unknown, method: 'POST' | 'PUT'): Promise<Response> {
     this.#spend();
     const origin = this.config.apiOrigin?.trim() || 'https://gmail.googleapis.com';
     try {
@@ -171,7 +176,7 @@ export class Mailbox {
         body === undefined
           ? { headers: { authorization: `Bearer ${token}` } }
           : {
-              method: 'POST',
+              method,
               headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
               body: JSON.stringify(body),
             },

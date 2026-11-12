@@ -1737,6 +1737,16 @@ export const itemConversations = sqliteTable(
      */
     draftLink: text('draft_link'),
     /**
+     * The fingerprint of the text Claude wrote into the draft waited on ("Mail
+     * follow-up: a Claude draft looks like any other and cannot be redone…",
+     * issue 1732): SHA-256, in hex, of that text with its spacing normalised.
+     * Set while the draft is Claude's and unchanged as far as Cockpit knows,
+     * replaced when Claude writes it again, and cleared with `draft_id`, or once
+     * the draft is found edited. Null is a draft of yours, and every row from
+     * before it.
+     */
+    claudeDraftDigest: text('claude_draft_digest'),
+    /**
      * When the Item stopped following it, or null while it follows: reopened in
      * Cockpit while no message in the conversation carried the mark, which the
      * source was not asked to put back. Cleared by the conversation followed again.

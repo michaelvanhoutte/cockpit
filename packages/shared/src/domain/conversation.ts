@@ -39,6 +39,13 @@ export const conversationSchema = z.object({
    * started*. Optional: absent reads as none.
    */
   draftStarted: z.boolean().optional(),
+  /**
+   * The unsent draft is Claude's ("Mail follow-up: a Claude draft looks like any
+   * other and cannot be redone…", issue 1732): Draft with Claude wrote it and it
+   * has not been found edited since. The line reads *Claude drafted an answer*,
+   * and Reply… asks again what Claude should say. Absent: the draft is yours.
+   */
+  claudeDrafted: z.boolean().optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 

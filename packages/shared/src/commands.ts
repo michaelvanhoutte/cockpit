@@ -753,8 +753,25 @@ export const followConversationSchema = commandEnvelopeSchema.extend({
    * new conversation's row takes where it stands from here; a followed one's
    * keeps its own and only records the draft. `link` is where the draft opens,
    * which the same click resent is answered with from this change's log entry.
+   * `claudeDigest` is the fingerprint of the text Claude wrote into it ("Mail
+   * follow-up: a Claude draft looks like any other and cannot be redone…", issue
+   * 1732): the draft is Claude's while it is set, and a draft recorded without
+   * one, or with null, is yours. Recorded again for a draft already waited on,
+   * the change sets the fingerprint alone: Claude's rewrite, or a draft found
+   * edited and so yours.
    */
-  draft: z.object({ id: z.string().min(1).max(500), startedBy: z.uuid(), link: z.url().max(2_000) }).optional(),
+  draft: z
+    .object({
+      id: z.string().min(1).max(500),
+      startedBy: z.uuid(),
+      link: z.url().max(2_000),
+      claudeDigest: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/)
+        .nullable()
+        .optional(),
+    })
+    .optional(),
 });
 export type FollowConversationCommand = z.infer<typeof followConversationSchema>;
 

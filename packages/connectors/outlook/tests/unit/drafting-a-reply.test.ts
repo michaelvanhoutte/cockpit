@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SourceError, type OnDemandHost } from '@cockpit/connector-sdk';
 import type { FakeHost } from './fake-host.js';
 import { DELETED_ITEMS_ID, DRAFTS_ID, GraphWorld, SENT_ITEMS_ID, signedInHost } from './outlook-world.js';
+import { wordsReplaced } from '../../src/drafts.js';
 
 /**
  * L1, against a fake host and Microsoft Graph faked at the network, from the
@@ -166,6 +167,141 @@ describe('Triage', () => {
 
       await expect(reading).rejects.toBeInstanceOf(SourceError);
       await expect(reading).rejects.toThrow('the conversation is no longer in Outlook');
+    });
+  });
+
+  /**
+   * Draft with Claude asked again ("Mail follow-up: a Claude draft looks like any
+   * other and cannot be redone…", issue 1732): the look reads the draft's own
+   * words back, and the rewrite replaces them in place above what Outlook quotes.
+   * Whether the words still match Claude's, and what is recorded, is the
+   * Worker's (L2, apps/api/tests/integration/connectors/outlook-drafts-on-the-host.test.ts).
+   */
+  describe('a draft is read back as its own words, and written again in place keeping what it quotes', () => {
+    const WORDS = 'Dag Steven,\n\nDonderdag past <prima> & ✓.\n\nAnna';
+    const spacingAside = (text: string | null | undefined) => text?.replace(/\s+/g, ' ').trim();
+
+    /** A reply Claude's body was written into, and the draft as the store waits on it. */
+    async function aReplyDrafted(world: GraphWorld) {
+      world.arrives('m-1', { conversation: 'c-1', from: STEVEN, receivedAt: '2026-10-09T09:00:00Z', subject: 'Diner?', text: 'Shall we?' });
+      const made = await world.connector().makeDraft!(onDemand(signedInHost()), { subject: 'Plan', replyIn: 'c-1', body: WORDS });
+      world.forget();
+      world.writes.length = 0;
+      return { conversationId: made.conversationId, draftId: made.draftId, after: '2026-10-09T09:00:00.000Z' };
+    }
+
+    it('reads a reply draft’s words above what it quotes, as text, with the look', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+
+      const found = await world.connector().findDraft!(onDemand(signedInHost()), draft, { text: true });
+
+      expect(found).toMatchObject({ draftLink: expect.stringContaining('draft-1') });
+      expect(spacingAside((found as { text?: string | null }).text)).toBe(spacingAside(WORDS));
+      expect(world.requests.filter((one) => one.includes('messages/draft-1'))).toEqual([
+        'GET /v1.0/me/messages/draft-1?$select=id,isDraft,parentFolderId,webLink,uniqueBody,hasAttachments',
+      ]);
+      expect(world.prefer[0]).toContain('outlook.body-content-type="text"');
+    });
+
+    it('reads a draft a file was attached to as having no words it can tell, so it is the person’s', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+      world.editsTheDraft(draft.draftId, { attaches: true });
+
+      const found = await world.connector().findDraft!(onDemand(signedInHost()), draft, { text: true });
+
+      expect(found).toEqual({ draftLink: expect.any(String), text: null });
+    });
+
+    it('replaces the words of the same reply draft, keeping the email it quotes, conditional on the version read', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+      const quoted = world.bodyOf('draft-1').content.slice(world.bodyOf('draft-1').content.indexOf('<hr>'));
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost()), draft, { was: WORDS, body: 'Dag Steven,\n\nVrijdag dan?\n\nAnna' });
+
+      expect(outcome).toBe('rewritten');
+      const stored = world.bodyOf('draft-1').content;
+      expect(stored).toContain('<body><div>Dag Steven,</div><div><br></div><div>Vrijdag dan?</div><div><br></div><div>Anna</div><div><br></div><hr>');
+      expect(stored).not.toContain('Donderdag');
+      expect(stored.endsWith(quoted)).toBe(true);
+      expect(world.draftsAsked).toHaveLength(1);
+      expect(world.writes).toEqual([expect.objectContaining({ id: 'draft-1', ifMatch: expect.stringMatching(/^W\//) })]);
+    });
+
+    it('replaces the whole body of a new conversation’s draft, kept as text', async () => {
+      const world = new GraphWorld();
+      const made = await world.connector().makeDraft!(onDemand(signedInHost()), { subject: 'Plan', replyIn: null, body: 'Hi Steven,\n\n[which evening?]' });
+      const draft = { conversationId: made.conversationId, draftId: made.draftId, after: null };
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost()), draft, { was: 'Hi Steven,\n\n[which evening?]', body: 'Hi Steven, Friday?' });
+
+      expect(outcome).toBe('rewritten');
+      expect(world.bodyOf('draft-1')).toEqual({ contentType: 'text', content: 'Hi Steven, Friday?' });
+    });
+
+    it('writes nothing, and says it changed, where the draft no longer starts with Claude’s words', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+      world.editsTheDraft(draft.draftId, { types: 'Sorry, one more thing:' });
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost()), draft, { was: WORDS, body: 'Hello' });
+
+      expect(outcome).toBe('changed');
+      expect(world.writes).toEqual([]);
+    });
+
+    it('writes nothing over a save Outlook made between the read and the write, and says it changed', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+      world.beforeWrite = (id) => world.editsTheDraft(id, { types: 'typed meanwhile' });
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost()), draft, { was: WORDS, body: 'Hello' });
+
+      expect(outcome).toBe('changed');
+      expect(world.bodyOf('draft-1').content).toContain('typed meanwhile');
+      expect(world.bodyOf('draft-1').content).not.toContain('Hello');
+    });
+
+    it('says why, in words for the person, where the draft was sent meanwhile', async () => {
+      const world = new GraphWorld();
+      const draft = await aReplyDrafted(world);
+      world.sends(draft.draftId);
+
+      const rewriting = world.connector().rewriteDraft!(onDemand(signedInHost()), draft, { was: WORDS, body: 'Hello' });
+
+      await expect(rewriting).rejects.toBeInstanceOf(SourceError);
+      await expect(rewriting).rejects.toThrow('the draft is no longer in Outlook');
+    });
+  });
+
+  describe('the words at the top of a draft are found as Outlook stores them, spacing and markup aside', () => {
+    it.each([
+      {
+        situation: 'as Cockpit wrote them',
+        content: '<html><body><div>Hi Steven,</div><div><br></div><div>Thursday &amp; Friday.</div><div><br></div><hr><div>quoted</div></body></html>',
+        kept: '<hr><div>quoted</div></body></html>',
+      },
+      {
+        situation: 'rewrapped by Outlook into one block of its own',
+        content: '<html><body dir="ltr"><div class="elementToProof" style="font-size:12pt">Hi Steven,<br><br>Thursday&nbsp;&amp; Friday.</div><div id="appendonsend"></div><hr style="display:inline-block"><div>quoted</div></body></html>',
+        kept: '<div id="appendonsend"></div><hr style="display:inline-block"><div>quoted</div></body></html>',
+      },
+    ])('replaces them $situation, keeping what follows byte for byte', ({ content, kept }) => {
+      const replaced = wordsReplaced({ contentType: 'html', content }, 'Hi Steven,\n\nThursday & Friday.', 'Hello');
+
+      expect(replaced?.contentType).toBe('html');
+      expect(replaced?.content).toMatch(/<body[^>]*><div>Hello<\/div><div><br><\/div>/);
+      expect(replaced?.content.endsWith(kept)).toBe(true);
+    });
+
+    it.each([
+      { situation: 'words added after them', content: '<html><body><div>Hi Steven, Thursday & Friday. Or Saturday</div><hr></body></html>' },
+      { situation: 'other words first', content: '<html><body><div>PS</div><div>Hi Steven, Thursday & Friday.</div></body></html>' },
+      { situation: 'some of them gone', content: '<html><body><div>Hi Steven,</div><hr></body></html>' },
+    ])('finds none where the draft has $situation', ({ content }) => {
+      expect(wordsReplaced({ contentType: 'html', content }, 'Hi Steven,\n\nThursday & Friday.', 'Hello')).toBeNull();
     });
   });
 });

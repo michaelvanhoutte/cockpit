@@ -1246,11 +1246,18 @@ export function listConversationsInWorkspace(
   // A draft Email… made still unsent is said only where it is so (issue 1708),
   // so a row without one reads as it did before; while it is, Open goes to the
   // draft where its link is kept (issue 1720), a row from before it linking the
-  // conversation.
+  // conversation. A draft with Claude's fingerprint is said to be Claude's (issue 1732).
   return conversationsInWorkspace(db, tenantId, workspaceId, of)
     .all()
-    .map(({ statusBeforeDraft, draftLink, ...conversation }) =>
-      statusBeforeDraft === null ? conversation : { ...conversation, link: draftLink ?? conversation.link, draftStarted: true },
+    .map(({ statusBeforeDraft, draftLink, claudeDraftDigest, ...conversation }) =>
+      statusBeforeDraft === null
+        ? conversation
+        : {
+            ...conversation,
+            link: draftLink ?? conversation.link,
+            draftStarted: true,
+            ...(claudeDraftDigest !== null ? { claudeDrafted: true } : {}),
+          },
     );
 }
 
@@ -1271,6 +1278,7 @@ export function conversationsInWorkspace(db: AccountDb, tenantId: string, worksp
       withWhom: itemConversations.withWhom,
       statusBeforeDraft: itemConversations.statusBeforeDraft,
       draftLink: itemConversations.draftLink,
+      claudeDraftDigest: itemConversations.claudeDraftDigest,
     })
     .from(items)
     .innerJoin(itemConversations, eq(itemConversations.itemId, items.id))

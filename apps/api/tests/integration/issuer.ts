@@ -376,23 +376,50 @@ async function claudeAnswer(input: RequestInfo | URL, init?: RequestInit): Promi
  */
 export const gmailDrafts: { id: string; messageId: string; threadId: string; text: string }[] = [];
 
+/** A draft's message as the mailbox keeps it: what `threads.get` lists, and what `drafts.get` reads with `format=full`. */
+type DraftMessage = {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  internalDate: string;
+  payload: { mimeType: string; headers: { name: string; value: string }[]; body: { size: number; data?: string }; parts?: unknown[] };
+};
+
+/** Raw message text, from Gmail's URL-safe base64. */
+function rawText(raw: string): string {
+  return new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+}
+
+/** A message's body as its encoding says, from its raw text. */
+function bodyOfRaw(text: string): string {
+  const [headers, ...rest] = text.split('\r\n\r\n');
+  const body = rest.join('\r\n\r\n');
+  if (!/^Content-Transfer-Encoding: base64$/im.test(headers!)) return body;
+  return new TextDecoder().decode(Uint8Array.from(atob(body.replace(/\s+/g, '')), (c) => c.charCodeAt(0)));
+}
+
+/** Text in Gmail's URL-safe base64, as a message part's `body.data` carries it. */
+function asBodyData(text: string): string {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The payload a draft's raw text makes: its subject, and its body as plain text. */
+function payloadOf(text: string): DraftMessage['payload'] {
+  const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.replace(/\r$/, '') ?? '';
+  const body = bodyOfRaw(text);
+  return { mimeType: 'text/plain', headers: [{ name: 'Subject', value: subject }], body: body ? { size: body.length, data: asBodyData(body) } : { size: 0 } };
+}
+
 /** `users.drafts.create`, answered as Gmail answers it. */
 function draftMade(body: string): Response {
   const asked = JSON.parse(body) as { message: { raw: string; threadId?: string } };
   const n = gmailDrafts.length + 1;
   const messageId = `draft-m-${n}`;
   const threadId = asked.message.threadId ?? messageId;
-  const text = new TextDecoder().decode(
-    Uint8Array.from(atob(asked.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
-  );
-  const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.replace(/\r$/, '') ?? '';
-  const draft = {
-    id: messageId,
-    threadId,
-    labelIds: ['DRAFT'],
-    internalDate: String(Date.UTC(2026, 9, 9, 12, n)),
-    payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: subject }], body: { size: 0 } },
-  };
+  const text = rawText(asked.message.raw);
+  const draft: DraftMessage = { id: messageId, threadId, labelIds: ['DRAFT'], internalDate: String(Date.UTC(2026, 9, 9, 12, n)), payload: payloadOf(text) };
   const thread = mailbox.threads.find((one) => one.id === threadId);
   if (thread) ((thread.answer as { messages: unknown[] }).messages ??= []).push(draft);
   else mailbox.threads.push({ id: threadId, labelled: false, answer: { id: threadId, historyId: mailbox.historyId, messages: [draft] } });
@@ -400,17 +427,66 @@ function draftMade(body: string): Response {
   return Response.json({ id: `r-${n}`, message: { id: messageId, threadId, labelIds: ['DRAFT'] } });
 }
 
-/** `users.drafts.get`: the draft while its message is still a draft in the mailbox, with its labels - the Bin's among them once binned - else not found. */
-function draftRead(id: string): Response {
+/** A draft's message while it is still a draft in the mailbox, with its labels - the Bin's among them once binned. */
+function draftMessage(id: string): DraftMessage | undefined {
   const draft = gmailDrafts.find((one) => one.id === id);
-  const held = draft
-    ? mailbox.threads
-        .flatMap((thread) => (thread.answer as { messages?: { id?: string; labelIds?: string[] }[] }).messages ?? [])
-        .find((message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT'))
+  return draft
+    ? (mailbox.threads
+        .flatMap((thread) => (thread.answer as { messages?: DraftMessage[] }).messages ?? [])
+        .find((message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT')) as DraftMessage | undefined)
     : undefined;
-  return held
-    ? Response.json({ id, message: { id: draft!.messageId, threadId: draft!.threadId, labelIds: held.labelIds } })
-    : Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+}
+
+/**
+ * `users.drafts.get`: the draft while its message is still a draft in the
+ * mailbox, else not found - with `format=full` its payload too, and with
+ * `format=raw` the message as `raw` holds it (issue 1732).
+ */
+function draftRead(id: string, format: string | null): Response {
+  const held = draftMessage(id);
+  if (!held) return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+  const draft = gmailDrafts.find((one) => one.id === id)!;
+  const message = { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds };
+  if (format === 'full') return Response.json({ id, message: { ...message, payload: held.payload } });
+  if (format === 'raw') return Response.json({ id, message: { ...message, raw: asBodyData(draft.text) } });
+  return Response.json({ id, message });
+}
+
+/** Every draft `users.drafts.update` replaced, oldest first: its id and the message it was given, decoded from `raw` (issue 1732). */
+export const gmailDraftsUpdated: { id: string; threadId: string | undefined; text: string }[] = [];
+
+/** `users.drafts.update`: the draft's message replaced, the draft keeping its id and its conversation. */
+function draftUpdated(id: string, body: string): Response {
+  const held = draftMessage(id);
+  if (!held) return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+  const asked = JSON.parse(body) as { id?: string; message: { raw: string; threadId?: string } };
+  const text = rawText(asked.message.raw);
+  gmailDraftsUpdated.push({ id, threadId: asked.message.threadId, text });
+  held.payload = payloadOf(text);
+  gmailDrafts.find((one) => one.id === id)!.text = text;
+  return Response.json({ id, message: { id: held.id, threadId: held.threadId, labelIds: held.labelIds } });
+}
+
+/**
+ * A person editing a draft in Gmail (issue 1732): its body written anew,
+ * and, where `attaching`, a file added, which makes it a message of parts.
+ */
+export function gmailDraftEdited(id: string, words: string, { attaching = false }: { attaching?: boolean } = {}): void {
+  const held = draftMessage(id)!;
+  const draft = gmailDrafts.find((one) => one.id === id)!;
+  const [headers] = draft.text.split('\r\n\r\n');
+  draft.text = `${headers}\r\n\r\n${words}`.replace(/^Content-Transfer-Encoding: base64\r\n/im, '');
+  held.payload = attaching
+    ? {
+        ...held.payload,
+        mimeType: 'multipart/mixed',
+        body: { size: 0 },
+        parts: [
+          { mimeType: 'text/plain', body: { size: words.length, data: asBodyData(words) } },
+          { mimeType: 'application/pdf', filename: 'menu.pdf', body: { size: 1000, attachmentId: 'a-1' } },
+        ],
+      }
+    : { ...held.payload, body: { size: words.length, data: asBodyData(words) } };
 }
 
 /** How Google answers a refresh: as it does, refusing the sign-in, or not answering usefully. */
@@ -429,6 +505,7 @@ export function gmailIsEmpty(): void {
   gmailCalls.length = 0;
   gmailModifies.length = 0;
   gmailDrafts.length = 0;
+  gmailDraftsUpdated.length = 0;
   refreshes.length = 0;
   refreshing = 'answers';
   gmailFailing = null;
@@ -526,7 +603,8 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
   if (path === 'labels') return Response.json(mailbox.labels);
   if (path === 'drafts' && init?.method === 'POST') return draftMade(String(init.body));
   const draft = /^drafts\/([^/]+)$/.exec(path);
-  if (draft) return draftRead(decodeURIComponent(draft[1]!));
+  if (draft && init?.method === 'PUT') return draftUpdated(decodeURIComponent(draft[1]!), String(init.body));
+  if (draft) return draftRead(decodeURIComponent(draft[1]!), url.searchParams.get('format'));
   if (path === 'profile') {
     return Response.json({ emailAddress: 'anna@example.com', messagesTotal: 10, threadsTotal: 10, historyId: mailbox.historyId });
   }

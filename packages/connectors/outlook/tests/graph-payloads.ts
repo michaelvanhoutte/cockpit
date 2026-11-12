@@ -64,6 +64,8 @@ export interface MessageOptions {
   readonly draft?: boolean;
   /** The version Graph names the message at (@odata.etag), which changes with every change to it. */
   readonly version?: string;
+  /** Whether it carries a file (`hasAttachments`); left out of the answer unless said. */
+  readonly hasAttachments?: boolean;
 }
 
 /** One message with every field the connector may ask for. */
@@ -88,6 +90,7 @@ export function message(options: MessageOptions) {
     body: { contentType: html ? 'html' : 'text', content },
     uniqueBody: { contentType: html ? 'html' : 'text', content: options.unique ?? content },
     webLink: `https://outlook.office365.com/owa/?ItemID=${encodeURIComponent(options.id)}&exvsurl=1&viewmodel=ReadMessageItem`,
+    ...(options.hasAttachments === undefined ? {} : { hasAttachments: options.hasAttachments }),
   };
 }
 

@@ -2640,6 +2640,8 @@ export function runCommand<N extends CommandName>(
         // takes over the row that stood in for it under the click's id; a
         // followed one keeps where it stands and records the draft alone.
         const draft = cmd.draft;
+        // Claude's fingerprint, or none: a draft of yours (issue 1732).
+        const claudeDraftDigest = draft.claudeDigest ?? null;
         const atConnection = (conversationId: string) =>
           and(
             eq(itemConversations.tenantId, tenantId),
@@ -2656,12 +2658,12 @@ export function runCommand<N extends CommandName>(
           // The draft's link kept beside it, which Open goes to while it is unsent (issue 1720).
           if (stoodIn && !followed) {
             tx.update(itemConversations)
-              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id, draftLink: draft.link })
+              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id, draftLink: draft.link, claudeDraftDigest })
               .where(standIn)
               .run();
           } else if (followed) {
             tx.update(itemConversations)
-              .set({ draftId: draft.id, draftLink: draft.link, stoppedAt: null })
+              .set({ draftId: draft.id, draftLink: draft.link, claudeDraftDigest, stoppedAt: null })
               .where(atConnection(cmd.conversationId))
               .run();
           } else {
@@ -2677,6 +2679,7 @@ export function runCommand<N extends CommandName>(
                 ...standing,
                 draftId: draft.id,
                 draftLink: draft.link,
+                claudeDraftDigest,
                 statusBeforeDraft: statusBeforeDraftOf(existing, true),
               })
               .run();
@@ -2790,6 +2793,7 @@ export function runCommand<N extends CommandName>(
               // the draft sent, and theirs sets the status the draft would put back.
               draftId: null,
               draftLink: null,
+              claudeDraftDigest: null,
               statusBeforeDraft: null,
             })
             .where(where)
@@ -2842,7 +2846,10 @@ export function runCommand<N extends CommandName>(
           .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
           .run();
         if (cmd.replyIn !== null) {
-          tx.update(itemConversations).set({ statusBeforeDraft: before, draftId: null, draftLink: null }).where(row(cmd.replyIn)).run();
+          tx.update(itemConversations)
+            .set({ statusBeforeDraft: before, draftId: null, draftLink: null, claudeDraftDigest: null })
+            .where(row(cmd.replyIn))
+            .run();
         } else {
           const standIn = {
             conversationId: `${DRAFT_STARTING_PREFIX}${cmd.commandId}`,
@@ -2856,6 +2863,7 @@ export function runCommand<N extends CommandName>(
             withWhom: null,
             draftId: null,
             draftLink: null,
+            claudeDraftDigest: null,
             statusBeforeDraft: before,
             stoppedAt: null,
           };
@@ -2907,7 +2915,7 @@ export function runCommand<N extends CommandName>(
             .run();
         }
         if (before.opened) tx.delete(itemConversations).where(where).run();
-        else tx.update(itemConversations).set({ draftId: null, draftLink: null, statusBeforeDraft: null }).where(where).run();
+        else tx.update(itemConversations).set({ draftId: null, draftLink: null, claudeDraftDigest: null, statusBeforeDraft: null }).where(where).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;

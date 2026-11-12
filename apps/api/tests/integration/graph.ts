@@ -36,6 +36,7 @@ export function graphIsEmpty(): void {
   messages = [];
   graphCalls.length = 0;
   graphDrafts.length = 0;
+  graphBodyChanges.length = 0;
   graphRefusing = null;
   pageSize = 100;
 }
@@ -81,13 +82,36 @@ function draftMade(replyTo: string | null, body: string): Response {
     subject,
     // A reply draft holds the email it answers, quoted, in HTML as Outlook writes it (message-createreply's example).
     ...(original
-      ? { html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> Steven<br><b>Sent:</b> Thursday</div><div>${message(original).bodyPreview}</div></body></html>` }
+      ? withUnique({ html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> Steven<br><b>Sent:</b> Thursday</div><div>${message(original).bodyPreview}</div></body></html>` })
       : { text: asked.body?.content ?? '' }),
     receivedAt: new Date().toISOString(), // clock-ok: the connector reads mail received since the real time it last ran
     ...(original ? { conversation: message(original).conversationId } : {}),
   };
   messages.push(draft);
   return Response.json(message(draft), { status: 201 });
+}
+
+/**
+ * A body with the `uniqueBody` Graph gives it: "the part of the body of the
+ * message that is unique to the current message"
+ * (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0),
+ * here everything above the earlier email a reply quotes under its rule (issue 1732).
+ */
+function withUnique(body: { html: string } | { text: string }): Pick<Held, 'html' | 'text' | 'unique'> {
+  if ('text' in body) return { text: body.text };
+  return { html: body.html, unique: body.html.replace(/<hr\b[\s\S]*?(?=<\/body>|$)/i, '') };
+}
+
+/** Every change of a draft's body Graph was asked for, oldest first, with whether it named the version it read (issue 1732). */
+export const graphBodyChanges: { id: string; content: string; ifMatch: string | null }[] = [];
+
+/** A person editing a draft in Outlook (issue 1732): these words put above whatever the draft quotes, as Outlook's editor saves them. */
+export function graphDraftEdited(id: string, words: string): void {
+  const held = graphMessage(id)!;
+  const lines = `<div>${words}</div>`;
+  if (held.html !== undefined) Object.assign(held, withUnique({ html: held.html.replace(/<body([^>]*)>/i, `<body$1>${lines}`) }));
+  else held.text = `${words}\n${held.text ?? ''}`;
+  held.version = `W/"edited-${graphCalls.length}"`;
 }
 
 /** The draft sent from Outlook where it stands: a message in Sent Items now, with the id it had. */
@@ -161,10 +185,11 @@ export async function graphAnswer(url: URL, init?: RequestInit): Promise<Respons
       body?: { contentType: string; content: string };
     };
     if (change.body) {
+      graphBodyChanges.push({ id: held.id, content: change.body.content, ifMatch: new Headers(init.headers).get('if-match') });
       delete held.html;
       delete held.text;
-      if (change.body.contentType === 'html') held.html = change.body.content;
-      else held.text = change.body.content;
+      delete held.unique;
+      Object.assign(held, withUnique(change.body.contentType === 'html' ? { html: change.body.content } : { text: change.body.content }));
     }
     if (change.flag) held.flag = change.flag.flagStatus;
     if (change.categories) held.categories = change.categories;

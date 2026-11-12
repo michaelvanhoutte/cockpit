@@ -141,7 +141,9 @@ export class GraphWorld {
       // A reply draft holds the email it answers, quoted, in HTML as Outlook writes it (message-createreply's example).
       ...(replyTo === null
         ? { text: asked.body?.content ?? '' }
-        : { html: `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> ${message(original!).from?.emailAddress.name}<br><b>Sent:</b> Thursday</div><div>${message(original!).bodyPreview}</div></body></html>` }),
+        : withUnique(
+            `<html><head></head><body><div><br></div><hr><div id="divRplyFwdMsg"><b>From:</b> ${message(original!).from?.emailAddress.name}<br><b>Sent:</b> Thursday</div><div>${message(original!).bodyPreview}</div></body></html>`,
+          )),
       receivedAt: this.madeAt,
       conversation: replyTo === null ? `conversation-of-draft-${n}` : message(original!).conversationId,
     };
@@ -202,11 +204,24 @@ export class GraphWorld {
       if (!found.draft) return json({ error: { code: 'ErrorInvalidRequest' } }, 400);
       delete found.html;
       delete found.text;
-      if (change.body.contentType === 'html') found.html = change.body.content;
+      delete found.unique;
+      if (change.body.contentType === 'html') Object.assign(found, withUnique(change.body.content));
       else found.text = change.body.content;
     }
     this.#changed(found);
     return json(message(found));
+  }
+
+  /**
+   * A draft edited in Outlook (issue 1732): these words typed at its top,
+   * above whatever it holds, or a file attached to it.
+   */
+  editsTheDraft(id: string, edit: { types: string } | { attaches: true }): void {
+    const one = this.#get(id);
+    if ('attaches' in edit) one.hasAttachments = true;
+    else if (one.html !== undefined) Object.assign(one, withUnique(one.html.replace(/<body([^>]*)>/i, `<body$1><div>${edit.types}</div>`)));
+    else one.text = `${edit.types}\n${one.text ?? ''}`;
+    this.#changed(one);
   }
 
   #changed(one: Stored): void {
@@ -332,6 +347,16 @@ export class GraphWorld {
 /** The version Graph names a message at. */
 function versionOf(one: Stored): string {
   return one.version ?? 'W/"v1"';
+}
+
+/**
+ * An HTML body with the `uniqueBody` Graph gives it, "the part of the body of
+ * the message that is unique to the current message"
+ * (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0):
+ * here everything above the earlier email a reply quotes under its rule (issue 1732).
+ */
+function withUnique(html: string): Pick<Stored, 'html' | 'unique'> {
+  return { html, unique: html.replace(/<hr\b[\s\S]*?(?=<\/body>|$)/i, '') };
 }
 
 /** What Graph calls a message without the immutable id header: it names the folder, so it changes when the message moves. */

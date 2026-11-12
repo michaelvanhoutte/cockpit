@@ -2,7 +2,9 @@ import {
   SourceError,
   type ConnectorHost,
   type DraftFound,
+  type DraftLook,
   type DraftMade,
+  type DraftRewrite,
   type DraftWaiting,
   type DraftWanted,
   type MessageForReply,
@@ -21,7 +23,7 @@ import {
   type OutlookConnectorConfig,
 } from './graph.js';
 import { conversationMessages, foldersOf, type Folders } from './conversations.js';
-import { TITLE_LENGTH, cutTo, deletedItemsIn, oneLine, uniqueTextOf, type MailTurn } from './messages.js';
+import { TITLE_LENGTH, cutTo, deletedItemsIn, draftWordsOf, oneLine, plainTextOf, uniqueTextOf, type MailTurn } from './messages.js';
 
 /**
  * *Email…* and *Reply…* ("Email… makes an Outlook draft the Item then follows",
@@ -148,16 +150,156 @@ export function replyBody(draft: unknown, words: string): { contentType: 'text' 
   const { body } = (draft ?? {}) as { body?: { contentType?: unknown; content?: unknown } | null };
   const quoted = typeof body?.content === 'string' ? body.content : '';
   if (typeof body?.contentType === 'string' && body.contentType.toLowerCase() === 'html' && quoted) {
-    const lines = words
-      .replace(/\r\n?/g, '\n')
-      .split('\n')
-      .map((line) => (line ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))
-      .join('');
-    const open = /<body\b[^>]*>/i.exec(quoted);
-    const at = open ? open.index + open[0].length : 0;
-    return { contentType: 'html', content: `${quoted.slice(0, at)}${lines}<div><br></div>${quoted.slice(at)}` };
+    const at = insideBody(quoted);
+    return { contentType: 'html', content: `${quoted.slice(0, at)}${htmlLines(words)}<div><br></div>${quoted.slice(at)}` };
   }
   return { contentType: 'text', content: quoted ? `${words}\n\n${quoted}` : words };
+}
+
+/** Words as HTML, a block for each line and an empty one for a blank line, as Outlook writes typed text. */
+function htmlLines(words: string): string {
+  return words
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => (line ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))
+    .join('');
+}
+
+/** Where what an HTML body shows begins: just inside its `<body>`, or at the start where it has none. */
+function insideBody(html: string): number {
+  const open = /<body\b[^>]*>/i.exec(html);
+  return open ? open.index + open[0].length : 0;
+}
+
+/** The calls one rewrite may spend: a refresh, the draft as it is, and the draft updated. */
+const CALLS_PER_REWRITE = 3;
+
+/**
+ * Claude's unsent draft written again in place ("Mail follow-up: a Claude draft
+ * looks like any other and cannot be redone…", issue 1732): its body read as
+ * Outlook stores it and updated with `PATCH /me/messages/{id}`, the same draft
+ * and the same `webLink`
+ * (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0:
+ * `body` is "updatable only if isDraft = true"; read with
+ * https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0).
+ * Only the words `was` at the top of the body are replaced (`wordsReplaced`),
+ * the earlier email Outlook quotes under them kept as it is. Conditional on the
+ * version read (`If-Match`), so a save made in between is never overwritten:
+ * that, or words not found where they go, is `changed`.
+ */
+export async function rewriteOutlookDraft(
+  host: OnDemandHost,
+  config: OutlookConnectorConfig,
+  draft: DraftWaiting,
+  rewrite: DraftRewrite,
+): Promise<'rewritten' | 'changed'> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_REWRITE });
+    const path = `messages/${encodeURIComponent(draft.draftId)}`;
+    const read = (await mailbox.get(`${path}?$select=id,isDraft,body`)) as { isDraft?: unknown; body?: unknown; '@odata.etag'?: unknown } | null;
+    if (read?.isDraft !== true) throw new SourceError('the draft is no longer in Outlook');
+    const body = wordsReplaced(read.body, rewrite.was, rewrite.body);
+    if (!body) return 'changed';
+    const version = typeof read['@odata.etag'] === 'string' && read['@odata.etag'] ? read['@odata.etag'] : undefined;
+    try {
+      const updated = await mailbox.patch(path, { body }, version ? { ifMatch: version } : {});
+      if (updated === null) throw new SourceError('the draft is no longer in Outlook');
+    } catch (error) {
+      if (error instanceof Changed) return 'changed';
+      throw error;
+    }
+    return 'rewritten';
+  } catch (error) {
+    throw inTheirWords(error, 'Outlook could not write the draft again');
+  }
+}
+
+/**
+ * A draft's body with the words at its top, `was`, replaced by `words`, in the
+ * format it is stored in: HTML keeps everything after the words - the gap and
+ * the earlier email Outlook quotes - byte for byte; text keeps what follows a
+ * blank line. Null where the body does not start with `was` (spacing aside)
+ * ending at a break, so the words are not where they go.
+ */
+export function wordsReplaced(body: unknown, was: string, words: string): { contentType: 'text' | 'html'; content: string } | null {
+  const { contentType, content } = (body ?? {}) as { contentType?: unknown; content?: unknown };
+  if (typeof content !== 'string') return null;
+  const html = typeof contentType === 'string' && contentType.toLowerCase() === 'html';
+  const start = html ? insideBody(content) : 0;
+  const end = html ? endOfWordsInHtml(content, start, was) : endOfWordsInText(content, was);
+  if (end === null) return null;
+  const rest = content.slice(end);
+  if (html) {
+    const gap = /^\s*(<\/(body|html)\b|$)/i.test(rest) ? '' : '<div><br></div>';
+    return { contentType: 'html', content: `${content.slice(0, start)}${htmlLines(words)}${gap}${rest}` };
+  }
+  const after = rest.replace(/^\s+/, '');
+  return { contentType: 'text', content: after ? `${words}\n\n${after}` : words };
+}
+
+/** What a run of spacing reads as, for words compared spacing aside. */
+const SPACING = /\s/;
+
+/** Where `was` ends at the start of a text body - at a line break or the end - or null. */
+function endOfWordsInText(content: string, was: string): number | null {
+  const end = endOfWords([...content].map((char) => ({ shows: char, length: char.length })), 0, was);
+  if (end === null) return null;
+  return /^(\s*$|[^\S\n]*\r?\n)/.test(content.slice(end)) ? end : null;
+}
+
+/**
+ * Where `was` ends in an HTML body from `start`, with the closing tags, line
+ * breaks and empty blocks that follow it - or null where the body does not
+ * start with it, or it runs on into more words.
+ */
+function endOfWordsInHtml(content: string, start: number, was: string): number | null {
+  const pieces: { shows: string; length: number }[] = [];
+  const token = /<!--[\s\S]*?-->|<(style|script|head)\b[\s\S]*?<\/\1\s*>|<[^>]*>|&(#x[0-9a-f]+|#[0-9]+|[a-z]+);|[\s\S]/gi;
+  token.lastIndex = start;
+  for (let found = token.exec(content); found; found = token.exec(content)) pieces.push({ shows: shownBy(found[0]), length: found[0].length });
+  let end = endOfWords(pieces, start, was);
+  if (end === null) return null;
+  // Blank lines only: an empty block with no break in it (Outlook's `appendonsend` marker) is kept.
+  const trailing = /\s+|<br\b[^>]*>|<\/(?!body\b|html\b)[a-z][^>]*>|<(div|p)\b[^>]*>\s*(?:&nbsp;|<br\b[^>]*>)(?:\s|&nbsp;|<br\b[^>]*>)*<\/\1\s*>/iy;
+  for (trailing.lastIndex = end; trailing.exec(content); trailing.lastIndex = end) end = trailing.lastIndex;
+  // Words running on past `was` are not Claude's alone.
+  return end === content.length || content[end] === '<' ? end : null;
+}
+
+/** What one piece of HTML shows: a block's edge or a line break as a space, a character reference as its character, any other tag as nothing. */
+function shownBy(piece: string): string {
+  if (piece.startsWith('<')) return /^<\/?(br|p|div|li|tr|td|h[1-6]|blockquote|hr|table)\b/i.test(piece) ? ' ' : '';
+  // A space a reference stands for (`&nbsp;`) comes back trimmed to nothing.
+  if (piece.length > 1 && piece.startsWith('&')) return plainTextOf(piece) || ' ';
+  return piece;
+}
+
+/**
+ * Where `was` ends among pieces read from `start` (each what it shows and how
+ * long it is in the source), comparing spacing aside - or null where they show
+ * something else first.
+ */
+function endOfWords(pieces: readonly { shows: string; length: number }[], start: number, was: string): number | null {
+  const wanted = was.replace(/\s+/g, ' ').trim();
+  let seen = '';
+  let gap = false;
+  let at = start;
+  for (const piece of pieces) {
+    if (seen === wanted) return at;
+    at += piece.length;
+    for (const char of piece.shows) {
+      if (SPACING.test(char)) {
+        gap = seen !== '';
+        continue;
+      }
+      seen += gap ? ` ${char}` : char;
+      gap = false;
+      if (!wanted.startsWith(seen)) return null;
+    }
+  }
+  return seen === wanted ? at : null;
 }
 
 function escapeHtml(text: string): string {
@@ -196,16 +338,29 @@ const DRAFT_FIELDS = 'id,isDraft,parentFolderId,webLink';
  * conversation holding a message in Sent Items since `after`; or null for one
  * gone or in Deleted Items, which counts as deleted unsent.
  */
-export async function findOutlookDraft(host: OnDemandHost, config: OutlookConnectorConfig, draft: DraftWaiting): Promise<DraftFound | null> {
+export async function findOutlookDraft(
+  host: OnDemandHost,
+  config: OutlookConnectorConfig,
+  draft: DraftWaiting,
+  look?: DraftLook,
+): Promise<DraftFound | null> {
   try {
     const credential = credentialIn(await host.getCredentials());
     if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
     const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
-    const read = await mailbox.get(`messages/${encodeURIComponent(draft.draftId)}?$select=${DRAFT_FIELDS}`);
+    // Its words too where they are asked for, in the same read, as text (issue 1732).
+    const read = look?.text
+      ? await mailbox.get(`messages/${encodeURIComponent(draft.draftId)}?$select=${DRAFT_FIELDS},uniqueBody,hasAttachments`, { bodyAsText: true })
+      : await mailbox.get(`messages/${encodeURIComponent(draft.draftId)}?$select=${DRAFT_FIELDS}`);
     const deletedItems = deletedItemsIn(await mailbox.get('mailFolders/deleteditems?$select=id'));
     if (!deletedItems) throw new SourceError('Outlook gave no Deleted Items folder for this mailbox');
     const link = draftStillThere(read, deletedItems);
-    if (link !== null) return { draftLink: link };
+    if (link !== null) {
+      if (!look?.text) return { draftLink: link };
+      // An attachment added is an edit too, as it is in Gmail: the draft is then yours.
+      const attached = (read as { hasAttachments?: unknown } | null)?.hasAttachments === true;
+      return { draftLink: link, text: attached ? null : draftWordsOf(read) };
+    }
     const whole = await conversationMessages(mailbox, draft.conversationId, await foldersOf(mailbox, deletedItems));
     return sentSince(whole, draft.after) ? { sent: true } : null;
   } catch (error) {

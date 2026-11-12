@@ -498,7 +498,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<DraftWantedAnswer>>;
   recordDraft(
     accountName: string,
-    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick,
+    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick,
   ): Awaitable<Answer<null>>;
   dropDraft(
     accountName: string,

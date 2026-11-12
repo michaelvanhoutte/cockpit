@@ -239,6 +239,18 @@ reads turns. Under the Mail.ReadWrite grant the connection already holds:
   turned to text, and a quoted earlier email that is still in it is cut as the
   excerpt cuts it. The ten reads run together; a message with no `uniqueBody` is
   told by its preview. At most twenty calls.
+- **Claude's draft written again** ("Mail follow-up: a Claude draft looks like
+  any other and cannot be redone: say Claude drafted it, and redo it while you
+  have not edited it", issue 1732). The look (`findDraft` with `{ text: true }`)
+  reads the draft once with `uniqueBody` and `hasAttachments` added, as text
+  (https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0):
+  its own words above what it quotes, whole, or none where a file is attached.
+  `rewriteDraft` reads its `body` as stored and replaces only the words at its
+  top, compared spacing and markup aside, keeping the gap and the quoted email
+  byte for byte, with a `PATCH` conditional on the version read
+  (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0).
+  Words not found where they go, or a save in between (412), is `changed`, and
+  nothing is written. Three calls.
 
 ## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
 
@@ -260,6 +272,11 @@ message's `webLink`, which opens it in Outlook on the web.
   went, and how long the calls take ("Measure Email… and Follow a sent email…
   on test mailboxes", issue 1704, was skipped). The draft shapes come from
   Graph's documentation; the contract test has no case for them.
+- **What `uniqueBody` holds for a reply draft, and how Outlook rewraps the
+  words Cockpit put in it.** The documentation says only that it is the part
+  unique to the message; the stand-ins take it as everything above the quoted
+  email. Where real Outlook answers more, every Claude reply draft reads as
+  edited and is opened as yours, never overwritten (issue 1732).
 - **Whether Exchange gives a sent message a `receivedDateTime` of when it was
   sent**, and whether `conversationId` accepts `eq` in a filter, as written
   above. The contract test (`reads the mail received since…`) settles both; it

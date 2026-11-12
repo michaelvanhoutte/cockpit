@@ -1219,7 +1219,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** The draft the source made, recorded: the Item follows its conversation, waiting on it (issue 1708). */
   recordDraft(
     accountName: string,
-    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick,
+    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick,
   ): Answer<null> {
     return this.#answer(accountName, (db) => {
       recordDraft(db, accountName, record, new Date().toISOString());

@@ -3010,6 +3010,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "draftLink"
+            },
+            {
+              "name": "claude_draft_digest",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "claudeDraftDigest"
             }
           ],
           "indexes": [

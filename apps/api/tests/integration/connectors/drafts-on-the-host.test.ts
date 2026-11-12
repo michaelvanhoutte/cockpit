@@ -21,7 +21,9 @@ import {
   claudeWrites,
   gmailAnswersWith,
   gmailCalls,
+  gmailDraftEdited,
   gmailDrafts,
+  gmailDraftsUpdated,
   gmailHolds,
   googleRefreshes,
   issuerIsForgotten,
@@ -47,6 +49,14 @@ const ANNA = { email: 'anna@example.com', subject: 'google-anna' };
 /** Where Gmail opens the first draft made, and shows a message of the mailbox. */
 const DRAFT_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts';
 const MESSAGE_LINK = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/';
+
+/** The body of a draft's message as its raw text holds it, decoded as its encoding says. */
+function bodyOfDraftText(text: string): string {
+  const [headers, ...rest] = text.split('\r\n\r\n');
+  const body = rest.join('\r\n\r\n');
+  if (!/^Content-Transfer-Encoding: base64$/im.test(headers!)) return body;
+  return new TextDecoder().decode(Uint8Array.from(atob(body.replace(/\s+/g, '')), (c) => c.charCodeAt(0)));
+}
 
 /** The store stamps its own changes on the real clock, which a case's changes must not be older than. */
 const now = () => new Date(); // clock-ok: the store stamps the Items on the real clock
@@ -691,17 +701,218 @@ describe('Triage', () => {
       expect(gmailDrafts).toHaveLength(1);
     });
 
-    it('opens a draft already started without asking Claude again', async () => {
+    it('says the draft is Claude’s, where a draft of yours is not', async () => {
+      const connection = await connected();
+      const claudes = await captured('Plan a dinner with Steven Noels');
+      const yours = await captured('Book the restaurant');
+
+      expect((await emailed(claudes, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' })).status).toBe(200);
+      expect((await emailed(yours, connection)).status).toBe(200);
+
+      expect((await theItem(claudes)).conversation).toEqual(expect.objectContaining({ draftStarted: true, claudeDrafted: true }));
+      expect((await theItem(yours)).conversation).toEqual(expect.objectContaining({ draftStarted: true }));
+      expect((await theItem(yours)).conversation).not.toHaveProperty('claudeDrafted');
+    });
+  });
+
+  /**
+   * Draft with Claude asked again ("Mail follow-up: a Claude draft looks like any
+   * other and cannot be redone…", issue 1732): the draft recorded before is read
+   * back with the look, compared with the fingerprint of what Claude wrote, and
+   * rewritten in place only where it is unchanged; anything else is yours and is
+   * opened. Gmail and Claude faked at the network; how the connector reads and
+   * rewrites a draft is its own (packages/connectors/gmail/tests/unit/drafting-a-reply.test.ts).
+   */
+  describe('Draft with Claude asked again rewrites only Claude’s own unchanged draft', () => {
+    let realKey: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+    });
+
+    const withClaude = (points: string) => ({ withClaude: true, points });
+    const digestOf = () => inTheStore((sql) => sql.exec('SELECT claude_draft_digest AS digest FROM item_conversations').one().digest as string | null);
+
+    /** A conversation followed, and Claude's reply drafted in it. */
+    async function claudeDrafted(): Promise<{ connection: string; itemId: string; link: string }> {
+      const connection = await connected();
+      mailbox.starred('t-1', 'Dinner one of these weeks?');
+      await nextCheckRuns();
+      const itemId = (await opened()).items.find((one) => one.sourceId === 't-1')!.id;
+      claudeWrites('Hi Steven,\n\nThursday works.\n\nAnna');
+      const res = await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('thursday'));
+      expect(res.status).toBe(200);
+      return { connection, itemId, link: ((await res.json()) as { link: string }).link };
+    }
+
+    it('rewrites Claude’s unchanged draft in place with the new answer, the same draft and link, under a new fingerprint', async () => {
+      const { connection, itemId, link } = await claudeDrafted();
+      const before = await digestOf();
+      claudeWrites('Hi Steven,\n\nFriday instead?\n\nAnna');
+
+      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('friday instead'));
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ link });
+      expect(claudeAsked).toHaveLength(2);
+      expect(claudeAsked[1]!.message).toContain('Points to make this time: "friday instead"');
+      expect(gmailDrafts).toHaveLength(1);
+      expect(gmailDraftsUpdated).toEqual([expect.objectContaining({ id: 'r-1', threadId: 't-1' })]);
+      expect(bodyOfDraftText(gmailDraftsUpdated[0]!.text)).toBe('Hi Steven,\r\n\r\nFriday instead?\r\n\r\nAnna');
+      const after = await digestOf();
+      expect(after).toMatch(/^[0-9a-f]{64}$/);
+      expect(after).not.toBe(before);
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('in progress');
+      expect(item.conversation).toEqual(expect.objectContaining({ draftStarted: true, claudeDrafted: true, link }));
+    });
+
+    it.each([
+      { situation: 'edited in Gmail', happens: () => gmailDraftEdited('r-1', 'Hi Steven,\n\nThursday works, see you at 8.\n\nAnna') },
+      { situation: 'one whose words cannot be read back, a file added to it', happens: () => gmailDraftEdited('r-1', 'Hi Steven,\n\nThursday works.\n\nAnna', { attaching: true }) },
+      // A Claude draft recorded before fingerprints were kept reads as yours (rows that break the rule).
+      { situation: 'one made before Claude’s drafts were told apart', happens: () => inTheStore((sql) => void sql.exec('UPDATE item_conversations SET claude_draft_digest = NULL')) },
+    ])('opens the draft as yours, asking Claude nothing and writing nothing, where it is $situation', async ({ happens }) => {
+      const { connection, itemId, link } = await claudeDrafted();
+      await happens();
+
+      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('friday instead'));
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({ link });
+      expect(claudeAsked).toHaveLength(1);
+      expect(gmailDraftsUpdated).toEqual([]);
+      expect(gmailDrafts).toHaveLength(1);
+      // Yours from now on: the row no longer says Claude drafted it.
+      expect(await digestOf()).toBeNull();
+      expect((await theItem(itemId)).conversation).toEqual(expect.objectContaining({ draftStarted: true }));
+      expect((await theItem(itemId)).conversation).not.toHaveProperty('claudeDrafted');
+    });
+
+    it('opens a draft of yours as before, asking Claude nothing and writing nothing', async () => {
       const connection = await connected();
       const itemId = await captured('Plan a dinner with Steven Noels');
-      expect((await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' })).status).toBe(200);
+      expect((await emailed(itemId, connection)).status).toBe(200);
+      const before = await theItem(itemId);
 
-      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'something else' });
+      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('something else'));
 
       expect(again.status).toBe(200);
       expect(await again.json()).toEqual({ link: DRAFT_LINK });
-      expect(claudeAsked).toHaveLength(1);
+      expect(claudeAsked).toHaveLength(0);
+      expect(gmailDraftsUpdated).toEqual([]);
       expect(gmailDrafts).toHaveLength(1);
+      expect(await theItem(itemId)).toEqual(before);
+    });
+
+    it('opens Claude’s draft without rewriting it where Write it myself is pressed', async () => {
+      const { connection, itemId, link } = await claudeDrafted();
+      const before = await digestOf();
+
+      const again = await emailed(itemId, connection);
+
+      expect(await again.json()).toEqual({ link });
+      expect(claudeAsked).toHaveLength(1);
+      expect(gmailDraftsUpdated).toEqual([]);
+      expect(await digestOf()).toBe(before);
+    });
+
+    it.each([
+      { situation: 'Gmail will not take the rewrite', fails: () => gmailAnswersWith(503, (call) => call === 'drafts/r-1'), why: 'Gmail did not answer. Try again in a moment.' },
+      { situation: 'Claude cannot write it', fails: () => claudeAnswersWith(529), why: 'Claude could not draft it.' },
+    ])('keeps Claude’s draft and its fingerprint, saying why and that nothing was put back, where $situation', async ({ fails, why }) => {
+      const { connection, itemId } = await claudeDrafted();
+      const before = await digestOf();
+      const item = await theItem(itemId);
+      fails();
+
+      const again = await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('friday instead'));
+
+      expect(again.status).toBe(502);
+      expect(await again.json()).toEqual({ error: `Couldn't make the draft: ${why}`, putBack: false });
+      expect(bodyOfDraftText(gmailDrafts[0]!.text)).toBe('Hi Steven,\r\n\r\nThursday works.\r\n\r\nAnna');
+      expect(await digestOf()).toBe(before);
+      expect(await theItem(itemId)).toEqual(item);
+    });
+
+    it('asks Claude once and rewrites once for the same click sent twice', async () => {
+      const { connection, itemId, link } = await claudeDrafted();
+      const clickId = crypto.randomUUID();
+
+      const first = await emailed(itemId, connection, clickId, undefined, withClaude('friday instead'));
+      const again = await emailed(itemId, connection, clickId, undefined, withClaude('friday instead'));
+
+      expect(await first.json()).toEqual({ link });
+      expect(await again.json()).toEqual({ link });
+      expect(claudeAsked).toHaveLength(2);
+      expect(gmailDraftsUpdated).toHaveLength(1);
+    });
+
+    it('rewrites it again where it is asked again, still unchanged', async () => {
+      const { connection, itemId } = await claudeDrafted();
+
+      await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('friday'));
+      claudeWrites('Hi Steven,\n\nSaturday then.\n\nAnna');
+      await emailed(itemId, connection, crypto.randomUUID(), undefined, withClaude('saturday'));
+
+      expect(claudeAsked).toHaveLength(3);
+      expect(gmailDraftsUpdated).toHaveLength(2);
+      expect(gmailDrafts).toHaveLength(1);
+    });
+  });
+
+  /**
+   * The fingerprint lives and ends with Claude's draft (issue 1732): a check
+   * finding it sent or deleted clears it with the draft, through the pulled host.
+   */
+  describe('Claude’s fingerprint ends with its draft', () => {
+    let realKey: string | undefined;
+    beforeEach(() => {
+      realKey = env.ANTHROPIC_API_KEY;
+      env.ANTHROPIC_API_KEY = 'sk-ant-api03-a-key-that-proves-nothing-WXYZ';
+    });
+    afterEach(() => {
+      env.ANTHROPIC_API_KEY = realKey ?? '';
+    });
+
+    /** A followed conversation's Item that was To do, and Claude's reply drafted in it. */
+    async function claudeReplied(): Promise<string> {
+      const connection = await connected();
+      mailbox.starred('t-1', 'Dinner one of these weeks?');
+      await nextCheckRuns();
+      const itemId = (await opened()).items.find((one) => one.sourceId === 't-1')!.id;
+      expect((await emailed(itemId, connection, crypto.randomUUID(), undefined, { withClaude: true, points: 'yes' })).status).toBe(200);
+      expect((await theItem(itemId)).conversation?.claudeDrafted).toBe(true);
+      return itemId;
+    }
+
+    const digests = () => inTheStore((sql) => sql.exec('SELECT claude_draft_digest AS digest FROM item_conversations').toArray().map((row) => row.digest));
+
+    it('clears it once the draft is sent, the Item Waiting for reply', async () => {
+      const itemId = await claudeReplied();
+
+      mailbox.sends(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('waiting');
+      expect(item.conversation).not.toHaveProperty('claudeDrafted');
+      expect(await digests()).toEqual([null]);
+    });
+
+    it('clears it once the draft is deleted unsent, the status before put back', async () => {
+      const itemId = await claudeReplied();
+
+      mailbox.deletes(gmailDrafts[0]!.id);
+      await nextCheckRuns();
+
+      const item = await theItem(itemId);
+      expect(statusOf(item)).toBe('to do');
+      expect(item.conversation).not.toHaveProperty('draftStarted');
+      expect(await digests()).toEqual([null]);
     });
   });
 
