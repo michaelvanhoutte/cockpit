@@ -129,7 +129,7 @@ describe('Triage', () => {
 
       expect(read.map((one) => one.text)).toEqual(Array.from({ length: 10 }, (_, n) => `Message ${n + 20}`));
       expect(world.readsInFull()).toHaveLength(10);
-      expect(world.mostAtOnce).toBeLessThanOrEqual(3);
+      expect(world.mostAtOnce).toBe(3);
     });
 
     it('tells a message whose own body holds no words by its preview', async () => {
