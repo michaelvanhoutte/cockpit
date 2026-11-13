@@ -381,7 +381,7 @@ export interface Account {
    * source rotated meanwhile saved while the stored one is still the one opened.
    */
   wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick): Promise<DraftWantedAnswer>;
-  recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick): Promise<null>;
+  recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick): Promise<null>;
   dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
   listingAsk(workspaceId: string, sourceAccountId: string): Promise<ListingAsk>;

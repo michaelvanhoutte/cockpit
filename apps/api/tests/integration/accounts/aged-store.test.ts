@@ -3910,3 +3910,63 @@ describe('Capture', () => {
     });
   });
 });
+
+/**
+ * "Mail follow-up: a Claude draft looks like any other and cannot be redone…"
+ * (issue 1732): an account from before it gains the fingerprint column on every
+ * followed conversation, every row it held unchanged, and every draft it waits
+ * on reading as yours - so none made before it is ever rewritten.
+ */
+describe('Triage', () => {
+  describe('an account already in use reads every draft it waits on as yours, and keeps everything it held', () => {
+    const DIGEST = '0104-item-conversations-claude-draft-digest';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', DIGEST).one().n);
+
+    it('adds the column empty to every conversation, reads no draft as Claude’s, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-claude-draft-digest';
+      await agedTo(name, justBefore(DIGEST));
+      await fillWithWhatIsAlreadyThere(name);
+      // A draft Reply… made before it, still waited on.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          "UPDATE item_conversations SET draft_id = 'r-before', draft_link = 'https://mail.google.com/mail/#drafts', status_before_draft = ?",
+          JSON.stringify({ startedAt: null, waitingSince: null, opened: false }),
+        ),
+      );
+      const before = await everyRowIn(name);
+      expect(before.item_conversations).toHaveLength(1);
+      expect(before.item_conversations![0]).not.toHaveProperty('claude_draft_digest');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      // Every row as it was, with the new column null; the change ledger and the
+      // Agent every open converts to a remembered sentence (`retire-agents.ts`) aside.
+      const { account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual({
+        ...keptBefore,
+        item_conversations: keptBefore.item_conversations!.map((row) => ({ ...(row as object), claude_draft_digest: null })),
+      });
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [expect.objectContaining({ conversationId: 'thread-before', draftStarted: true })] } });
+      expect(snapshot).toMatchObject({ value: { conversations: [expect.not.objectContaining({ claudeDrafted: expect.anything() })] } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});

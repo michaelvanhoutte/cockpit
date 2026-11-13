@@ -400,8 +400,8 @@ test.describe("Triage", () => {
     });
   });
 
-  test.describe("Email… opens the draft it made in a new tab, and Reply… with points asks Claude for the draft; the row says the draft is started", () => {
-    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress; then Reply… asks what Claude should say and opens the draft holding what was written", async ({
+  test.describe("Email… opens the draft it made in a new tab, and Reply… with points asks Claude for the draft; the row says the draft is started, or that Claude drafted it", () => {
+    test("opens a tab at the mailbox’s draft and reads Gmail · Draft started, In progress; then Reply… asks what Claude should say, opens the draft holding what was written and reads Claude drafted an answer; asked again, the same draft is written again", async ({
       page,
       isMobile,
     }) => {
@@ -479,17 +479,35 @@ test.describe("Triage", () => {
       await expect(claudeTab).toHaveURL(/#drafts(\/[B-Zb-z]+)?$/);
       await expect(box).toBeHidden();
       // The Inbox column is narrow enough to cut the source's line to nothing, so it is checked in the row, not by sight.
-      await expect(followedRow.getByText("Gmail · Draft started")).toBeAttached();
+      // The row says Claude drafted it (issue 1732).
+      await expect(followedRow.getByText("Gmail · Claude drafted an answer")).toBeAttached();
       await expect(followedRow.getByText("In progress")).toBeVisible();
-      const claudeDrafts = (await (
-        await fetch(
-          `${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`,
-        )
-      ).json()) as { thread: string; body: string }[];
-      const draft = claudeDrafts.find((one) => one.thread === thread);
+      const claudeDrafts = async () =>
+        (await (
+          await fetch(
+            `${issuer}/gmail-stub/drafts?email=${encodeURIComponent(MAILBOX)}`,
+          )
+        ).json()) as { id: string; thread: string; body: string; rewritten: number }[];
+      const draft = (await claudeDrafts()).find((one) => one.thread === thread);
       expect(draft?.body).toContain("Points: only after 8pm");
       expect(draft?.body).toContain("shown 2 messages");
       await claudeTab.close();
+
+      // Asked again while Claude's draft is unchanged, Claude writes the same draft again in place (issue 1732).
+      await press(followedRow.getByRole("button", { name: "Item actions" }), isMobile);
+      await press(page.getByRole("menuitem", { name: "Reply…", exact: true }), isMobile);
+      await expect(box).toBeVisible();
+      await box.getByRole("textbox").fill("friday instead");
+      const [againTab] = await Promise.all([
+        page.waitForEvent("popup"),
+        press(box.getByRole("button", { name: "Draft with Claude" }), isMobile),
+      ]);
+      await expect(againTab).toHaveURL(claudeTab.url());
+      const redrafted = (await claudeDrafts()).filter((one) => one.thread === thread);
+      expect(redrafted.map((one) => [one.id, one.rewritten])).toEqual([[draft!.id, 1]]);
+      expect(redrafted[0]!.body).toContain("Points: friday instead");
+      await expect(followedRow.getByText("Gmail · Claude drafted an answer")).toBeAttached();
+      await againTab.close();
 
       await openSettings(page, "Connections", isMobile);
       await chooseRowAction(page, MAILBOX, "Disconnect", isMobile);

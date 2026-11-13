@@ -189,6 +189,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CONVERSATIONS_STOPPED,
     ITEM_CONVERSATIONS_DRAFT_LINK,
     CONNECTION_HISTORY_STARTED_AT,
+    ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1669,6 +1670,28 @@ const ITEM_CONVERSATIONS_DRAFT_LINK: Change = {
 const CONNECTION_HISTORY_STARTED_AT: Change = {
   name: '0103-connection-history-started-at',
   statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `started_at` text' }],
+};
+
+/**
+ * The fingerprint of a draft Claude wrote (`item_conversations.claude_draft_digest`,
+ * whose meaning `schema.ts` gives; "Mail follow-up: a Claude draft looks like
+ * any other and cannot be redone…", issue 1732): a nullable column added,
+ * nothing else. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which is a draft of yours - so every draft made
+ *   before it is never rewritten.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so every draft reads as *Draft started* and none is rewritten; a
+ *   fingerprint left on a row whose draft that release sends or deletes is
+ *   cleared by the next draft recorded there, and a draft mistaken for Claude's
+ *   meanwhile is still read back and kept where it was edited.
+ */
+const ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST: Change = {
+  name: '0104-item-conversations-claude-draft-digest',
+  statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `claude_draft_digest` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

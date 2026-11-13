@@ -51,8 +51,19 @@ interface AskingTheSource {
 export type DraftWantedAnswer =
   | { status: 'recorded'; link: string }
   | { status: 'failed' }
-  | ({ status: 'look'; draft: DraftWaiting } & AskingTheSource)
+  | ({ status: 'look'; draft: DraftWaiting; claude: ClaudesDraft | null } & AskingTheSource)
   | ({ status: 'make'; subject: string; description: string | null; replyIn: string | null } & AskingTheSource);
+
+/**
+ * A draft recorded before that is Claude's ("Mail follow-up: a Claude draft
+ * looks like any other and cannot be redone…", issue 1732): the fingerprint of
+ * what Claude wrote into it, and what Claude would write it again from.
+ */
+export interface ClaudesDraft {
+  digest: string;
+  subject: string;
+  description: string | null;
+}
 
 /** Refused: a LinkedIn conversation is answered in LinkedIn, which no mailbox reaches. */
 export const LINKEDIN_HAS_NO_DRAFT = 'A LinkedIn conversation is answered in LinkedIn.';
@@ -101,7 +112,9 @@ export function wantDraft(
   if (recordedDraft !== null && ask.replacing !== recordedDraft) {
     // As the draft watch is handed it (`pulledDraftsWaiting`), so the source tells sent from gone the same way.
     const draft = { conversationId: here!.conversationId, draftId: recordedDraft, after: statusBeforeDraftIn(here!.statusBeforeDraft)?.opened ? null : here!.lastAt };
-    return { status: 'look', draft, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
+    const digest = here!.claudeDraftDigest;
+    const claude = digest === null ? null : { digest, subject: item.title, description: item.description };
+    return { status: 'look', draft, claude, ...askingTheSource(db, accountName, ask.sourceAccountId, { ...place, choice: connection.choice }) };
   }
   if (recordedDraft !== null) {
     // Found gone at the source: deleted unsent, as a check finding it gone drops it.
@@ -145,6 +158,7 @@ function followedHere(db: AccountDb, accountName: string, itemId: string, at: { 
       conversationId: itemConversations.conversationId,
       draftId: itemConversations.draftId,
       statusBeforeDraft: itemConversations.statusBeforeDraft,
+      claudeDraftDigest: itemConversations.claudeDraftDigest,
       lastAt: itemConversations.lastAt,
     })
     .from(itemConversations)
@@ -189,11 +203,16 @@ function askingTheSource(
  * change every way an Item comes to follow a conversation takes: the Item now
  * follows it, waiting on the draft. Logged under the click's derived id, so
  * recording it twice records it once.
+ *
+ * `claudeDigest` is the fingerprint of the text Claude wrote into it, or null
+ * for a draft of yours (issue 1732). A draft already waited on is recorded
+ * again the same way, the fingerprint alone changing: Claude's rewrite, or one
+ * found edited, which is then yours.
  */
 export function recordDraft(
   db: AccountDb,
   accountName: string,
-  record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade } & DraftClick,
+  record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick,
   at: string,
 ): void {
   const connection = getSourceAccount(db, accountName, record.sourceAccountId);
@@ -212,7 +231,7 @@ export function recordDraft(
     startedAt: at,
     withWhom: null,
     connectionDays: connection.dueInDays,
-    draft: { id: record.draft.draftId, startedBy: record.clickId, link: record.draft.draftLink },
+    draft: { id: record.draft.draftId, startedBy: record.clickId, link: record.draft.draftLink, claudeDigest: record.claudeDigest ?? null },
   });
 }
 

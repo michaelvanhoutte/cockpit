@@ -215,6 +215,17 @@ export function uniqueTextOf(answer: unknown): string | null {
   return withoutQuotedText(bodyText(uniqueBody).trim()).trim() || null;
 }
 
+/**
+ * The words a draft holds above any earlier email it quotes ("Mail follow-up: a
+ * Claude draft looks like any other and cannot be redone…", issue 1732): its
+ * `uniqueBody` as text, whole - nothing cut, so words added anywhere in it
+ * count. Null where Graph answers no unique body.
+ */
+export function draftWordsOf(answer: unknown): string | null {
+  const { uniqueBody } = (answer ?? {}) as GraphMessage;
+  return typeof uniqueBody?.content === 'string' ? bodyText(uniqueBody) : null;
+}
+
 /** The name in a From, or its address where it gives none. */
 function senderIn(from: GraphMessage['from']): string | null {
   const { name, address } = from?.emailAddress ?? {};

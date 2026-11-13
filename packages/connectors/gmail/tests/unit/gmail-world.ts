@@ -104,13 +104,19 @@ export class GmailWorld {
     if (path === 'drafts' && method === 'POST') return this.#makeDraft(JSON.parse(String(init?.body)));
     const readDraft = /^drafts\/([^/]+)$/.exec(path);
     if (readDraft) {
-      const draft = this.#drafts.get(decodeURIComponent(readDraft[1]!));
+      const id = decodeURIComponent(readDraft[1]!);
+      const draft = this.#drafts.get(id);
       const held =
         draft && this.#threads.flatMap((thread) => thread.messages).find((one) => one.id === draft.messageId && one.labelIds.includes('DRAFT'));
-      // As Gmail answers it, a draft in the bin keeps the Bin's label on its message.
-      return held
-        ? json({ id: decodeURIComponent(readDraft[1]!), message: { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds } })
-        : json({ error: { code: 404 } }, 404);
+      if (!held) return json({ error: { code: 404 } }, 404);
+      // `users.drafts.update` replaces its message, the draft keeping its id (issue 1732).
+      if (method === 'PUT') return this.#updateDraft(id, JSON.parse(String(init?.body)));
+      // As Gmail answers it, a draft in the bin keeps the Bin's label on its message; `full` adds its payload, `raw` the message itself.
+      const answered = { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds };
+      const format = url.searchParams.get('format');
+      if (format === 'full') return json({ id, message: { ...answered, payload: held.payload } });
+      if (format === 'raw') return json({ id, message: { ...answered, raw: draft.raw } });
+      return json({ id, message: answered });
     }
     const readEmail = /^messages\/([^/]+)$/.exec(path);
     if (readEmail) {
@@ -206,7 +212,38 @@ export class GmailWorld {
 
   /** Every draft `users.drafts.create` was asked for, in order: its message decoded from `raw`, and the conversation it was asked in. */
   readonly draftsAsked: { text: string; threadId: string | null }[] = [];
-  readonly #drafts = new Map<string, { messageId: string; threadId: string }>();
+  /** Every draft `users.drafts.update` replaced, in order: its id, the message decoded from `raw`, and the conversation named (issue 1732). */
+  readonly draftsUpdated: { id: string; text: string; threadId: string | null }[] = [];
+  readonly #drafts = new Map<string, { messageId: string; threadId: string; raw: string }>();
+
+  /**
+   * A draft edited in Gmail (issue 1732): its words written anew - and, where
+   * `attaching`, a file added, which makes its message one of parts.
+   */
+  editsTheDraft(draftId: string, words: string, { attaching = false }: { attaching?: boolean } = {}): void {
+    const held = this.#email(this.#drafts.get(draftId)!.messageId);
+    held.payload = attaching
+      ? { ...message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: words }).payload, mimeType: 'multipart/mixed' }
+      : message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: words }).payload;
+  }
+
+  /** A draft's message as Gmail now holds it, in raw text, as a person's mail app saving it would leave it. */
+  replacesTheDraftRaw(draftId: string, text: string): void {
+    let binary = '';
+    for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+    this.#drafts.get(draftId)!.raw = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  #updateDraft(id: string, body: { id?: string; message: { raw: string; threadId?: string } }): Response {
+    const draft = this.#drafts.get(id)!;
+    const text = new TextDecoder().decode(Uint8Array.from(atob(body.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+    this.draftsUpdated.push({ id, text, threadId: body.message.threadId ?? null });
+    draft.raw = body.message.raw;
+    const held = this.#email(draft.messageId);
+    // As Gmail reads the new message back: its words, a look after the rewrite seeing them.
+    held.payload = message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), from: `Anna Peeters <${ADDRESS}>` }).payload;
+    return json({ id, message: { id: held.id, threadId: draft.threadId, labelIds: held.labelIds } });
+  }
 
   /** A draft sent from Gmail where it stands, by the draft's id (`users.drafts.create` answered it). */
   sendsTheDraft(draftId: string, sentAt = '2026-10-09T12:30:00Z'): void {
@@ -231,14 +268,14 @@ export class GmailWorld {
     const n = this.#drafts.size + 1;
     const messageId = `draft-message-${n}`;
     const threadId = body.message.threadId ?? messageId;
-    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: '', labelled: false, from: `Anna Peeters <${ADDRESS}>` });
+    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), labelled: false, from: `Anna Peeters <${ADDRESS}>` });
     draft.labelIds = ['DRAFT'];
     const thread = this.#threads.find((one) => one.id === threadId);
     if (thread) thread.messages.push(draft);
     else this.#threads.unshift({ id: threadId, messages: [draft] });
     this.#record({ added: messageId, threadId, labelIds: draft.labelIds });
     const id = `r-${n}`;
-    this.#drafts.set(id, { messageId, threadId });
+    this.#drafts.set(id, { messageId, threadId, raw: body.message.raw });
     return json({ id, message: { id: messageId, threadId, labelIds: draft.labelIds } });
   }
 
@@ -528,6 +565,15 @@ export class GmailWorld {
     }
     return json(modifyAnswer({ id: thread.id, historyId: String(this.#historyId), messages: thread.messages }));
   }
+}
+
+/** A draft's words as Gmail reads them back from its raw message: the body after the headers, decoded as its encoding says. */
+function wordsOfRaw(text: string): string {
+  const [headers = '', ...rest] = text.split('\r\n\r\n');
+  const after = rest.join('\r\n\r\n');
+  return /^Content-Transfer-Encoding: base64$/im.test(headers)
+    ? new TextDecoder().decode(Uint8Array.from(atob(after.replace(/\s+/g, '')), (c) => c.charCodeAt(0)))
+    : after;
 }
 
 function json(body: unknown, status = 200): Response {

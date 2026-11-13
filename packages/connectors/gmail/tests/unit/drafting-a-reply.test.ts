@@ -143,4 +143,98 @@ describe('Triage', () => {
       await expect(reading).rejects.toThrow('the conversation is no longer in Gmail');
     });
   });
+
+  /**
+   * Draft with Claude asked again ("Mail follow-up: a Claude draft looks like any
+   * other and cannot be redone…", issue 1732): the look reads the draft's words
+   * back, and the rewrite replaces its body in place. Whether the words still
+   * match Claude's, and what is recorded, is the Worker's (L2,
+   * apps/api/tests/integration/connectors/drafts-on-the-host.test.ts).
+   */
+  describe('a draft is read back as its words, and written again in place keeping everything else', () => {
+    /** A reply Claude's body was written into, and the draft as the store waits on it. */
+    async function aReplyDrafted(world: GmailWorld, body = 'Hi Steven,\n\nThursday works.\n\nAnna') {
+      world.arrives('t-1', 'Dinner one of these weeks?', 'Shall we?', ['star']);
+      world.replies('t-1', [], { from: 'Steven Noels <steven@example.com>', text: 'Thursday?', sentAt: '2026-10-03T09:00:00Z' });
+      const made = await world.connector().makeDraft!(onDemand(signedInHost({ choice: 'star' })), { subject: 'Plan', replyIn: 't-1', body });
+      return { conversationId: made.conversationId, draftId: made.draftId, after: '2026-10-03T09:00:00.000Z' };
+    }
+
+    it('reads a draft’s words with the look, in the one read of the draft', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+
+      const found = await world.connector().findDraft!(onDemand(signedInHost({ choice: 'star' })), draft, { text: true });
+
+      expect(found).toEqual({ draftLink: expect.any(String), text: 'Hi Steven,\n\nThursday works.\n\nAnna' });
+      expect(world.requests.filter((one) => one.includes('/drafts/'))).toEqual(['GET /gmail/v1/users/me/drafts/r-1?format=full']);
+    });
+
+    it('reads no words where none are asked for, as before', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+
+      const found = await world.connector().findDraft!(onDemand(signedInHost({ choice: 'star' })), draft);
+
+      expect(found).toEqual({ draftLink: expect.any(String) });
+      expect(world.requests.filter((one) => one.includes('/drafts/'))).toEqual(['GET /gmail/v1/users/me/drafts/r-1?format=minimal']);
+    });
+
+    it('reads a draft a file was added to as having no words it can tell, so it is the person’s', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+      world.editsTheDraft(draft.draftId, 'Hi Steven,\n\nThursday works.\n\nAnna', { attaching: true });
+
+      const found = await world.connector().findDraft!(onDemand(signedInHost({ choice: 'star' })), draft, { text: true });
+
+      expect(found).toEqual({ draftLink: expect.any(String), text: null });
+    });
+
+    it('replaces the body of the same draft, in its conversation, keeping who it goes to, its subject and what it answers', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+      const made = world.draftsAsked[0]!.text;
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost({ choice: 'star' })), draft, {
+        was: 'Hi Steven,\n\nThursday works.\n\nAnna',
+        body: 'Hi Steven,\n\nFriday ✓ instead.\n\nAnna',
+      });
+
+      expect(outcome).toBe('rewritten');
+      expect(world.draftsAsked).toHaveLength(1);
+      const [updated] = world.draftsUpdated;
+      expect(updated).toMatchObject({ id: 'r-1', threadId: 't-1' });
+      expect(bodyOfDraft(updated!.text)).toBe('Hi Steven,\r\n\r\nFriday ✓ instead.\r\n\r\nAnna');
+      for (const name of ['To', 'Subject', 'In-Reply-To', 'References']) expect(headerOfDraft(updated!.text, name)).toBe(headerOfDraft(made, name));
+      expect(updated!.text.match(/^Content-Type: /gim)).toHaveLength(1);
+      expect(world.requests.filter((one) => one.includes('/drafts/'))).toEqual([
+        'GET /gmail/v1/users/me/drafts/r-1?format=raw',
+        'PUT /gmail/v1/users/me/drafts/r-1',
+      ]);
+    });
+
+    it('writes nothing, and says it changed, where a file was added to the draft', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+      const raw = world.draftsAsked[0]!.text.replace('Content-Type: text/plain; charset="UTF-8"', 'Content-Type: multipart/mixed; boundary="b"');
+      world.replacesTheDraftRaw(draft.draftId, raw);
+
+      const outcome = await world.connector().rewriteDraft!(onDemand(signedInHost({ choice: 'star' })), draft, { was: 'Hi', body: 'Hello' });
+
+      expect(outcome).toBe('changed');
+      expect(world.draftsUpdated).toEqual([]);
+    });
+
+    it('says why, in words for the person, where the draft is no longer in Gmail', async () => {
+      const world = new GmailWorld();
+      const draft = await aReplyDrafted(world);
+      world.deletesTheDraft(draft.draftId);
+
+      const rewriting = world.connector().rewriteDraft!(onDemand(signedInHost({ choice: 'star' })), draft, { was: 'Hi', body: 'Hello' });
+
+      await expect(rewriting).rejects.toBeInstanceOf(SourceError);
+      await expect(rewriting).rejects.toThrow('the draft is no longer in Gmail');
+      expect(world.draftsUpdated).toEqual([]);
+    });
+  });
 });

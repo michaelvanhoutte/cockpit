@@ -3178,6 +3178,15 @@ describe('Triage', () => {
       expect(mockMakeADraft.mock.calls[0]![2]).not.toHaveProperty('withClaude');
     });
 
+    it('asks again on Reply… where Claude’s own draft is live, so Claude can write it again (issue 1732)', async () => {
+      const user = await pressed({ mailboxes: [CLAUDE], conversation: { ...FOLLOWED, itemId: 'item-box', draftStarted: true, claudeDrafted: true } }, 'Reply…');
+
+      expect(await screen.findByRole('textbox', { name: QUESTION })).toBeInTheDocument();
+      expect(window.open).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Draft with Claude' }));
+      await waitFor(() => expect(mockMakeADraft).toHaveBeenCalledWith('ws-work', 'item-box', expect.objectContaining({ withClaude: true })));
+    });
+
     it('asks on Reply… in a followed conversation with no draft started', async () => {
       await pressed({ mailboxes: [CLAUDE], conversation: { ...FOLLOWED, itemId: 'item-box' } }, 'Reply…');
 

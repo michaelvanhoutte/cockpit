@@ -56,9 +56,16 @@ export function conversationLine(conversation: Conversation, sourceName: string,
 /** What the line says while a draft *Email…* made is unsent ("Email… makes a Gmail draft the Item then follows", issue 1708). */
 export const DRAFT_STARTED = 'Draft started';
 
-/** The line without its source: *Steven replied yesterday*, or *Draft started* while a draft of yours is unsent. */
+/** What the line says while Claude's draft is unsent ("Mail follow-up: a Claude draft looks like any other and cannot be redone…", issue 1732). */
+export const CLAUDE_DRAFTED = 'Claude drafted an answer';
+
+/**
+ * The line without its source: *Steven replied yesterday*, *Draft started*
+ * while a draft of yours is unsent, or *Claude drafted an answer* while
+ * Claude's is.
+ */
 export function whoWroteWhen(conversation: Conversation, now: number): string {
-  if (conversation.draftStarted) return DRAFT_STARTED;
+  if (conversation.draftStarted) return conversation.claudeDrafted ? CLAUDE_DRAFTED : DRAFT_STARTED;
   const verb = conversation.messageCount === 1 || conversation.lastBy === 'you' ? 'wrote' : 'replied';
   return `${whoWroteLast(conversation)} ${verb} ${agoLabel(conversation.lastAt, now)}`;
 }

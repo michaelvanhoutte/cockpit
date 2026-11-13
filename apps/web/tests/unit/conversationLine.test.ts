@@ -95,6 +95,13 @@ describe('Triage', () => {
       expect(latestText(drafting)).toBe('');
     });
 
+    it('reads Claude drafted an answer while Claude’s draft is unsent, opening the draft', () => {
+      const claudes = aConversation({ draftStarted: true, claudeDrafted: true, lastBy: 'you', lastFrom: null, lastExcerpt: '', messageCount: 1 });
+
+      expect(conversationLine(claudes, 'Outlook', NOW)).toBe('Outlook · Claude drafted an answer');
+      expect(openLabel(claudes, 'Outlook')).toBe('Open the draft in Outlook');
+    });
+
     it('opens the latest email at its source, and only a web address', () => {
       expect(openLabel(aConversation(), 'Gmail')).toBe('Open the latest email in Gmail');
       expect(conversationOpensAt(aConversation())).toBe('https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1');

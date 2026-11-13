@@ -6,7 +6,17 @@ import { handleQueue } from '../../../src/jobs/index.js';
 import { mailboxesOf } from '../../../src/connectors/drafts.js';
 import { ACCOUNT_NAME, WORKSPACE_ID, asUser, inTheStore, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
 import { claudeAsked, claudeWrites, issuerIsForgotten, issuerIsReachable, issuerWillIdentify } from '../issuer.js';
-import { graphCalls, graphDeletes, graphDrafts, graphHolds, graphMessage, graphRefuses, graphSends } from '../graph.js';
+import {
+  graphBodyChanges,
+  graphCalls,
+  graphDeletes,
+  graphDraftEdited,
+  graphDrafts,
+  graphHolds,
+  graphMessage,
+  graphRefuses,
+  graphSends,
+} from '../graph.js';
 import type { MessageOptions } from '../../../../../packages/connectors/outlook/tests/graph-payloads.js';
 
 /**
@@ -416,6 +426,54 @@ describe('Triage', () => {
       const connection = await connected();
 
       expect((await opened()).mailboxes).toEqual([expect.objectContaining({ sourceAccountId: connection, claudeDrafts: true })]);
+    });
+
+    /**
+     * Draft with Claude asked again (issue 1732), where Outlook keeps the reply
+     * as HTML: its words are read back as text and compared spacing aside, and
+     * the rewrite replaces them above the email Outlook quotes. The cases that do
+     * not depend on the connector are the Gmail walk's (drafts-on-the-host.test.ts).
+     */
+    describe('asked again, it rewrites only Claude’s own unchanged draft', () => {
+      async function claudeReplied(): Promise<{ connection: string; itemId: string; link: string }> {
+        const { connection, itemId } = await aFollowedConversation();
+        claudeWrites('Hi Steven,\n\nThursday & Friday <both> work.\n\nAnna');
+        const res = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: 'thursday' });
+        expect(res.status).toBe(200);
+        expect((await theItem(itemId)).conversation?.claudeDrafted).toBe(true);
+        return { connection, itemId, link: ((await res.json()) as { link: string }).link };
+      }
+
+      it('rewrites the same reply draft in place, compared as text, keeping the email it quotes', async () => {
+        const { connection, itemId, link } = await claudeReplied();
+        claudeWrites('Hi Steven,\n\nOnly Friday now.\n\nAnna');
+
+        const again = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: 'friday' });
+
+        expect(again.status).toBe(200);
+        expect(await again.json()).toEqual({ link });
+        expect(claudeAsked).toHaveLength(2);
+        expect(graphDrafts).toHaveLength(1);
+        const stored = graphMessage('draft-m-1')!.html!;
+        expect(stored).toContain('<div>Only Friday now.</div>');
+        expect(stored).not.toContain('Thursday &amp; Friday');
+        expect(stored).toContain('divRplyFwdMsg');
+        expect(graphBodyChanges.map((one) => one.id)).toEqual(['draft-m-1', 'draft-m-1']);
+        expect((await theItem(itemId)).conversation).toEqual(expect.objectContaining({ claudeDrafted: true, link }));
+      });
+
+      it('opens the reply draft as yours, asking Claude nothing, where it was edited in Outlook', async () => {
+        const { connection, itemId, link } = await claudeReplied();
+        graphDraftEdited('draft-m-1', 'And bring the wine.');
+
+        const again = await emailed(itemId, connection, crypto.randomUUID(), { withClaude: true, points: 'friday' });
+
+        expect(await again.json()).toEqual({ link });
+        expect(claudeAsked).toHaveLength(1);
+        expect(graphBodyChanges).toHaveLength(1);
+        expect(graphMessage('draft-m-1')!.html).toContain('And bring the wine.');
+        expect((await theItem(itemId)).conversation).not.toHaveProperty('claudeDrafted');
+      });
     });
   });
 });

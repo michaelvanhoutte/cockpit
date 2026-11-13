@@ -114,6 +114,17 @@ function message(id, { subject, from, to = [ME], text, html, flagged = false, ca
   };
 }
 
+/**
+ * What a body's message adds to its conversation (`uniqueBody`, "the part of the
+ * body of the message that is unique to the current message",
+ * https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0):
+ * everything above the earlier email a reply quotes under its rule (issue 1732).
+ */
+function uniqueOf(body) {
+  if (body.contentType !== 'html') return body;
+  return { contentType: 'html', content: body.content.replace(/<hr\b[\s\S]*?(?=<\/body>|$)/i, '') };
+}
+
 /** What Graph answers of a message: its fields, and the version it is at. */
 function shown(held) {
   const { version, ...fields } = held;
@@ -217,6 +228,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       conversation: original?.conversationId,
     });
     draft.isDraft = true;
+    draft.uniqueBody = uniqueOf(draft.body);
     mailbox.messages.push(draft);
     json(response, shown(draft), 201);
   }
@@ -261,7 +273,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       if (change.body) {
         if (!held.isDraft) return json(response, { error: { code: 'ErrorInvalidRequest', message: 'The body of a sent message cannot be changed.' } }, 400);
         held.body = { contentType: change.body.contentType, content: change.body.content };
-        held.uniqueBody = held.body;
+        held.uniqueBody = uniqueOf(held.body);
         held.bodyPreview = String(change.body.content).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255);
       }
       held.version = ++versions;
@@ -286,7 +298,8 @@ export function createStubGraph({ mailboxOfToken, json }) {
    * the mailbox was asked, oldest first, so a walk can wait for a check; `POST
    * /graph-stub/send-draft?email=&id=` sends a draft Cockpit had the mailbox make
    * where it stands (a message in Sent Items now, with the id it had), `POST
-   * /graph-stub/delete-draft?email=&id=` deletes it unsent (to Deleted Items), and
+   * /graph-stub/delete-draft?email=&id=` deletes it unsent (to Deleted Items), `POST
+   * /graph-stub/edit-draft?email=&id=&text=` types words at its top, and
    * `GET /graph-stub/drafts?email=` lists the drafts the mailbox holds, with their bodies.
    */
   function act(action, url, request, response) {
@@ -305,6 +318,19 @@ export function createStubGraph({ mailboxOfToken, json }) {
     if (action === 'refuse') {
       mailbox.refusing = Number(url.searchParams.get('status') ?? 0) || null;
       return json(response, { refusing: mailbox.refusing });
+    }
+    if (action === 'edit-draft') {
+      // A person typing in the draft in Outlook (issue 1732): these words above whatever it holds, so Cockpit finds it changed.
+      const draft = mailbox.messages.find((one) => one.id === url.searchParams.get('id') && one.isDraft);
+      if (!draft) return json(response, { error: 'no such draft' }, 404);
+      const words = url.searchParams.get('text') ?? '';
+      draft.body =
+        draft.body.contentType === 'html'
+          ? { contentType: 'html', content: draft.body.content.replace(/<body([^>]*)>/i, (open) => `${open}<div>${words.replace(/</g, '&lt;')}</div>`) }
+          : { contentType: 'text', content: `${words}\n${draft.body.content}` };
+      draft.uniqueBody = uniqueOf(draft.body);
+      draft.version = ++versions;
+      return json(response, { id: draft.id, body: draft.body });
     }
     if (action === 'send-draft' || action === 'delete-draft') {
       const draft = mailbox.messages.find((one) => one.id === url.searchParams.get('id') && one.isDraft);
@@ -365,7 +391,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         void graph(url, request, response, origin);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply|drafts|send-draft|delete-draft)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply|drafts|send-draft|delete-draft|edit-draft)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

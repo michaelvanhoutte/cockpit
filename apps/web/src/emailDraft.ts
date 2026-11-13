@@ -69,11 +69,13 @@ export function draftBeingStarted(itemId: string, connectorId: string, followed:
  * Whether *Email…* or *Reply…* first asks what Claude should say ("Mail
  * follow-up: Reply… in Gmail makes an empty draft…", issue 1730): the mailbox
  * says Claude can write its drafts (a key to spend, not the guest, a connector
- * that can read a conversation), and no draft is live in the conversation, which
- * Reply… opens as it always has.
+ * that can read a conversation), and no draft of yours is live in the
+ * conversation, which Reply… opens as it always has. Claude's own live draft
+ * asks again, so it can be written again ("Mail follow-up: a Claude draft looks
+ * like any other and cannot be redone…", issue 1732).
  */
 export function asksWhatClaudeShouldSay(mailbox: Mailbox, followed: Conversation | undefined): boolean {
-  return mailbox.claudeDrafts === true && followed?.draftStarted !== true;
+  return mailbox.claudeDrafts === true && (followed?.draftStarted !== true || followed.claudeDrafted === true);
 }
 
 /** Where this browser keeps the mailbox it last made a draft in, per Workspace. */

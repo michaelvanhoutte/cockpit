@@ -404,8 +404,29 @@ export interface DraftMade {
  * mailboxes", issue 1720): still there unsent, with where the source opens it;
  * or sent, its conversation holding a message of yours since the draft's
  * `after`, as the draft watch tells a draft sent from one deleted.
+ *
+ * `text`, only where the look asked for it (`DraftLook`), is the words the
+ * draft itself holds, above any earlier email it quotes, as plain text ("Mail
+ * follow-up: a Claude draft looks like any other and cannot be redone…", issue
+ * 1732); null where the source cannot say what they are, as for a draft that
+ * carries an attachment, which then counts as edited.
  */
-export type DraftFound = { draftLink: string } | { sent: true };
+export type DraftFound = { draftLink: string; text?: string | null } | { sent: true };
+
+/** What a look for a draft also reads: its own words, for the host to tell an unchanged draft from one edited (issue 1732). */
+export interface DraftLook {
+  text: true;
+}
+
+/**
+ * Claude's own unsent draft written again in place (`rewriteDraft`, issue 1732):
+ * the words it holds now (`was`, as `findDraft` read them) replaced by `body`,
+ * everything else it holds kept.
+ */
+export interface DraftRewrite {
+  was: string;
+  body: string;
+}
 
 /**
  * One email sent from the connection's mailbox, as *Follow a sent email…*
@@ -764,9 +785,25 @@ export interface Connector {
    * yours since `after`; or null where it is gone or in the bin, which counts
    * as deleted unsent. Throws `SourceError`, worded for the person, where the
    * source would not answer. Changes nothing at the source. Every connector
-   * that makes drafts has it.
+   * that makes drafts has it. Asked with `read`, a draft still there also says
+   * its own words (`DraftFound.text`), read in the same calls.
    */
-  findDraft?(host: OnDemandHost, draft: DraftWaiting): Promise<DraftFound | null>;
+  findDraft?(host: OnDemandHost, draft: DraftWaiting, read?: DraftLook): Promise<DraftFound | null>;
+
+  /**
+   * Writes Claude's own unsent draft again in place, while a person waits
+   * ("Mail follow-up: a Claude draft looks like any other and cannot be
+   * redone…", issue 1732): the same draft, the same link, its words `was`
+   * replaced by `body` and everything else it holds kept - never a delete and a
+   * new draft. Answers `changed`, writing nothing, where what it reads to
+   * rewrite the draft shows it is no longer only `was` in words (an attachment
+   * added, or the words not found where they go), so it is the person's. That
+   * the words still match the fingerprint is the host's to check, from the
+   * look just before. Throws
+   * `SourceError`, worded for the person, where the source would not, or the
+   * draft is gone. For a connector that has `readConversationForReply`.
+   */
+  rewriteDraft?(host: OnDemandHost, draft: DraftWaiting, rewrite: DraftRewrite): Promise<'rewritten' | 'changed'>;
 
   /**
    * Lists the newest `limit` emails sent, one for each conversation (its newest), from the mailbox, newest first, on

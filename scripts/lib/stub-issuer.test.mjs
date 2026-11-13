@@ -340,6 +340,38 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.deepEqual(listed.map((one) => one.body), [body]);
   });
 
+  // Claude's draft read back and written again in place, and a person editing it (issue 1732).
+  it('reads a draft back whole or raw, replaces its message under the same id, and lets a walk edit it', async () => {
+    const token = await accessTokenFor('rewriting@example.com');
+    const make = (text) => ['Subject: Plan', 'Content-Transfer-Encoding: base64', '', Buffer.from(text).toString('base64')].join('\r\n');
+    const made = await fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: { raw: Buffer.from(make('Thursday?')).toString('base64url') } }),
+    }).then((answer) => answer.json());
+    const words = async () => {
+      const full = await (await read(token, `drafts/${made.id}?format=full`)).json();
+      return Buffer.from(full.message.payload.body.data, 'base64url').toString();
+    };
+    assert.equal(await words(), 'Thursday?');
+    const raw = (await (await read(token, `drafts/${made.id}?format=raw`)).json()).message.raw;
+    assert.equal(Buffer.from(raw, 'base64url').toString(), make('Thursday?'));
+
+    const updated = await fetch(`${issuer.origin}/gmail/v1/users/me/drafts/${made.id}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: made.id, message: { raw: Buffer.from(make('Friday!')).toString('base64url'), threadId: made.message.threadId } }),
+    }).then((answer) => answer.json());
+
+    assert.equal(updated.id, made.id);
+    assert.equal(await words(), 'Friday!');
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=rewriting%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => [one.id, one.body, one.rewritten]), [[made.id, 'Friday!', 1]]);
+
+    await fetch(`${issuer.origin}/gmail-stub/edit-draft?email=rewriting%40example.com&draft=${made.id}&text=Saturday`, { method: 'POST' });
+    assert.equal(await words(), 'Saturday');
+  });
+
   // The mail sent from the mailbox, which Follow a sent email… lists (issue 1710).
   it('lists the mail sent from the mailbox, newest first, with each email carrying its recipients and snippet', async () => {
     const token = await accessTokenFor('sending@example.com');
@@ -705,7 +737,14 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
       body: JSON.stringify({ body: { contentType: 'html', content: '<div>Words</div>' + replying.body.content } }),
     }).then((answer) => answer.json());
     assert.match(updated.body.content, /^<div>Words<\/div>/);
-    assert.equal((await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json())).uniqueBody.contentType, 'html');
+    const unique = (await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json())).uniqueBody;
+    assert.equal(unique.contentType, 'html');
+    // What it adds to the conversation leaves out the email it quotes (issue 1732).
+    assert.match(unique.content, /Words/);
+    assert.doesNotMatch(unique.content, /divRplyFwdMsg/);
+    await act(`edit-draft?email=graph-drafting%40example.com&id=${replying.id}&text=${encodeURIComponent('And the wine.')}`);
+    const edited = await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json());
+    assert.match(edited.uniqueBody.content, /And the wine\./);
     const listed = await (await fetch(at('drafts?email=graph-drafting%40example.com'))).json();
     assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'RE: Dinner', 'With words']);
 
