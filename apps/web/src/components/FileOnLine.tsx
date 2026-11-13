@@ -34,7 +34,6 @@ export function FileOnLine({
   inTheItemForm = false,
   labelled,
   offered = [],
-  onToggle,
 }: {
   /** The Workspace chosen, or null for *Any workspace*. */
   where: string | null;
@@ -49,10 +48,12 @@ export function FileOnLine({
   inTheItemForm?: boolean;
   /** The label to draw in place of the default: the Recurring items form's *Files on* ("Make, change and delete recurring items from the Recurring items modal", issue 1449). */
   labelled?: string;
-  /** The most-used Panels offered as buttons under the field, ranked (`mostUsedPanels.ts`); none draws no row. */
+  /**
+   * The most-used Panels offered as buttons under the field, ranked
+   * (`mostUsedPanels.ts`); none draws no row. A button puts its Panel on the
+   * line as `onAdd` does, or takes it off as `onRemove` does where it is there.
+   */
   offered?: readonly MostUsedPanel[];
-  /** A button pressed: its Panel put on the line, or taken off where it is already there. */
-  onToggle?: (panel: MostUsedPanel) => void;
 }) {
   const [armed, setArmed] = useState(false);
   const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
@@ -130,7 +131,17 @@ export function FileOnLine({
                   aria-pressed={lit}
                   aria-label={path}
                   title={path}
-                  onClick={() => onToggle?.(panel)}
+                  onClick={() =>
+                    lit
+                      ? onRemove(panel.panelId)
+                      : onAdd({
+                          panelId: panel.panelId,
+                          name: panel.panelName,
+                          dashboardName: panel.dashboardName,
+                          workspaceId: panel.workspaceId,
+                          workspaceName: workspaces.find((one) => one.id === panel.workspaceId)?.name ?? '',
+                        })
+                  }
                   className={`flex min-h-12 min-w-0 flex-col items-stretch justify-center rounded-md border px-2.5 py-1.5 text-left disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 ${
                     lit
                       ? 'border-accent bg-accent-tint text-accent-deep'

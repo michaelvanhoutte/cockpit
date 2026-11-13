@@ -457,6 +457,8 @@ export function CaptureNote({
           // Not answered at all, so the Item may be on the server undismissed: say so.
           unsure = !(failure instanceof CommandRefused);
         }
+        // A dismissed Item no longer counts towards the buttons under File on.
+        void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
       }
     } catch (failure) {
       undone.current.delete(back.id);
@@ -1080,13 +1082,6 @@ export function CaptureNote({
         }}
         onRemove={(panelId) => setFiled((was) => was.filter((one) => one.panelId !== panelId))}
         offered={offered}
-        onToggle={(panel) =>
-          setFiled((was) =>
-            was.some((one) => one.panelId === panel.panelId)
-              ? was.filter((one) => one.panelId !== panel.panelId)
-              : [...was, { panelId: panel.panelId, name: panel.panelName, workspaceId: panel.workspaceId }],
-          )
-        }
       />
 
       <Choice label="Where" optional>

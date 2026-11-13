@@ -18,7 +18,7 @@ function byCount(count: (panel: MostUsedPanel) => number) {
  */
 export function panelsToOffer(used: readonly MostUsedPanel[], where: string): MostUsedPanel[] {
   const here = used.filter((panel) => panel.workspaceId === where && panel.lastWeek > 0);
-  const today = [...here].filter((panel) => panel.lastDay > 0).sort(byCount((panel) => panel.lastDay))[0];
+  const today = here.filter((panel) => panel.lastDay > 0).sort(byCount((panel) => panel.lastDay))[0];
   const week = [...here].sort(byCount((panel) => panel.lastWeek)).filter((panel) => panel !== today);
   return [...(today ? [today] : []), ...week].slice(0, MOST_USED_OFFERED);
 }

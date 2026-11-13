@@ -1754,6 +1754,22 @@ describe('Capture', () => {
       expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
     });
 
+    it('asks for the most-used Panels again once a note filed with a button is undone', async () => {
+      const mostUsed = vi.fn(() => Promise.resolve(USED));
+      const user = await thePage({ startsIn: 'ws-work', mostUsed });
+      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      await captured();
+      await settled();
+      const asked = mostUsed.mock.calls.length;
+
+      await user.click(undoButton());
+
+      await waitFor(() => expect(box()).toHaveValue('Reply to Bart'));
+      await waitFor(() => expect(mostUsed.mock.calls.length).toBeGreaterThan(asked));
+    });
+
     it('starts lit for the Panel whose + opened Capture', async () => {
       await thePage({ startsOn: { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' }, mostUsed: () => Promise.resolve(USED) });
 
