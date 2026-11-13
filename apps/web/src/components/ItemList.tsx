@@ -1001,6 +1001,7 @@ export function ItemList({
       inProposalGroup={group !== undefined}
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
+      messageLinks={data?.messageLinks}
       recurring={recurringOriginOf(item, data?.series)?.rule ?? null}
       workspaceId={workspaceId}
       inInbox={panelId === null}

@@ -158,7 +158,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
+import { connectors, getConnector, messageLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
@@ -1457,6 +1457,7 @@ const routes = app
         // The connections Email… may use, which only the registry can say (issue 1708).
         mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
         sourceNames: sourceNames(c.env),
+        messageLinks: messageLinks(c.env),
         generatedAt: new Date().toISOString(),
       },
       200,

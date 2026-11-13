@@ -152,6 +152,17 @@ export const workspaceSnapshotSchema = z.object({
    * by a release that did not send it is drawn without names, as itself.
    */
   sourceNames: z.record(z.string(), z.string()).optional(),
+  /**
+   * The addresses of each source's own messages, by connector id: a web host
+   * and the start of a path ("Open Items captured with a pasted Teams message
+   * link in Teams", issue 1738). The app opens an Item with no link of its own
+   * at the first such address in its text, under that source's name, and names
+   * no connector itself. Optional for the reason `sourceNames` is: a copy saved
+   * by a release that did not send it is drawn without them, as before.
+   */
+  messageLinks: z
+    .record(z.string(), z.array(z.object({ host: z.string().max(255), pathStart: z.string().max(255) })).max(20))
+    .optional(),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

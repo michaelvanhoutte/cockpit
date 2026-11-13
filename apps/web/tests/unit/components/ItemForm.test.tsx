@@ -246,6 +246,9 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
         sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
+        messageLinks: {
+          teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
+        },
       } as unknown as WorkspaceSnapshot;
     },
   }),
@@ -3041,6 +3044,24 @@ describe('Item editing', () => {
 
       expect(screen.queryByText(/^From /)).toBeNull();
       expect(screen.queryByRole('link')).toBeNull();
+    });
+
+    /** "Open Items captured with a pasted Teams message link in Teams", issue 1738. */
+    it('shows an item of your own that holds a Teams message link the way back alone, with no From line', async () => {
+      const teams = 'https://teams.live.com/l/message/48:notes/1789899944174';
+      await theForm(anItem({ description: `call Mieke back ${teams}` }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      const opener = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+      expect(opener).toHaveAttribute('href', teams);
+      expect(opener).toHaveAttribute('target', '_blank');
+    });
+
+    it('shows no line for an item of your own with no link', async () => {
+      await theForm(anItem({ description: 'call Mieke back', capturedMessage: null }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      expect(screen.queryByRole('link', { name: /^Open in / })).toBeNull();
     });
 
     it.each([

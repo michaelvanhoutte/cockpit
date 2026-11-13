@@ -29,7 +29,16 @@ import { teamsAccountFrom, teamsSignIn } from './sign-in.js';
  * to Teams or receive its saves ("Take source names out of the shared
  * contract", issue 927).
  */
-export const TEAMS_IDENTITY = { id: 'teams', displayName: 'Microsoft Teams' } as const;
+export const TEAMS_IDENTITY = {
+  id: 'teams',
+  displayName: 'Microsoft Teams',
+  // A copied message link ("Copy link" on a message), on each host Teams has used.
+  messageLinks: [
+    { host: 'teams.microsoft.com', pathStart: '/l/message/' },
+    { host: 'teams.live.com', pathStart: '/l/message/' },
+    { host: 'teams.cloud.microsoft', pathStart: '/l/message/' },
+  ],
+} as const;
 
 /** What this connector needs to have been told about itself. */
 export interface TeamsConnectorConfig {
