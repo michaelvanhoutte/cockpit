@@ -2953,6 +2953,7 @@ describe('Capture', () => {
  * form of the next load takes it back once. The two update paths that call the
  * hand-over are in tests/unit/components/Updating.test.tsx.
  */
+describe('Capture', () => {
 describe('a note kept for the update reload', () => {
   afterEach(() => sessionStorage.clear());
   const keepNow = () => keepCaptureForReload(sessionStorage);
@@ -3056,4 +3057,5 @@ describe('a note kept for the update reload', () => {
 
     expect(peekKeptCapture(sessionStorage)).toBeNull();
   });
+});
 });
