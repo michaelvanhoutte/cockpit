@@ -56,4 +56,21 @@ describe('Capture', () => {
       expect(panelsToOffer(answer, WORK).map((panel) => panel.panelName)).toEqual(offered);
     });
   });
+
+  describe('File on under Any workspace ranks the Panels of every Workspace together', () => {
+    it.each([
+      {
+        situation: 'the leaders are spread over two Workspaces',
+        answer: [used('A', 0, 9), used('Home', 4, 5, 1, 'ws-home'), used('B', 0, 8), used('C', 0, 7)],
+        offered: ['Home', 'A', 'B'],
+      },
+      {
+        situation: 'two Panels of one name are in different Workspaces',
+        answer: [used('Tasks', 0, 5), used('Tasks', 0, 4, 1, 'ws-home')].map((panel, at) => ({ ...panel, panelId: `p-tasks-${at}` })),
+        offered: ['Tasks', 'Tasks'],
+      },
+    ])('when $situation', ({ answer, offered }) => {
+      expect(panelsToOffer(answer, null).map((panel) => panel.panelName)).toEqual(offered);
+    });
+  });
 });

@@ -382,6 +382,32 @@ test.describe('Capture', () => {
       expect(drawn.map((one) => [one.dashboardAbove, one.dashboardSmaller])).toEqual(drawn.map(() => [true, true]));
       expect(drawn.map((one) => one.cutWithDots)).toEqual([false, false, true]);
       await expectNoSidewaysScroll(page);
+      await expect(buttons.locator('[aria-hidden="true"]')).toHaveCount(0);
+
+      // Under Any workspace the buttons span Workspaces and each gains a dot on
+      // the Dashboard's line. Which three is the ranking's unit test: other
+      // walks' filings count here, so only the row's shape is asserted.
+      await page.getByRole('group', { name: 'Where' }).getByRole('button', { name: 'Any workspace' }).click();
+      await expect(buttons).toHaveCount(3);
+      const withDots = await buttons.evaluateAll((all) =>
+        all.map((button) => {
+          const [dashboard] = [...button.children] as HTMLElement[];
+          const dot = dashboard!.querySelector('[aria-hidden="true"]') as HTMLElement | null;
+          const box = button.getBoundingClientRect();
+          const text = dashboard!.querySelector(':scope > span:not([aria-hidden])') as HTMLElement;
+          return {
+            top: Math.round(box.top),
+            width: Math.round(box.width),
+            dotBeforeName: !!dot && dot.getBoundingClientRect().right <= text.getBoundingClientRect().left + 1,
+            sameLine: !!dot && Math.abs(dot.getBoundingClientRect().top - text.getBoundingClientRect().top) < text.getBoundingClientRect().height,
+            inside: !!dot && dot.getBoundingClientRect().right <= box.right,
+          };
+        }),
+      );
+      expect(new Set(withDots.map((one) => one.top)).size, 'the three wrap onto more than one row').toBe(1);
+      expect(Math.max(...withDots.map((one) => one.width)) - Math.min(...withDots.map((one) => one.width))).toBeLessThanOrEqual(1);
+      expect(withDots.map((one) => [one.dotBeforeName, one.sameLine, one.inside])).toEqual(withDots.map(() => [true, true, true]));
+      await expectNoSidewaysScroll(page);
     });
   });
 });
