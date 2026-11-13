@@ -190,6 +190,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CONVERSATIONS_DRAFT_LINK,
     CONNECTION_HISTORY_STARTED_AT,
     ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST,
+    PANEL_ITEMS_FILED_AT,
     CONNECTOR_ACCOUNTS_GRANTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -1714,6 +1715,30 @@ const CONNECTOR_ACCOUNTS_GRANTED: Change = {
   name: '0106-connector-accounts-granted',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `granted` text' }],
 };
+
+/**
+ * When an Item landed on a Panel (`panel_items.filed_at`, whose meaning
+ * `schema.ts` gives; "Capture: offer today's and this week's most-used
+ * Panels…", issue 1743), and the index the most-used read ranges over. Expand
+ * only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN` and
+ *   one `CREATE INDEX`. Every existing row is left null, which is "not
+ *   counted"; nothing is backfilled or guessed from `created_at`.
+ * - **If it stops halfway, or runs twice:** both commit with the change's record
+ *   in one transaction, and once recorded it never runs again; the index is
+ *   `IF NOT EXISTS` besides.
+ * - **Rolled back after it has run:** an older release rewrites a Panel's rows
+ *   without the column, so they go back to null and count less until filed again.
+ */
+const PANEL_ITEMS_FILED_AT: Change = {
+  name: '0105-panel-items-filed-at',
+  statements: [
+    { sql: `ALTER TABLE \`panel_items\` ADD COLUMN \`filed_at\` text ${timestampCheck('panel_items', 'filed_at')}` },
+    { sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_filed` ON `panel_items` (`tenant_id`,`filed_at`)' },
+  ],
+};
+
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
 

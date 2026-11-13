@@ -742,13 +742,15 @@ function settleWorkspace(
 /**
  * Everything the domain needs to decide a filing, read before it decides: the
  * store is asked, the domain answers (`decideMoveToPanel`, `decideAddToPanel`).
- * `named` is the Panels a move takes the Item off.
+ * `named` is the Panels a move takes the Item off; `bySource`, a filing a
+ * source made on its own.
  */
 function filingFactsFor(
   db: AccountDb,
   tenantId: string,
   cmd: { workspaceId: string; itemId: string; panelId: string | null },
   named: readonly string[],
+  bySource = false,
 ): FilingFacts {
   const item = getItem(db, tenantId, cmd.itemId);
   const found = cmd.panelId ? getPanel(db, tenantId, cmd.panelId) : null;
@@ -759,6 +761,7 @@ function filingFactsFor(
     workspaceExists: !!getWorkspace(db, tenantId, cmd.workspaceId),
     panel: panel ? { id: panel.id, name: panel.name, kind: panel.kind } : null,
     held: panel ? listFilingsOnPanel(db, tenantId, panel.id) : [],
+    bySource,
     // As of the store's clock now, as the Workspace's read is made: an order
     // built on any read since names at least what this leaves required.
     heldOutOfTheRead: panel ? listFilingsOnPanelOutOfTheRead(db, tenantId, panel.id, finishedKeptAfter(new Date())) : [],
@@ -793,16 +796,6 @@ function refusedOrFiling(decision: FilingRefusal | FilingDecided): FilingDecided
     case 'order-stale':
       throw new PanelOrderStaleError(decision.why);
   }
-}
-
-/**
- * A filing as a source made it: the same rows, and no decision recorded, since
- * the source's name rather than a person's choice put it there and routing
- * learns only from people ("File Outlook mail on the Panel named after its
- * category", issue 1146).
- */
-function asTheSourceFiles(decided: FilingDecided, fromTheSource: boolean): FilingDecided {
-  return fromTheSource ? { ...decided, decision: null } : decided;
 }
 
 /** Writes what a filing decided, inside the transaction of the change that made it. */
@@ -962,7 +955,9 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
     const panel = panelNamedFor(db, tenantId, workspaceId, panelId);
     if (!panel || !panelTakesItems(panel)) return [];
     const order = [copied.id, ...panel.held.map((filing) => filing.itemId)];
-    return [{ panelId: panel.id, rows: filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }) }];
+    // The recurring item's own filing, not a person's: the copy's row is not counted as a Panel used.
+    const rows = filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }, panel.held, null);
+    return [{ panelId: panel.id, rows }];
   });
   return { kind: 'writes', nextOn, anchorOn, workspaceId: toldIn, item: copied, panels };
 }
@@ -1798,7 +1793,7 @@ export function runCommand<N extends CommandName>(
         if (!panel || !getDashboard(db, tenantId, cmd.workspaceId, panel.dashboardId)) return [];
         return [{ id: panel.id, name: panel.name, kind: panel.kind, held: listFilingsOnPanel(db, tenantId, panel.id) }];
       });
-      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets);
+      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets, fromTheSource);
       // An item belonging to no workspace shows in every workspace's Inbox, so
       // every workspace's snapshot is now stale - not only the one it was
       // captured from ("Capture something before you know which workspace it
@@ -1810,7 +1805,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, asTheSourceFiles(decided, fromTheSource));
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1858,10 +1853,7 @@ export function runCommand<N extends CommandName>(
       // Reachable from every workspace while it belongs to none, and settled by
       // landing on a panel - exactly as a move, because putting an item on a
       // panel is putting it on a panel whichever of the two commands says so.
-      const decided = asTheSourceFiles(
-        refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, []))),
-        fromTheSource,
-      );
+      const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [], fromTheSource)));
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided);

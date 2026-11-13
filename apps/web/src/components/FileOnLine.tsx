@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState } from 'react';
-import type { Workspace } from '@cockpit/shared';
+import type { MostUsedPanel, Workspace } from '@cockpit/shared';
 import type { FileOnOption } from '../fileOn';
 
 /** The search is a separate file, fetched on first focus (issue 1101). */
@@ -33,6 +33,7 @@ export function FileOnLine({
   onRemove,
   inTheItemForm = false,
   labelled,
+  offered = [],
 }: {
   /** The Workspace chosen, or null for *Any workspace*. */
   where: string | null;
@@ -47,6 +48,12 @@ export function FileOnLine({
   inTheItemForm?: boolean;
   /** The label to draw in place of the default: the Recurring items form's *Files on* ("Make, change and delete recurring items from the Recurring items modal", issue 1449). */
   labelled?: string;
+  /**
+   * The most-used Panels offered as buttons under the field, ranked
+   * (`mostUsedPanels.ts`); none draws no row. A button puts its Panel on the
+   * line as `onAdd` does, or takes it off as `onRemove` does where it is there.
+   */
+  offered?: readonly MostUsedPanel[];
 }) {
   const [armed, setArmed] = useState(false);
   const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
@@ -68,46 +75,87 @@ export function FileOnLine({
       >
         {label}
       </span>
-      <div role="group" aria-label={label} className="flex min-w-0 flex-wrap items-start gap-1.5 sm:flex-1">
-        {filed.map((one) => (
-          <span
-            key={one.panelId}
-            className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full border border-accent bg-accent-tint pl-3 pr-1 text-sm font-medium text-accent-deep sm:min-h-0 sm:py-[1px] sm:pl-2.5 sm:text-[13px]"
-          >
-            {one.name}
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onRemove(one.panelId)}
-              aria-label={inTheItemForm ? `Remove from ${one.name}` : `Do not file on ${one.name}`}
-              title={inTheItemForm ? 'Remove from this Panel' : 'Do not file on this Panel'}
-              className="flex size-6 items-center justify-center rounded-full text-ink-soft hover:bg-accent-soft/40 disabled:opacity-50"
+      <div className="flex min-w-0 flex-col gap-1.5 sm:flex-1">
+        <div role="group" aria-label={label} className="flex min-w-0 flex-wrap items-start gap-1.5">
+          {filed.map((one) => (
+            <span
+              key={one.panelId}
+              className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full border border-accent bg-accent-tint pl-3 pr-1 text-sm font-medium text-accent-deep sm:min-h-0 sm:py-[1px] sm:pl-2.5 sm:text-[13px]"
             >
-              ✕
-            </button>
-          </span>
-        ))}
-        {armed ? (
-          <Suspense fallback={<input readOnly aria-label="Find a Panel to file on" placeholder="Find a Panel…" className={FIELD} />}>
-            <FileOnSearch
-              where={where}
-              from={from}
-              workspaces={workspaces}
-              chosen={filed.map((one) => one.panelId)}
-              instantly={inTheItemForm}
-              onPick={onAdd}
+              {one.name}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onRemove(one.panelId)}
+                aria-label={inTheItemForm ? `Remove from ${one.name}` : `Do not file on ${one.name}`}
+                title={inTheItemForm ? 'Remove from this Panel' : 'Do not file on this Panel'}
+                className="flex size-6 items-center justify-center rounded-full text-ink-soft hover:bg-accent-soft/40 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {armed ? (
+            <Suspense fallback={<input readOnly aria-label="Find a Panel to file on" placeholder="Find a Panel…" className={FIELD} />}>
+              <FileOnSearch
+                where={where}
+                from={from}
+                workspaces={workspaces}
+                chosen={filed.map((one) => one.panelId)}
+                instantly={inTheItemForm}
+                onPick={onAdd}
+              />
+            </Suspense>
+          ) : (
+            <input
+              readOnly
+              disabled={disabled}
+              onFocus={() => setArmed(true)}
+              onClick={() => setArmed(true)}
+              aria-label="Find a Panel to file on"
+              placeholder={filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…'}
+              className={`${FIELD} sm:w-72`}
             />
-          </Suspense>
-        ) : (
-          <input
-            readOnly
-            disabled={disabled}
-            onFocus={() => setArmed(true)}
-            onClick={() => setArmed(true)}
-            aria-label="Find a Panel to file on"
-            placeholder={filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…'}
-            className={`${FIELD} sm:w-72`}
-          />
+          )}
+        </div>
+        {offered.length > 0 && (
+          <div role="group" aria-label="Most used Panels" className="grid grid-cols-3 gap-1.5">
+            {offered.map((panel) => {
+              const lit = filed.some((one) => one.panelId === panel.panelId);
+              const path = `${panel.dashboardName} ▸ ${panel.panelName}`;
+              return (
+                <button
+                  key={panel.panelId}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={lit}
+                  aria-label={path}
+                  title={path}
+                  onClick={() =>
+                    lit
+                      ? onRemove(panel.panelId)
+                      : onAdd({
+                          panelId: panel.panelId,
+                          name: panel.panelName,
+                          dashboardName: panel.dashboardName,
+                          workspaceId: panel.workspaceId,
+                          workspaceName: workspaces.find((one) => one.id === panel.workspaceId)?.name ?? '',
+                        })
+                  }
+                  className={`flex min-h-12 min-w-0 flex-col items-stretch justify-center rounded-md border px-2.5 py-1.5 text-left disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 ${
+                    lit
+                      ? 'border-accent bg-accent-tint text-accent-deep'
+                      : 'border-shade/10 bg-field text-ink hover:border-accent hover:bg-accent-tint'
+                  }`}
+                >
+                  <span className={`truncate text-xs sm:text-[10.5px] ${lit ? 'text-accent' : 'text-ink-faint'}`}>
+                    {panel.dashboardName}
+                  </span>
+                  <span className="truncate text-sm sm:text-[13px]">{panel.panelName}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -13,8 +13,8 @@ import { inTheStore, seedRegister, startFromEmpty } from '../seed.js';
  * not the one the TypeScript describes: the tables are created by hand-written
  * SQL in changes.ts and migrations/, which nothing else compares.
  *
- * The file this writes is what the architecture page draws its Databases
- * diagrams from (tools/architecture, "Databases"), and is checked in so the
+ * The file this writes is what the architecture page's table pages
+ * draw from (tools/architecture, "The table pages"), and is checked in so the
  * nightly run reads it without a Workers runtime. A change to the schema fails
  * here until the file is written again:
  *

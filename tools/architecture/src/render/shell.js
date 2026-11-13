@@ -5,12 +5,15 @@
 
 import { esc } from './svg.js';
 
-/** Where every page of the services view starts its trail: the report, then the services page. */
+/** The front page of the report, the services page's Design tab, and the whole-app Modules page beside it. */
 export const SERVICES_DESIGN_FILE = 'services-design.html';
-export const SERVICES_TRAIL = [['Architecture', 'index.html'], ['Services', SERVICES_DESIGN_FILE]];
+export const MODULES_FILE = 'modules.html';
 
-/** The same trail for a page of a report that has no `serviceMap`, where there is no services page to link to. */
-export const trailOf = (model) => (model.serviceMap ? SERVICES_TRAIL : SERVICES_TRAIL.slice(0, 1));
+/** Where every page's trail starts: the report's front page. */
+export const SERVICES_TRAIL = [['Architecture', SERVICES_DESIGN_FILE]];
+
+/** The same trail for a report that has no `serviceMap`, and so no front page: it starts at the Modules page. */
+export const trailOf = (model) => (model.serviceMap ? SERVICES_TRAIL : [['Architecture', MODULES_FILE]]);
 
 /** @param {[string, string?][]} crumbs a crumb with no address is the page itself */
 export const crumbTrail = (crumbs) => crumbs.map(([label, href]) => (href ? `<a href="${esc(href)}">${esc(label)}</a>` : esc(label))).join(' › ');

@@ -42,5 +42,6 @@ export * from './api/users.js';
 export * from './api/connected-apps.js';
 export * from './api/claude-links.js';
 export * from './api/usage.js';
+export * from './api/most-used-panels.js';
 // The usage export's schema is imported from '@cockpit/shared/usage-export',
 // not from here, so the web app, which never reads it, does not carry it.

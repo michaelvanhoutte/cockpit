@@ -169,7 +169,7 @@ Anything it prints is a rule you are already working under and have not read.
 | `docs/architecture.md` | how it is built |
 | `.claude/skills/testing/SKILL.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |
-| `tools/architecture/README.md` | the architecture page drawn nightly from the checkout: areas and their layers, what imports what, every table and index, and the deployment, which a design is a diff to |
+| `tools/architecture/README.md` | the architecture page drawn nightly from the checkout, from its services view (`services-design.html`) to the Modules and Dependencies page, every table and index and the deployment, which a design is a diff to |
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.
 
