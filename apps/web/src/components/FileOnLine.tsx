@@ -123,9 +123,10 @@ export function FileOnLine({
           <div role="group" aria-label="Most used Panels" className="grid grid-cols-3 gap-1.5">
             {offered.map((panel) => {
               const lit = filed.some((one) => one.panelId === panel.panelId);
-              const path = `${panel.dashboardName} ▸ ${panel.panelName}`;
-              // Under Any workspace the buttons span Workspaces, so each names its own by its colour.
-              const dot = where === null ? workspaces.find((one) => one.id === panel.workspaceId)?.color : undefined;
+              const workspace = workspaces.find((one) => one.id === panel.workspaceId);
+              // Under Any workspace the buttons span Workspaces: each shows its own by its colour and names it in its label and title.
+              const dot = where === null ? workspace?.color : undefined;
+              const path = `${where === null && workspace ? `${workspace.name} ▸ ` : ''}${panel.dashboardName} ▸ ${panel.panelName}`;
               return (
                 <button
                   key={panel.panelId}
@@ -142,7 +143,7 @@ export function FileOnLine({
                           name: panel.panelName,
                           dashboardName: panel.dashboardName,
                           workspaceId: panel.workspaceId,
-                          workspaceName: workspaces.find((one) => one.id === panel.workspaceId)?.name ?? '',
+                          workspaceName: workspace?.name ?? '',
                         })
                   }
                   className={`flex min-h-12 min-w-0 flex-col items-stretch justify-center rounded-md border px-2.5 py-1.5 text-left disabled:opacity-50 sm:min-h-0 sm:px-2 sm:py-1 ${

@@ -586,7 +586,7 @@ export function CaptureNote({
    * The Panels most used this week, offered as buttons under *File on*
    * ("Capture: offer today's and this week's most-used Panels…", issue 1743):
    * read each time Capture opens, and again once a note filed here lands or is
-   * undone, drawn at once from the last answer kept, and never waited on. Only for a chosen Workspace; *Any workspace* offers none.
+   * undone, drawn at once from the last answer kept, and never waited on. Under *Any workspace* they span every Workspace.
    */
   const { data: used } = useQuery(mostUsedPanelsQuery);
   const offered = panelsToOffer(used?.panels ?? [], belongsTo);

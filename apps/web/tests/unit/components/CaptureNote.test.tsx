@@ -1797,7 +1797,7 @@ describe('Capture', () => {
 
     it('offers the top three of every Workspace with dots, and none once Where is a Workspace', async () => {
       const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
-      await waitFor(() => expect(mostUsedButtons()).toEqual(['House ▸ Garden', 'Later ▸ Reading list', 'Today ▸ Falcon']));
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Home ▸ House ▸ Garden', 'Work ▸ Later ▸ Reading list', 'Work ▸ Today ▸ Falcon']));
       expect(dots()).toEqual(['rgb(63, 143, 120)', 'rgb(111, 98, 181)', 'rgb(111, 98, 181)']);
 
       await user.click(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' }));
@@ -1809,7 +1809,7 @@ describe('Capture', () => {
     it('settles Where on the Panel’s Workspace and narrows the row, and a second click takes the chip off and leaves Where', async () => {
       const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
 
-      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+      await user.click(await screen.findByRole('button', { name: 'Work ▸ Today ▸ Falcon' }));
 
       expect(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
