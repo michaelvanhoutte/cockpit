@@ -451,14 +451,14 @@ export function CaptureNote({
               dismissed: true,
             },
           });
+          // A dismissed Item no longer counts towards the buttons under File on.
+          if (back.filed.length > 0) void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
         } catch (failure) {
           // A send that got no answer may never have landed, so there may be nothing to dismiss.
           if (took === 'sent') throw failure;
           // Not answered at all, so the Item may be on the server undismissed: say so.
           unsure = !(failure instanceof CommandRefused);
         }
-        // A dismissed Item no longer counts towards the buttons under File on.
-        void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
       }
     } catch (failure) {
       undone.current.delete(back.id);
@@ -531,8 +531,8 @@ export function CaptureNote({
   /**
    * The Panels most used this week, offered as buttons under *File on*
    * ("Capture: offer today's and this week's most-used Panels…", issue 1743):
-   * read each time Capture opens, drawn at once from the last answer kept, and
-   * never waited on. Only for a chosen Workspace; *Any workspace* offers none.
+   * read each time Capture opens, and again once a note filed here lands or is
+   * undone, drawn at once from the last answer kept, and never waited on. Only for a chosen Workspace; *Any workspace* offers none.
    */
   const { data: used } = useQuery(mostUsedPanelsQuery);
   const offered = belongsTo === null ? [] : panelsToOffer(used?.panels ?? [], belongsTo);

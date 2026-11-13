@@ -14,7 +14,8 @@ export async function fetchMostUsedPanels(): Promise<MostUsedPanels> {
 }
 
 /**
- * Read each time Capture opens and kept like any other saved read
+ * Read each time Capture opens, and again once a note filed from it lands or
+ * is undone (`CaptureNote.tsx`), and kept like any other saved read
  * (`savedReads.ts`), so the last answer draws at once and offline while the
  * next is on its way. Never waited on: the note box draws without it.
  */
