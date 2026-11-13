@@ -2384,6 +2384,7 @@ describe('Connector management', () => {
       expect(within(asked).getByRole('radio', { name: 'Flagged for follow-up' })).toBeChecked();
       expect(within(asked).getByRole('radio', { name: 'Category Cockpit' })).not.toBeChecked();
       expect(within(asked).getByText(NOTE)).toBeInTheDocument();
+      expect(within(asked).getByRole('radiogroup', { name: 'Bring in messages' })).toHaveAccessibleDescription(NOTE);
     });
 
     it('Change… on an Outlook row offers the same options and line, starting at the one held', async () => {
