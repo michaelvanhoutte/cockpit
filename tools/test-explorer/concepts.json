@@ -123,7 +123,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 20,
+      "browserWalks": 21,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -132,6 +132,9 @@
         "apps/api/src/connectors/push-host.ts",
         "packages/connectors/teams/src/index.ts",
         "packages/connectors/teams/src/activity.ts",
+        "packages/connectors/teams/src/reading.ts",
+        "apps/api/src/connectors/pasted-link.ts",
+        "packages/shared/src/domain/message-link.ts",
         "packages/connectors/gmail/src/index.ts",
         "packages/connectors/gmail/src/sync.ts",
         "packages/connectors/gmail/src/messages.ts",

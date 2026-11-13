@@ -143,6 +143,7 @@ import {
   applyProposedPanel,
   applyClaudeProposals,
   applyProposedTexts,
+  applyPastedLinkRead,
   applySetDescription,
   applySetDismissed,
   applySetDone,
@@ -1156,6 +1157,8 @@ export function runCommand<N extends CommandName>(
   let fieldsSet: FieldsSet | null = null;
   // Set only by `set_email_address`, where it replaced or dropped an address.
   let addressLetGo: string | null = null;
+  // Set only by `read_pasted_link`, where it applied.
+  let textsWritten: boolean | null = null;
 
   switch (name) {
     case 'create_workspace': {
@@ -1946,6 +1949,35 @@ export function runCommand<N extends CommandName>(
             .run();
           tx.insert(commands).values(commandRow).run();
         });
+      }
+      break;
+    }
+    case 'read_pasted_link': {
+      const cmd = payload as CommandPayload<'read_pasted_link'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      // Decided against the Item as it stands, in the same step as the write
+      // (see `propose_item_texts` above): an Item that is no longer an Own note
+      // - read already by a delivery before this one - is left as it is, and
+      // the command logged so a redelivery is a replay ("Read pasted Teams
+      // links", issue 1755).
+      const read = applyPastedLinkRead(existing, cmd);
+      if (read === null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(read))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+        // Decided against the Item as it stood here, not as the job read it
+        // before asking the model, so an edit made meanwhile is reported.
+        textsWritten = existing.textsSettledAt === null;
       }
       break;
     }
@@ -3317,5 +3349,6 @@ export function runCommand<N extends CommandName>(
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
     ...(addressLetGo ? { addressLetGo } : {}),
+    ...(textsWritten !== null ? { textsWritten } : {}),
   };
 }

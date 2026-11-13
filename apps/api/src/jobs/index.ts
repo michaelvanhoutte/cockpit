@@ -223,7 +223,7 @@ async function workThrough(message: Message<unknown>, env: Env): Promise<void> {
   }
 
   try {
-    await run(env, job.data);
+    await run(env, job.data, { lastAttempt: message.attempts > QUEUE_RETRIES });
     message.ack();
   } catch (error) {
     // Worth trying again: everything the job itself decides ends in a return,
@@ -255,11 +255,21 @@ async function workThrough(message: Message<unknown>, env: Env): Promise<void> {
   }
 }
 
+/**
+ * How many times the queue delivers a message again after a failure: the
+ * consumer's `max_retries` in every environment of wrangler.jsonc. A message's
+ * `attempts` counts from 1, so the delivery after the last retry is the one
+ * past this - where a job that would wait on a source for another try does
+ * without it ("Read pasted Teams links", issue 1755). Held equal to
+ * `max_retries` by scripts/lib/queue-retries.test.mjs.
+ */
+export const QUEUE_RETRIES = 3;
+
 /** Which job a message is, dispatched on the discriminant `kind` names. */
-function run(env: Env, job: EnrichmentJob): Promise<void> {
+function run(env: Env, job: EnrichmentJob, delivery: { lastAttempt: boolean }): Promise<void> {
   switch (job.kind) {
     case 'clean-up-a-note':
-      return cleanUpACapturedNote(env, job);
+      return cleanUpACapturedNote(env, job, delivery);
     case 're-propose-panels':
       return reproposePanels(env, job);
     case 'propose-for-claude':

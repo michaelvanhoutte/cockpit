@@ -79,6 +79,14 @@ export function connectors(env: Env): Connector[] {
             ...(env.BOT_FRAMEWORK_METADATA_URL
               ? { metadataUrl: env.BOT_FRAMEWORK_METADATA_URL }
               : {}),
+            // Reading a pasted link renews the connection's sign-in on the
+            // Microsoft client it was made with, so it is offered only where
+            // that client is set; Graph is the stub's stand-in locally
+            // (`standIn`).
+            ...(env.MS_CLIENT_ID?.trim() && env.MS_CLIENT_SECRET?.trim()
+              ? { client: { id: env.MS_CLIENT_ID.trim(), secret: env.MS_CLIENT_SECRET.trim() } }
+              : {}),
+            ...(graphApi ? { apiOrigin: graphApi } : {}),
           }),
         ]
       : []),

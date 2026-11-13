@@ -388,6 +388,8 @@ export interface Account {
   dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
   listingAsk(workspaceId: string, sourceAccountId: string): Promise<ListingAsk>;
+  /** Every connection of one connector in the account, oldest first, with what each was granted: the ones a pasted link may be read with ("Read pasted Teams links", issue 1755). */
+  connectionsOfConnector(connectorId: string): Promise<{ id: string; workspaceId: string; granted: string[] | null }[]>;
   /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
   followSentEmail(pick: SentPick): Promise<{ itemId: string; made: boolean }>;
   resealCredential(
@@ -575,6 +577,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     recordDraft: async (record) => unwrap(await store.recordDraft(accountName, record)),
     dropDraft: async (drop) => unwrap(await store.dropDraft(accountName, drop)),
     listingAsk: async (workspaceId, sourceAccountId) => unwrap(await store.listingAsk(accountName, workspaceId, sourceAccountId)),
+    connectionsOfConnector: async (connectorId) => unwrap(await store.connectionsOfConnector(accountName, connectorId)),
     followSentEmail: async (pick) => unwrap(await store.followSentEmail(accountName, pick)),
     resealCredential: async (sourceAccountId, was, sealed) =>
       unwrap(await store.resealCredential(accountName, sourceAccountId, was, sealed)),

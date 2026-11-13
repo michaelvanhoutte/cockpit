@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
-import { SourceError, type Connector, type PushHost } from '@cockpit/connector-sdk';
+import { SourceError, type Connector, type OnDemandHost, type PushHost } from '@cockpit/connector-sdk';
+import { grantToRead, readMessageAtLink, type ReadingConfig } from './reading.js';
 import {
   bearerToken,
   OPEN_ID_METADATA_URL,
@@ -70,11 +71,36 @@ export interface TeamsConnectorConfig {
   readonly issuer?: string;
   /** Read once per call, so a token is judged against the time it arrived. */
   readonly now?: () => Date;
+  /**
+   * The Microsoft client a connection's sign-in is renewed with
+   * (`MS_CLIENT_ID`), which reading a pasted link needs ("Read pasted Teams
+   * links", issue 1755). Absent: no link is read.
+   */
+  readonly client?: { readonly id: string; readonly secret: string };
+  /**
+   * Where Graph is reached. Defaults to Microsoft's, and is pointed at the
+   * local stub by `pnpm dev`; never set in a deployment, which would send its
+   * access tokens wherever it pointed.
+   */
+  readonly apiOrigin?: string;
+  /** Handed in by the tests, which must reach no network. */
+  readonly fetch?: typeof fetch;
 }
 
 export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
   const keys = config.keys ?? botFrameworkKeys(config.metadataUrl ?? OPEN_ID_METADATA_URL);
   const now = config.now ?? (() => new Date());
+  const client = config.client;
+  const reading: ReadingConfig | null = client
+    ? {
+        clientId: client.id,
+        clientSecret: client.secret,
+        ...(config.issuer ? { issuer: config.issuer } : {}),
+        ...(config.apiOrigin ? { apiOrigin: config.apiOrigin } : {}),
+        ...(config.fetch ? { fetch: config.fetch } : {}),
+        now,
+      }
+    : null;
 
   return {
     manifest: {
@@ -85,6 +111,15 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
     },
 
     accountFrom: teamsAccountFrom,
+
+    // A pasted message link, read with the connection's grant ("Read pasted
+    // Teams links", issue 1755); only where a sign-in can be renewed here.
+    ...(reading
+      ? {
+          grantToRead,
+          readMessageAtLink: (host: OnDemandHost, link: string, note: string) => readMessageAtLink(host, reading, link, note),
+        }
+      : {}),
 
     async sync() {
       // Nothing to pull: a save is pushed here, and nothing else is subscribed

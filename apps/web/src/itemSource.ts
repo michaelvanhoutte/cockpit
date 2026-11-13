@@ -1,4 +1,4 @@
-import { demoPageOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import { demoPageOf, firstMessageLink, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 
 /**
  * What each source is called, by its connector id, as the Workspace's snapshot
@@ -104,49 +104,3 @@ export function openableAtSource(
   return link === null ? null : { name, link };
 }
 
-/**
- * The first message link in a text, or null, with the connector that declared
- * it. A candidate is an `https?://` run up to whitespace, a square or angle
- * bracket or a double quote, less the sentence punctuation after it and any
- * closing parenthesis it never opened: so a Markdown `[name](link)` or "see
- * link." gives the link alone, while a channel link keeps the `(` `)` and `'`
- * that Teams leaves unencoded in a team or channel name. It counts only when it
- * parses as an `https` address whose host is exactly a declared one and whose
- * path starts with that declaration's. It is text somebody else may have
- * written and goes into an `href`, so the parsed host decides, never a pattern
- * over the text. No declarations (a copy from a release that sent none): none.
- */
-export function firstMessageLink(
-  text: string | null | undefined,
-  messageLinks: MessageLinks,
-): { source: string; link: string } | null {
-  if (!text || !messageLinks) return null;
-  for (const [run] of text.matchAll(/https?:\/\/[^\s\]>"<]+/gi)) {
-    const candidate = withoutTrailingPunctuation(run);
-    let url: URL;
-    try {
-      url = new URL(candidate);
-    } catch {
-      continue;
-    }
-    if (url.protocol !== 'https:') continue;
-    const host = url.hostname.toLowerCase();
-    for (const [source, declared] of Object.entries(messageLinks)) {
-      if (declared.some((one) => one.host.toLowerCase() === host && url.pathname.startsWith(one.pathStart))) {
-        return { source, link: candidate };
-      }
-    }
-  }
-  return null;
-}
-
-/** A link as written in a sentence, less the punctuation that ends the sentence and a `)` that closes something around it. */
-function withoutTrailingPunctuation(run: string): string {
-  let link = run;
-  for (;;) {
-    const last = link.at(-1);
-    if (last && ".,;:!?'".includes(last)) link = link.slice(0, -1);
-    else if (last === ')' && link.split(')').length > link.split('(').length) link = link.slice(0, -1);
-    else return link;
-  }
-}

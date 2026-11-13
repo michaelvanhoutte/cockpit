@@ -190,6 +190,7 @@ import {
   rewriteHistoryForWorkspace,
   sealedCredentialOf,
   sourceAccountsIn,
+  connectionsOfConnector,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
   type UnfiledCandidate,
@@ -1258,6 +1259,14 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sealed: { sealedCredential: string; credentialNonce: string },
   ): Answer<'saved' | 'not saved'> {
     return this.#answer(accountName, (db) => resealCredential(db, accountName, sourceAccountId, was, sealed));
+  }
+
+  /** Every connection of one connector in the account, with what each was granted: the ones a pasted link may be read with ("Read pasted Teams links", issue 1755). */
+  connectionsOfConnector(
+    accountName: string,
+    connectorId: string,
+  ): Answer<{ id: string; workspaceId: string; granted: string[] | null }[]> {
+    return this.#answer(accountName, (db) => connectionsOfConnector(db, accountName, connectorId));
   }
 
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
