@@ -100,8 +100,8 @@ export function tierAsked(
   attempt: { tier?: number | undefined },
 ): { scopes: string[]; grants: string[] | null } | null {
   if (!auth.tiers) return attempt.tier === undefined ? { scopes: auth.scopes, grants: null } : null;
-  // An attempt that names no tier (one begun by an older release) asks and
-  // stores nothing, rather than being read as the broadest.
+  // An attempt that names no tier (one begun by an older release) is refused
+  // rather than read as the broadest.
   const tier = attempt.tier === undefined ? undefined : auth.tiers[attempt.tier];
   return tier ? { scopes: tier.scopes, grants: tier.grants } : null;
 }

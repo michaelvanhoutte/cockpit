@@ -418,9 +418,10 @@ export interface ConnectAttempt extends Attempt {
    * Which of the connector's permission tiers this attempt asked, 0 being the
    * first ("Read pasted Teams links: connecting Teams asks for no read
    * permission", issue 1754). Each step down is a new attempt with the next
-   * number, kept here so the browser cannot choose what a callback stores as
-   * granted; the callback checks it against the connector's tiers. Absent for
-   * a connector that asks in no tiers.
+   * number, which the callback checks against the connector's tiers; the
+   * cookie is the visitor's own, so what it can change is only which of
+   * those tiers is stored for their own connection. Absent for a connector
+   * that asks in no tiers.
    */
   readonly tier?: number;
 }

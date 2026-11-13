@@ -1078,7 +1078,7 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * connecting Teams asks for no read permission", issue 1754): an empty list
    * is a connection granting nothing beyond who the person is. Written by the
    * callback route only for a connector whose sign-in asks in tiers, from the
-   * tier the attempt reached and never from anything the browser carried.
+   * tier the attempt reached, which the route has checked is one the description has.
    * Absent: the connection holds none, which reads as granting nothing, and a
    * reconnect replaces what was stored.
    */

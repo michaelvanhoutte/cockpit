@@ -160,8 +160,8 @@ describe('Connector management', () => {
   describe('connecting a source runs the sign-in its connector describes', () => {
     /**
      * What the issuer is asked is what a registered redirect URI, a consent
-     * screen and a client all depend on, so it is held to exactly what it was
-     * when the route was Teams' alone.
+     * screen and a client all depend on, so it is held to exactly
+     * what the Teams description asks.
      */
     it('asks Microsoft’s way for a Teams account: its client, its address back, and the most it can read first', async () => {
       await issuerIsReachable();

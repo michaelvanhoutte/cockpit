@@ -735,8 +735,8 @@ in the Microsoft Entra admin centre:
    approval, and `Chat.Read` may. Teams asks for all three, then `Chat.Read`
    and `offline_access`, then none, each time Microsoft says an administrator
    must approve, so a tenant that approves nothing still connects. Teams never
-   asks for `Mail.ReadWrite`, and Outlook only for it, so each grant is
-   separate. Outlook is only offered where this client is set.
+   asks for `Mail.ReadWrite`, and Outlook asks for it alongside the identity
+   scopes and `offline_access`, so the grants are asked separately. Outlook is only offered where this client is set.
 4. **A client secret**, and both values into the platform:
 
 ```bash
