@@ -193,8 +193,7 @@ jobs:
       - name: Draw how Cockpit is built and what changed since the live report
         run: >-
           node tools/architecture/src/cli.js
-          --out tools/architecture/out/index.html
-          --model tools/architecture/out/model.json
+          --out tools/architecture/out
           --monitor "${{ vars.HARNESS_MONITOR_URL }}"
           --previous "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/architecture/model.json"
       - uses: actions/upload-artifact@v4

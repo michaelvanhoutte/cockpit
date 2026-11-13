@@ -4,6 +4,7 @@ import type {
   CommandResult,
   ConnectionHistory,
   FinishedItems,
+  MostUsedPanel,
   Item,
   Panel,
   ReadableSnapshot,
@@ -128,6 +129,8 @@ export interface Account {
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
   /** One Workspace's finished Items with their filings and files ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
   finishedItems(workspaceId: string): Promise<FinishedItems>;
+  /** The Panels Items landed on this week, with their 24-hour and 7-day counts ("Capture: offer today's and this week's most-used Panels…", issue 1743). */
+  mostUsedPanels(): Promise<MostUsedPanel[]>;
   /** Every live Workspace with its Dashboards, Panels and Layouts - the list of Panels an app allowed to read is shown (issue 1445). */
   panelCatalogue(): Promise<ReadableWorkspace[]>;
   /** What one Panel is read from; throws `NotFoundInAccountError` for a Panel that is deleted or was never this account's (issue 1445). */
@@ -470,6 +473,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     workspaces: async () => unwrap(await store.workspaces(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     finishedItems: async (workspaceId) => unwrap(await store.finishedItems(accountName, workspaceId)),
+    mostUsedPanels: async () => unwrap(await store.mostUsedPanels(accountName)),
     panelCatalogue: async () => unwrap(await store.panelCatalogue(accountName)),
     panelReadInputs: async (panelId) => unwrap(await store.panelReadInputs(accountName, panelId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),

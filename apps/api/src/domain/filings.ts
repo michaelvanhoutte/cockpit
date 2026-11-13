@@ -40,6 +40,13 @@ export interface FilingRow {
   itemId: string;
   position: number;
   createdAt: string;
+  /** When a person's filing landed the Item here, or null: `panel_items.filed_at`. */
+  filedAt: string | null;
+}
+
+/** A filing a Panel holds, with when it landed there, which a rewrite of the Panel's order carries. */
+export interface HeldFiling extends Filing {
+  filedAt: string | null;
 }
 
 /**
@@ -53,25 +60,39 @@ export interface FilingRow {
  *
  * `createdAt` is the client's own timestamp, like every other command, so a
  * filing made offline records when it was made rather than when it arrived.
+ *
+ * **`filedAt` is carried, not rewritten** ("Capture: offer today's and this
+ * week's most-used Panels…", issue 1743): a row the Panel already `held` keeps
+ * its own, so reordering a Panel or filing another Item on it counts nothing,
+ * and only the Item arriving, new to the Panel, takes `stamp` - the command's
+ * own time for a person's filing, null for one a source or a recurring item
+ * makes on its own.
  */
-/**
- * The values one filing row binds, which is what decides how many of them fit
- * in a statement (`inBatchesOf`). Counted from the row built below; a column
- * added there is a value added here.
- */
-export const FILING_VALUES_PER_ROW = 5;
-
-export function filingRows(tenantId: string, cmd: Arriving): FilingRow[] {
+export function filingRows(
+  tenantId: string,
+  cmd: Arriving,
+  held: readonly HeldFiling[],
+  stamp: string | null,
+): FilingRow[] {
   if (cmd.panelId === null) return [];
   const panelId = cmd.panelId;
+  const kept = new Map(held.map((filing) => [filing.itemId, filing.filedAt]));
   return cmd.order.map((itemId, position) => ({
     tenantId,
     panelId,
     itemId,
     position,
     createdAt: cmd.issuedAt,
+    filedAt: kept.has(itemId) ? kept.get(itemId)! : itemId === cmd.itemId ? stamp : null,
   }));
 }
+
+/**
+ * The values one filing row binds, which is what decides how many of them fit
+ * in a statement (`inBatchesOf`). Counted from the row built above; a column
+ * added there is a value added here.
+ */
+export const FILING_VALUES_PER_ROW = 6;
 
 /**
  * Why the order sent is not an order of this panel, or null when it is.
@@ -170,7 +191,14 @@ export interface FilingFacts {
    */
   panel: FilingTarget | null;
   /** What that Panel holds now. */
-  held: readonly Filing[];
+  held: readonly HeldFiling[];
+  /**
+   * A source, not a person, made this filing on its own ("File Outlook mail on
+   * the Panel named after its category", issue 1146): it records no decision,
+   * since routing learns only from people, and its row is not counted as a
+   * Panel used. False where not given.
+   */
+  bySource?: boolean;
   /**
    * Of those, the rows whose Item the Workspace's read leaves out, finished more
    * than a day ago: an order may leave them out, and they are then written back
@@ -284,9 +312,17 @@ function decideFiling(
     // Every one named gone is nothing to take it off, not every Panel.
     takesItOffPanels: !fromPanelIds || fromPanelIds.length > 0,
     panelId: panel ? panel.id : null,
-    rows: [...filingRows(item.tenantId, { ...cmd, panelId: panel ? panel.id : null }), ...keptAsTheyWere],
+    rows: [
+      ...filingRows(
+        item.tenantId,
+        { ...cmd, panelId: panel ? panel.id : null },
+        facts.held,
+        facts.bySource ? null : cmd.issuedAt,
+      ),
+      ...keptAsTheyWere,
+    ],
     decision:
-      panel && !facts.alreadyFiled
+      panel && !facts.alreadyFiled && !facts.bySource
         ? decisionHistoryEntryFor(proposalAsShown(item, facts.proposedPanelNeverPropose), cmd, panel.id)
         : null,
   };
@@ -294,7 +330,7 @@ function decideFiling(
 
 /** A Panel a capture names, as loaded: live, on a Dashboard of the capture's Workspace, with what it holds. */
 export interface CaptureTarget extends FilingTarget {
-  held: readonly Filing[];
+  held: readonly HeldFiling[];
 }
 
 /**
@@ -305,12 +341,13 @@ export interface CaptureTarget extends FilingTarget {
  * **Never refuses.** A Panel that takes no Items is skipped, and with none left
  * the capture is the Inbox's, unchanged. The decision-history entry is the first
  * filing's alone, as for any Item leaving the Inbox, and records no proposal
- * because a new Item has none.
+ * because a new Item has none. A capture a source made files as `bySource` says.
  */
 export function decideCaptureFiling(
   item: Item,
   cmd: { commandId: string; issuedAt: string; workspaceId: string },
   targets: readonly CaptureTarget[],
+  bySource = false,
 ): { item: Item; filings: FilingDecided[] } {
   const usable = targets.filter((target) => whyNothingIsFiledOn(target) === null);
   if (usable.length === 0) return { item, filings: [] };
@@ -330,6 +367,7 @@ export function decideCaptureFiling(
         workspaceExists: true,
         panel: target,
         held: target.held,
+        bySource,
         alreadyFiled: index > 0,
         proposedPanelNeverPropose: false,
         sources: [],
@@ -346,7 +384,7 @@ export function decideCaptureFiling(
 /** A Panel a note named, as loaded when the filing is written: null where it has gone or is not in the Item's Workspace. */
 export interface NamedPanel extends FilingTarget {
   /** What it holds now, in order. */
-  held: readonly Filing[];
+  held: readonly HeldFiling[];
 }
 
 /** What filing a note on the Panels it named writes: each Panel's whole order, and the one decision it settles. */
@@ -392,12 +430,17 @@ export function decideFilingWhereSaid(
   return {
     panels: panels.map((panel) => ({
       panelId: panel.id,
-      rows: filingRows(item.tenantId, {
-        itemId: item.id,
-        panelId: panel.id,
-        order: [item.id, ...panel.held.map((filing) => filing.itemId).filter((id) => id !== item.id)],
-        issuedAt: cmd.issuedAt,
-      }),
+      rows: filingRows(
+        item.tenantId,
+        {
+          itemId: item.id,
+          panelId: panel.id,
+          order: [item.id, ...panel.held.map((filing) => filing.itemId).filter((id) => id !== item.id)],
+          issuedAt: cmd.issuedAt,
+        },
+        panel.held,
+        cmd.issuedAt,
+      ),
     })),
     decision: decisionHistoryEntryFor(
       { ...item, proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null },

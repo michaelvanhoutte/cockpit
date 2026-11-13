@@ -6,8 +6,8 @@ import { env } from 'cloudflare:test';
  * migration has run, not the one any single migration describes: tables are rebuilt and renamed, and only
  * real D1 shows what is left.
  *
- * The file this writes is what the architecture page draws the Harness Monitor's tables from
- * (tools/architecture, "Databases"), and is checked in so the nightly run reads it without a Workers
+ * The file this writes is what the architecture page's table pages draw the Harness Monitor's tables from
+ * (tools/architecture, "The table pages"), and is checked in so the nightly run reads it without a Workers
  * runtime. A migration that changes the schema fails here until the file is written again:
  *
  *   pnpm --filter @harness-monitor/worker exec vitest run tests/integration/schema-file.test.ts -u

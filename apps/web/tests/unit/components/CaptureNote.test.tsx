@@ -31,6 +31,7 @@ import {
 } from '../../../src/keptRecordings';
 import { forgetEverything } from '../../../src/session/forget';
 import { WorkingOffline, stand } from '../../../src/offline';
+import { restoreSavedReads, saveRead } from '../../../src/persistence';
 import { fetchSentEmails, followSentEmail, sentEmailsAvailable } from '../../../src/api/sentEmails';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
@@ -92,6 +93,12 @@ vi.mock('../../../src/api/sentEmails', () => ({
   followSentEmail: vi.fn(),
   /** Whether the Workspace has a mailbox to list sent mail from; none unless a case says so. */
   sentEmailsAvailable: vi.fn(() => Promise.resolve(false)),
+}));
+
+/** The account's most-used answer, as the server gives it when Capture opens (`thePage`'s `mostUsed`). */
+const mostUsedAsked = vi.hoisted(() => ({ answer: () => Promise.resolve({ panels: [] as unknown[] }) as Promise<unknown> }));
+vi.mock('../../../src/api/mostUsedPanels', () => ({
+  mostUsedPanelsQuery: { queryKey: ['mostUsedPanels'], queryFn: () => mostUsedAsked.answer(), staleTime: 0, retry: false },
 }));
 
 vi.mock('../../../src/itemForm', async (importOriginal) => ({
@@ -183,8 +190,14 @@ async function thePage({
   recordingLock = inTabLock(),
   waitingRecordings = [],
   signedInAs = 'user-michael',
+  mostUsed = () => Promise.resolve({ panels: [] }),
+  beforeDrawing,
   shownAs,
 }: {
+  /** What the server answers the most-used read with when Capture opens: none used, unless a case says. */
+  mostUsed?: () => Promise<unknown>;
+  /** Run against the page's client before it is drawn: what the open restores from this device, for one. */
+  beforeDrawing?: ((client: QueryClient) => Promise<void>) | undefined;
   /** The desk window rather than the page. */
   shownAs?: 'page' | 'window';
   /** Where recordings not yet transcribed are kept: the fake IndexedDB, unless a case says storage is unavailable. */
@@ -247,6 +260,8 @@ async function thePage({
     },
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mostUsedAsked.answer = mostUsed;
+  await beforeDrawing?.(client);
   const outbox = new CaptureOutbox({
     store,
     sender: serverSender,
@@ -1691,6 +1706,118 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+  });
+
+  /** The account's most-used Panels as the server counts them: Falcon most today, Reading list most this week, Garden at Home. */
+  const USED = {
+    panels: [
+      { panelId: 'p-reading', panelName: 'Reading list', dashboardName: 'Later', workspaceId: 'ws-work', lastDay: 0, lastWeek: 6, lastFiledAt: '2026-11-11T09:00:00.000Z' },
+      { panelId: 'p-falcon', panelName: 'Falcon', dashboardName: 'Today', workspaceId: 'ws-work', lastDay: 2, lastWeek: 3, lastFiledAt: '2026-11-13T08:00:00.000Z' },
+      { panelId: 'p-garden', panelName: 'Garden', dashboardName: 'House', workspaceId: 'ws-home', lastDay: 5, lastWeek: 9, lastFiledAt: '2026-11-13T07:00:00.000Z' },
+    ],
+  };
+  /** The buttons under File on, as each names its Dashboard and Panel, and whether it is lit. */
+  const mostUsedButtons = () => {
+    const row = screen.queryByRole('group', { name: 'Most used Panels' });
+    return row
+      ? within(row)
+          .getAllByRole('button')
+          .map((button) => `${button.getAttribute('title')}${button.getAttribute('aria-pressed') === 'true' ? ' (lit)' : ''}`)
+      : [];
+  };
+  const mostUsedButton = (path: string) => within(screen.getByRole('group', { name: 'Most used Panels' })).getByRole('button', { name: path });
+
+  describe('a most-used Panel’s button puts it on File on, and takes it off again', () => {
+    it('adds the Panel as a chip and lights the button, files the note on it, and a second click takes it off', async () => {
+      const user = await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve(USED) });
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']));
+
+      await user.click(mostUsedButton('Later ▸ Reading list'));
+
+      expect(screen.getByRole('button', { name: 'Do not file on Reading list' })).toBeVisible();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list (lit)']);
+
+      await user.click(mostUsedButton('Later ▸ Reading list'));
+
+      expect(screen.queryByRole('button', { name: 'Do not file on Reading list' })).toBeNull();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+
+      await user.click(mostUsedButton('Today ▸ Falcon'));
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+
+    it('unlights the button when its chip is removed from the field', async () => {
+      const user = await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve(USED) });
+      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+
+      await user.click(screen.getByRole('button', { name: 'Do not file on Falcon' }));
+
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+    });
+
+    it('asks for the most-used Panels again once a note filed with a button is undone', async () => {
+      const mostUsed = vi.fn(() => Promise.resolve(USED));
+      const user = await thePage({ startsIn: 'ws-work', mostUsed });
+      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      await captured();
+      await settled();
+      const asked = mostUsed.mock.calls.length;
+
+      await user.click(undoButton());
+
+      await waitFor(() => expect(box()).toHaveValue('Reply to Bart'));
+      await waitFor(() => expect(mostUsed.mock.calls.length).toBeGreaterThan(asked));
+    });
+
+    it('starts lit for the Panel whose + opened Capture', async () => {
+      await thePage({ startsOn: { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' }, mostUsed: () => Promise.resolve(USED) });
+
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon (lit)', 'Later ▸ Reading list']));
+    });
+
+    it.each([
+      { situation: 'no Panel of the Workspace was used this week', startsIn: 'ws-work', answer: { panels: USED.panels.slice(2) } },
+      { situation: 'Where is on Any workspace', startsIn: null, answer: USED },
+    ])('draws no row when $situation', async ({ startsIn, answer }) => {
+      await thePage({ startsIn, mostUsed: () => Promise.resolve(answer) });
+      await settled();
+
+      expect(screen.queryByRole('group', { name: 'Most used Panels' })).toBeNull();
+    });
+  });
+
+  describe('the most-used buttons draw the last answer kept on this device at once, and offline', () => {
+    const NOW = Date.UTC(2026, 10, 13, 12);
+    /** What the open restores into the page's client from this device: the answer saved an hour ago. */
+    const savedAnHourAgo = async (client: QueryClient) => {
+      await saveRead({ queryKey: ['mostUsedPanels'], data: { panels: USED.panels.slice(0, 1) }, savedAt: NOW - 60 * 60 * 1000 });
+      await restoreSavedReads(client, NOW);
+    };
+
+    it('draws the saved answer while the server is slow, and the server’s once it answers', async () => {
+      let answer: (value: unknown) => void = () => {};
+      await thePage({ startsIn: 'ws-work', beforeDrawing: savedAnHourAgo, mostUsed: () => new Promise((resolve) => (answer = resolve)) });
+
+      expect(mostUsedButtons()).toEqual(['Later ▸ Reading list']);
+
+      await act(async () => answer(USED));
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']));
+    });
+
+    it.each([
+      { situation: 'with an answer saved', beforeDrawing: savedAnHourAgo, drawn: ['Later ▸ Reading list'] },
+      { situation: 'with none saved', beforeDrawing: undefined, drawn: [] },
+    ])('offline, draws what was saved $situation', async ({ beforeDrawing, drawn }) => {
+      // Offline is a read that never reaches the server.
+      await thePage({ startsIn: 'ws-work', beforeDrawing, mostUsed: () => Promise.reject(new WorkingOffline()) });
+      await settled();
+
+      expect(mostUsedButtons()).toEqual(drawn);
     });
   });
 

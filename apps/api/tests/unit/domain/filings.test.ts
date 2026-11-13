@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AddItemToPanelCommand, Filing, Item, MoveItemToPanelCommand } from '@cockpit/shared';
+import type { AddItemToPanelCommand, Item, MoveItemToPanelCommand } from '@cockpit/shared';
 import {
   decideAddToPanel,
   decideFilingWhereSaid,
@@ -9,6 +9,7 @@ import {
   type FilingDecided,
   type FilingFacts,
   type FilingRefusal,
+  type HeldFiling,
 } from '../../../src/domain/filings.js';
 import { captureItem } from '../../../src/domain/items.js';
 
@@ -35,22 +36,24 @@ function moving(
   };
 }
 
-function held(panelId: string, itemIds: string[]): Filing[] {
-  return itemIds.map((itemId, position) => ({ panelId, itemId, position }));
+const LANDED = '2026-08-30T09:00:00.000Z';
+
+function held(panelId: string, itemIds: string[]): HeldFiling[] {
+  return itemIds.map((itemId, position) => ({ panelId, itemId, position, filedAt: LANDED }));
 }
 
 describe('Panels', () => {
   describe('a panel keeps its items in the order the last move put them in', () => {
-    it('numbers them from the front, in the order the move named them', () => {
-      expect(filingRows('tenant-default', moving('b', 'falcon', ['a', 'b', 'c']))).toEqual([
-        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'a', position: 0, createdAt: AT },
-        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'b', position: 1, createdAt: AT },
-        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'c', position: 2, createdAt: AT },
+    it('numbers them from the front, in the order the move named them, the arriving one landing now', () => {
+      expect(filingRows('tenant-default', moving('b', 'falcon', ['a', 'b', 'c']), held('falcon', ['a', 'c']), AT)).toEqual([
+        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'a', position: 0, createdAt: AT, filedAt: LANDED },
+        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'b', position: 1, createdAt: AT, filedAt: AT },
+        { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'c', position: 2, createdAt: AT, filedAt: LANDED },
       ]);
     });
 
     it('files nothing when the item is going back to the Inbox, which has no order', () => {
-      expect(filingRows('tenant-default', moving('b', null, []))).toEqual([]);
+      expect(filingRows('tenant-default', moving('b', null, []), [], AT)).toEqual([]);
     });
   });
 
@@ -309,7 +312,7 @@ describe('Panels', () => {
 
   describe('an item finished more than a day ago keeps its place on a panel an order leaves it out of', () => {
     const LONG_AGO = '2026-06-01T10:00:00.000Z';
-    const finishedLongAgo = { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'x', position: 1, createdAt: LONG_AGO };
+    const finishedLongAgo = { tenantId: 'tenant-default', panelId: 'falcon', itemId: 'x', position: 1, createdAt: LONG_AGO, filedAt: LONG_AGO };
 
     it.each([
       {
@@ -372,6 +375,12 @@ describe('Triage', () => {
       const outcome = decided(decideAddToPanel(adding('b', 'falcon', ['b']), facts({ item: proposed })));
 
       expect(outcome.decision).toEqual(expect.objectContaining({ chosenPanelId: 'falcon' }));
+    });
+
+    it('records nothing for a filing a source made on its own, and counts it as no Panel used', () => {
+      const outcome = decided(decideAddToPanel(adding('b', 'falcon', ['b']), facts({ item: proposed, bySource: true })));
+
+      expect([outcome.decision, outcome.rows.map((row) => row.filedAt)]).toEqual([null, [null]]);
     });
 
     it('records nothing for a move to the Inbox', () => {

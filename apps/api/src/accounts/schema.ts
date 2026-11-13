@@ -1163,7 +1163,17 @@ export const panelItems = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: 'restrict' }),
     position: integer('position').notNull(),
+    /** When this row was last rewritten, which every rewrite of the Panel's order resets for all its rows. */
     createdAt: text('created_at').notNull(),
+    /**
+     * When a person's filing landed the Item on this Panel ("Capture: offer
+     * today's and this week's most-used Panels…", issue 1743), the command's own
+     * time like `created_at`, and carried unchanged through every later rewrite
+     * of the Panel's order. Null for a filing a source or a recurring item made
+     * on its own, and for every row filed before the column existed: never
+     * counted as used.
+     */
+    filedAt: text('filed_at'),
   },
   (t) => [
     primaryKey({ columns: [t.panelId, t.itemId] }),
@@ -1172,8 +1182,11 @@ export const panelItems = sqliteTable(
     // lookup by item alone cannot use a key that leads with the panel.
     index('panel_items_tenant_panel').on(t.tenantId, t.panelId),
     index('panel_items_tenant_item').on(t.tenantId, t.itemId),
+    // The most-used read's "filed in the last 7 days", a range on the stamp.
+    index('panel_items_tenant_filed').on(t.tenantId, t.filedAt),
     check('panel_items_position_is_an_order', sql.raw('position >= 0')),
     check('panel_items_created_at_is_timestamp', isTimestamp('created_at')),
+    check('panel_items_filed_at_is_timestamp', isTimestamp('filed_at')),
   ],
 );
 

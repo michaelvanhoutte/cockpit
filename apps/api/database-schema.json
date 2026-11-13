@@ -3860,9 +3860,26 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "createdAt"
+            },
+            {
+              "name": "filed_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "filedAt"
             }
           ],
           "indexes": [
+            {
+              "name": "panel_items_tenant_filed",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "filed_at"
+              ]
+            },
             {
               "name": "panel_items_tenant_item",
               "unique": false,

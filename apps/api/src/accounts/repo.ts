@@ -22,6 +22,7 @@ import {
   type ItemFormPresentation,
   type Layout,
   type LayoutRow,
+  type MostUsedPanel,
   type Panel,
   type PossibleDuplicate,
   type RecurringItem,
@@ -40,7 +41,7 @@ import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { MasterRow, SeriesRow } from '../domain/series.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import type { FilingRow } from '../domain/filings.js';
+import type { FilingRow, HeldFiling } from '../domain/filings.js';
 import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
@@ -1458,14 +1459,15 @@ export function listFilingsInWorkspace(
  *
  * Deleted panels are not filtered here: the caller has already established
  * which panel this is, and a deleted one has no filings to compare against
- * anyway.
+ * anyway. Each carries when it landed there, which the rewrite keeps.
  */
-export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): Filing[] {
+export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): HeldFiling[] {
   return db
     .select({
       panelId: panelItems.panelId,
       itemId: panelItems.itemId,
       position: panelItems.position,
+      filedAt: panelItems.filedAt,
     })
     .from(panelItems)
     .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
@@ -1493,6 +1495,7 @@ export function listFilingsOnPanelOutOfTheRead(
       itemId: panelItems.itemId,
       position: panelItems.position,
       createdAt: panelItems.createdAt,
+      filedAt: panelItems.filedAt,
     })
     .from(panelItems)
     .innerJoin(items, eq(panelItems.itemId, items.id))
@@ -1506,6 +1509,64 @@ export function listFilingsOnPanelOutOfTheRead(
     )
     .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The filings a person made in the 7 days before `now` whose Item is not dismissed, by the stamp's index: the most-used read's first half. */
+export function filingsLandedThisWeek(db: AccountDb, tenantId: string, now: Date) {
+  const weekAgo = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+  return db
+    .select({ panelId: panelItems.panelId, filedAt: panelItems.filedAt, workspaceId: items.workspaceId })
+    .from(panelItems)
+    .innerJoin(items, eq(panelItems.itemId, items.id))
+    .where(and(eq(panelItems.tenantId, tenantId), gt(panelItems.filedAt, weekAgo), isNull(items.deletedAt)));
+}
+
+/**
+ * The Panels a person filed Items on in the last 7 days, with how many landed
+ * in the last 24 hours and the last 7 days, as of `now` ("Capture: offer
+ * today's and this week's most-used Panels…", issue 1743). Counted from the
+ * rows still there, so an Item moved off a Panel counts there no more; a
+ * dismissed Item does not count, a finished one does. Only live Panels of live
+ * Dashboards and Workspaces come back.
+ *
+ * **Two reads, counted here rather than grouped in SQL**: the week's rows by
+ * `panel_items_tenant_filed`, a range on `filed_at`, then every live Panel's
+ * names. Grouped by Panel in one statement, the planner walks every filing by
+ * `panel_items_tenant_panel` instead, however old.
+ */
+export function listMostUsedPanels(db: AccountDb, tenantId: string, now: Date): MostUsedPanel[] {
+  const dayAgo = new Date(now.getTime() - DAY_MS).toISOString();
+  const landed = filingsLandedThisWeek(db, tenantId, now).all();
+  if (landed.length === 0) return [];
+  const named = new Map(
+    db
+      .select({
+        panelId: panels.id,
+        panelName: panels.name,
+        dashboardName: dashboards.name,
+        workspaceId: dashboards.workspaceId,
+      })
+      .from(panels)
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .innerJoin(workspaces, eq(dashboards.workspaceId, workspaces.id))
+      .where(and(eq(panels.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt), live(tenantId)))
+      .all()
+      .map((panel) => [panel.panelId, panel]),
+  );
+  const counted = new Map<string, MostUsedPanel>();
+  for (const row of landed) {
+    const panel = named.get(row.panelId);
+    // An Item of another Workspace is not drawn on the Panel, as the Workspace's read leaves it out.
+    if (!panel || row.filedAt === null || row.workspaceId !== panel.workspaceId) continue;
+    const entry = counted.get(row.panelId) ?? { ...panel, lastDay: 0, lastWeek: 0, lastFiledAt: row.filedAt };
+    entry.lastWeek += 1;
+    if (row.filedAt > dayAgo) entry.lastDay += 1;
+    if (row.filedAt > entry.lastFiledAt) entry.lastFiledAt = row.filedAt;
+    counted.set(row.panelId, entry);
+  }
+  return [...counted.values()];
 }
 
 /**
