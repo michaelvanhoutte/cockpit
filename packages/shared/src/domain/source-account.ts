@@ -70,6 +70,13 @@ export const sourceAccountSchema = z.object({
    */
   dueInDays: dueInDaysSchema.nullable().default(null),
   /**
+   * What the source granted the connection, as the codes its connector's sign-in
+   * names for each permission (issue 1754); null for a connection made
+   * before this or one whose connector asks in no tiers, which reads as granting
+   * nothing. Defaulted, so an answer from before this field reads as null.
+   */
+  granted: z.string().array().nullable().default(null),
+  /**
    * Whether the connection keeps a history its row's *History…* opens - a
    * connection Cockpit pulls from (issue 1140) or one its source pushes to
    * (issue 1144). Absent reads as none.
@@ -140,6 +147,14 @@ export const registeredConnectorSchema = z.object({
    * texts, which its rows say.
    */
   textedCode: z.object({ textTo: z.string() }).optional(),
+  /**
+   * What the connector's sign-in may be granted, in the order its card says
+   * them (issue 1754): each permission's code, what the card says where it was
+   * granted, and what it says where another was granted and this one was not
+   * (the organisation withheld it), either of which may be nothing. Absent from a release before it, which
+   * reads as none.
+   */
+  permissions: z.object({ code: z.string(), granted: z.string().optional(), withheld: z.string().optional() }).array().default([]),
 });
 export type RegisteredConnector = z.infer<typeof registeredConnectorSchema>;
 

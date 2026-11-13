@@ -128,8 +128,8 @@ describe('Connector management', () => {
   });
 
   describe('a connector says how it is signed in to, and the host runs it', () => {
-    it('asks as the Entra application for an identity and no Graph scope, through Microsoft unless pointed elsewhere', () => {
-      expect(connector.manifest.auth).toEqual({
+    it('asks as the Entra application for an identity and no Graph scope where nothing is granted, through Microsoft unless pointed elsewhere', () => {
+      expect(connector.manifest.auth).toMatchObject({
         kind: 'oauth2',
         endpoints: { issuer: 'https://login.microsoftonline.com/common/v2.0' },
         scopes: ['openid', 'email', 'profile'],
@@ -138,6 +138,33 @@ describe('Connector management', () => {
       expect(
         createTeamsConnector({ appId: BOT_APP_ID, issuer: 'https://stub.test' }).manifest.auth,
       ).toMatchObject({ endpoints: { issuer: 'https://stub.test' } });
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('connecting Teams describes the permissions it asks for in tiers, most first', () => {
+    it('asks chats and channel posts with offline access, then chats with offline access, then identity only', () => {
+      const { auth } = connector.manifest;
+      if (auth.kind !== 'oauth2') throw new Error('Teams signs in with OAuth');
+
+      expect(auth.tiers).toEqual([
+        {
+          scopes: ['openid', 'email', 'profile', 'offline_access', 'Chat.Read', 'ChannelMessage.Read.All'],
+          grants: ['chats', 'channels'],
+        },
+        { scopes: ['openid', 'email', 'profile', 'offline_access', 'Chat.Read'], grants: ['chats'] },
+        { scopes: ['openid', 'email', 'profile'], grants: [] },
+      ]);
+    });
+
+    it('says on the card what a connection reads, and what its organisation withheld', () => {
+      const { auth } = connector.manifest;
+
+      expect(auth.kind === 'oauth2' && auth.permissions).toEqual([
+        { code: 'chats', granted: 'Reads pasted chat links' },
+        { code: 'channels', withheld: "Channel posts need your IT's approval" },
+      ]);
     });
   });
 });

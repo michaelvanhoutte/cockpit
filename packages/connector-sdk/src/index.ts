@@ -201,6 +201,26 @@ export interface OAuthDescriptor {
    */
   endpoints: { issuer: string } | { authorizationUrl: string; tokenUrl: string };
   scopes: string[];
+  /**
+   * Permissions asked in tiers, highest first ("Read pasted Teams links:
+   * connecting Teams asks for no read permission", issue 1754): the host asks
+   * the first tier's scopes and, where the source answers that an administrator
+   * must approve one of them, asks the next. Any other refusal (cancelled,
+   * failed) ends the connect, and so does one at the last tier. Each tier
+   * names the codes (`PermissionDescriptor.code`) it grants, which the host
+   * stores on the connection as it got them. Absent: `scopes` is asked once.
+   * When present, `scopes` is what a connection holding no tier is described
+   * by and is not asked.
+   */
+  tiers?: { scopes: string[]; grants: string[] }[];
+  /**
+   * What a connection says about each code the tiers grant, in the order the
+   * card says them: `granted` where the connection holds the code, `withheld`
+   * where it holds another and not this one. Neither is said for a connection
+   * that holds none. Data, so the card can say it without the connector
+   * running.
+   */
+  permissions?: PermissionDescriptor[];
   /** The names of the environment settings holding the client the source issued this Cockpit. */
   clientSettings: { id: string; secret: string };
   /**
@@ -218,6 +238,15 @@ export interface OAuthDescriptor {
    * shown as a plain refusal.
    */
   refusals?: Record<string, string>;
+}
+
+/** One permission an `OAuthDescriptor`'s tiers may grant, and the sentences a connection says about it. */
+export interface PermissionDescriptor {
+  code: string;
+  /** Said where the connection holds the code; absent: nothing is said for it. */
+  granted?: string;
+  /** Said where the connection holds another code and not this one; absent: nothing is said. */
+  withheld?: string;
 }
 
 /**

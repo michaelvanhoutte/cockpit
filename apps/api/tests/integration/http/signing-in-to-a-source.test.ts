@@ -160,10 +160,10 @@ describe('Connector management', () => {
   describe('connecting a source runs the sign-in its connector describes', () => {
     /**
      * What the issuer is asked is what a registered redirect URI, a consent
-     * screen and a client all depend on, so it is held to exactly what it was
-     * when the route was Teams' alone.
+     * screen and a client all depend on, so it is held to exactly
+     * what the Teams description asks.
      */
-    it('asks Microsoft’s way for a Teams account: its client, its address back, an identity and nothing else', async () => {
+    it('asks Microsoft’s way for a Teams account: its client, its address back, and the most it can read first', async () => {
       await issuerIsReachable();
       const { asked } = await startConnecting('teams', await signInAs(USER_ID));
 
@@ -172,7 +172,7 @@ describe('Connector management', () => {
         client_id: 'cockpit-test',
         redirect_uri: 'https://cockpit.test/v1/connections/teams/callback',
         response_type: 'code',
-        scope: 'openid email profile',
+        scope: 'openid email profile offline_access Chat.Read ChannelMessage.Read.All',
         code_challenge_method: 'S256',
         prompt: 'select_account',
       });
@@ -331,9 +331,13 @@ describe('Connector management', () => {
         {
           id: 'teams',
           displayName: 'Microsoft Teams',
-          cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+          cardText: 'Sign in with Microsoft. Cockpit asks to read the chats and channel posts you paste a link to; where your organisation does not allow that, it reads who you are and nothing else.',
           asksFirst: false,
           refusals: {},
+          permissions: [
+            { code: 'chats', granted: 'Reads pasted chat links' },
+            { code: 'channels', withheld: "Channel posts need your IT's approval" },
+          ],
         },
         {
           id: FIXED,

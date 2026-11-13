@@ -191,6 +191,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTION_HISTORY_STARTED_AT,
     ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST,
     PANEL_ITEMS_FILED_AT,
+    CONNECTOR_ACCOUNTS_GRANTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1693,6 +1694,26 @@ const CONNECTION_HISTORY_STARTED_AT: Change = {
 const ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST: Change = {
   name: '0104-item-conversations-claude-draft-digest',
   statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `claude_draft_digest` text' }],
+};
+
+/**
+ * What a source granted a connection (`connector_accounts.granted`, whose
+ * meaning `schema.ts` gives; "Read pasted Teams links: connecting Teams asks
+ * for no read permission", issue 1754): a nullable column added, nothing else.
+ * Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which reads as granting nothing, as every
+ *   connection made before it did.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a connection reads as granting nothing; the next reconnect there
+ *   leaves what was stored, and a release that returns reads it again.
+ */
+const CONNECTOR_ACCOUNTS_GRANTED: Change = {
+  name: '0106-connector-accounts-granted',
+  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `granted` text' }],
 };
 
 /**

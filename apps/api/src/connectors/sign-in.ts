@@ -87,14 +87,68 @@ export function callbackUrlFor(env: Env, connectorId: string): string {
   return new URL(`/v1/connections/${encodeURIComponent(connectorId)}/callback`, env.APP_ORIGIN).toString();
 }
 
+/**
+ * What a sign-in asks at the tier an attempt has reached ("Read pasted Teams
+ * links: connecting Teams asks for no read permission", issue 1754): the
+ * scopes, and the codes the source grants for them, with `null` codes for a
+ * source that asks in no tiers, which stores no grant. `null` where the
+ * attempt names a tier the description does not have, or one for a source that
+ * asks in none: nothing the flow asked, so nothing to act on.
+ */
+export function tierAsked(
+  auth: OAuthDescriptor,
+  attempt: { tier?: number | undefined },
+): { scopes: string[]; grants: string[] | null } | null {
+  if (!auth.tiers) return attempt.tier === undefined ? { scopes: auth.scopes, grants: null } : null;
+  // An attempt that names no tier (one begun by an older release) is refused
+  // rather than read as the broadest.
+  const tier = attempt.tier === undefined ? undefined : auth.tiers[attempt.tier];
+  return tier ? { scopes: tier.scopes, grants: tier.grants } : null;
+}
+
+/** The first tier a source that asks in tiers is asked at, and nothing for one that asks in none. */
+export function firstTier(auth: OAuthDescriptor): { tier: number } | Record<string, never> {
+  return auth.tiers ? { tier: 0 } : {};
+}
+
+/**
+ * Whether a source's refusal says an administrator has to approve what was
+ * asked, rather than that the person said no or something failed: Microsoft
+ * answers `access_denied` or `consent_required` and names the AADSTS code in
+ * the description - 65001 (no consent for the application) and 90094 (the grant
+ * requires admin permission). A person pressing cancel is 65004, which is
+ * not this. Read from the address the browser came back with, after the state
+ * has been checked, and only ever to ask for less.
+ */
+export function adminApprovalNeeded(reply: { error?: string | null | undefined; error_description?: string | null | undefined }): boolean {
+  if (reply.error !== 'access_denied' && reply.error !== 'consent_required' && reply.error !== 'interaction_required') {
+    return false;
+  }
+  return /AADSTS(?:65001|90094)(?!\d)/.test(reply.error_description ?? '');
+}
+
+/**
+ * The attempt that asks the next tier down, or `null` where the source asks in
+ * no tiers or this was the last. Fresh secrets, because the one that was spent
+ * answered a request that is over; everything the person decided before leaving
+ * stays.
+ */
+export function steppedDown<A extends Attempt & { tier?: number }>(auth: OAuthDescriptor, held: A, fresh: Attempt): A | null {
+  if (!auth.tiers || held.tier === undefined) return null;
+  const next = held.tier + 1;
+  if (next >= auth.tiers.length) return null;
+  return { ...held, ...fresh, tier: next };
+}
+
 /** Where to send the browser to be asked whose account this is. */
 export async function authorizationRequest(
   env: Env,
   sign: SignIn,
   client: { clientId: string },
-  attempt: Attempt,
+  attempt: Attempt & { tier?: number },
 ): Promise<string> {
-  const { endpoints, scopes } = sign.auth;
+  const { endpoints } = sign.auth;
+  const scopes = tierAsked(sign.auth, attempt)?.scopes ?? sign.auth.scopes;
   const where =
     'issuer' in endpoints
       ? await endpointsFor(endpoints.issuer)

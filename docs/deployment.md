@@ -725,13 +725,18 @@ in the Microsoft Entra admin centre:
    Settings, wherever the Microsoft client is set", issue 1048). One address per
    connector for every Workspace, for the reason the Google client has one:
    which Workspace asked is carried in a cookie, not in the address.
-3. **Delegated `openid`, `profile` and `email` for Teams, which asks who
-   somebody is and reads nothing in their tenant, and delegated
+3. **Delegated `openid`, `profile` and `email` for who somebody is; delegated
+   `Chat.Read`, `ChannelMessage.Read.All` and `offline_access` for Teams
+   to read chats and channel posts** ("Read pasted Teams links: connecting
+   Teams asks for no read permission", issue 1754); **and delegated
    `Mail.ReadWrite` for Outlook**, which reads and changes the signed-in
    person's own mail and is where a tenant may ask an administrator to approve
-   Cockpit first. Teams never asks for it, so an existing Teams grant is
-   untouched. Outlook is only offered where this client is set, and only asks
-   `Mail.ReadWrite` of the person who connects it.
+   Cockpit first. `ChannelMessage.Read.All` always needs an administrator's
+   approval, and `Chat.Read` may. Teams asks for all three, then `Chat.Read`
+   and `offline_access`, then none, each time Microsoft says an administrator
+   must approve, so a tenant that approves nothing still connects. Teams never
+   asks for `Mail.ReadWrite`, and Outlook asks for it alongside the identity
+   scopes and `offline_access`, so the grants are asked separately. Outlook is only offered where this client is set.
 4. **A client secret**, and both values into the platform:
 
 ```bash
