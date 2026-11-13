@@ -93,15 +93,22 @@ export function peekKeptCapture(memory: Storage | undefined): KeptDraft | null {
     return {
       note: draft.note,
       priority: draft.priority ?? null,
-      due: draft.due ?? null,
-      where: draft.where ?? null,
-      panels: Array.isArray(draft.panels) ? draft.panels : [],
+      due: typeof draft.due === 'string' ? draft.due : null,
+      where: typeof draft.where === 'string' ? draft.where : null,
+      panels: Array.isArray(draft.panels) ? draft.panels.filter(isFiledOn) : [],
       shownAs: draft.shownAs === 'window' ? 'window' : 'page',
     };
   } catch {
     return null;
   }
 }
+
+const isFiledOn = (panel: unknown): panel is FiledOn => {
+  const on = panel as Partial<FiledOn> | null;
+  return (
+    typeof on?.panelId === 'string' && typeof on.name === 'string' && typeof on.workspaceId === 'string'
+  );
+};
 
 /** Reads the kept draft and deletes it, so only the first Capture of the load gets it. */
 export function takeKeptCapture(memory: Storage | undefined): KeptDraft | null {
