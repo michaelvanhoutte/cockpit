@@ -35,8 +35,8 @@ const test = base.extend<{ deployed: Deployments }>({
 const messageFor = (isMobile: boolean) => ({ name: isMobile ? 'New version of Cockpit' : 'A new version of Cockpit is out' });
 
 /** Opens the deployed version and reloads once, so this tab is held by its worker: a page that loaded before its worker was active is not. */
-async function open(page: Page, deployed: Deployments): Promise<void> {
-  await page.goto(deployed.origin);
+async function open(page: Page, deployed: Deployments, path = ''): Promise<void> {
+  await page.goto(`${deployed.origin}${path}`);
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
@@ -110,8 +110,13 @@ test.describe('Updating', () => {
   });
 
   test.describe('Continue loads the deployed version, and a plain reload stays on it', () => {
-    test('runs the new build after Continue', async ({ page, deployed, isMobile }) => {
-      await open(page, deployed);
+    test('runs the new build after Continue, with the note being typed in Capture back in its box', async ({ page, deployed, isMobile }) => {
+      deployed.signedIn();
+      await open(page, deployed, '/capture');
+      const note = page.getByLabel('What is on your mind?');
+      await note.fill('Call Jan re audit');
+      await page.getByRole('button', { name: 'Work', exact: true }).click();
+      await page.getByRole('button', { name: 'High priority' }).click();
       const next = deployed.deploy();
       await comeBackIntoView(page);
 
@@ -123,6 +128,12 @@ test.describe('Updating', () => {
       );
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(0);
+      await expect(note).toHaveValue('Call Jan re audit');
+      await expect(page.getByRole('button', { name: 'High priority' })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('button', { name: 'Work', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      // The note was kept for that one reload: a reload of your own finds the box empty.
+      await page.reload();
+      await expect(page.getByLabel('What is on your mind?')).toHaveValue('');
     });
 
     test('opens Cockpit on the new build with no message after a plain reload', async ({ page, deployed, isMobile }) => {

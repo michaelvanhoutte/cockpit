@@ -21,6 +21,7 @@ import {
   type KeptRecording,
 } from '../../../src/keptRecordings';
 import { Layout } from '../../../src/pages/Layout';
+import { keepCaptureForReload, offerCapture, peekKeptCapture } from '../../../src/keptCapture';
 import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
 
 /**
@@ -401,6 +402,54 @@ describe('Capture', () => {
    * the Dashboard is tests/unit/pages/CapturePage.test.tsx, and when the form
    * says a note is kept is components/CaptureNote.test.tsx.
    */
+  /**
+   * "Carry Capture's note across the update's reload" (issue 1746): the screen
+   * that reloads reopens the window over itself, and the Capture inside it
+   * takes the note back (CaptureNote.test.tsx). Kept here as the update's
+   * reload leaves it: a draft handed over by a Capture that was the window.
+   */
+  describe('the window an update reloaded comes back over the same screen', () => {
+    const theWindow = () => screen.queryByRole('dialog', { name: 'Capture' });
+    const keptFromTheWindow = (note: string) => {
+      const release = offerCapture({
+        draft: () => ({ note, priority: null, due: null, where: 'ws-work', panels: [], shownAs: 'window' }),
+        hasFiles: () => false,
+      });
+      keepCaptureForReload(sessionStorage);
+      release();
+    };
+    afterEach(() => sessionStorage.clear());
+
+    it('reopens at a desk with the note in it', async () => {
+      onA('desk');
+      keptFromTheWindow('Call Jan re audit');
+
+      await theShell();
+
+      expect(theWindow()).toBeVisible();
+      await waitFor(() => expect(screen.getByLabelText('What is on your mind?')).toHaveValue('Call Jan re audit'));
+      expect(peekKeptCapture(sessionStorage)).toBeNull();
+    });
+
+    it('opens nothing when no note was kept', async () => {
+      onA('desk');
+
+      await theShell();
+
+      expect(theWindow()).toBeNull();
+    });
+
+    it('opens nothing on a phone, and drops the note so a later Capture does not find it', async () => {
+      onA('phone');
+      keptFromTheWindow('Call Jan re audit');
+
+      await theShell();
+
+      expect(theWindow()).toBeNull();
+      expect(peekKeptCapture(sessionStorage)).toBeNull();
+    });
+  });
+
   describe('Capture opened from a Panel’s + closes once one note is kept, and the tab and C leave it open for the next', () => {
     const theWindow = () => screen.queryByRole('dialog', { name: 'Capture' });
     const box = () => screen.getByLabelText('What is on your mind?');
