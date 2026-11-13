@@ -349,7 +349,7 @@ describe('Connector management', () => {
     });
   });
 
-  describe('filing by name teaches nothing and ignores Never propose', () => {
+  describe('filing by name teaches nothing, counts as no Panel used, and ignores Never propose', () => {
     it.each([
       { situation: 'filed by category on arrival', neverPropose: false, later: false },
       { situation: 'filed by a category added later', neverPropose: false, later: true },
@@ -368,6 +368,9 @@ describe('Connector management', () => {
       expect(await panelsOf('m-1')).toEqual([atlas]);
       const decisions = await inTheStore((sql) => sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM decision_history').toArray());
       expect(decisions[0]!.n).toBe(0);
+      // No time it landed, so Capture's most-used Panels never count it.
+      const landed = await inTheStore((sql) => sql.exec('SELECT filed_at FROM panel_items WHERE panel_id = ?', atlas).toArray());
+      expect(landed).toEqual([{ filed_at: null }]);
     });
   });
 

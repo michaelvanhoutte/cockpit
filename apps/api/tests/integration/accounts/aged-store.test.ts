@@ -3746,8 +3746,14 @@ describe('Triage', () => {
  */
 /** The rows of an account kept before `0103-connection-history-started-at`, as the same open leaves its lines: each with no start. */
 const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
-  ...kept,
+  ...withFilingsUnstamped(kept),
   connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
+});
+
+/** Every filing as it was, with `0105-panel-items-filed-at`'s column null: when it landed is unknown for every filing made before it. */
+const withFilingsUnstamped = <T extends Record<string, unknown[]>>(kept: T): T => ({
+  ...kept,
+  panel_items: (kept.panel_items ?? []).map((row) => ({ ...(row as object), filed_at: null })),
 });
 
 describe('Triage', () => {
@@ -3954,7 +3960,7 @@ describe('Triage', () => {
       const { account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
       expect(keptAfter).toEqual({
-        ...keptBefore,
+        ...withFilingsUnstamped(keptBefore),
         item_conversations: keptBefore.item_conversations!.map((row) => ({ ...(row as object), claude_draft_digest: null })),
       });
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
@@ -3967,6 +3973,49 @@ describe('Triage', () => {
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await timesApplied(name)).toBe(1);
       expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+describe('Panels', () => {
+  describe('an account already in use gains when each filing landed, every existing filing left without one', () => {
+    const FILED_AT = '0105-panel-items-filed-at';
+    const filingsAndIndexesIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        filings: sql.exec('SELECT * FROM panel_items ORDER BY panel_id, item_id').toArray(),
+        indexes: sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'panel_items' ORDER BY name")
+          .toArray()
+          .map((row) => row.name),
+        applied: sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', FILED_AT).one().n,
+      }));
+
+    it('adds the column and its index, leaves every filing unstamped, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-panel-items-filed-at';
+      await agedTo(name, justBefore(FILED_AT));
+      await fillWithWhatIsAlreadyThere(name);
+      // A filing from before it: nothing in `rowsFor` makes one.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+           VALUES (?, 'pn-before', 'it-before', 0, ?)`,
+          name,
+          AT,
+        ),
+      );
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const once = await filingsAndIndexesIn(name);
+      expect(once.indexes).toContain('panel_items_tenant_filed');
+      expect(once.filings).toContainEqual(
+        expect.objectContaining({ panel_id: 'pn-before', item_id: 'it-before', created_at: AT, filed_at: null }),
+      );
+      expect(once.filings.filter((row) => row.filed_at !== null)).toEqual([]);
+      expect(once.applied).toBe(1);
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await filingsAndIndexesIn(name)).toEqual(once);
     });
   });
 });

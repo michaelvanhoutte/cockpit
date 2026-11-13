@@ -42,6 +42,7 @@ import {
   userAddedSchema,
   userChangedSchema,
   workspaceListSchema,
+  mostUsedPanelsSchema,
   workspaceSnapshotSchema,
   type ClientCommandName,
   type CommandName,
@@ -678,6 +679,24 @@ const workspacesRoute = createRoute({
     200: {
       description: 'All workspaces of the account',
       content: { 'application/json': { schema: workspaceListSchema } },
+    },
+  },
+});
+
+/**
+ * The Panels Items landed on this week, across every Workspace, with their
+ * 24-hour and 7-day counts ("Capture: offer today's and this week's most-used
+ * Panels…", issue 1743): its own read rather than a field of each snapshot,
+ * since under *Any workspace* Capture would otherwise read every Workspace whole
+ * for three buttons.
+ */
+const mostUsedPanelsRoute = createRoute({
+  method: 'get',
+  path: '/v1/most-used-panels',
+  responses: {
+    200: {
+      description: 'Each live Panel filed on in the last 7 days, with its counts, names and Workspace',
+      content: { 'application/json': { schema: mostUsedPanelsSchema } },
     },
   },
 });
@@ -1443,6 +1462,10 @@ const routes = app
   .openapi(workspacesRoute, async (c) => {
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ workspaces: await account.workspaces() }, 200);
+  })
+  .openapi(mostUsedPanelsRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ panels: await account.mostUsedPanels() }, 200);
   })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');

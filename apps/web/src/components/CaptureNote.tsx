@@ -29,6 +29,8 @@ import { clock, useRecordedDictation, type RecordedDictation, type StartRecordin
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
 import { useIsOffline } from '../offline';
+import { mostUsedPanelsQuery } from '../api/mostUsedPanels';
+import { panelsToOffer } from '../mostUsedPanels';
 import { sentEmailsAvailable } from '../api/sentEmails';
 
 /** *Follow a sent email…* is a chunk of its own, fetched when its entry is first pressed ("Follow a sent email… in Capture", issue 1710). */
@@ -288,8 +290,12 @@ export function CaptureNote({
         if (kind === 'note' && madeHere.current.has(entry.id) && dockNow.current.openId !== null) {
           dockNow.current.show(entry.id, { keepFocus: true });
         }
+        // A note filed from here counts towards the buttons under File on once it has landed.
+        if (kind === 'note' && madeHere.current.has(entry.id) && entry.panelIds?.length) {
+          void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
+        }
       }),
-    [outbox],
+    [outbox, queryClient],
   );
 
   /**
@@ -519,6 +525,15 @@ export function CaptureNote({
    * The screen and the capture agree either way.
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
+
+  /**
+   * The Panels most used this week, offered as buttons under *File on*
+   * ("Capture: offer today's and this week's most-used Panels…", issue 1743):
+   * read each time Capture opens, drawn at once from the last answer kept, and
+   * never waited on. Only for a chosen Workspace; *Any workspace* offers none.
+   */
+  const { data: used } = useQuery(mostUsedPanelsQuery);
+  const offered = belongsTo === null ? [] : panelsToOffer(used?.panels ?? [], belongsTo);
 
   /**
    * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710) reads
@@ -1064,6 +1079,14 @@ export function CaptureNote({
           );
         }}
         onRemove={(panelId) => setFiled((was) => was.filter((one) => one.panelId !== panelId))}
+        offered={offered}
+        onToggle={(panel) =>
+          setFiled((was) =>
+            was.some((one) => one.panelId === panel.panelId)
+              ? was.filter((one) => one.panelId !== panel.panelId)
+              : [...was, { panelId: panel.panelId, name: panel.panelName, workspaceId: panel.workspaceId }],
+          )
+        }
       />
 
       <Choice label="Where" optional>
