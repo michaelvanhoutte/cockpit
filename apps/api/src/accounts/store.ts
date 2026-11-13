@@ -5,6 +5,7 @@ import type {
   CommandResult,
   ConnectionHistory,
   FinishedItems,
+  MostUsedPanel,
   Item,
   Panel,
   ReadableSnapshot,
@@ -175,6 +176,7 @@ import {
   listPanelsInWorkspace,
   listRecurringItems,
   listFinishedItems,
+  listMostUsedPanels,
   listWorkspaces,
   meaningsToCompareWith,
   placesOfItems,
@@ -349,6 +351,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
+  }
+
+  /**
+   * The Panels Items landed on this week, by the store's clock, with their
+   * counts for the last 24 hours and 7 days: what Capture ranks its buttons
+   * under *File on* from ("Capture: offer today's and this week's most-used
+   * Panels…", issue 1743).
+   */
+  mostUsedPanels(accountName: string): Answer<MostUsedPanel[]> {
+    return this.#answer(accountName, (db) => listMostUsedPanels(db, accountName, new Date()));
   }
 
   /**

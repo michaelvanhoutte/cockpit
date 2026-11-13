@@ -1,5 +1,6 @@
 import {
   itemSchema,
+  mostUsedPanelsSchema,
   rewriteHistoryResponseSchema,
   signedInSchema,
   workspaceListSchema,
@@ -121,6 +122,7 @@ const CHECKS: Record<string, (saved: unknown) => CheckedRead | undefined> = {
   workspaces: whole(workspaceListSchema),
   snapshot: checkSavedWorkspace,
   rewriteHistory: whole(rewriteHistoryResponseSchema),
+  mostUsedPanels: whole(mostUsedPanelsSchema),
   // `/health`'s one answer the app keeps, read without a shared schema (`api/transcription.ts`).
   'transcription-offered': whole({
     safeParse: (saved: unknown) =>

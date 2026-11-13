@@ -184,7 +184,7 @@ afterEach(() => {
 });
 
 describe('Item editing', () => {
-  describe('on its day a recurring item’s copy appears at the top of each of its live Panels, or in the Inbox', () => {
+  describe('on its day a recurring item’s copy appears at the top of each of its live Panels, or in the Inbox, as no Panel used', () => {
     it.each([
       { situation: 'on two Panels, it tops both', panels: 2, deleted: 0 },
       { situation: 'on two Panels one of which is deleted, it tops only the live one', panels: 2, deleted: 1 },
@@ -213,6 +213,17 @@ describe('Item editing', () => {
       const onPanels = read.filings.filter((one) => one.itemId === fresh!.id).map((one) => one.panelId);
       expect(onPanels.sort()).toEqual(panels.slice(deleted).sort());
       for (const panelId of panels.slice(deleted)) expect((await panelHolds(panelId))[0]).toBe(fresh!.id);
+      // The copy has no time it landed, so Capture's most-used Panels never count
+      // it; what was already on each Panel keeps its own.
+      const landed = await inTheStore((sql) =>
+        sql
+          .exec<{ item_id: string; panel_id: string; filed_at: string | null }>('SELECT item_id, panel_id, filed_at FROM panel_items')
+          .toArray()
+          .filter((row) => panels.includes(row.panel_id)),
+      );
+      const copies = landed.filter((row) => row.item_id === fresh!.id);
+      expect(copies.map((row) => row.filed_at)).toEqual(panels.slice(deleted).map(() => null));
+      expect(landed.filter((row) => row.item_id !== fresh!.id && row.filed_at === null)).toEqual([]);
     });
 
     it.each([
