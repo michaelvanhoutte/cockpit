@@ -851,9 +851,8 @@ export function CaptureNote({
         }
       }}
       // A file dropped anywhere on the form queues it as an attachment,
-      // never as text - the box holds a thought, not an image (docs/ideas.md,
-      // "Capture and the task creator"). Never left to the browser, which
-      // would otherwise open the file in Cockpit's place.
+      // never as text - the box holds a thought, not an image. Never left
+      // to the browser, which would otherwise open the file in Cockpit's place.
       onDragOver={(event) => {
         if (!takesFiles(event)) return;
         event.preventDefault();

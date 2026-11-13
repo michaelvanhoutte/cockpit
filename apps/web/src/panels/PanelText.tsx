@@ -19,7 +19,7 @@ import { NOTHING_WRITTEN_HERE, WRITE_HERE } from '../whatThingsAre';
  * | **rich** | the words, drawn (`DrawnText`) | the editor |
  *
  * Both defaults are the free corner, which is what answers the performance
- * budget `docs/ideas.md` raised against this feature: a dashboard of panels of
+ * budget text panels were held to from the start: a dashboard of panels of
  * text costs nothing to open, only a panel somebody has formatted fetches a
  * renderer, and only one they are writing in formatted fetches an editor.
  *

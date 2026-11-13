@@ -10,7 +10,7 @@ import '../description/description.css';
  * Markdown costs the ProseMirror stack the item form's description carries;
  * drawing it costs a parser and a renderer. A dashboard of panels nobody is
  * writing in therefore never fetches the editor at all - which is the cost
- * `docs/ideas.md` raised against text panels in the first place, and what the
+ * text panels were held to from the start, and what the
  * two defaults exist to avoid (architecture, "Performance budgets").
  *
  * **`react-markdown`, which is what the spike chose for exactly this**
