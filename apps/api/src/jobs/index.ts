@@ -260,7 +260,8 @@ async function workThrough(message: Message<unknown>, env: Env): Promise<void> {
  * consumer's `max_retries` in every environment of wrangler.jsonc. A message's
  * `attempts` counts from 1, so the delivery after the last retry is the one
  * past this - where a job that would wait on a source for another try does
- * without it ("Read pasted Teams links", issue 1755).
+ * without it ("Read pasted Teams links", issue 1755). Held equal to
+ * `max_retries` by scripts/lib/queue-retries.test.mjs.
  */
 export const QUEUE_RETRIES = 3;
 

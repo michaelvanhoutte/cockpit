@@ -6,7 +6,19 @@ import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, asUser, inStoreAsItIs, inTh
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { seal, sealingKey } from '../../../src/connectors/credential-crypto.js';
-import { A_READING, aModelThatReads, asked, captureANote, nextId, postChange, textsOf } from './note-cleanup.support.js';
+import {
+  A_READING,
+  aModelThatReads,
+  asked,
+  captureANote,
+  duringThe,
+  historyOf,
+  isACleanUp,
+  nextId,
+  postChange,
+  reading,
+  textsOf,
+} from './note-cleanup.support.js';
 
 /**
  * Integration level: an Own note holding a pasted message link is read from
@@ -403,6 +415,31 @@ describe('Capture', () => {
 
       expect(await nowOf(itemId)).toMatchObject({ source: SOURCE, sender: 'Els Maes', captured: HER_MESSAGE });
       expect(await textsOf(itemId)).toMatchObject({ title: 'Mine', description: yours });
+    });
+
+    it('a title you edit while the note is being read: her message is read in, your title kept, and the history says the texts were not written', async () => {
+      await aConnection('work', ['chats']);
+      answers.work = HERS;
+      const { itemId, job } = await captured(chatLink());
+      reading.during = duringThe(isACleanUp, async () =>
+        expect(
+          (
+            await postChange('set_title', {
+              commandId: nextId(),
+              issuedAt: '2026-09-09T10:00:01.000Z',
+              workspaceId: WORKSPACE_ID,
+              itemId,
+              title: 'Mine',
+            })
+          ).status,
+        ).toBe(200),
+      );
+
+      await delivered(job);
+
+      expect(await nowOf(itemId)).toMatchObject({ source: SOURCE, sender: 'Els Maes', captured: HER_MESSAGE });
+      expect((await textsOf(itemId))?.title).toBe('Mine');
+      expect((await historyOf(itemId))[0]).toMatchObject({ status: 'left-as-is' });
     });
 
     it('an Item a source saved itself: the change is refused, and it stays as it is', async () => {

@@ -20,6 +20,8 @@ describe('Capture', () => {
       { situation: 'words on lines of their own', typed: `ask Els\n${LINK}\nby Friday`, note: 'ask Els\nby Friday' },
       { situation: 'the link closing a sentence', typed: `see ${LINK}.`, note: 'see .' },
       { situation: 'the link written as a Markdown link', typed: `see [the message](${LINK}) today`, note: 'see today' },
+      { situation: 'the link written as a Markdown autolink', typed: `<${LINK}> call her back`, note: 'call her back' },
+      { situation: 'the link written as a Markdown link named by itself', typed: `see [${LINK}](${LINK}) today`, note: 'see today' },
     ])('$situation', ({ typed, note }) => {
       const found = firstMessageLink(typed, DECLARED)!;
 

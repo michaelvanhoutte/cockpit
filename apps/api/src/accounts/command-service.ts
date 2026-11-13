@@ -1157,6 +1157,8 @@ export function runCommand<N extends CommandName>(
   let fieldsSet: FieldsSet | null = null;
   // Set only by `set_email_address`, where it replaced or dropped an address.
   let addressLetGo: string | null = null;
+  // Set only by `read_pasted_link`, where it applied.
+  let textsWritten: boolean | null = null;
 
   switch (name) {
     case 'create_workspace': {
@@ -1973,6 +1975,9 @@ export function runCommand<N extends CommandName>(
             .run();
           tx.insert(commands).values(commandRow).run();
         });
+        // Decided against the Item as it stood here, not as the job read it
+        // before asking the model, so an edit made meanwhile is reported.
+        textsWritten = cmd.texts !== undefined && existing.textsSettledAt === null;
       }
       break;
     }
@@ -3344,5 +3349,6 @@ export function runCommand<N extends CommandName>(
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
     ...(addressLetGo ? { addressLetGo } : {}),
+    ...(textsWritten !== null ? { textsWritten } : {}),
   };
 }

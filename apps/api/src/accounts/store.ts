@@ -1261,7 +1261,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => resealCredential(db, accountName, sourceAccountId, was, sealed));
   }
 
-  /** Every connection of one connector in the account, with what each was granted: the ones a pasted link may be read with (issue 1755). */
+  /** Every connection of one connector in the account, with what each was granted: the ones a pasted link may be read with ("Read pasted Teams links", issue 1755). */
   connectionsOfConnector(
     accountName: string,
     connectorId: string,

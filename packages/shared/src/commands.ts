@@ -1371,6 +1371,11 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * Cockpit address, and receive mail at it", issue 1466). Read off the same
  * atomic call for the reason `settledRouting` is, and never sent to the browser.
  *
+ * `textsWritten` is present only for `read_pasted_link`, and only where it
+ * applied: whether the texts it carried landed too, which they do not where a
+ * person made the texts their own while the job was reading. Read off the same
+ * atomic call for the reason `settledRouting` is.
+ *
  * All absent, not `false`, everywhere else - every other command answers
  * `applied` alone, exactly as before any of them existed.
  */
@@ -1381,6 +1386,7 @@ export const commandResultSchema = z.object({
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
   addressLetGo: z.string().optional(),
+  textsWritten: z.boolean().optional(),
   fieldsSet: z
     .object({
       priority: prioritySchema.optional(),

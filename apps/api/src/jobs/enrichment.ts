@@ -643,13 +643,14 @@ export async function cleanUpACapturedNote(
       itemId: item.id,
     };
     // A note read from its pasted link has the read and the texts written in
-    // one change, so the device hears of it once (issue 1755); the texts land
-    // only where nobody has made them their own, as any reading's do.
+    // one change, so the device hears of it once ("Read pasted Teams links",
+    // issue 1755); the texts land only where nobody has made them their own,
+    // as any reading's do, which the store says as it writes.
     written = fromLink
       ? await account
           .applyChange('read_pasted_link', { ...envelope, ...fromLink, texts })
-          .then((result) => ({ ...result, applied: result.applied && item.textsSettledAt === null }))
-      : await account.applyChange('propose_item_texts', { ...envelope, ...texts });
+          .then((result) => ({ ...result, applied: result.textsWritten === true, readLanded: result.applied }))
+      : { ...(await account.applyChange('propose_item_texts', { ...envelope, ...texts })), readLanded: false };
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
@@ -741,10 +742,11 @@ export async function cleanUpACapturedNote(
   // What to do with it is proposed again from the words, Workspace and Panels
   // it now has, taking the place of the ask capture made (issue 1161) - asked
   // once everything below has landed, so the Panel proposal is never held up
-  // behind it.
+  // behind it. A read that landed without the texts asks it too, since the
+  // proposal reads where the Item came from and who sent it.
   const proposeAgain = async () => {
     const moved = fieldsSet.workspaceId !== undefined || (fieldsSet.filedOnPanelIds ?? []).length > 0;
-    if (written.applied || moved) await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
+    if (written.applied || written.readLanded || moved) await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
   };
 
   // Filed where the note said, as the person's own filing: the routing has

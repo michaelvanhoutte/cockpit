@@ -509,7 +509,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<null>>;
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
   listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Awaitable<Answer<ListingAsk>>;
-  /** Every connection of one connector in the account, with what each was granted (issue 1755). */
+  /** Every connection of one connector in the account, with what each was granted ("Read pasted Teams links", issue 1755). */
   connectionsOfConnector(
     accountName: string,
     connectorId: string,

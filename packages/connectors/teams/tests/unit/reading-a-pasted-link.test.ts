@@ -6,7 +6,7 @@ import { NOTE_MARKER, createTeamsConnector } from '../../src/index.js';
  * L1: the Teams connector reads the one message a pasted link names, through
  * Graph faked at the network ("Read pasted Teams links", issue 1755). Which
  * connections the host asks, and what it writes, is the API's
- * (apps/api/tests/integration/http/pasted-teams-links.test.ts).
+ * (apps/api/tests/integration/http/pasted-message-links.test.ts).
  */
 
 const NOW = new Date('2026-11-13T10:00:00.000Z');

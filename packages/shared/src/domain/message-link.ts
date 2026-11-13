@@ -45,8 +45,10 @@ export function firstMessageLink(
 /**
  * What a person typed beside a message link they pasted, the link taken out
  * ("Read pasted Teams links", issue 1755): the words before and after it,
- * joined by one space on the line it stood on, and a Markdown `[name](link)`
- * taken out whole. Empty where the link was all there was.
+ * joined by one space on the line it stood on, and the Markdown around it
+ * taken out whole: `[name](link)`, `[link](link)` and `<link>`, the last two
+ * being how the capture box writes a link it was handed bare. Empty where the
+ * link was all there was.
  */
 export function wordsBesideTheLink(text: string, link: string): string {
   const at = text.indexOf(link);
@@ -56,6 +58,12 @@ export function wordsBesideTheLink(text: string, link: string): string {
   const markdown = /\[[^\]\n]*\]\($/.exec(before);
   if (markdown && after.startsWith(')')) {
     before = before.slice(0, markdown.index);
+    after = after.slice(1);
+  } else if (before.endsWith('[') && after.startsWith(`](${link})`)) {
+    before = before.slice(0, -1);
+    after = after.slice(link.length + 3);
+  } else if (before.endsWith('<') && after.startsWith('>')) {
+    before = before.slice(0, -1);
     after = after.slice(1);
   }
   before = before.replace(/[ \t]+$/, '');

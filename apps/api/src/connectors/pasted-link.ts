@@ -17,9 +17,15 @@ import { getConnector, messageLinks } from './registry.js';
 const SOURCE_LINK_LENGTH = 2_000;
 
 /** The link a captured note holds that some connector declared, with that connector's id: what may be read. */
-export function pastedLinkIn(env: Env, item: Pick<Item, 'source' | 'capturedMessage' | 'sourceLink'>): { source: string; link: string } | null {
-  // An Own note only: an app's capture keeps its app as its source (decision 7 of the parent issue).
-  if (item.source !== 'internal' || item.sourceLink !== null) return null;
+export function pastedLinkIn(
+  env: Env,
+  item: Pick<Item, 'source' | 'capturedMessage' | 'sourceId' | 'sourceLink'>,
+): { source: string; link: string } | null {
+  // An Own note only, as `applyPastedLinkRead` asks: an app's capture keeps its
+  // app as its source ("Capture: a pasted Teams link alone makes an Item that
+  // says nothing about the message", issue 1750, its decision "Only an Own note
+  // typed in Cockpit is read").
+  if (item.source !== 'internal' || item.sourceId !== null || item.sourceLink !== null) return null;
   return firstMessageLink(item.capturedMessage, messageLinks(env));
 }
 
@@ -39,7 +45,7 @@ export type PastedLinkRead = Pick<ReadPastedLinkCommand, 'capturedFrom' | 'captu
 export async function readThePastedLink(
   env: Env,
   account: Account,
-  item: Pick<Item, 'id' | 'workspaceId' | 'source' | 'capturedMessage' | 'sourceLink'>,
+  item: Pick<Item, 'id' | 'workspaceId' | 'source' | 'capturedMessage' | 'sourceId' | 'sourceLink'>,
   lastAttempt: boolean,
 ): Promise<PastedLinkRead | null> {
   const pasted = pastedLinkIn(env, item);
