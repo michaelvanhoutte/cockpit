@@ -60,9 +60,15 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * Where an Item can be opened at its source ("Open an Item at its source",
  * issue 487): the source's own name and the link back to the original.
  *
- * Null for an Item with no way back - an internal one, or one whose source
- * never gave a link - so every surface asks this one place rather than each
- * deciding for itself what "has a source link" means.
+ * Null for an Item with no way back - one whose source never gave a link - so
+ * every surface asks this one place rather than each deciding for itself what
+ * "has a source link" means.
+ *
+ * **An Item with no stored link of its own, and no connector behind it** (one
+ * captured in Cockpit, or by an app) is opened at the first Teams message link
+ * in its description, then in its captured message ("Open Items captured with
+ * a pasted Teams message link in Teams", issue 1738), found here each time and
+ * never stored. A Gmail, Outlook or Teams Item keeps what its source gave.
  *
  * **Only a web address is ever a link.** The stored field is any URL the schema
  * parses, `javascript:` and `data:` included, and this is the first place it is
@@ -76,9 +82,39 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * through as it was.
  */
 export function openableAtSource(item: Item, names: SourceNames): { name: string; link: string } | null {
+  if (!item.sourceLink && (item.source === 'internal' || item.source === 'mcp')) {
+    const link = firstTeamsMessageLink(item.description) ?? firstTeamsMessageLink(item.capturedMessage);
+    return link === null ? null : { name: sourceNamed(names, 'teams'), link };
+  }
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
   const name = capturingApp(item) ?? sourceNamed(names, item.source);
   const link = whereALinkOpens(item.sourceLink);
   return link === null ? null : { name, link };
+}
+
+const TEAMS_HOSTS = new Set(['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft']);
+
+/**
+ * The first Teams message link in a text, or null. A candidate is an `https?://`
+ * run up to whitespace or a closing bracket or quote, so a Markdown
+ * `[name](link)` gives the link alone; it counts only when it parses as an
+ * `https` address on exactly one of the Teams hosts with a `/l/message/` path.
+ * It is text somebody else may have written and goes into an `href`, so the
+ * parsed host decides, never a pattern over the text.
+ */
+export function firstTeamsMessageLink(text: string | null | undefined): string | null {
+  if (!text) return null;
+  for (const [candidate] of text.matchAll(/https?:\/\/[^\s)\]>"'<]+/gi)) {
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      continue;
+    }
+    if (url.protocol === 'https:' && TEAMS_HOSTS.has(url.hostname.toLowerCase()) && url.pathname.startsWith('/l/message/')) {
+      return candidate;
+    }
+  }
+  return null;
 }

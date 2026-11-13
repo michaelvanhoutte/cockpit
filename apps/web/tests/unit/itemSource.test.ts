@@ -11,6 +11,19 @@ import { openableAtSource, whereALinkOpens } from '../../src/itemSource';
  */
 const itemFrom = (source: Source, sourceLink: string | null): Item => ({ source, sourceLink, sender: 'Els Maes' }) as Item;
 
+/** An Item with texts, for the Teams message links found in them (issue 1738). */
+const withTexts = (
+  source: Source,
+  sourceLink: string | null,
+  texts: { description?: string | null; capturedMessage?: string | null },
+): Item => ({ source, sourceLink, sender: 'Els Maes', description: null, capturedMessage: null, ...texts }) as Item;
+
+const LIVE =
+  'https://teams.live.com/l/message/48:notes/1789899944174?context=%7B%22contextType%22%3A%22chat%22%2C%22oid%22%3A%228%3Amichaelvanhoutte%22%7D';
+const WORK = 'https://teams.microsoft.com/l/message/19:abc@thread.v2/1700000000000';
+const CLOUD = 'https://teams.cloud.microsoft/l/message/19:abc@thread.v2/1700000000001';
+const TEAMS = { name: 'Microsoft Teams' };
+
 /** What the Workspace's snapshot calls each source (issue 927). */
 const NAMES = { gmail: 'Gmail', teams: 'Microsoft Teams' };
 
@@ -61,6 +74,73 @@ describe('Connector management', () => {
       { situation: 'an unknown path on the demo host', link: 'https://demo.cockpit.invalid/anything-else', opens: null },
     ])('$situation', ({ link, opens }) => {
       expect(whereALinkOpens(link)).toBe(opens);
+    });
+  });
+
+  /** "Open Items captured with a pasted Teams message link in Teams", issue 1738. */
+  describe('An Item with no link of its own opens at the first Teams message link in its description, then in its captured message', () => {
+    it.each([
+      { situation: 'the request’s teams.live.com link in the captured message', item: withTexts('internal', null, { capturedMessage: `call Mieke back ${LIVE}` }), link: LIVE },
+      { situation: 'a teams.microsoft.com message link in the description', item: withTexts('internal', null, { description: `see ${WORK}` }), link: WORK },
+      { situation: 'a teams.cloud.microsoft message link', item: withTexts('internal', null, { description: CLOUD }), link: CLOUD },
+      {
+        situation: 'a link pasted as Markdown, without the closing bracket',
+        item: withTexts('internal', null, { capturedMessage: `[Michael Vanhoutte: call mieke](${LIVE})` }),
+        link: LIVE,
+      },
+      {
+        situation: 'different links in the description and the captured message, the description’s',
+        item: withTexts('internal', null, { description: WORK, capturedMessage: LIVE }),
+        link: WORK,
+      },
+      { situation: 'two links in the description, the first', item: withTexts('internal', null, { description: `${WORK} then ${LIVE}` }), link: WORK },
+      { situation: 'an app’s capture with no link', item: withTexts('mcp', null, { description: LIVE }), link: LIVE },
+      {
+        situation: 'a 60,000-character description with the link at its end',
+        item: withTexts('internal', null, { description: `${'word '.repeat(12_000)}${LIVE}` }),
+        link: LIVE,
+      },
+    ])('$situation', ({ item, link }) => {
+      expect(openableAtSource(item, NAMES)).toEqual({ ...TEAMS, link });
+    });
+  });
+
+  describe('Only a Teams message link counts', () => {
+    it.each([
+      { situation: 'no link in either text', item: withTexts('internal', null, { description: 'call Mieke', capturedMessage: 'call Mieke' }), link: null },
+      { situation: 'a Teams chat link', item: withTexts('internal', null, { description: 'https://teams.microsoft.com/l/chat/19:abc@thread.v2/0' }), link: null },
+      { situation: 'a Teams meeting link', item: withTexts('internal', null, { description: 'https://teams.microsoft.com/l/meetup-join/19%3ameeting' }), link: null },
+      {
+        situation: 'a look-alike host',
+        item: withTexts('internal', null, { description: 'https://teams.microsoft.com.example.org/l/message/19:abc/1' }),
+        link: null,
+      },
+      { situation: 'an http message link', item: withTexts('internal', null, { description: 'http://teams.microsoft.com/l/message/19:abc/1' }), link: null },
+      {
+        situation: 'a malformed Teams address, then a valid message link',
+        item: withTexts('internal', null, { description: `https://teams.microsoft.com:99999/l/message/x then ${WORK}` }),
+        link: WORK,
+      },
+    ])('$situation', ({ item, link }) => {
+      expect(openableAtSource(item, NAMES)).toEqual(link ? { ...TEAMS, link } : null);
+    });
+  });
+
+  describe('An Item with a link of its own, or from a connector, keeps what it had', () => {
+    it.each([
+      {
+        situation: 'a Gmail Item with its link and a Teams message link in its description',
+        item: withTexts('gmail', 'https://mail.google.com/mail/u/0/#inbox/1', { description: LIVE }),
+        opens: { name: 'Gmail', link: 'https://mail.google.com/mail/u/0/#inbox/1' },
+      },
+      { situation: 'a Gmail Item with no stored link', item: withTexts('gmail', null, { description: LIVE }), opens: null },
+      {
+        situation: 'an app’s capture with its own link',
+        item: withTexts('mcp', 'https://notion.example/p/1', { description: LIVE }),
+        opens: { name: 'Els Maes', link: 'https://notion.example/p/1' },
+      },
+    ])('$situation', ({ item, opens }) => {
+      expect(openableAtSource(item, NAMES)).toEqual(opens);
     });
   });
 });

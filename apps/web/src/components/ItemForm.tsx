@@ -1883,6 +1883,19 @@ function TheForm({
                     )}
                   </p>
                 )}
+                {/* An item of your own that carries a Teams message link: the way back alone, with no "From Own" ("issue 1738"). */}
+                {item.source === 'internal' && atSource && (
+                  <p className="mt-2 shrink-0 text-xs text-ink-faint">
+                    <a
+                      href={atSource.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-deep underline"
+                    >
+                      Open in {atSource.name}
+                    </a>
+                  </p>
+                )}
 
                 {/* Four tabs, the form, its files ("Give an Item's
                     attachments a tab of their own", issue 1410), its technical

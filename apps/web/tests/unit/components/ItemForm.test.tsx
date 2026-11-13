@@ -3043,6 +3043,24 @@ describe('Item editing', () => {
       expect(screen.queryByRole('link')).toBeNull();
     });
 
+    /** "Open Items captured with a pasted Teams message link in Teams", issue 1738. */
+    it('shows an item of your own that holds a Teams message link the way back alone, with no From line', async () => {
+      const teams = 'https://teams.live.com/l/message/48:notes/1789899944174';
+      await theForm(anItem({ description: `call Mieke back ${teams}` }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      const opener = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+      expect(opener).toHaveAttribute('href', teams);
+      expect(opener).toHaveAttribute('target', '_blank');
+    });
+
+    it('shows no line for an item of your own with no link', async () => {
+      await theForm(anItem({ description: 'call Mieke back', capturedMessage: null }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      expect(screen.queryByRole('link', { name: /^Open in / })).toBeNull();
+    });
+
     it.each([
       { situation: 'a source that never gave a link', sourceLink: null },
       { situation: 'a link that is not a web address', sourceLink: 'javascript:alert(1)' },
