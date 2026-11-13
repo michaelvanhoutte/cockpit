@@ -84,14 +84,8 @@ test.describe('Updating', () => {
       await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
       expect(await buildOf(page)).toBe(deployed.entryOf(1));
-    });
 
-    test('shows the message as a bar along the top of a phone, and a card at the foot of a desk', async ({ page, deployed, isMobile }) => {
-      await open(page, deployed);
-      deployed.deploy();
-
-      await comeBackIntoView(page);
-
+      // A bar along the top of a phone, a card at the foot of a desk.
       const box = await page.getByRole('alertdialog', messageFor(isMobile)).boundingBox();
       const height = page.viewportSize()?.height ?? 0;
       expect(box).not.toBeNull();
