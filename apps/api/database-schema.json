@@ -2411,6 +2411,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "dueInDays"
+            },
+            {
+              "name": "granted",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "granted"
             }
           ],
           "indexes": [

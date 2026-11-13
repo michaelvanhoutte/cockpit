@@ -1,15 +1,19 @@
-import type { ConnectedAccountIdentity, OAuthDescriptor, SignInReply } from '@cockpit/connector-sdk';
+import type { ConnectedAccountIdentity, OAuthDescriptor, PermissionDescriptor, SignInReply } from '@cockpit/connector-sdk';
 
 /**
  * How a Workspace connects a Microsoft Teams account ("Connect a Microsoft
  * Teams source account", issue 485), described for the host to run ("Connect
  * and disconnect a source through one generic sign-in flow", issue 892).
  *
- * **Identity only.** The scopes asked for are the three signing in to Cockpit
- * already asks for and no Graph scope at all, so this reads an account's name
- * and nothing in its tenant - which is also what keeps an Entra registration
- * out of the admin-consent prompt an application asking for directory data
- * would land in.
+ * **Asked in tiers** ("Read pasted Teams links: connecting Teams asks for no read
+ * permission", issue 1754): the most it can read, then less, and last who the
+ * person is and nothing in their tenant. Microsoft refuses a whole sign-in
+ * when one permission in it needs an administrator, so each refusal of that
+ * kind asks again for the next tier, which is what keeps an organisation that
+ * will not approve a read from refusing the connection altogether. Nothing is
+ * read in a tier that asks for no Graph scope: the last is what connecting
+ * Teams was before, and the three identity scopes are what signing in to
+ * Cockpit already asks for.
  */
 
 /**
@@ -19,11 +23,26 @@ import type { ConnectedAccountIdentity, OAuthDescriptor, SignInReply } from '@co
  */
 export const MICROSOFT_ISSUER = 'https://login.microsoftonline.com/common/v2.0';
 
+/** Who the person is: the three scopes signing in to Cockpit asks, and no Graph scope at all. */
+const IDENTITY = ['openid', 'email', 'profile'];
+
+/** What a Teams connection may be granted, as the codes the tiers name and the card's words for each. */
+export const TEAMS_PERMISSIONS = [
+  { code: 'chats', granted: 'Reads pasted chat links' },
+  { code: 'channels', withheld: "Channel posts need your IT's approval" },
+] as const satisfies readonly PermissionDescriptor[];
+
 export function teamsSignIn(issuer: string = MICROSOFT_ISSUER): OAuthDescriptor {
   return {
     kind: 'oauth2',
     endpoints: { issuer },
-    scopes: ['openid', 'email', 'profile'],
+    scopes: IDENTITY,
+    tiers: [
+      { scopes: [...IDENTITY, 'offline_access', 'Chat.Read', 'ChannelMessage.Read.All'], grants: ['chats', 'channels'] },
+      { scopes: [...IDENTITY, 'offline_access', 'Chat.Read'], grants: ['chats'] },
+      { scopes: IDENTITY, grants: [] },
+    ],
+    permissions: [...TEAMS_PERMISSIONS],
     clientSettings: { id: 'MS_CLIENT_ID', secret: 'MS_CLIENT_SECRET' },
   };
 }

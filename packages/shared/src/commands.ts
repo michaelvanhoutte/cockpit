@@ -1072,6 +1072,17 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * connection starts with none, and a reconnect leaves the stored one alone.
    */
   dueInDays: dueInDaysSchema.nullable().optional(),
+  /**
+   * What the source granted, as the codes the connector's sign-in names for the
+   * tier the person's organisation let through ("Read pasted Teams links:
+   * connecting Teams asks for no read permission", issue 1754): an empty list
+   * is a connection granting nothing beyond who the person is. Written by the
+   * callback route only for a connector whose sign-in asks in tiers, from the
+   * tier the attempt reached and never from anything the browser carried.
+   * Absent: the connection holds none, which reads as granting nothing, and a
+   * reconnect replaces what was stored.
+   */
+  granted: z.string().min(1).max(40).array().max(10).optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 

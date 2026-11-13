@@ -31,6 +31,7 @@ const held = vi.hoisted(() => ({
     choice?: { question: string; options: { value: string; label: string }[] };
     pulled?: boolean;
     textedCode?: { textTo: string };
+    permissions?: { code: string; granted?: string; withheld?: string }[];
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
@@ -141,6 +142,7 @@ const ADA: SourceAccount = {
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 
 const MICHAEL: SourceAccount = {
@@ -152,6 +154,7 @@ const MICHAEL: SourceAccount = {
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 
 let sent: ReturnType<typeof vi.fn>;
@@ -199,7 +202,7 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
 const TEAMS_CARD = {
   id: 'teams',
   displayName: 'Microsoft Teams',
-  cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+  cardText: 'Sign in with Microsoft. Cockpit asks to read the chats and channel posts you paste a link to; where your organisation does not allow that, it reads who you are and nothing else.',
   asksFirst: false,
 };
 
@@ -1212,6 +1215,7 @@ describe('Connector management', () => {
     failingBecause: null,
     filesByName: false,
     dueInDays: null,
+    granted: null,
   };
 
   beforeEach(() => {
@@ -1369,6 +1373,7 @@ describe('Connector management', () => {
     lastTestedAt: '2026-10-16T12:20:00.000Z',
     filesByName: false,
     dueInDays: null,
+    granted: null,
     failingBecause: null,
     keepsHistory: true,
     pulled: true,
@@ -1925,6 +1930,7 @@ describe('Connector management', () => {
     lastTestedAt: minutesAgo(2),
     filesByName: false,
     dueInDays: null,
+    granted: null,
     failingBecause: null,
     follows: 'star',
     followsLabel: 'Starred (flagged in Outlook)',
@@ -2323,6 +2329,48 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'History of anna@example.com' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Check anna@example.com now' })).toBeNull();
       expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
+    });
+  });
+});
+
+/** "Read pasted Teams links: connecting Teams asks for no read permission", issue 1754. */
+describe('Connector management', () => {
+  describe('a connection says what it may read, in its connector’s words', () => {
+    const TEAMS_ASKING = {
+      ...TEAMS_CARD,
+      permissions: [
+        { code: 'chats', granted: 'Reads pasted chat links' },
+        { code: 'channels', withheld: "Channel posts need your IT's approval" },
+      ],
+    };
+    const CHATS = 'Reads pasted chat links';
+    const CHANNELS_WITHHELD = "Channel posts need your IT's approval";
+
+    it.each([
+      { situation: 'chats and channel posts', granted: ['chats', 'channels'], says: [CHATS] },
+      { situation: 'chats only', granted: ['chats'], says: [CHATS, CHANNELS_WITHHELD] },
+      { situation: 'nothing', granted: [], says: [] },
+      { situation: 'a connection made before the grant was kept', granted: null, says: [] },
+    ])('says $says for a connection granting $situation', async ({ granted, says }) => {
+      held.registry = [TEAMS_ASKING];
+      held.sourceAccounts = [{ ...ADA, granted }];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      for (const sentence of [CHATS, CHANNELS_WITHHELD]) {
+        await waitFor(() => expect(screen.queryByText(sentence) !== null).toBe((says as string[]).includes(sentence)));
+      }
+    });
+
+    it('says nothing of what it may read for a connector that describes no permissions', async () => {
+      held.sourceAccounts = [{ ...ADA, granted: ['chats'] }];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      expect(screen.queryByText(CHATS)).toBeNull();
+      expect(screen.queryByText(CHANNELS_WITHHELD)).toBeNull();
     });
   });
 });

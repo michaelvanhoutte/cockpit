@@ -2289,6 +2289,9 @@ export function runCommand<N extends CommandName>(
             // And whether it gives each Item a due date, and in how many days
             // (issue 1409).
             dueInDays: cmd.dueInDays ?? null,
+            // What the source granted, for a connector that asks in tiers
+            // (issue 1754).
+            granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2319,6 +2322,9 @@ export function runCommand<N extends CommandName>(
               ...(cmd.filesByName !== undefined ? { filesByName: cmd.filesByName } : {}),
               // And the days, answered the same way (issue 1409).
               ...(cmd.dueInDays !== undefined ? { dueInDays: cmd.dueInDays } : {}),
+              // Asked from the top again on a reconnect, so what it got now
+              // replaces what the connection held, more or less (issue 1754).
+              granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
             },
           })
           .run();

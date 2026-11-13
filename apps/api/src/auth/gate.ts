@@ -414,6 +414,15 @@ export interface ConnectAttempt extends Attempt {
    * no answer. Absent for a source that is not pulled.
    */
   readonly dueInDays?: number | null;
+  /**
+   * Which of the connector's permission tiers this attempt asked, 0 being the
+   * first ("Read pasted Teams links: connecting Teams asks for no read
+   * permission", issue 1754). Each step down is a new attempt with the next
+   * number, kept here so the browser cannot choose what a callback stores as
+   * granted; the callback checks it against the connector's tiers. Absent for
+   * a connector that asks in no tiers.
+   */
+  readonly tier?: number;
 }
 
 function attemptCookieName(url: string): string {
@@ -488,7 +497,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, choice, filesByName, dueInDays } = held.also;
+  const { workspaceId, accountName, connectorId, choice, filesByName, dueInDays, tier } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   if (typeof connectorId !== 'string' || !connectorId) return null;
@@ -496,6 +505,9 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   if (filesByName !== undefined && typeof filesByName !== 'boolean') return null;
   // The same for the days: absent, none, or a whole number in range (issue 1409).
   if (dueInDays !== undefined && dueInDays !== null && !dueInDaysSchema.safeParse(dueInDays).success) return null;
+  // The tier is absent or a small whole number; whether the connector has that
+  // tier is the callback's to say (issue 1754).
+  if (tier !== undefined && !(typeof tier === 'number' && Number.isInteger(tier) && tier >= 0 && tier < 10)) return null;
   return {
     state: held.state,
     nonce: held.nonce,
@@ -508,6 +520,7 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     ...(typeof filesByName === 'boolean' ? { filesByName } : {}),
     // Kept only as a number in range or none; whether the connector is pulled is the callback's to say.
     ...(dueInDays === null || typeof dueInDays === 'number' ? { dueInDays } : {}),
+    ...(typeof tier === 'number' ? { tier } : {}),
   };
 }
 

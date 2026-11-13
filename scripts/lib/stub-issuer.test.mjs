@@ -827,3 +827,42 @@ describe('the stand-in Twilio Verify', () => {
     assert.equal((await verify('Verifications', { To: '+32470000003' }, { credentials: false })).status, 401);
   });
 });
+
+describe('the stub issuer refuses a sign-in asking what an administrator has to approve, as Microsoft does', () => {
+  const asking = async (email, scope) => {
+    const ask = new URLSearchParams({
+      client_id: 'cockpit-test',
+      redirect_uri: REDIRECT,
+      state: 'the-state',
+      nonce: 'the-nonce',
+      code_challenge: 'c',
+      code_challenge_method: 'S256',
+      as: email,
+      scope,
+    });
+    const picked = await fetch(`${issuer.origin}/authorize/pick?${ask}`, { redirect: 'manual' });
+    return new URL(picked.headers.get('location')).searchParams;
+  };
+  const needing = (email, needs) => fetch(`${issuer.origin}/admin-approval?email=${encodeURIComponent(email)}&needs=${needs}`);
+
+  it('refuses the whole sign-in with access_denied and AADSTS65001, keeping the state, where one scope in it needs an administrator', async () => {
+    await needing('admin-needed@example.com', 'ChannelMessage.Read.All');
+
+    const reply = await asking('admin-needed@example.com', 'openid Chat.Read ChannelMessage.Read.All offline_access');
+
+    assert.equal(reply.get('error'), 'access_denied');
+    assert.match(reply.get('error_description'), /^AADSTS65001/);
+    assert.equal(reply.get('state'), 'the-state');
+    assert.equal(reply.get('code'), null);
+  });
+
+  it('gives a code to the sign-in that asks for less, and to everyone else, and stops refusing once cleared', async () => {
+    await needing('admin-needed@example.com', 'ChannelMessage.Read.All');
+
+    assert.ok((await asking('admin-needed@example.com', 'openid Chat.Read offline_access')).get('code'));
+    assert.ok((await asking('somebody-else@example.com', 'openid ChannelMessage.Read.All')).get('code'));
+
+    await needing('admin-needed@example.com', '');
+    assert.ok((await asking('admin-needed@example.com', 'openid ChannelMessage.Read.All')).get('code'));
+  });
+});

@@ -3158,6 +3158,21 @@ export function replaceDuplicatesOf(
 }
 
 /**
+ * What a connection was granted, read from its stored `granted` column: the
+ * codes in it, or `null` for a connection made before the column existed (and
+ * for anything that is not a list of codes, which no write makes).
+ */
+export function grantedFrom(stored: string | null): string[] | null {
+  if (stored === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) && parsed.every((code) => typeof code === 'string') ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The source accounts one Workspace has connected, oldest first ("Connect a
  * Microsoft Teams source account", issue 485).
  *
@@ -3182,6 +3197,7 @@ export function sourceAccountsIn(
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
+      granted: connectorAccounts.granted,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -3199,7 +3215,11 @@ export function sourceAccountsIn(
     // What it follows is the choice its connection stored, as the value alone:
     // the label is the connector's own and is put beside it where the registry
     // is known (issue 942).
-    .map(({ choice, ...account }) => (choice === null ? account : { ...account, follows: choice }));
+    .map(({ choice, granted, ...account }) => ({
+      ...account,
+      ...(choice === null ? {} : { follows: choice }),
+      granted: grantedFrom(granted),
+    }));
 }
 
 /**

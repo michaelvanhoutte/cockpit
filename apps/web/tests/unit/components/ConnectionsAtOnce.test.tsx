@@ -82,6 +82,7 @@ const MAIL: SourceAccount = {
   followsLabel: 'Flagged mail',
   filesByName: false,
   dueInDays: null,
+  granted: null,
   pulled: true,
   keepsHistory: true,
 };
@@ -94,6 +95,7 @@ const TEAMS: SourceAccount = {
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 
 /** Every change the server has been sent and not yet answered, oldest first. */
