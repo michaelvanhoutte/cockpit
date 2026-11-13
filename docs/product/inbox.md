@@ -41,7 +41,7 @@ Processing an Item today means one of:
 - **Mark it done** — **Status ▸ Done** in its menu (an Inbox row has no **✓**), which takes it off every list, saying when; the Workspace's **All items** tab, filtered to *Done*, is where to find it again, and reopen it.
 - **Delete/Dismiss** — which is reversible for as long as the bar offering it is on screen. A dismissed Item is kept rather than erased, and undismissing it brings it back, so putting it back is the same change made the other way.
 
-Reading, replying, flagging and associating an Item are designed, not built — reading and replying need something to read (no connector exists yet), and associating needs a view onto the Associations that already exist in the schema: see "Sources to connect" and "Associations" in `docs/ideas.md`.
+Reading, replying, flagging and associating an Item are not built: reading and replying need something to read (no connector exists yet), and associating needs a view onto the Associations that already exist in the schema.
 
 Filing it, finishing it or dismissing it takes an Item out of the Inbox; it stays reachable through the Panels holding it.
 
