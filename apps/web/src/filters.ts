@@ -153,9 +153,12 @@ export function saysWhatItShows(
  * among alternatives, so it carries no prefix.
  */
 function saysOneSet(rows: readonly (readonly string[])[]): string {
-  return rows.length === 1 && rows[0]!.length > 1
-    ? `Any of: ${rows[0]!.join('; ')}`
-    : rows.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
+  return rows.length === 1 && rows[0]!.length > 1 ? `Any of: ${rows[0]!.join('; ')}` : rowsJoined(rows);
+}
+
+/** A set's rows joined by *and*, a row of alternatives bracketed. */
+function rowsJoined(rows: readonly (readonly string[])[]): string {
+  return rows.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
 }
 
 /**
@@ -164,11 +167,7 @@ function saysOneSet(rows: readonly (readonly string[])[]): string {
  */
 function bracketedSet(rows: readonly (readonly string[])[]): string {
   if (rows.length === 1 && rows[0]!.length === 1) return rows[0]![0]!;
-  const inside =
-    rows.length === 1
-      ? rows[0]!.join(' or ')
-      : rows.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
-  return `(${inside})`;
+  return `(${rows.length === 1 ? rows[0]!.join(' or ') : rowsJoined(rows)})`;
 }
 
 /**

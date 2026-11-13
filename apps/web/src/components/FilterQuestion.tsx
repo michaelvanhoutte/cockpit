@@ -174,7 +174,7 @@ function FilterQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem_-_var(--edge-top))] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">
             What does {panelName} show?
