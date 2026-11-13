@@ -244,7 +244,7 @@ function NewVersion({
         <div
           role="alertdialog"
           aria-labelledby="new-version-title"
-          className="pointer-events-auto bg-surface px-4 pb-2 pt-[max(0.5rem,var(--edge-top))] shadow-panel"
+          className="pointer-events-auto bg-surface pb-2 pl-[calc(1rem_+_var(--edge-left))] pr-[calc(1rem_+_var(--edge-right))] pt-[max(0.5rem,var(--edge-top))] shadow-panel"
         >
           <div className="flex items-center justify-between gap-3">
             <h2 id="new-version-title" className="text-sm font-semibold text-ink">
