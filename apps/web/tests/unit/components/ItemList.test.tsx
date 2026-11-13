@@ -19,7 +19,7 @@ import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir'
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
-import { useShowRequest } from '../../../src/showItem';
+import { settleTheShowRequest, useShowRequest } from '../../../src/showItem';
 
 /**
  * F1: the picker and what choosing in it sends. What a move then does to a
@@ -814,6 +814,7 @@ describe('Panels', () => {
     const under = (name: string, panelId: string | null): FilterGroup => ({
       key: panelId ?? name,
       name,
+      dashboardId: TODAY.id,
       dashboardName: panelId === null ? null : TODAY.name,
       panelId,
       items: [BART],
@@ -871,6 +872,120 @@ describe('Panels', () => {
       expect(within(dashboardHeading!).queryByText(/·/)).toBeNull();
     });
 
+    describe('a heading goes to the Panel or Dashboard it names', () => {
+      const ELSEWHERE = { id: 'd-privé', name: 'Privé' };
+      const heading = (name: string, panelId: string | null, dashboard = TODAY as { id: string; name: string }): FilterGroup => ({
+        key: panelId ?? dashboard.id,
+        name,
+        dashboardId: dashboard.id,
+        dashboardName: panelId === null ? null : dashboard.name,
+        panelId,
+        items: [BART],
+      });
+      /** What the heading asked the board for, starting from no request: it is held across tests. */
+      const shown = () => {
+        const seen = renderHook(() => useShowRequest());
+        if (seen.result.current) act(() => settleTheShowRequest(seen.result.current!));
+        return seen;
+      };
+
+      it('switches to the Dashboard of a Panel on another one and asks to land on it, with no Items', async () => {
+        const seen = shown();
+        const user = await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Tasks', 'p-tasks', ELSEWHERE)],
+        });
+
+        await user.click(screen.getByRole('button', { name: 'Go to Tasks · Privé' }));
+
+        expect(held.navigate).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: ELSEWHERE.id } }),
+        );
+        expect(seen.result.current).toMatchObject({ dashboardId: ELSEWHERE.id, panelId: 'p-tasks', itemIds: [] });
+      });
+
+      it('asks to land on a Panel of the Dashboard already open without switching', async () => {
+        const seen = shown();
+        const user = await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Falcon', 'p-falcon')],
+        });
+
+        await user.click(screen.getByRole('button', { name: 'Go to Falcon · Today' }));
+
+        expect(held.navigate).not.toHaveBeenCalled();
+        expect(seen.result.current).toMatchObject({ dashboardId: TODAY.id, panelId: 'p-falcon', itemIds: [] });
+      });
+
+      it('goes on Enter from the keyboard as on a click', async () => {
+        const seen = shown();
+        const user = await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Tasks', 'p-tasks', ELSEWHERE)],
+        });
+
+        screen.getByRole('button', { name: 'Go to Tasks · Privé' }).focus();
+        await user.keyboard('{Enter}');
+
+        expect(held.navigate).toHaveBeenCalledTimes(1);
+        expect(seen.result.current).toMatchObject({ panelId: 'p-tasks' });
+      });
+
+      it('switches to the Dashboard a Dashboard heading names, asking to land on no Panel', async () => {
+        const seen = shown();
+        const user = await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Privé', null, ELSEWHERE)],
+        });
+
+        await user.click(screen.getByRole('button', { name: 'Go to Privé' }));
+
+        expect(held.navigate).toHaveBeenCalledWith(
+          expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: ELSEWHERE.id } }),
+        );
+        expect(seen.result.current).toBeNull();
+      });
+
+      it('does nothing on the Dashboard already open', async () => {
+        const seen = shown();
+        const user = await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Today', null)],
+        });
+
+        await user.click(screen.getByRole('button', { name: 'Go to Today' }));
+
+        expect(held.navigate).not.toHaveBeenCalled();
+        expect(seen.result.current).toBeNull();
+      });
+
+      it('names where it goes in a tooltip and keeps the count outside the button', async () => {
+        await showList({
+          panelId: 'p-gather',
+          gathered: true,
+          openDashboardId: TODAY.id,
+          groups: [heading('Tasks', 'p-tasks', ELSEWHERE)],
+        });
+
+        const button = screen.getByRole('button', { name: 'Go to Tasks · Privé' });
+        expect(button).toHaveAttribute('title', 'Go to Tasks · Privé');
+        expect(button).toHaveTextContent('Tasks · Privé');
+        // The count is the heading's other child, never inside the button.
+        expect(button.parentElement!.lastElementChild).not.toBe(button);
+        expect(button.contains(button.parentElement!.lastElementChild)).toBe(false);
+      });
+    });
+
     it('draws its rows as the one list where no heading holds them, rather than an empty well', async () => {
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
 
@@ -886,6 +1001,7 @@ describe('Panels', () => {
     const under = (name: string, panelId: string, items: Item[]): FilterGroup => ({
       key: panelId,
       name,
+      dashboardId: TODAY.id,
       dashboardName: TODAY.name,
       panelId,
       items,
