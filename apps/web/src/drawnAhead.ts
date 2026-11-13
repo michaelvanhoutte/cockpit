@@ -174,7 +174,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       return onPanel(snapshot, change.payload, Object.fromEntries(Object.entries(set).filter(([, value]) => value !== undefined)));
     }
     case 'set_panel_filter':
-      return onPanel(snapshot, change.payload, { filter: { rows: change.payload.rows, groupBy: change.payload.groupBy } });
+      return onPanel(snapshot, change.payload, { filter: { sets: change.payload.sets, groupBy: change.payload.groupBy } });
     case 'set_panel_sort':
       return onPanel(snapshot, change.payload, { sort: change.payload.sort });
     case 'move_panel_to_dashboard':

@@ -1337,7 +1337,7 @@ describe('Dashboards', () => {
         ...snapshot,
         panels: [
           ...snapshot.panels!,
-          { id: 'due', dashboardId: 'today', name: 'Due soon', kind: 'filter', filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' } },
+          { id: 'due', dashboardId: 'today', name: 'Due soon', kind: 'filter', filter: { sets: [[[{ field: 'priority', values: ['high'] }]]], groupBy: 'none' } },
         ],
         items: [...snapshot.items, { ...snapshot.items[1]!, id: 'urgent', title: 'Urgent paper', priority: 'high' }],
         filings: [...snapshot.filings!, { itemId: 'urgent', panelId: 'papers', position: 1 }],

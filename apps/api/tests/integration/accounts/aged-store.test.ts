@@ -3402,7 +3402,7 @@ describe('Panels', () => {
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(
         snapshot.status === 'ok' ? snapshot.value.panels.find((panel) => panel.id === 'pn-flat')?.filter : 'unread',
-      ).toEqual({ rows, groupBy });
+      ).toEqual({ sets: rows.length === 0 ? [] : [rows], groupBy });
     });
   });
 

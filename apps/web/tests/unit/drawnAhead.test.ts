@@ -489,7 +489,7 @@ describe('Panels', () => {
 
     it.each([
       { situation: 'text', kind: 'text' as const, filter: null },
-      { situation: 'a Filter that has nothing chosen yet', kind: 'filter' as const, filter: { rows: [], groupBy: 'none' } },
+      { situation: 'a Filter that has nothing chosen yet', kind: 'filter' as const, filter: { sets: [], groupBy: 'none' } },
     ])('draws an added Panel of $situation as the kind it was made as', ({ kind, filter }) => {
       const drawn = drawnAhead(withPanels(), panelAdded('Kept', kind));
 
@@ -554,14 +554,14 @@ describe('Panels', () => {
     });
 
     it('shows the conditions and the grouping a Filter was given', () => {
-      const rows = [[{ field: 'priority', values: ['high'] }]];
+      const sets = [[[{ field: 'priority', values: ['high'] }]]];
 
       const drawn = drawnAhead(withPanels(), {
         name: 'set_panel_filter',
-        payload: { ...panelEnvelope(), panelId: PANEL_A, rows, groupBy: 'dashboard' },
+        payload: { ...panelEnvelope(), panelId: PANEL_A, sets, groupBy: 'dashboard' },
       } as CommandArgs);
 
-      expect(panelOf(drawn, PANEL_A)?.filter).toEqual({ rows, groupBy: 'dashboard' });
+      expect(panelOf(drawn, PANEL_A)?.filter).toEqual({ sets, groupBy: 'dashboard' });
     });
 
     it('shows the sort a Panel was given, and Manual when it is set back', () => {

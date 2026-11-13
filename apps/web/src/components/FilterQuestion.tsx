@@ -20,7 +20,7 @@ import {
   orderedAsDrawn,
 } from '@cockpit/shared';
 import { STATUS_LABELS } from '../allItems';
-import { GROUPING_NAMES, WINDOW_LABELS } from '../filters';
+import { GROUPING_NAMES, WINDOW_LABELS, saysWhatItShows } from '../filters';
 import { MenuContent, menuItemClass } from './Menu';
 import { Segmented } from './Segmented';
 import { PRIORITY_LABELS } from '../priority';
@@ -40,6 +40,12 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  * sentence with clauses because that is what the question grows into - Due
  * date, Priority, Panel and the rest, each its own card rather than another
  * form.
+ *
+ * **Sets joined by *or*** ("Let a Filter hold sets of rows joined by or", issue
+ * 1737): an Item shows when it meets every row of any one set. One set is drawn
+ * as the rows alone, with no outline and no *or*; two or more are each outlined
+ * with an *or* line between them and their own *+ And…*, and *+ Or another
+ * set…* under the last one starts the next through the same field menu.
  *
  * **A field is offered once per row**, in any number of rows: *Priority is
  * High or due today, and Priority is not Low* is two rows using Priority.
@@ -62,7 +68,7 @@ const NO_PANELS_TO_CHOOSE = 'No panels to choose from yet.';
  */
 function FilterQuestion({
   panelName,
-  rows: initialRows,
+  sets: initialSets,
   groupBy: initialGroupBy,
   panels,
   dashboards,
@@ -74,7 +80,7 @@ function FilterQuestion({
 }: {
   panelName: string;
   /** What the Filter shows now, which the question opens on. */
-  rows: readonly (readonly FilterCondition[])[];
+  sets: readonly (readonly (readonly FilterCondition[])[])[];
   /** What the Filter's rows are grouped under, which the *Group by* choice opens on. */
   groupBy: FilterGrouping;
   /**
@@ -90,45 +96,73 @@ function FilterQuestion({
   /** Their Layouts, which put each Dashboard's Panels in the order its board draws them. */
   layouts: readonly Layout[];
   open: boolean;
-  onSave: (rows: FilterCondition[][], groupBy: FilterGrouping) => void;
+  onSave: (sets: FilterCondition[][][], groupBy: FilterGrouping) => void;
   onCancel: () => void;
   returnFocusTo?: HTMLElement | null;
 }) {
   /**
-   * The rows as they are being edited, which the caller does not hold.
+   * The sets as they are being edited, which the caller does not hold.
    *
    * **Read once, when the question opens.** The board draws this only while a
    * Filter is being edited and keys it on that Panel, so it is mounted fresh
    * each time and a question you cancelled out of is cancelled rather than
-   * remembered. Not re-read from `conditions` afterwards either: the same
+   * remembered. Not re-read from `initialSets` afterwards either: the same
    * Filter saved from another device would otherwise take the rows somebody is
    * halfway through adding out from under them, where the rule everywhere else
    * here is that the later save stands.
    */
-  const [rows, setRows] = useState<FilterCondition[][]>(() => initialRows.map((row) => [...row]));
+  const [sets, setSets] = useState<FilterCondition[][][]>(() =>
+    initialSets.map((set) => set.map((row) => [...row])),
+  );
   /** What the rows are grouped under, saved with the conditions ("Group a Filter panel's items by the Dashboard or Panel they are filed on", issue 805). */
   const [groupBy, setGroupBy] = useState<FilterGrouping>(initialGroupBy);
 
-  /** Puts `next` in place of one condition, or takes it out for `null`; a row left with nothing goes with it. */
-  const replace = (row: number, at: number, next: FilterCondition | null) =>
-    setRows(
-      rows
-        .map((was, index) =>
-          index !== row ? was : next ? was.map((c, i) => (i === at ? next : c)) : was.filter((_, i) => i !== at),
+  /** Puts `next` in place of one condition, or takes it out for `null`; a row left with nothing goes with it, and a set left with no row. */
+  const replace = (set: number, row: number, at: number, next: FilterCondition | null) =>
+    setSets(
+      sets
+        .map((were, setAt) =>
+          setAt !== set
+            ? were
+            : were
+                .map((was, index) =>
+                  index !== row
+                    ? was
+                    : next
+                      ? was.map((c, i) => (i === at ? next : c))
+                      : was.filter((_, i) => i !== at),
+                )
+                .filter((was) => was.length > 0),
         )
-        .filter((was) => was.length > 0),
+        .filter((were) => were.length > 0),
     );
 
-  /** Adds a condition to a row as an alternative, or as a row of its own where `row` is null. */
-  const add = (row: number | null, field: FilterCondition['field']) =>
-    setRows(
-      row === null
-        ? [...rows, [defaultConditionFor(field)]]
-        : rows.map((was, index) => (index === row ? [...was, defaultConditionFor(field)] : was)),
+  /** Adds a condition to a row of a set as an alternative, or as a row of that set's own where `row` is null. */
+  const add = (set: number, row: number | null, field: FilterCondition['field']) =>
+    setSets(
+      sets.map((were, setAt) =>
+        setAt !== set
+          ? were
+          : row === null
+            ? [...were, [defaultConditionFor(field)]]
+            : were.map((was, index) => (index === row ? [...was, defaultConditionFor(field)] : was)),
+      ),
     );
 
-  /** The number a condition goes by in reading order across every row, which names its controls. */
-  const numberOf = (row: number, at: number) => rows.slice(0, row).reduce((n, was) => n + was.length, 0) + at;
+  /** Starts a set of its own, holding one row of one condition. */
+  const addSet = (field: FilterCondition['field']) => setSets([...sets, [[defaultConditionFor(field)]]]);
+
+  /** The number a condition goes by in reading order across every set and row, which names its controls. */
+  const numberOf = (set: number, row: number, at: number) =>
+    sets.slice(0, set).reduce((n, were) => n + were.flat().length, 0) +
+    sets[set]!.slice(0, row).reduce((n, was) => n + was.length, 0) +
+    at;
+
+  /** The number a row goes by across every set, which names its *+ Or…*. */
+  const rowNumberOf = (set: number, row: number) =>
+    sets.slice(0, set).reduce((n, were) => n + were.length, 0) + row + 1;
+
+  const several = sets.length > 1;
 
   return (
     <Dialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
@@ -140,69 +174,107 @@ function FilterQuestion({
             event.preventDefault();
             returnFocusTo.focus();
           }}
-          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
+          className="fixed z-floating left-1/2 top-[calc(1rem_+_var(--edge-top))] max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto -translate-x-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg md:top-1/2 md:-translate-y-1/2"
         >
           <Dialog.Title className="text-base font-semibold">
             What does {panelName} show?
           </Dialog.Title>
           <Dialog.Description className="pt-2 text-sm text-ink-soft">
-            Every item filed on a panel of this workspace that meets every row, a row being met by any one of its
-            conditions.
+            Every item filed on a panel of this workspace that meets every row of any one set, a row being met by any one
+            of its conditions.
           </Dialog.Description>
 
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              onSave(rows, groupBy);
+              onSave(sets, groupBy);
             }}
             className="pt-4"
           >
-            {rows.length === 0 ? (
+            {sets.length === 0 ? (
               <p className="text-sm text-ink-faint">Nothing chosen yet.</p>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {rows.map((row, rowAt) => (
-                  <li key={rowAt} className="flex items-start gap-2">
-                    {/* Fixed words, not a choice: rows are always joined by and. */}
-                    <span className="w-14 shrink-0 pt-3 text-right text-sm text-ink-soft">
-                      {rowAt === 0 ? 'Where' : 'and'}
-                    </span>
+              <div className="flex flex-col gap-3">
+                {sets.map((set, setAt) => (
+                  <div key={setAt} className="flex flex-col gap-3">
+                    {setAt > 0 && (
+                      <div className="flex items-center gap-3 text-sm font-semibold text-accent-deep">
+                        <span aria-hidden="true" className="h-px flex-1 bg-accent-soft/40" />
+                        or
+                        <span aria-hidden="true" className="h-px flex-1 bg-accent-soft/40" />
+                      </div>
+                    )}
                     <div
+                      role={several ? 'group' : undefined}
+                      aria-label={several ? `Set ${setAt + 1}` : undefined}
                       className={
-                        row.length > 1
-                          ? 'flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-accent-soft/40 bg-accent-tint/40 p-2'
-                          : 'flex min-w-0 flex-1 flex-col gap-1'
+                        several ? 'flex flex-col gap-1 rounded-xl border border-shade/15 bg-shade/5 p-3' : 'flex flex-col'
                       }
                     >
-                      {row.map((condition, at) => (
-                        <div key={condition.field} className="flex flex-col gap-1">
-                          {at > 0 && <span className="px-1 text-xs font-semibold text-ink-soft">or</span>}
-                          <div className="rounded-md border border-shade/10 bg-surface p-3">
-                            <ConditionRow
-                              at={numberOf(rowAt, at)}
-                              row={condition}
-                              panels={panels}
-                              dashboards={dashboards}
-                              layouts={layouts}
-                              onChange={(next) => replace(rowAt, at, next)}
-                              onRemove={() => replace(rowAt, at, null)}
-                            />
-                          </div>
-                        </div>
-                      ))}
+                      <ul className="flex flex-col gap-2">
+                        {set.map((row, rowAt) => (
+                          <li key={rowAt} className="flex items-start gap-2">
+                            {/* Fixed words, not a choice: rows of a set are always joined by and. */}
+                            <span className="w-14 shrink-0 pt-3 text-right text-sm text-ink-soft">
+                              {rowAt === 0 ? 'Where' : 'and'}
+                            </span>
+                            <div
+                              className={
+                                row.length > 1
+                                  ? 'flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-accent-soft/40 bg-accent-tint/40 p-2'
+                                  : 'flex min-w-0 flex-1 flex-col gap-1'
+                              }
+                            >
+                              {row.map((condition, at) => (
+                                <div key={condition.field} className="flex flex-col gap-1">
+                                  {at > 0 && <span className="px-1 text-xs font-semibold text-ink-soft">or</span>}
+                                  <div className="rounded-md border border-shade/10 bg-surface p-3">
+                                    <ConditionRow
+                                      at={numberOf(setAt, rowAt, at)}
+                                      row={condition}
+                                      panels={panels}
+                                      dashboards={dashboards}
+                                      layouts={layouts}
+                                      onChange={(next) => replace(setAt, rowAt, at, next)}
+                                      onRemove={() => replace(setAt, rowAt, at, null)}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                              <AddMenu
+                                label="+ Or…"
+                                name={`+ Or… to row ${rowNumberOf(setAt, rowAt)}`}
+                                fields={FIELD_ORDER.filter((field) => !row.some((condition) => condition.field === field))}
+                                onAdd={(field) => add(setAt, rowAt, field)}
+                              />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                       <AddMenu
-                        label="+ Or…"
-                        name={`+ Or… to row ${rowAt + 1}`}
-                        fields={FIELD_ORDER.filter((field) => !row.some((condition) => condition.field === field))}
-                        onAdd={(field) => add(rowAt, field)}
+                        label="+ And…"
+                        name={several ? `+ And… to set ${setAt + 1}` : '+ And…'}
+                        fields={FIELD_ORDER}
+                        onAdd={(field) => add(setAt, null, field)}
                       />
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
 
-            <AddMenu label="+ And…" name="+ And…" fields={FIELD_ORDER} onAdd={(field) => add(null, field)} />
+            {sets.length === 0 ? (
+              <AddMenu label="+ And…" name="+ And…" fields={FIELD_ORDER} onAdd={addSet} />
+            ) : (
+              <AddMenu label="+ Or another set…" name="+ Or another set…" fields={FIELD_ORDER} onAdd={addSet} />
+            )}
+
+            {/* What the funnel will read, once there is more than one set to bracket. */}
+            {several && (
+              <p className="mt-3 border-t border-shade/10 pt-3 text-xs leading-relaxed text-ink-soft">
+                <b className="font-semibold text-ink">Funnel reads:</b> {saysWhatItShows(sets, panels, 'none', dashboards)}
+              </p>
+            )}
 
             {/* How the list is drawn is its own section, apart from what it shows. */}
             <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-shade/10 pt-4">
@@ -252,7 +324,8 @@ const GROUPING_HINTS: Record<FilterGrouping, string> = {
 };
 
 /**
- * *+ Or…* at the end of a row and *+ And…* under the rows: the same menu of
+ * *+ Or…* at the end of a row, *+ And…* under a set's rows and *+ Or another
+ * set…* under the last set: the same menu of
  * fields, offering a row's alternatives only the fields it does not already
  * hold ("a field once per row") and a new row every field. Absent where there
  * is nothing left to offer.

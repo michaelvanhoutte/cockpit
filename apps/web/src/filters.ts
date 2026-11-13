@@ -99,7 +99,12 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * back on hover, so what a Panel is gathering can be asked of the Panel rather
  * than of the question that set it.
  *
- * **Rows joined with *and*, not with a comma**, because all of them have to
+ * **Several sets are each bracketed and joined with *or*** ("Let a Filter hold
+ * sets of rows joined by or", issue 1737): *((A or B) and C) or D*. One set reads
+ * as it always did, with no outer brackets. A set that filters nothing lets every
+ * Item through, so the sentence is *Everything filed*.
+ *
+ * **Within a set, rows joined with *and*, not with a comma**, because all of them have to
  * hold: a comma reads as a list of alternatives. A Filter of one row of
  * alternatives - what *Any* saves - says so up front instead, *Any of: A; B*,
  * with semicolons, since a condition's own values already use commas and *or*;
@@ -119,28 +124,51 @@ export function joinedBy(names: readonly string[], conjunction: 'and' | 'or'): s
  * happening - and a row of nothing else filters nothing, as `meetsRow` reads it.
  */
 export function saysWhatItShows(
-  rows: readonly (readonly FilterCondition[])[],
+  sets: readonly (readonly (readonly FilterCondition[])[])[],
   panels: readonly Panel[] = [],
   groupBy: FilterGrouping = 'none',
   dashboards: readonly Pick<Dashboard, 'id' | 'name'>[] = [],
 ): string {
-  if (rows.length === 0) return 'Nothing chosen yet';
-  const said = rows
-    .map((row) =>
-      row
-        .map((condition) => sentenceFor(condition, panels, dashboards))
-        .filter((part): part is string => part !== null),
-    )
-    .filter((parts) => parts.length > 0);
-  // One condition reads the same in a row of its own or among alternatives, so
-  // it carries no prefix.
-  const rule =
-    said.length === 0
-      ? 'Everything filed'
-      : said.length === 1 && said[0]!.length > 1
-        ? `Any of: ${said[0]!.join('; ')}`
-        : said.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
+  if (sets.length === 0) return 'Nothing chosen yet';
+  const said = sets.map((set) =>
+    set
+      .map((row) =>
+        row
+          .map((condition) => sentenceFor(condition, panels, dashboards))
+          .filter((part): part is string => part !== null),
+      )
+      .filter((parts) => parts.length > 0),
+  );
+  // A set that filters nothing lets every Item through, so it is the whole Filter.
+  const rule = said.some((rows) => rows.length === 0)
+    ? 'Everything filed'
+    : said.length === 1
+      ? saysOneSet(said[0]!)
+      : said.map((rows) => bracketedSet(rows)).join(' or ');
   return isGrouped(groupBy) ? `${rule}; grouped by ${GROUPING_NAMES[groupBy]}` : rule;
+}
+
+/**
+ * One set as it reads alone. One condition reads the same in a row of its own or
+ * among alternatives, so it carries no prefix.
+ */
+function saysOneSet(rows: readonly (readonly string[])[]): string {
+  return rows.length === 1 && rows[0]!.length > 1
+    ? `Any of: ${rows[0]!.join('; ')}`
+    : rows.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
+}
+
+/**
+ * One set among several, bracketed so the *or* between sets is not read into
+ * it: *((A or B) and C) or D*. A set of one condition needs none.
+ */
+function bracketedSet(rows: readonly (readonly string[])[]): string {
+  if (rows.length === 1 && rows[0]!.length === 1) return rows[0]![0]!;
+  const inside =
+    rows.length === 1
+      ? rows[0]!.join(' or ')
+      : rows.map((parts) => (parts.length > 1 ? `(${parts.join(' or ')})` : parts[0]!)).join(' and ');
+  return `(${inside})`;
 }
 
 /**
@@ -249,7 +277,8 @@ export function filtersUsingPanel(
  * its `field` conditions names `id` - the one answer `filtersUsingPanel` and
  * `filtersUsingDashboard` both give.
  *
- * **Only a row of that one condition is emptied by it.** A row with
+ * **Only a row of that one condition is emptied by it, and a Filter of several
+ * sets only when every set is.** A row with
  * alternatives still shows what they match, so a condition left with nothing
  * live does not leave it showing nothing. **An *is not* condition left with
  * nothing live excludes nothing**, which lets Items through rather than
@@ -263,16 +292,22 @@ function leftEmptyBy(
   liveIds: ReadonlySet<string>,
 ): boolean | null {
   let named = false;
-  let emptied = false;
-  for (const row of filter.rows) {
-    for (const condition of row) {
-      if (condition.field !== field || !condition.values.includes(id)) continue;
-      named = true;
-      const stillHasOne = condition.values.some((one) => one !== id && liveIds.has(one));
-      if (!condition.exclude && !stillHasOne && row.length === 1) emptied = true;
+  // A Filter shows nothing only when every one of its sets is emptied; a set
+  // the deletion does not touch still shows what it matches.
+  let everySetEmptied = filter.sets.length > 0;
+  for (const set of filter.sets) {
+    let setEmptied = false;
+    for (const row of set) {
+      for (const condition of row) {
+        if (condition.field !== field || !condition.values.includes(id)) continue;
+        named = true;
+        const stillHasOne = condition.values.some((one) => one !== id && liveIds.has(one));
+        if (!condition.exclude && !stillHasOne && row.length === 1) setEmptied = true;
+      }
     }
+    if (!setEmptied) everySetEmptied = false;
   }
-  return named ? emptied : null;
+  return named ? everySetEmptied : null;
 }
 
 /**

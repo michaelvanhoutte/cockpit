@@ -227,7 +227,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
             panels: [
               {
                 name: 'Due this week',
-                filter: { groupBy: 'none', rows: [[{ field: 'dueDate', window: 'week', orOverdue: true }]] },
+                filter: { groupBy: 'none', sets: [[[{ field: 'dueDate', window: 'week', orOverdue: true }]]] },
               },
               {
                 name: 'Errands',
@@ -469,7 +469,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
                 name: "This week's priorities",
                 filter: {
                   groupBy: 'none',
-                  rows: [[{ field: 'dueDate', window: 'week', orOverdue: true }], [{ field: 'priority', values: ['high'] }]],
+                  sets: [[[{ field: 'dueDate', window: 'week', orOverdue: true }], [{ field: 'priority', values: ['high'] }]]],
                 },
               },
               {
@@ -573,7 +573,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
             panels: [
               {
                 name: 'In progress',
-                filter: { groupBy: 'none', rows: [[{ field: 'status' }]] },
+                filter: { groupBy: 'none', sets: [[[{ field: 'status' }]]] },
               },
               {
                 name: 'Risk assessment',
@@ -689,7 +689,7 @@ export const GUEST_DEMO: readonly SeedWorkspace[] = [
             panels: [
               {
                 name: 'Today',
-                filter: { groupBy: 'none', rows: [[{ field: 'dueDate', window: 'today', orOverdue: true }]] },
+                filter: { groupBy: 'none', sets: [[[{ field: 'dueDate', window: 'today', orOverdue: true }]]] },
               },
               {
                 name: 'This week',

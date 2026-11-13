@@ -139,7 +139,7 @@ function rowsFromAllOrAny(conditions: readonly FilterCondition[], match: FilterM
 
 /** A Filter holding exactly these rows. */
 function aFilterOfRows(id: string, name: string, rows: FilterCondition[][]): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { rows, groupBy: 'none' } };
+  return { ...aPanel(id, name), kind: 'filter', filter: { sets: rows.length === 0 ? [] : [rows], groupBy: 'none' } };
 }
 
 /** A panel that gathers what it shows, with nothing chosen unless a case says otherwise. */
@@ -150,7 +150,7 @@ function aFilter(
   match: FilterMatch = 'all',
   groupBy: FilterGrouping = 'none',
 ): Panel {
-  return { ...aPanel(id, name), kind: 'filter', filter: { rows: rowsFromAllOrAny(conditions, match), groupBy } };
+  return { ...aPanel(id, name), kind: 'filter', filter: { sets: rowsFromAllOrAny(conditions, match).length === 0 ? [] : [rowsFromAllOrAny(conditions, match)], groupBy } };
 }
 
 const PRIORITY_HIGH: FilterCondition = { field: 'priority', values: ['high'] };
@@ -1725,7 +1725,7 @@ describe('Panels', () => {
         panel: {
           ...aPanel('due', 'What matters'),
           kind: 'filter' as const,
-          filter: { rows: [], groupBy: 'none' as const },
+          filter: { sets: [], groupBy: 'none' as const },
         },
       },
     ])('offers neither the + nor the menu entry on $situation', async ({ panel }) => {
@@ -2415,7 +2415,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            rows: [[{ field: 'dueDate', window: 'week', orOverdue: false }]],
+            sets: [[[{ field: 'dueDate', window: 'week', orOverdue: false }]]],
           }),
         }),
       );
@@ -2454,15 +2454,117 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ rows: [] }),
+          payload: expect.objectContaining({ sets: [] }),
         }),
       );
+    });
+
+    describe('it joins sets with or, each set holding rows joined by and', () => {
+      const AGENT: FilterCondition = { field: 'agent' };
+      const aFilterOfSets = (sets: FilterCondition[][][]): Panel => ({
+        ...aPanel('due', 'Due soon'),
+        kind: 'filter',
+        filter: { sets, groupBy: 'none' },
+      });
+      const sentSets = (mutate: ReturnType<typeof showBoard>['mutate']) =>
+        (mutate.mock.calls.at(-1)![0] as { payload: { sets: FilterCondition[][][] } }).payload.sets;
+
+      it('draws one set as the rows alone: no outline, no or line, no funnel reading', async () => {
+        const { user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY], [PRIORITY_HIGH]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Save' });
+
+        expect(screen.queryByRole('group', { name: /^Set / })).toBeNull();
+        expect(screen.queryByText('or', { selector: 'div' })).toBeNull();
+        expect(screen.queryByText('Funnel reads:')).toBeNull();
+        expect(screen.getByRole('button', { name: '+ Or another set…' })).toBeVisible();
+      });
+
+      it('draws two sets outlined with an or line between them and an + And… in each', async () => {
+        const { user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY]], [[AGENT]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Save' });
+
+        expect(screen.getByRole('group', { name: 'Set 1' })).toBeVisible();
+        expect(screen.getByRole('group', { name: 'Set 2' })).toBeVisible();
+        expect(screen.getByText('or', { selector: 'div' })).toBeVisible();
+        expect(screen.getByRole('button', { name: '+ And… to set 1' })).toBeVisible();
+        expect(screen.getByRole('button', { name: '+ And… to set 2' })).toBeVisible();
+        expect(screen.getAllByText('Where')).toHaveLength(2);
+      });
+
+      it('starts a second set from + Or another set…, through the same list of fields', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: '+ Or another set…' }));
+        expect((await screen.findAllByRole('menuitem')).map((entry) => entry.textContent)).toEqual([
+          'Due date',
+          'Priority',
+          'Panel',
+          'Dashboard',
+          'Status',
+          'Agent running',
+        ]);
+        await user.click(screen.getByRole('menuitem', { name: 'Agent running' }));
+
+        expect(screen.getByRole('group', { name: 'Set 2' })).toBeVisible();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(sentSets(mutate)).toEqual([[[DUE_TODAY]], [[AGENT]]]);
+      });
+
+      it('adds a row to the set whose + And… is pressed, and to that set only', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY]], [[AGENT]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: '+ And… to set 2' }));
+        await user.click(await screen.findByRole('menuitem', { name: 'Priority' }));
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(sentSets(mutate)).toEqual([[[DUE_TODAY]], [[AGENT], [{ field: 'priority', values: [] }]]]);
+      });
+
+      it('takes a set out with its last condition, and draws as one set again', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY]], [[AGENT]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await user.click(await screen.findByRole('button', { name: 'Remove condition 2' }));
+
+        expect(screen.queryByRole('group', { name: /^Set / })).toBeNull();
+        expect(screen.queryByText('Funnel reads:')).toBeNull();
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(sentSets(mutate)).toEqual([[[DUE_TODAY]]]);
+      });
+
+      it('sends every set in order, and reads the sentence the funnel will give', async () => {
+        const { mutate, user } = showBoard({ panels: [aFilterOfSets([[[DUE_TODAY], [PRIORITY_HIGH]], [[AGENT]]])] });
+
+        await choose(user, 'Due soon', 'Filter…');
+        await screen.findByRole('button', { name: 'Save' });
+        expect(screen.getByText(/Funnel reads:/).parentElement).toHaveTextContent(
+          'Funnel reads: (Due today or overdue and Priority is High) or Agent running',
+        );
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(sentSets(mutate)).toEqual([[[DUE_TODAY], [PRIORITY_HIGH]], [[AGENT]]]);
+      });
+
+      it('shows a Filter panel of two sets with its funnel reading both on hover', async () => {
+        showBoard({ panels: [aFilterOfSets([[[DUE_TODAY], [PRIORITY_HIGH]], [[AGENT]]])] });
+
+        const due = await screen.findByRole('region', { name: 'Due soon' });
+        expect(
+          within(due).getByRole('img', { name: 'Shows (due today or overdue and priority is high) or agent running' }),
+        ).toBeVisible();
+      });
     });
 
     describe('it joins its rows with and, and a row’s alternatives with or', () => {
       const ROWS = [[DUE_TODAY, PRIORITY_HIGH], [{ field: 'panel', values: [] } as FilterCondition]];
       const sentRows = (mutate: ReturnType<typeof showBoard>['mutate']) =>
-        (mutate.mock.calls.at(-1)![0] as { payload: { rows: FilterCondition[][] } }).payload.rows;
+        (mutate.mock.calls.at(-1)![0] as { payload: { sets: FilterCondition[][][] } }).payload.sets[0] ?? [];
 
       it('reads Where, then and, as fixed words, with no choice of joiner', async () => {
         const { user } = showBoard({ panels: [aFilterOfRows('due', 'Due soon', [[DUE_TODAY], [PRIORITY_HIGH]])] });
@@ -2794,6 +2896,63 @@ describe('Onboarding', () => {
       });
     });
 
+    describe('it applies its grouping and the Dashboard filter to the Items of every set at once', () => {
+      const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+      // Bart meets the Due set; Anna, on another Panel, meets only the Priority set.
+      const bart = { ...anItem(ID(1), 'Reply to Bart'), dueDate: TODAY, priority: 'high' as const };
+      const anna = { ...anItem(ID(2), 'Call Anna'), priority: 'normal' as const };
+      const falcon = aPanel('falcon', 'Project Falcon');
+      const reading = { ...aPanel('reading', 'To read'), dashboardId: 'research' };
+      const twoSets = (groupBy: FilterGrouping): Panel => ({
+        ...aPanel('due', 'Due soon'),
+        kind: 'filter',
+        filter: { sets: [[[DUE_TODAY]], [[{ field: 'priority', values: ['normal'] }]]], groupBy },
+      });
+      function aTwoSetBoard(groupBy: FilterGrouping) {
+        return showBoard({
+          panels: [falcon, twoSets(groupBy)],
+          panelsInWorkspace: [falcon, reading, twoSets(groupBy)],
+          dashboards: [DASHBOARD, RESEARCH],
+          items: [bart, anna],
+          filings: [
+            { panelId: 'falcon', itemId: bart.id, position: 0 },
+            { panelId: 'reading', itemId: anna.id, position: 0 },
+          ],
+        });
+      }
+
+      it('draws an Item that meets only the second set under its own Panel heading', async () => {
+        aTwoSetBoard('panel');
+
+        const region = await screen.findByRole('region', { name: 'Due soon' });
+        const headings = within(region).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent);
+
+        expect(headings).toEqual(['Project Falcon · Today1', 'To read · Research1']);
+        expect(within(region).getByText(/Call Anna/)).toBeVisible();
+      });
+
+      it('hides an Item from the second set that the Dashboard filter does not allow', async () => {
+        filterTheDashboard({ priorities: ['high'] });
+        aTwoSetBoard('none');
+
+        // Anna is Normal, so the Dashboard filter takes her out of the Filter panel though she meets its second set.
+        await screen.findByRole('region', { name: 'Due soon' });
+        expect(rowsOf('Due soon')).toEqual([expect.stringContaining('Reply to Bart')]);
+      });
+
+      it('counts an Item once and lists the Items of both sets together', async () => {
+        aTwoSetBoard('none');
+
+        await screen.findByRole('region', { name: 'Due soon' });
+
+        expect(rowsOf('Due soon').map((row) => row.replace(/.*(Reply to Bart|Call Anna).*/, '$1')).toSorted()).toEqual([
+          'Call Anna',
+          'Reply to Bart',
+        ]);
+        expect(within(handleOf('Due soon')).getByText('2')).toBeVisible();
+      });
+    });
+
     describe('it asks for the grouping beside the conditions and saves both at once', () => {
       const GROUP_BY = 'Group by';
 
@@ -2835,7 +2994,7 @@ describe('Onboarding', () => {
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'set_panel_filter',
-            payload: expect.objectContaining({ rows: [[DUE_TODAY]], groupBy: 'dashboard' }),
+            payload: expect.objectContaining({ sets: [[[DUE_TODAY]]], groupBy: 'dashboard' }),
           }),
         );
       });
@@ -2961,7 +3120,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            rows: [[{ field: 'priority', values: ['high', 'normal'] }]],
+            sets: [[[{ field: 'priority', values: ['high', 'normal'] }]]],
           }),
         }),
       );
@@ -2993,7 +3152,7 @@ describe('Onboarding', () => {
           name: 'set_panel_filter',
           payload: expect.objectContaining({
             panelId: 'due',
-            rows: [[{ field: 'panel', values: ['project'] }]],
+            sets: [[[{ field: 'panel', values: ['project'] }]]],
           }),
         }),
       );
@@ -3042,7 +3201,7 @@ describe('Onboarding', () => {
         expect.objectContaining({
           name: 'set_panel_filter',
           payload: expect.objectContaining({
-            rows: [[{ field: 'priority', values: ['low'], exclude: true }]],
+            sets: [[[{ field: 'priority', values: ['low'], exclude: true }]]],
           }),
         }),
       );
@@ -3067,7 +3226,7 @@ describe('Onboarding', () => {
       expect(mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'set_panel_filter',
-          payload: expect.objectContaining({ rows: [[{ field: 'status', values: ['to_do', 'waiting'] }]] }),
+          payload: expect.objectContaining({ sets: [[[{ field: 'status', values: ['to_do', 'waiting'] }]]] }),
         }),
       );
     });
@@ -3104,7 +3263,7 @@ describe('Onboarding', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }));
         expect(mutate).toHaveBeenCalledWith(
           expect.objectContaining({
-            payload: expect.objectContaining({ rows: [[{ field: 'panel', values: ['panel-Bravo'] }]] }),
+            payload: expect.objectContaining({ sets: [[[{ field: 'panel', values: ['panel-Bravo'] }]]] }),
           }),
         );
       });
@@ -3297,7 +3456,7 @@ describe('Onboarding', () => {
             expect.objectContaining({
               name: 'set_panel_filter',
               payload: expect.objectContaining({
-                rows: [[{ field: 'dashboard', values: ['personal'], exclude: true }]],
+                sets: [[[{ field: 'dashboard', values: ['personal'], exclude: true }]]],
               }),
             }),
           );

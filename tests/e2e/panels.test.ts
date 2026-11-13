@@ -1625,6 +1625,46 @@ test.describe('Panels', () => {
       await expect(underWork().getByRole('listitem').filter({ hasText: chase })).toHaveCount(1);
     });
   });
+
+  test.describe('a filter of two sets shows an item either set gathers', () => {
+    test('shows an item only the second set gathers, and still does after a reload', async ({ page, isMobile }) => {
+      // Wiring only: the rule is packages/shared/tests/unit/domain/filters.test.ts
+      // and what the question draws is PanelBoard.test.tsx. What only a browser
+      // proves is that the sets the question sends are the sets the store keeps
+      // and the board draws from.
+      const work = uniqueTitle('Work');
+      const gathering = uniqueTitle('Due soon');
+      // Dated nowhere, so a Filter of Due today leaves it out.
+      const chase = uniqueTitle('Chase the invoice');
+      await ownDashboard(page, isMobile, [work, { name: gathering, kind: 'filter' }], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [chase]);
+      });
+
+      const first = answerTo(page, 'set_panel_filter');
+      await choosePanelAction(page, gathering, 'Filter…', isMobile);
+      await press(page.getByRole('button', { name: '+ And…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Due date' }), isMobile);
+      await press(page.getByRole('dialog').getByRole('button', { name: 'Save' }), isMobile);
+      expect((await first).status()).toBe(200);
+      await expect.poll(() => itemsOn(page, gathering)).not.toContain(chase);
+
+      // A second set: Due date, not set.
+      const second = answerTo(page, 'set_panel_filter');
+      await choosePanelAction(page, gathering, 'Filter…', isMobile);
+      const question = page.getByRole('dialog');
+      await press(question.getByRole('button', { name: '+ Or another set…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Due date' }), isMobile);
+      await question.getByRole('combobox', { name: /Due date is/ }).last().selectOption('none');
+      await expect(question.getByRole('group', { name: 'Set 2' })).toBeVisible();
+      await press(question.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await second).status()).toBe(200);
+
+      await expect.poll(() => itemsOn(page, gathering)).toContain(chase);
+      await page.reload();
+      await expect.poll(() => itemsOn(page, gathering)).toContain(chase);
+    });
+
+  });
 });
 
 test.describe('Layouts', () => {

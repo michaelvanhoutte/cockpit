@@ -758,7 +758,7 @@ describe('Panels', () => {
           body: '',
           readOnly: false,
           neverPropose: false,
-          filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
+          filter: { sets: [[[{ field: 'panel' as const, values: ['p-falcon'] }]]], groupBy: 'none' as const },
           sort: null,
           columns: null,
         },
@@ -781,7 +781,7 @@ describe('Panels', () => {
         body: '',
         readOnly: false,
         neverPropose: false,
-        filter: { rows: [[{ field: 'panel' as const, values: ['p-falcon'] }]], groupBy: 'none' as const },
+        filter: { sets: [[[{ field: 'panel' as const, values: ['p-falcon'] }]]], groupBy: 'none' as const },
         sort: null,
         columns: null,
       };

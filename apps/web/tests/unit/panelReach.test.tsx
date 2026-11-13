@@ -104,7 +104,7 @@ describe('Dashboards', () => {
         panel('notes', 'Notes', 'today', { kind: 'text' }),
         panel('high', 'Urgent', 'today', {
           kind: 'filter',
-          filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' },
+          filter: { sets: [[[{ field: 'priority', values: ['high'] }]]], groupBy: 'none' },
         }),
         panel('papers', 'Papers', 'research'),
       ],

@@ -1188,14 +1188,14 @@ export function PanelBoard({
     setSettling(null);
   };
 
-  /** What a Filter shows, saved whole ("Add a Filter panel that shows every filed item due in a window", issue 463) - as the question's rows. */
+  /** What a Filter shows, saved whole ("Add a Filter panel that shows every filed item due in a window", issue 463) - as the question's sets. */
   const setFilter = (
     panelId: string,
-    rows: FilterCondition[][],
+    sets: FilterCondition[][][],
     groupBy: FilterGrouping,
   ) => {
     sendAhead(
-      { name: 'set_panel_filter', payload: { ...envelope(), panelId, rows, groupBy } },
+      { name: 'set_panel_filter', payload: { ...envelope(), panelId, sets, groupBy } },
       `The filter of “${nameOf(panelId)}” was not saved.`,
     );
     setFiltering(null);
@@ -1557,19 +1557,19 @@ export function PanelBoard({
         <WhateverTheQuestionDoes onFailure={() => setFiltering(null)}>
           <Suspense fallback={null}>
             <FilterQuestion
-              // Keyed on the Panel, so the rows it opens on are that Panel's: the
+              // Keyed on the Panel, so the sets it opens on are that Panel's: the
               // question reads what is stored once and is the person's from then
               // on (`FilterQuestion`), which only holds while one Filter cannot
-              // hand its half-finished rows to the next.
+              // hand its half-finished sets to the next.
               key={beingFiltered.id}
               open
               panelName={beingFiltered.name}
-              rows={(beingFiltered.filter ?? NO_CONDITIONS).rows}
+              sets={(beingFiltered.filter ?? NO_CONDITIONS).sets}
               groupBy={(beingFiltered.filter ?? NO_CONDITIONS).groupBy}
               panels={panelsInWorkspace}
               dashboards={dashboards}
               layouts={layouts}
-              onSave={(rows, groupBy) => setFilter(beingFiltered.id, rows, groupBy)}
+              onSave={(sets, groupBy) => setFilter(beingFiltered.id, sets, groupBy)}
               onCancel={() => {
                 setFiltering(null);
               }}

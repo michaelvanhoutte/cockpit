@@ -2005,7 +2005,8 @@ export function filterRowsStatements(accountId: string): readonly Statement[] {
 
 /**
  * Every Filter stored as rows - conditions within a row joined by *or*, rows
- * joined by *and* - in place of its flat `conditions` and `match` ("Store every
+ * joined by *and*; later read as one set, "Let a Filter hold sets of rows
+ * joined by or", issue 1737 - in place of its flat `conditions` and `match` ("Store every
  * Filter as rows, and save the All / Any choice as rows", issue 1081;
  * `filterRowsStatements` says how each is rewritten).
  *
@@ -5703,7 +5704,7 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
           }
           panelNames.add(folded);
           // A Filter the app cannot read draws as one with nothing chosen
-          // (`panelFilterFrom`), one with no rows - or an empty row -
+          // (`panelFilterFrom`), one with no sets - or an empty set or row -
           // demonstrates nothing, a field twice in a row is read as its first,
           // and a `groupBy` it cannot read is quietly None - each a typo here
           // rather than a choice.
@@ -5711,9 +5712,13 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
             const read = panelFilterSchema.safeParse(panel.filter);
             if (
               !read.success ||
-              read.data.rows.length === 0 ||
-              read.data.rows.some(
-                (row) => row.length === 0 || new Set(row.map((condition) => condition.field)).size !== row.length,
+              read.data.sets.length === 0 ||
+              read.data.sets.some(
+                (set) =>
+                  set.length === 0 ||
+                  set.some(
+                    (row) => row.length === 0 || new Set(row.map((condition) => condition.field)).size !== row.length,
+                  ),
               ) ||
               !filterGroupingSchema.safeParse(panel.filter.groupBy).success
             ) {
