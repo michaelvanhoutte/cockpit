@@ -427,6 +427,21 @@ export default function ManageConnections({
   const namesOf = (connectorId: string): ConnectorNames | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
   /**
+   * What a connected row says it was granted, in its connector's words
+   * ("Read pasted Teams links: connecting Teams asks for no read permission",
+   * issue 1754): what it holds, then what it was refused where it holds
+   * something. Nothing for a connection holding nothing, or made before this.
+   */
+  const grantedSentences = (account: { connectorId: string; granted: readonly string[] | null }): string[] => {
+    const held = account.granted ?? [];
+    if (held.length === 0) return [];
+    const permissions = registry.data?.connectors.find((connector) => connector.id === account.connectorId)?.permissions ?? [];
+    return permissions.flatMap((one) => {
+      const said = held.includes(one.code) ? one.granted : one.withheld;
+      return said ? [said] : [];
+    });
+  };
+  /**
    * What picking a source does from Add connection, or Connect on a card that
    * asks something: a phone asks for its number, every other source opens its
    * Connect window - the sentence, then its question where it has one.
@@ -585,6 +600,9 @@ export default function ManageConnections({
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {account.follows && <Chip>{account.followsLabel ?? account.follows}</Chip>}
                           {account.filesByName && noun && <Chip>Files by {noun}</Chip>}
+                          {grantedSentences(account).map((said) => (
+                            <Chip key={said}>{said}</Chip>
+                          ))}
                           {account.dueInDays != null && (
                             <Chip>{`Due ${account.dueInDays} ${account.dueInDays === 1 ? 'day' : 'days'} after`}</Chip>
                           )}

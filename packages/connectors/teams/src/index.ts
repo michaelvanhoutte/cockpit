@@ -79,7 +79,7 @@ export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
   return {
     manifest: {
       ...TEAMS_IDENTITY,
-      cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+      cardText: 'Sign in with Microsoft. Cockpit asks to read the chats and channel posts you paste a link to; where your organisation does not allow that, it reads who you are and nothing else.',
       supportsPush: true,
       auth: teamsSignIn(config.issuer),
     },

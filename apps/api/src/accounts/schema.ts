@@ -2054,6 +2054,19 @@ export const connectorAccounts = sqliteTable(
      * the connector, and counted from when it is saved.
      */
     dueInDays: integer('due_in_days'),
+    /**
+     * What the source granted this connection, as a JSON array of the codes its
+     * connector's sign-in names for each permission ("Read pasted Teams links:
+     * connecting Teams asks for no read permission", issue 1754): the highest
+     * tier the person's organisation let through. An empty array is a
+     * connection granting nothing beyond who the person is; null is a
+     * connection made before this existed (`0106-connector-accounts-granted`,
+     * changes.ts) or one whose connector asks in no tiers, and reads as
+     * granting nothing. No CHECK, for the reason `connector_id` has none:
+     * which codes exist is the connector's to say. Read with the account's
+     * connections by the Connections card.
+     */
+    granted: text('granted'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.

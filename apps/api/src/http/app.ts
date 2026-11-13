@@ -142,7 +142,11 @@ import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
 import {
   accountSignedIn,
+  adminApprovalNeeded,
   authorizationRequest,
+  firstTier,
+  steppedDown,
+  tierAsked,
   backToConnections,
   choiceOptionsOf,
   clientOf,
@@ -1594,7 +1598,9 @@ const routes = app
             const sign = signInOf(c.env, manifest.id);
             return sealable && sign !== null && clientOf(c.env, sign.auth) !== null;
           })
-          .map(({ manifest }) => ({
+          .map(({ manifest }) => {
+            const auth = signInOf(c.env, manifest.id)?.auth;
+            return {
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
@@ -1610,9 +1616,11 @@ const routes = app
                 }
               : {}),
             ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
-            refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
+            refusals: auth?.refusals ?? {},
+            ...(auth?.permissions?.length ? { permissions: auth.permissions.map((one) => ({ ...one })) } : {}),
             ...(manifest.auth.kind === 'texted-code' ? { textedCode: { textTo: manifest.auth.textTo } } : {}),
-          })),
+            };
+          }),
       },
       200,
     );
@@ -2242,6 +2250,9 @@ const routes = app
         ...(asked && choice ? { choice } : {}),
         ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
         ...(pulled && dueInDays !== undefined && dueInDays !== 'not an answer' ? { dueInDays } : {}),
+        // A source that asks in tiers is asked from the top every time, a
+        // reconnect included (issue 1754).
+        ...firstTier(sign.auth),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -2278,6 +2289,29 @@ const routes = app
     const reply = c.req.query();
 
     const wrong = replyBelongsTo(attempt, reply);
+    // **An administrator's approval asked for is the one refusal that is
+    // answered by asking for less** (issue 1754): the next tier the source
+    // describes, as a new attempt of the same account. Checked only once the
+    // state has matched and the account that started it is the one that came
+    // back, and only for a source that asks in tiers - anything else, a
+    // cancelled consent included, is refused below as it always was.
+    if (
+      wrong === 'the issuer refused the sign-in' &&
+      attempt!.accountName === c.get('visitor').accountName &&
+      adminApprovalNeeded(reply)
+    ) {
+      const lower = steppedDown(sign.auth, attempt!, newAttempt());
+      const client = clientOf(c.env, sign.auth);
+      if (lower && client) {
+        try {
+          rememberConnectAttempt(c, lower);
+          return c.redirect(await authorizationRequest(c.env, sign, client, lower), 302);
+        } catch (error) {
+          forgetConnectAttempt(c);
+          return refuseConnection(c, attempt!.workspaceId, 'the issuer could not be reached', error);
+        }
+      }
+    }
     // Including the source's own refusal - somebody who declined the consent
     // screen is told so in the window they started from, unlike a cancelled
     // sign-in, which simply leaves you where you already were.
@@ -2300,6 +2334,13 @@ const routes = app
     const asked = sign.connector.manifest.choice;
     if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
       return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
+    }
+    // The tier the attempt reached has to be one the connector describes; the
+    // codes stored as granted are that tier's and nothing the browser said
+    // (issue 1754).
+    const reached = tierAsked(sign.auth, attempt!);
+    if (!reached) {
+      return refuseConnection(c, attempt!.workspaceId, 'the permissions are not ones the source offers');
     }
     // Whether it files by name rides along as asked: an attempt carrying
     // anything but a yes or no is not read at all, and one carrying none - a
@@ -2345,6 +2386,7 @@ const routes = app
         ...(asked ? { choice: attempt!.choice! } : {}),
         ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
         ...(givesADueDate && attempt!.dueInDays !== undefined ? { dueInDays: attempt!.dueInDays } : {}),
+        ...(reached.grants ? { granted: reached.grants } : {}),
       });
       // The register's index, after the connection is stored and never failing
       // it (`rememberConnectionAfterStoring`, connectors/directory.ts): what

@@ -74,6 +74,15 @@ export async function startStubIssuer({ port, seedPath }) {
   const issued = new Map();
   /** Every token handed back at `/revoke`, newest last. */
   const revoked = [];
+  /**
+   * The scopes an administrator has to approve for each account, as a tenant
+   * holds them back from its people ("Read pasted Teams links: connecting Teams
+   * asks for no read permission", issue 1754): a sign-in asking any of them is
+   * refused as Microsoft refuses it, whole, and the one asking for the rest goes
+   * through. Set at `/admin-approval?email=&needs=Chat.Read,ChannelMessage.Read.All`,
+   * and cleared by `needs=` left empty.
+   */
+  const adminNeeds = new Map();
   /** Every `threads.modify` and `messages.modify` Gmail was asked for, newest last - what `/gmail-stub/modified` lists, `?email=` keeping one mailbox's. */
   const modifications = [];
 
@@ -291,6 +300,13 @@ export async function startStubIssuer({ port, seedPath }) {
       return;
     }
     if (url.pathname === '/revoked') return json(response, revoked);
+    if (url.pathname === '/admin-approval') {
+      const email = url.searchParams.get('email') ?? '';
+      const needs = (url.searchParams.get('needs') ?? '').split(',').map((scope) => scope.trim().toLowerCase()).filter(Boolean);
+      if (needs.length > 0) adminNeeds.set(email, new Set(needs));
+      else adminNeeds.delete(email);
+      return json(response, { email, needs });
+    }
 
     if (url.pathname === '/jwks') {
       // Exported off the key itself: `createPublicKey` takes key *material* or a
@@ -427,6 +443,19 @@ export async function startStubIssuer({ port, seedPath }) {
   /** Picking somebody: a code, and back to where the sign-in came from. */
   function pick(url, response) {
     const ask = whatWasAsked(url);
+    // A scope this account's tenant keeps for an administrator: refused whole, as
+    // Microsoft does, with the code it names for it.
+    const heldBack = adminNeeds.get(ask.as);
+    if (heldBack && (ask.scope ?? '').split(' ').some((scope) => heldBack.has(scope.toLowerCase()))) {
+      const refused = new URL(ask.redirect_uri);
+      refused.searchParams.set('error', 'access_denied');
+      refused.searchParams.set(
+        'error_description',
+        'AADSTS65001: The user or administrator has not consented to use the application. Send an interactive authorization request for this user and resource.',
+      );
+      refused.searchParams.set('state', ask.state);
+      return response.writeHead(302, { location: refused.toString() }).end();
+    }
     const code = randomUUID();
     issued.set(code, {
       email: ask.as,

@@ -80,6 +80,7 @@ const account = (id: string, connectorId: string, displayName: string): SourceAc
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 });
 
 function open(

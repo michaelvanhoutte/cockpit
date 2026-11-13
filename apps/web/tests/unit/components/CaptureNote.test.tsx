@@ -1780,14 +1780,47 @@ describe('Capture', () => {
       await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon (lit)', 'Later ▸ Reading list']));
     });
 
-    it.each([
-      { situation: 'no Panel of the Workspace was used this week', startsIn: 'ws-work', answer: { panels: USED.panels.slice(2) } },
-      { situation: 'Where is on Any workspace', startsIn: null, answer: USED },
-    ])('draws no row when $situation', async ({ startsIn, answer }) => {
-      await thePage({ startsIn, mostUsed: () => Promise.resolve(answer) });
+    it('draws no row when no Panel of the Workspace was used this week', async () => {
+      await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve({ panels: USED.panels.slice(2) }) });
       await settled();
 
       expect(screen.queryByRole('group', { name: 'Most used Panels' })).toBeNull();
+    });
+  });
+
+  describe('under Any workspace the buttons span Workspaces, each with a dot in its Workspace’s colour, and a click settles Where', () => {
+    /** The colour of the dot before each button's Dashboard, or none. */
+    const dots = () =>
+      within(screen.getByRole('group', { name: 'Most used Panels' }))
+        .getAllByRole('button')
+        .map((button) => (button.querySelector('[aria-hidden="true"]') as HTMLElement | null)?.style.backgroundColor ?? null);
+
+    it('offers the top three of every Workspace with dots, and none once Where is a Workspace', async () => {
+      const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Home ▸ House ▸ Garden', 'Work ▸ Later ▸ Reading list', 'Work ▸ Today ▸ Falcon']));
+      expect(dots()).toEqual(['rgb(63, 143, 120)', 'rgb(111, 98, 181)', 'rgb(111, 98, 181)']);
+
+      await user.click(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' }));
+
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+      expect(dots()).toEqual([null, null]);
+    });
+
+    it('settles Where on the Panel’s Workspace and narrows the row, and a second click takes the chip off and leaves Where', async () => {
+      const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
+
+      await user.click(await screen.findByRole('button', { name: 'Work ▸ Today ▸ Falcon' }));
+
+      expect(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon (lit)', 'Later ▸ Reading list']);
+      expect(dots()).toEqual([null, null]);
+
+      await user.click(mostUsedButton('Today ▸ Falcon'));
+
+      expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
+      expect(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
     });
   });
 

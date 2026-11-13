@@ -24,6 +24,7 @@ const MAIL: SourceAccount = {
   followsListed: 'flagged',
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 const TEAMS: SourceAccount = { ...MAIL, id: 'account-teams', connectorId: 'teams', displayName: 'Ada Lovelace' };
 const held: SourceAccountList = { sourceAccounts: [MAIL, TEAMS] };
