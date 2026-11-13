@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   RECONNECTED,
@@ -9,8 +9,10 @@ import {
   realWorkers,
   type Update,
   type Versions,
+  tabMemory,
   type Workers,
 } from '../updating';
+import { captureHoldsFiles, discardKeptCapture, keepCaptureForReload, watchCapture } from '../keptCapture';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
 
@@ -44,6 +46,7 @@ interface Props {
 export function Updating({ children, versions, memory, workers = realWorkers }: Props) {
   const queryClient = useQueryClient();
   const [gated, setGated] = useState(false);
+  const gating = useRef(false);
   const { opening, message } = useNewVersionKnown(workers);
 
   useEffect(() => {
@@ -59,7 +62,13 @@ export function Updating({ children, versions, memory, workers = realWorkers }: 
       const behind =
         reads.getAll().some((read) => outOfDate(read.state.error)) ||
         changes.getAll().some((change) => outOfDate(change.state.error));
-      if (behind) setGated(true);
+      if (behind && !gating.current) {
+        gating.current = true;
+        // Taken as the gate decides to close, while Capture is still mounted:
+        // once the gate is up the app and what it held are gone.
+        keepCaptureForReload(memory ?? tabMemory());
+        setGated(true);
+      }
     };
     look();
     const stopWatchingReads = reads.subscribe(look);
@@ -105,6 +114,8 @@ function Gate({
       // set anyway rather than left null, so the words on screen are never a
       // question that has in fact been answered.
       if (current) setOutcome(what);
+      // No reload came of it, so nothing may be left for a reload of your own to find.
+      if (what !== 'taken') discardKeptCapture(memory ?? tabMemory());
     });
     return () => {
       current = false;
@@ -223,6 +234,8 @@ function NewVersion({
   const [failed, setFailed] = useState(false);
   // Phone width is where Capture is a page (`ROOM_FOR_THE_INBOX_PX`), as ItemForm asks it.
   const onAPhone = useScreenWidth() < ROOM_FOR_THE_INBOX_PX;
+  // Files are the one thing of Capture that does not come back after the reload.
+  const filesHeld = useSyncExternalStore(watchCapture, captureHoldsFiles, () => false);
   const continueTo = () => {
     // One click, one reload: a second press while the first is in flight
     // is ignored rather than started again.
@@ -248,7 +261,7 @@ function NewVersion({
         >
           <div className="flex items-center justify-between gap-3">
             <h2 id="new-version-title" className="text-sm font-semibold text-ink">
-              New version of Cockpit
+              {filesHeld ? "Capture first: attached files aren't kept" : 'New version of Cockpit'}
             </h2>
             <button
               type="button"

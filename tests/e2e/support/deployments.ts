@@ -25,7 +25,10 @@ import { extname, join, normalize, sep } from 'node:path';
  * promoting still covers the real thing.
  *
  * API calls (`/v1/...`) are answered `401`, which is enough for the signed-out
- * shell to open. Nothing here is signed in or stores anything.
+ * shell to open. Nothing here is signed in or stores anything, unless a spec
+ * asks for `signedIn()`: then the two reads the Capture page needs to open
+ * (who you are, and the Workspace list) are answered, and a note typed there
+ * is only ever kept by the browser.
  */
 export interface Deployments {
   /** Where the browser opens it; `localhost`, so the page counts as a secure context. */
@@ -45,6 +48,11 @@ export interface Deployments {
    * still find out the version exists while it waits for what it is made of.
    */
   hold(): Hold;
+  /**
+   * Answers `/v1/me` and `/v1/workspaces` as a person with one Workspace, so
+   * the Capture page opens signed in. Every other API call is still refused.
+   */
+  signedIn(): void;
   /** Stops the server and removes every copy. */
   close(): Promise<void>;
 }
@@ -83,6 +91,8 @@ export async function serveDeployments(build: string): Promise<Deployments> {
   cpSync(original, directory(1), { recursive: true });
 
   let live = 1;
+  /** What the API answers once a spec has asked to be signed in. */
+  const answers = new Map<string, unknown>();
   const holds = new Map<number, { gate: Promise<void>; open(): void; ask(): void }>();
 
   // Read when a version is made, since a version's files are gone once it is
@@ -110,6 +120,10 @@ export async function serveDeployments(build: string): Promise<Deployments> {
     // when it arrived, which is what a held download needs.
     const version = live;
     const path = decodeURIComponent((request.url ?? '/').split(/[?#]/)[0] ?? '/');
+    if (answers.has(path)) {
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answers.get(path)));
+      return;
+    }
     if (path.startsWith('/v1/') || path === '/health') {
       response.writeHead(401, { 'content-type': 'application/json' }).end('{}');
       return;
@@ -185,6 +199,14 @@ export async function serveDeployments(build: string): Promise<Deployments> {
       const asked = new Promise<void>((resolve) => (ask = resolve));
       holds.set(version, { gate, open, ask });
       return { asked, release: open };
+    },
+    signedIn() {
+      answers.set('/v1/me', { user: { id: 'user-test', name: 'Test', role: 'user' } });
+      answers.set('/v1/workspaces', {
+        workspaces: [
+          { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
+        ],
+      });
     },
     async close() {
       for (const hold of holds.values()) hold.open();

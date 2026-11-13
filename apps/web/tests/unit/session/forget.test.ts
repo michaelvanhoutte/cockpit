@@ -6,6 +6,7 @@ import { forgetEverything } from '../../../src/session/forget';
 import { saveRead } from '../../../src/persistence';
 import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
 import { aWorkspace, anItem } from '../support/savedReads';
+import { keepCaptureForReload, offerCapture, peekKeptCapture } from '../../../src/keptCapture';
 import { changes } from '../../../src/api/changes';
 import { sendCommand } from '../../../src/api/client';
 
@@ -55,6 +56,22 @@ describe('Sign-in', () => {
       await forgetEverything(new QueryClient());
 
       expect(changes.drawnOver(aWorkspace([item])).items[0]!.title).toBe('Reply to Bart');
+    });
+  });
+
+  describe('signing out drops a note an update kept from Capture', () => {
+    it('leaves none for whoever signs in next', async () => {
+      const release = offerCapture({
+        draft: () => ({ note: 'Call Jan', priority: null, due: null, where: null, panels: [], shownAs: 'page' }),
+        hasFiles: () => false,
+      });
+      keepCaptureForReload(sessionStorage);
+      release();
+      expect(peekKeptCapture(sessionStorage)).not.toBeNull();
+
+      await forgetEverything(new QueryClient());
+
+      expect(peekKeptCapture(sessionStorage)).toBeNull();
     });
   });
 });

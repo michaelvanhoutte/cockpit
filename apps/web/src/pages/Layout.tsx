@@ -32,6 +32,8 @@ import { goOnline, workOffline } from '../opening';
 import { useEndingASinglePick } from '../selection';
 import { useIsOffline } from '../offline';
 import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
+import { discardKeptCapture, peekKeptCapture } from '../keptCapture';
+import { tabMemory } from '../updating';
 import { CaptureWindow } from '../components/CaptureWindow';
 import { ItemForm } from '../components/ItemForm';
 import { LoadFailure } from '../components/LoadFailure';
@@ -160,6 +162,17 @@ function TheShell() {
   useEffect(() => {
     if (!roomForTheInbox) setCapturing(false);
   }, [roomForTheInbox]);
+  // An update's reload that came from the Capture window reopens it over this
+  // same screen, and the note is put back by the Capture inside it
+  // (keptCapture.ts). Where there is no room for a window nothing reopens it,
+  // so the kept note is dropped rather than waiting for a later Capture.
+  useEffect(() => {
+    if (peekKeptCapture(tabMemory())?.shownAs !== 'window') return;
+    if (roomForTheInbox) setCapturing(true);
+    else discardKeptCapture(tabMemory());
+    // Once, on this load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /** The Panel a + on its header opened the window for; empty for the tab and `C`. */
   const [capturePanel, setCapturePanel] = useState<PanelOpening | null>(null);
   const openCapture = () => {

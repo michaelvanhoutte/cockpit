@@ -3,7 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { workspaceListSchema } from '@cockpit/shared';
+import { useEffect, useRef } from 'react';
 import { Updating } from '../../../src/components/Updating';
+import { offerCapture } from '../../../src/keptCapture';
 import {
   RECONNECTED,
   checkOnOpening,
@@ -785,6 +787,191 @@ describe('a new version is announced, and loaded on a click', () => {
       // Back on the same build and still out of date: the gate has no second attempt.
       await expect(pickUpTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
       expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+  /**
+   * "Carry Capture's note across the update's reload" (issue 1746): what the
+   * update asks of a mounted Capture, with a stand-in that offers a draft the
+   * way the form does. That the form answers and restores for real is
+   * tests/unit/components/CaptureNote.test.tsx.
+   */
+  describe('the note in Capture is kept for the reload both ways of updating take', () => {
+    const KEPT = 'cockpit.updating.kept-capture';
+    const wide = window.innerWidth;
+    const atWidth = (width: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    afterEach(() => atWidth(wide));
+
+    function ACapture({ note, files = false, shownAs = 'page' }: { note: string; files?: boolean; shownAs?: 'page' | 'window' }) {
+      const held = useRef({ note, files, shownAs });
+      held.current = { note, files, shownAs };
+      useEffect(
+        () =>
+          offerCapture({
+            draft: () => ({ note: held.current.note, priority: 'high', due: null, where: 'ws-work', panels: [], shownAs: held.current.shownAs }),
+            hasFiles: () => held.current.files,
+          }),
+        [],
+      );
+      return <p>Capture is open</p>;
+    }
+    const keptIn = (memory: Storage) => JSON.parse(memory.getItem(KEPT) ?? 'null') as Record<string, unknown> | null;
+
+    /** The app open with Capture on screen and the message over it, as it is when a deploy lands mid-note. */
+    async function announced(capture: React.ReactNode, versions: Versions, memory: Storage, over = {}) {
+      const worker = aWorker(over);
+      const page = openedWith(capture, worker, versions, memory);
+      await screen.findByText('Capture is open');
+      worker.takenOverByAnotherTab();
+      await screen.findByRole('button', { name: 'Continue' });
+      return { worker, page };
+    }
+
+    function openedWith(capture: React.ReactNode, worker: Workers, versions: Versions, memory: Storage, client = newClient()) {
+      return render(
+        <QueryClientProvider client={client}>
+          <Updating workers={worker} versions={versions} memory={memory}>
+            {capture}
+          </Updating>
+        </QueryClientProvider>,
+      );
+    }
+
+    it('keeps the draft before the reload on Continue, and says which window it was', async () => {
+      const memory = scratchMemory();
+      let keptAtReload: unknown = 'not reloaded';
+      const reload = vi.fn(() => {
+        keptAtReload = keptIn(memory);
+      });
+      await announced(<ACapture note="Call Jan" shownAs="window" />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(keptAtReload).toMatchObject({ note: 'Call Jan', priority: 'high', where: 'ws-work', shownAs: 'window' });
+    });
+
+    it('keeps the draft on the automatic reload too, taken before the app is taken down', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const client = newClient();
+      openedWith(
+        <ACapture note="Call Jan" />,
+        aWorker(),
+        { ...here(reload), newVersionWaiting: () => Promise.resolve(true) },
+        memory,
+        client,
+      );
+      await screen.findByText('Capture is open');
+
+      await anOlderVersion(client);
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText('Capture is open')).toBeNull();
+      expect(keptIn(memory)).toMatchObject({ note: 'Call Jan' });
+    });
+
+    it('keeps nothing from an empty box', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      await announced(<ACapture note="  " />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('keeps nothing, and does not reload, when Continue cannot load the latest', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const { worker } = await announced(<ACapture note="Call Jan" />, here(reload), memory);
+      worker.activate.mockResolvedValueOnce(false);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByText('Could not load the new version. Try again.')).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('leaves nothing for a reload of your own when the automatic update finds nothing newer', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const client = newClient();
+      openedWith(<ACapture note="Call Jan" />, aWorker(), here(reload), memory, client);
+      await screen.findByText('Capture is open');
+
+      await anOlderVersion(client);
+
+      expect(await screen.findByRole('heading', { name: "Cockpit couldn't update" })).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('reloads anyway when storage refuses, losing the note as before', async () => {
+      const memory = scratchMemory();
+      memory.setItem = () => {
+        throw new Error('refused');
+      };
+      const reload = vi.fn();
+      await announced(<ACapture note="Call Jan" />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    });
+
+    it('keeps each tab its own note', async () => {
+      const [first, second] = [scratchMemory(), scratchMemory()];
+      const { page: one } = await announced(<ACapture note="First tab" />, here(), first);
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+      await waitFor(() => expect(keptIn(first)).not.toBeNull());
+      one.unmount();
+
+      const { page: two } = await announced(<ACapture note="Second tab" />, here(), second);
+      expect(keptIn(second)).toBeNull();
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(keptIn(second)).not.toBeNull());
+      expect(keptIn(first)).toMatchObject({ note: 'First tab' });
+      expect(keptIn(second)).toMatchObject({ note: 'Second tab' });
+      two.unmount();
+    });
+
+    describe('the bar says attached files are not kept, on Capture only', () => {
+      const bar = (name: string) => screen.findByRole('alertdialog', { name });
+
+      it('reads "Capture first" with Continue while Capture holds a file, on a phone', async () => {
+        atWidth(480);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" files />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar("Capture first: attached files aren't kept")).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+      });
+
+      it('reads "New version of Cockpit" with no file attached, or with no Capture on screen', async () => {
+        atWidth(480);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar('New version of Cockpit')).toBeVisible();
+      });
+
+      it('leaves the desk card as it is', async () => {
+        atWidth(1280);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" files />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar('A new version of Cockpit is out')).toBeVisible();
+      });
     });
   });
 });
