@@ -22,6 +22,8 @@ const LIVE =
   'https://teams.live.com/l/message/48:notes/1789899944174?context=%7B%22contextType%22%3A%22chat%22%2C%22oid%22%3A%228%3Amichaelvanhoutte%22%7D';
 const WORK = 'https://teams.microsoft.com/l/message/19:abc@thread.v2/1700000000000';
 const CLOUD = 'https://teams.cloud.microsoft/l/message/19:abc@thread.v2/1700000000001';
+const CHANNEL =
+  "https://teams.microsoft.com/l/message/19:abc@thread.tacv2/1700000000002?tenantId=t&groupId=g&parentMessageId=1700000000002&teamName=Michael's%20team&channelName=Sales%20(EU)&createdTime=1700000000002";
 const TEAMS = { name: 'Microsoft Teams' };
 
 /** What the Workspace's snapshot calls each source (issue 927). */
@@ -95,6 +97,14 @@ describe('Connector management', () => {
       },
       { situation: 'two links in the description, the first', item: withTexts('internal', null, { description: `${WORK} then ${LIVE}` }), link: WORK },
       { situation: 'an app’s capture with no link', item: withTexts('mcp', null, { description: LIVE }), link: LIVE },
+      { situation: 'a link ending a sentence, without the full stop', item: withTexts('internal', null, { description: `call Mieke about ${WORK}.` }), link: WORK },
+      { situation: 'a link followed by a comma, without it', item: withTexts('internal', null, { description: `see ${WORK}, then book` }), link: WORK },
+      { situation: 'a link inside parentheses, without the closing one', item: withTexts('internal', null, { description: `(${WORK})` }), link: WORK },
+      {
+        situation: 'a channel link whose team and channel names keep their parentheses and apostrophe',
+        item: withTexts('internal', null, { description: `${CHANNEL} please` }),
+        link: CHANNEL,
+      },
       {
         situation: 'a 60,000-character description with the link at its end',
         item: withTexts('internal', null, { description: `${'word '.repeat(12_000)}${LIVE}` }),

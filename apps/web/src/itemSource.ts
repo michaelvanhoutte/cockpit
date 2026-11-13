@@ -97,15 +97,19 @@ const TEAMS_HOSTS = new Set(['teams.microsoft.com', 'teams.live.com', 'teams.clo
 
 /**
  * The first Teams message link in a text, or null. A candidate is an `https?://`
- * run up to whitespace or a closing bracket or quote, so a Markdown
- * `[name](link)` gives the link alone; it counts only when it parses as an
- * `https` address on exactly one of the Teams hosts with a `/l/message/` path.
- * It is text somebody else may have written and goes into an `href`, so the
- * parsed host decides, never a pattern over the text.
+ * run up to whitespace, a square or angle bracket or a double quote, less the
+ * sentence punctuation after it and any closing parenthesis it never opened:
+ * so a Markdown `[name](link)` or "see link." gives the link alone, while a
+ * channel link keeps the `(` `)` and `'` that Teams leaves unencoded in a team
+ * or channel name. It counts only when it parses as an `https` address on
+ * exactly one of the Teams hosts with a `/l/message/` path. It is text somebody
+ * else may have written and goes into an `href`, so the parsed host decides,
+ * never a pattern over the text.
  */
 export function firstTeamsMessageLink(text: string | null | undefined): string | null {
   if (!text) return null;
-  for (const [candidate] of text.matchAll(/https?:\/\/[^\s)\]>"'<]+/gi)) {
+  for (const [run] of text.matchAll(/https?:\/\/[^\s\]>"<]+/gi)) {
+    const candidate = withoutTrailingPunctuation(run);
     let url: URL;
     try {
       url = new URL(candidate);
@@ -117,4 +121,15 @@ export function firstTeamsMessageLink(text: string | null | undefined): string |
     }
   }
   return null;
+}
+
+/** A link as written in a sentence, less the punctuation that ends the sentence and a `)` that closes something around it. */
+function withoutTrailingPunctuation(run: string): string {
+  let link = run;
+  for (;;) {
+    const last = link.at(-1);
+    if (last && ".,;:!?'".includes(last)) link = link.slice(0, -1);
+    else if (last === ')' && link.split(')').length > link.split('(').length) link = link.slice(0, -1);
+    else return link;
+  }
 }

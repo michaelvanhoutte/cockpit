@@ -1883,7 +1883,7 @@ function TheForm({
                     )}
                   </p>
                 )}
-                {/* An item of your own that carries a Teams message link: the way back alone, with no "From Own" ("issue 1738"). */}
+                {/* An item of your own that carries a Teams message link: the way back alone, with no "From Own" ("Open Items captured with a pasted Teams message link in Teams", issue 1738). */}
                 {item.source === 'internal' && atSource && (
                   <p className="mt-2 shrink-0 text-xs text-ink-faint">
                     <a
