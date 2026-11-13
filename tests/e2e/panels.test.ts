@@ -1672,7 +1672,7 @@ test.describe('Panels', () => {
       await arrange(page, 'set_due_date', { itemId: awayBoard.panels[0]!.itemIds[0], dueDate: today() });
       await arrange(page, 'set_panel_filter', {
         panelId: filterBoard.panels[0]!.id,
-        rows: [[{ field: 'dueDate', window: 'today', orOverdue: true }]],
+        sets: [[[{ field: 'dueDate', window: 'today', orOverdue: true }]]],
         groupBy: 'panel',
       });
       await page.reload();
