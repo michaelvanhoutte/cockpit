@@ -1372,8 +1372,9 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * atomic call for the reason `settledRouting` is, and never sent to the browser.
  *
  * `textsWritten` is present only for `read_pasted_link`, and only where it
- * applied: whether the texts it carried landed too, which they do not where a
- * person made the texts their own while the job was reading. Read off the same
+ * applied: whether the title and description changed too (the texts it
+ * carried, else the ones a capture makes of the message read), which they do
+ * not where a person made the texts their own first. Read off the same
  * atomic call for the reason `settledRouting` is.
  *
  * All absent, not `false`, everywhere else - every other command answers

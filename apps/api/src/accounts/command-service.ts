@@ -1977,7 +1977,7 @@ export function runCommand<N extends CommandName>(
         });
         // Decided against the Item as it stood here, not as the job read it
         // before asking the model, so an edit made meanwhile is reported.
-        textsWritten = cmd.texts !== undefined && existing.textsSettledAt === null;
+        textsWritten = existing.textsSettledAt === null;
       }
       break;
     }

@@ -431,8 +431,13 @@ export function createStubGraph({ mailboxOfToken, json }) {
   function teamsRead(url, request, response) {
     const email = mailboxOfToken((request.headers.authorization ?? '').replace(/^Bearer /, ''));
     if (!email) return json(response, { error: { code: 'InvalidAuthenticationToken', message: 'Access token is empty or invalid.' } }, 401);
-    const path = url.pathname.slice('/v1.0/'.length).split('/').map((segment) => decodeURIComponent(segment)).join('/');
-    const held = teamsMessages.get(path);
+    let path;
+    try {
+      path = url.pathname.slice('/v1.0/'.length).split('/').map((segment) => decodeURIComponent(segment)).join('/');
+    } catch {
+      path = null;
+    }
+    const held = path === null ? undefined : teamsMessages.get(path);
     if (!held) return json(response, { error: { code: 'NotFound', message: 'The requested resource does not exist.' } }, 404);
     return json(response, held.answer);
   }

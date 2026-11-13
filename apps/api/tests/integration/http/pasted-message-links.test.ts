@@ -366,6 +366,17 @@ describe('Capture', () => {
       expect((await textsOf(itemId))?.title).toBe(HER_MESSAGE);
       expect(asked).toEqual([]);
     });
+
+    it('Claude not set and a link nothing can read: settled at capture, with no reading queued', async () => {
+      env.ANTHROPIC_API_KEY = '';
+      await aConnection('work', ['chats']);
+      const itemId = await captureANote({ message: PERSONAL_LINK });
+
+      await vi.waitFor(async () => expect((await historyOf(itemId))[0]).toMatchObject({ status: 'left-as-is' }), { timeout: 10_000, interval: 25 });
+
+      expect(held.filter((one) => one.kind === 'clean-up-a-note')).toEqual([]);
+      expect(reads).toEqual([]);
+    });
   });
 
   describe('a pasted link’s message and the reading of it land in one change, once', () => {

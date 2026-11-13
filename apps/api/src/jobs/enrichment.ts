@@ -880,8 +880,8 @@ async function captureDayOf(
  * with it - no key, the reading failed or proposed nothing, or the texts are
  * the person's already ("Read pasted Teams links", issue 1755). The title and
  * description become what a capture makes of the new captured message, unless
- * the person made them their own. Where it landed, what the Item means and
- * what to do with it are asked again, as after any rewrite of its texts.
+ * the person made them their own. Where it landed, what to do with it is asked
+ * again, and what it means where its texts changed.
  */
 async function writeThePastedLinkRead(
   env: Env,
@@ -904,7 +904,8 @@ async function writeThePastedLinkRead(
     throw error;
   }
   if (!written.applied) return;
-  await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
+  // What it means is read from the title and description alone, so only where they changed.
+  if (written.textsWritten) await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
   await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
 }
 
