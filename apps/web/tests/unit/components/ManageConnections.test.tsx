@@ -2399,7 +2399,7 @@ describe('Connector management', () => {
       expect(within(changing).getByText(NOTE)).toBeInTheDocument();
     });
 
-    it('the card chip names the mark as Flagged for follow-up', async () => {
+    it('the card chip shows the follow-up label the server gives it', async () => {
       held.sourceAccounts = [OUTLOOK_ROW];
       showWindow();
 
