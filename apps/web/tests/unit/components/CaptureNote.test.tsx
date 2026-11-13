@@ -45,6 +45,7 @@ import { aRecorder, aTranscriber } from '../support/recording';
 import { whatArrived, type Arrived } from '../../../src/shares';
 import { aShare, aSharedPhoto } from '../support/shares';
 import { deviceIsIn } from '../support/timeZone';
+import { captureHoldsFiles, keepCaptureForReload, peekKeptCapture } from '../../../src/keptCapture';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -191,11 +192,14 @@ async function thePage({
   signedInAs = 'user-michael',
   mostUsed = () => Promise.resolve({ panels: [] }),
   beforeDrawing,
+  shownAs,
 }: {
   /** What the server answers the most-used read with when Capture opens: none used, unless a case says. */
   mostUsed?: () => Promise<unknown>;
   /** Run against the page's client before it is drawn: what the open restores from this device, for one. */
   beforeDrawing?: ((client: QueryClient) => Promise<void>) | undefined;
+  /** The desk window rather than the page. */
+  shownAs?: 'page' | 'window';
   /** Where recordings not yet transcribed are kept: the fake IndexedDB, unless a case says storage is unavailable. */
   recordingStore?: RecordingStore;
   /** The lock every tab takes, shared by two pages drawn as two tabs. */
@@ -274,7 +278,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
+          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -3068,4 +3072,117 @@ describe('Capture', () => {
       expect(screen.queryByText('notes.zip')).toBeNull();
     });
   });
+});
+
+/**
+ * "Carry Capture's note across the update's reload" (issue 1746): the update
+ * asks the mounted form for its draft (`keepCaptureForReload`), and the first
+ * form of the next load takes it back once. The two update paths that call the
+ * hand-over are in tests/unit/components/Updating.test.tsx.
+ */
+describe('Capture', () => {
+describe('a note kept for the update reload', () => {
+  afterEach(() => sessionStorage.clear());
+  const keepNow = () => keepCaptureForReload(sessionStorage);
+
+  it('comes back with the priority, due date, Where and Panels, and the cursor at the end of the note', async () => {
+    const user = await thePage({ cameFrom: 'ws-work' });
+    await user.type(box(), 'Call Jan re audit');
+    await user.click(chip('High priority'));
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-10-02' } });
+    await user.click(chip('Work'));
+    const search = screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+    await user.click(search);
+    await within(await screen.findByRole('list', { name: 'Panels to file on' })).findByRole('button', { name: /Falcon/ });
+    await user.type(search, 'la{Enter}');
+    await user.type(search, 'falc{Enter}');
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+
+    keepNow();
+    await reloaded(user, { cameFrom: 'ws-work' });
+
+    await waitFor(() => expect(box()).toHaveValue('Call Jan re audit'));
+    expect(chip('High priority')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip(`Due ${dueDateLabel('2026-10-02')}`)).toBeVisible();
+    expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Do not file on Reading list' })).toBeVisible();
+    expect((box() as HTMLTextAreaElement).selectionStart).toBe('Call Jan re audit'.length);
+    expect(box()).toHaveFocus();
+    expect(capturedCalls()).toEqual([]);
+  });
+
+  it('comes back once: a second reload finds an empty box', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    keepNow();
+    const again = await reloaded(user);
+    await waitFor(() => expect(box()).toHaveValue('Ask Ada'));
+
+    await reloaded(again);
+
+    expect(box()).toHaveValue('');
+  });
+
+  it('is not kept by a reload you do yourself, which asks nothing of the form', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+
+    await reloaded(user);
+
+    expect(box()).toHaveValue('');
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+
+  it('keeps nothing from an empty box', async () => {
+    await thePage();
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+
+  it('says it was the desk window when it was, for the screen to reopen it', async () => {
+    const user = await thePage({ shownAs: 'window' });
+    await user.type(box(), 'Ask Ada');
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toMatchObject({ note: 'Ask Ada', shownAs: 'window' });
+  });
+
+  it('never keeps a file', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    fireEvent.drop(box(), carrying(aPhoto()));
+    await screen.findByText('photo.png');
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toMatchObject({ note: 'Ask Ada', shownAs: 'page' });
+    expect(JSON.stringify(sessionStorage.getItem('cockpit.updating.kept-capture'))).not.toContain('photo');
+  });
+
+  it('tells the update whether an uncaptured file is attached, and stops once it is gone', async () => {
+    const user = await thePage();
+    expect(captureHoldsFiles()).toBe(false);
+
+    fireEvent.drop(box(), carrying(aPhoto()));
+    await screen.findByText('photo.png');
+    expect(captureHoldsFiles()).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Remove photo.png' }));
+    expect(captureHoldsFiles()).toBe(false);
+  });
+
+  it('offers nothing once the form has gone', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    (await reloaded(user)).unmount();
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+});
 });

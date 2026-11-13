@@ -10,6 +10,8 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
+import { announce, offerCapture, takeKeptCapture } from '../keptCapture';
+import { tabMemory } from '../updating';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
@@ -71,8 +73,11 @@ export function CaptureNote({
   onCaptured,
   onKept,
   dictating,
+  shownAs = 'page',
 }: {
   startsIn: string | null;
+  /** Whether this is the Capture page or the desk window over a screen, which an update's reload reopens as it was. */
+  shownAs?: 'page' | 'window' | undefined;
   /** A Panel *File on* starts holding, and so its Workspace for Where: what a Panel's + opens (issue 1105). */
   startsOn?: FiledOn | null | undefined;
   /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
@@ -313,6 +318,9 @@ export function CaptureNote({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
+  // Said to whoever offers Capture's draft away that a file came or went, so the
+  // new-version bar can say files are not kept (keptCapture.ts).
+  useEffect(() => announce(), [queued.length]);
   // Revokes whatever object URLs are still outstanding on the way out - a
   // queued file's own thumbnail is the one thing here that leaks if nobody
   // frees it.
@@ -322,6 +330,52 @@ export function CaptureNote({
     },
     [],
   );
+
+  /**
+   * What an update's reload takes of this form (keptCapture.ts): offered only
+   * while mounted, read at the moment of asking so nothing is written while
+   * typing, and never the files.
+   */
+  const draftNow = useRef({ message, priority, due, where, filed, shownAs });
+  draftNow.current = { message: noteNow.current, priority, due, where, filed, shownAs };
+  useEffect(
+    () =>
+      offerCapture({
+        draft: () => {
+          const now = draftNow.current;
+          return {
+            note: now.message,
+            priority: now.priority,
+            due: now.due,
+            where: now.where,
+            panels: now.filed,
+            shownAs: now.shownAs,
+          };
+        },
+        hasFiles: () => queuedRef.current.length > 0,
+      }),
+    [],
+  );
+  /** The note an update's reload kept comes back once, with the cursor after it. */
+  const cursorAtEnd = useRef(false);
+  useEffect(() => {
+    const kept = takeKeptCapture(tabMemory());
+    if (!kept) return;
+    changeNote(kept.note);
+    setWhere(kept.where);
+    setPriority(kept.priority);
+    setDue(kept.due);
+    setFiled(kept.panels);
+    cursorAtEnd.current = true;
+  }, []);
+  useEffect(() => {
+    if (!cursorAtEnd.current || message === '') return;
+    const box = theNote();
+    if (!(box instanceof HTMLTextAreaElement)) return;
+    cursorAtEnd.current = false;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [message]);
 
   const queueFiles = (files: Iterable<File>) => {
     const { accepted, rejections } = checkAttachmentFiles(files);
@@ -868,9 +922,8 @@ export function CaptureNote({
         }
       }}
       // A file dropped anywhere on the form queues it as an attachment,
-      // never as text - the box holds a thought, not an image (docs/ideas.md,
-      // "Capture and the task creator"). Never left to the browser, which
-      // would otherwise open the file in Cockpit's place.
+      // never as text - the box holds a thought, not an image. Never left
+      // to the browser, which would otherwise open the file in Cockpit's place.
       onDragOver={(event) => {
         if (!takesFiles(event)) return;
         event.preventDefault();

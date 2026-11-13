@@ -11,6 +11,8 @@ import { forgetEveryAllItemsTab } from '../allItemsTab';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetEverySavedRead } from '../persistence';
+import { discardKeptCapture } from '../keptCapture';
+import { tabMemory } from '../updating';
 import { changes } from '../api/changes';
 
 /**
@@ -38,6 +40,7 @@ import { changes } from '../api/changes';
  *   changed on an item has been seen, all eleven in localStorage - the last
  *   ten of them
  *   because leaving one behind gives the first person's answer to the second;
+ * - the note an update's reload kept from Capture, in this tab's session storage;
  * - what the undo bar is still offering, which is a title of theirs drawn over
  *   whatever screen comes next;
  * - the changes the server has answered but that are still drawn over the next
@@ -74,5 +77,6 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetEveryAllItemsTab(browserStore());
   forgetEverySeenChange(browserStore());
   forgetWhatJustHappened();
+  discardKeptCapture(tabMemory());
   changes.forgetAnswered();
 }

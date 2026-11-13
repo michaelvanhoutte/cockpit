@@ -533,8 +533,8 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
   this tool reads, but it is its own lint or CI rule rather than a rendering concern.
   Worth building next; not blocking this.
 - **Mutation testing**, explicitly postponed in the settled design.
-- **The Android-versus-web split of the frontend levels**, flagged as an open gap in
-  ideas.md. The home-screen widget is the first Android target, and it is not split
+- **The Android-versus-web split of the frontend levels**, still an open gap.
+  The home-screen widget is the first Android target, and it is not split
   here: the explorer reads TypeScript only, so the area *Home-screen widget* is
   registered with no source patterns and its Kotlin tests
   (`.claude/skills/testing/references/android-widget.md`) are run by Gradle and counted nowhere on the page.
