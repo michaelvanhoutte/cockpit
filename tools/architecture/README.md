@@ -1,11 +1,12 @@
 # Architecture
 
 Answers, without reading the code: **how is Cockpit built.** Draws it from the checked-out repository
-alone — no secrets, and a network only for the previous report's model — as one HTML page and a model beside it. It draws **What changed**,
-**Context**, **Modules**, **Dependencies**, **Databases** and **Deployment** ("Draw Cockpit's architecture every night, logical and
+alone — no secrets, and a network only for the previous report's model — as HTML pages with a model beside them. The front page is the services view
+(`services-design.html`, [below](#the-services-view)), which ends in **What changed**; beside it are **Modules** and **Dependencies** (`modules.html`),
+**Databases** (the table pages) and **Deployment** (on Cockpit's Deployment tab) ("Draw Cockpit's architecture every night, logical and
 physical", issue 869).
 
-**What changed** lists what the areas, marks, dependencies, environments, resources and workflows gained, lost or changed
+**What changed**, at the foot of the front page, lists what the areas, marks, dependencies, environments, resources and workflows gained, lost or changed
 since the commit the live report was drawn from, with the previous report's model read from `--previous` (a file or an
 address). Only that model's commit is used: the generator draws that commit again and diffs the two models, so a change
 to the generator alone lists nothing, and a night missed loses nothing, the comparison being with whatever was last
@@ -32,9 +33,7 @@ The earlier commit is checked out into a temporary `git worktree`, removed after
 file, or one that predates the rules file, is drawn with the current description and rules, and the section says so; a commit with no schema file is drawn without its
 databases; one missing the Worker config or the workflows cannot be drawn.
 
-**Context** shows the people and outside services [`description.yml`](description.yml) declares, around Cockpit.
-
-**Modules** shows every area of the web app, the API and the packages as a box in the lane of the layer the
+**Modules**, the first tab of `modules.html`, shows every area of the web app, the API and the packages as a box in the lane of the layer the
 file puts it in (its description is the box's tooltip). A box sits on the row below everything that imports it,
 by downward imports alone, and only the shortest chain is drawn: an import a longer chain of downward imports
 already covers is left out. Each arrow is labelled with its file count. A cycle draws its downward half as an
@@ -60,7 +59,7 @@ composition root, the one core file that names connectors.
 **Released together** is an outline round every lane for each Worker the Worker config deploys (environments running the same
 `main` are one Worker), and `releasedOnItsOwn` in the file lists each part shipped apart, drawn as a box outside the outline.
 
-**Dependencies** is a matrix of those areas in dependency-chain order. A cell counts the files in the
+**Dependencies**, the second tab (`modules-dependencies.html`), is a matrix of those areas in dependency-chain order. A cell counts the files in the
 row's area that import the column's area, and the number beside a row is that area's source lines, tests
 excluded. How an import is attributed:
 
@@ -92,15 +91,14 @@ import, and a path no area holds is dropped.
 
 **The description file holds the wording, the layout and the rules**, and the generator none: the layers
 and their order, each area's name, description and role (`core`, `connector` or `other`), the sources, their
-words and packages, what is released on its own, what is a test, which areas everything reads, and the people and services of Context. An area it does not mention still
+words and packages, what is released on its own, what is a test and which areas everything reads. An area it does not mention still
 appears. A new area is described by adding it to a layer; a folder the generator should look in is a
 `discover` entry. `pnpm --filter @cockpit/architecture test` fails if the file leaves an area on this
 repository's disk undescribed or describes one that is gone.
 
-**Databases** draws the two kinds of database apart. The register is one D1 database every account shares, in one blue
-frame; the account store is one Durable Object per account, drawn as a stack of frames. Each table is a box listing its
-columns (type, key, required) and its indexes (unique, condition); a line goes from a column to the table it points at,
-saying what happens on delete, and a table sits below the tables it points at. CHECK constraints are not drawn. What is
+**Databases** are drawn on [the table pages](#the-table-pages), the register (one D1 database every account shares) and the account store
+(one Durable Object per account) apart. Each table is a box listing its columns (type, key, required) and its indexes
+(unique, condition); a line goes from a column to the table it points at. CHECK constraints are not drawn. What is
 no longer used is drawn red and struck through, with why as its tooltip:
 
 | Evidence | Said as |
@@ -127,7 +125,7 @@ What the schema writes down as no longer used, with its reason, is `NO_LONGER_US
 `apps/api/src/accounts/schema.ts`, for what code still names, such as a column written on every insert; the same test
 fails on a name in it that the store no longer has.
 
-**Deployment** shows:
+**Deployment** is the drawing at the top of Cockpit's Deployment tab (`service-cockpit-deployment.html`), above its columns. It shows:
 
 - **Every environment `apps/api/wrangler.jsonc` declares**, with each resource it binds under its own
   name: D1 database, Durable Object, R2 bucket, KV namespace, queue (producer and consumer), static
@@ -145,9 +143,9 @@ fails on a name in it that the store no longer has.
 
 Every page names the commit and the date of that commit it was drawn from.
 
-**Each diagram opens full size.** Clicking Context, Modules, the register, the account store or Deployment opens
-`context.html`, `modules.html`, `register.html`, `account-store.html` or `deployment.html`, written beside the page, in a new tab: the same drawing at its natural size in a box that scrolls
-both ways, with the report's styles and a link back. The page keeps each fit to the column and carries no script.
+**The Modules page** is `modules.html`, with the Modules and Dependencies tabs above, each area's box marked ↗ to its folder on GitHub. The Modules
+diagram is drawn at its natural size in a box that scrolls both ways. The services page and the front page link to it. A run writes
+no `index.html`, `context.html`, `register.html`, `account-store.html` or `deployment.html`, so `/architecture/` is not a page. A report whose description file has no `serviceMap` has no front page: its trail starts at the Modules page, which then carries What changed.
 
 ## The table pages
 
@@ -254,8 +252,7 @@ local run); without it, or without a commit, it links nothing.
 
 ## The services view
 
-`services-design.html` (the services page's Design tab; `services.html` is its Logical tab) is linked from the report's header and is the way into every other page of this view. Pages are written beside
-the report; every crumb trail starts "Architecture › Services". It is built from two sections of `description.yml`, written by
+`services-design.html` (the services page's Design tab; `services.html` is its Logical tab) is the report's front page and the way into every other page of this view. Every crumb trail starts at "Architecture", which is that page. It is built from two sections of `description.yml`, written by
 hand, from `docs/architecture.yml` and from what the model already holds. The services in `serviceMap.services` are the services of the rules file, a call from one service to another in `serviceMap.calls` is one of its `between services` rules and the reverse, and the folders a service owns (`serviceMap.owns`) are its `code`; `description.yml` keeps the packages it is imported by.
 
 **The services page** draws Cockpit and the Harness Monitor as boxes, who uses them (`serviceMap.clients`), the lines between
@@ -270,20 +267,20 @@ on its own page (an accepted line is not one), links to that table, and is absen
 
 **Design, Logical and Deployment** switch on Cockpit, the Monitor and the widget. A Deployment tab is one column per environment
 (runs on, shipped by with the workflow linked, settings, secrets by name, storage, queues, other bindings). It comes from the
-`deployments` section: a Worker names its `config`, read exactly as the report's Deployment view reads Cockpit's (so each
+`deployments` section: a Worker names its `config`, read exactly as Cockpit's deployment drawing reads it (so each
 environment `apps/api/wrangler.jsonc` or the Monitor's config declares is a column, and the cron and assets are inherited
 the same way), and the file declaring its bindings, from which the names of secrets are read. A secret is only ever a name: a
 setting named like one (`SECRET`, `TOKEN`, `KEY`, `SID`, `PASSWORD`) shows `(set)` where its value would be. What ships an environment is
-what the report reads the workflows as deploying it, unless `shippedBy` names the workflows. A service that is not a Worker
+what the generator reads the workflows as deploying it, unless `shippedBy` names the workflows. A service that is not a Worker
 (the widget) lists its environments by hand, with the workflow that ships each, or the words when none does. Cockpit's tab also
-carries the report's own deployment drawing.
+carries the deployment drawing (see Deployment above).
 
-**The report credits `deploy-harness-monitor.yml` with deploying Cockpit's production**, because the workflow runs
+**The generator credits `deploy-harness-monitor.yml` with deploying Cockpit's production**, because the workflow runs
 `wrangler deploy` with no environment, which the reading takes as the top level of Cockpit's config. Cockpit's Deployment tab
-shows it as the report does. The Monitor's own tab names its workflow with `shippedBy`.
+shows it as the drawing does. The Monitor's own tab names its workflow with `shippedBy`.
 
 **Layer pages**: a design layer with an `href` (and no stores) is a page of its own, titled by a link in Cockpit's diagram. Its
-Modules tab is the Modules view cut to the folders the layer's components name, each box marked ↗ to its folder on GitHub, and its
+Modules tab is `modules.html`'s Modules diagram cut to the folders the layer's components name, each box marked ↗ to its folder on GitHub, and its
 Dependencies tab the same cut as a matrix; an import out of the layer is on neither. A layer holding stores is a page of
 cards instead, one per store with who uses it, a database's card opening its table page. A store with an `href` opens its table page from the diagram.
 
@@ -293,10 +290,10 @@ when it starts with `apps/`, `packages/`, `tools/`, `scripts/`, `docs/` or `.git
 ## Reading it without running it
 
 The `Architecture` job of [`.github/workflows/nightly.yml`](../../.github/workflows/nightly.yml) builds it
-once a night, and by hand from the Actions tab when a night was missed. It uploads the page and
+once a night, and by hand from the Actions tab when a night was missed. It uploads the pages and
 `model.json` as the `architecture-report` artifact, and that same run's `Publish` job takes it live at
-**<https://michaelvanhoutte.github.io/cockpit/architecture/>**, the one report that stays on GitHub
-Pages; the others are pages of the Harness Monitor, which the page links when given its address
+**<https://michaelvanhoutte.github.io/cockpit/architecture/services-design.html>**, the one report that stays on GitHub
+Pages; the others are pages of the Harness Monitor, which the front page links when given its address
 (`--monitor`, from the repository variable `HARNESS_MONITOR_URL`). A missing artifact costs this page
 and never the redirects beside it.
 
@@ -308,14 +305,15 @@ costs the What changed section, never the night.
 ## Running it
 
 ```bash
-pnpm architecture                          # from the repo root — writes tools/architecture/out/index.html
-pnpm --filter @cockpit/architecture model  # the model instead, at out/model.json
+pnpm architecture                          # from the repo root — writes the pages and model.json into tools/architecture/out/
+pnpm --filter @cockpit/architecture model  # the model alone, at out/model.json
 ```
 
 ```bash
 cd tools/architecture
 node src/cli.js                            # the repository this tool is in
-node src/cli.js --model out/model.json     # writes the page and, beside it, the model
+node src/cli.js --out /tmp/report          # a folder of your choice instead of out/; the model is always in it as model.json
+node src/cli.js --model somewhere/model.json   # also writes the model to this path
 node src/cli.js --monitor https://monitor.example   # links the harness reports at the Monitor's pages
 node src/cli.js --root ../other-checkout   # a different checkout
 node src/cli.js --previous https://michaelvanhoutte.github.io/cockpit/architecture/model.json   # What changed against the live report
@@ -324,13 +322,13 @@ node src/cli.js --help
 
 **A file it cannot read fails the run**: a Worker config that is not JSONC, a workflow or the description
 file that is not YAML (or is missing what it must hold), a schema file that is not JSON or holds no list of databases, or a file that is missing exits non-zero and writes no page and no model, so the
-previous report stays live. Nothing is written until all are built. `--json` writes the model alone.
+previous report stays live. Nothing is written until all are built. `--json` writes the model alone, as `model.json` in the folder.
 
 ## How a page gets built
 
 ```
-readCheckout(root)  →  buildModel(...)  →  compareWithPrevious(...)  →  renderHtml(model, { comparison })  →  out/index.html
-   (src/read.js)        (src/model.js)       (src/compare.js, src/diff.js)   (src/render/)                  (out/model.json)
+readCheckout(root)  →  buildModel(...)  →  compareWithPrevious(...)  →  the pages (model, { comparison })  →  out/*.html
+   (src/read.js)        (src/model.js)       (src/compare.js, src/diff.js)   (src/render/)                       (out/model.json)
 ```
 
 `read.js` is the only file that touches the checkout, git, the previous model and the earlier commit's checkout; `diff.js` is a pure function of two models; `model.js` (with `description.js`,
@@ -339,6 +337,6 @@ is told; `render/` draws what it is handed.
 
 ## Tests
 
-`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Context, Modules, Dependencies, Databases and table-page views and the page under `tests/unit/`,
+`pnpm --filter @cockpit/architecture test` runs both tiers: the model, the Modules, Dependencies, table-page and services views and the front page under `tests/unit/`,
 and the CLI over a fixture repository and over this repository's own checkout, with the workflow wiring
 read from `nightly.yml` and `publish.yml` and the areas found by the file's rules, under `tests/integration/`.

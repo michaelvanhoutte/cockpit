@@ -69,12 +69,15 @@ const published = (commit) => {
   return file;
 };
 
-/** Runs the CLI over `root` and gives back the What changed section of its page, as text. */
+/**
+ * Runs the CLI over `root` and gives back the What changed section of its front page, as text. A fixture whose
+ * description has no services map has no front page, so the section is on its Modules page.
+ */
 async function whatChanged(root, previous) {
-  const out = path.join(tmp(), 'index.html');
+  const out = tmp();
   const code = await main(['--root', root, '--out', out, ...(previous ? ['--previous', previous] : [])]);
   expect(code).toBe(0);
-  return readFileSync(out, 'utf8')
+  return readFileSync(path.join(out, 'modules.html'), 'utf8')
     .match(/<section id="changes">([\s\S]*?)<\/section>/)[1]
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ');

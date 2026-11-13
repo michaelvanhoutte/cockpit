@@ -10,15 +10,15 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { renderDependencies } from './dependencies.js';
+import { changesSection, NO_COMPARISON } from './changes.js';
+import { cycleSummary, orderNote, renderDependencies } from './dependencies.js';
 import { renderDiagram } from './diagram.js';
-import { atNaturalSize } from './html.js';
 import { commitLineOf, linkPaths, linksFor } from './links.js';
 import { deploymentFile, designFile, LOGICAL_FILE, NLEGEND, renderNested, servicesOf } from './logical.js';
 import { renderModules } from './modules.js';
 import { isOpened } from './parts.js';
-import { crumbTrail, prose, SERVICES_DESIGN_FILE, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
-import { esc } from './svg.js';
+import { crumbTrail, MODULES_FILE, prose, SERVICES_DESIGN_FILE, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
+import { atNaturalSize, esc } from './svg.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -119,7 +119,7 @@ function servicesPage(model) {
     title: 'Services',
     crumbs: [SERVICES_TRAIL[0], ['Services']],
     tabs: [['Design', SERVICES_DESIGN_FILE, false], ['Logical', SERVICES_FILE, true]],
-    standfirst: 'What deploys on its own, who uses it, and how the services reach each other. Click a service for its layers.',
+    standfirst: `What deploys on its own, who uses it, and how the services reach each other. Click a service for its layers, or open <a href="${MODULES_FILE}">Modules</a> for every area of the web app, the API and the packages.`,
     focus: drawing.focus,
     body: `${NLEGEND}<div class="diagram">${drawing.svg}</div>
 <h2 id="cross">Between services</h2><p class="sectionnote">The design: a service reaches another only through its API, never by importing its code or using its store.</p>
@@ -153,7 +153,7 @@ function deploymentPage(model, service, deployment) {
   const links = linksFor(model.drawnFrom);
   const opened = isOpened(service.logical);
   const trail = [...trailOf(model), ...(opened ? [['Cockpit', designFile(LOGICAL_FILE)]] : []), [service.name]];
-  // Cockpit's tab opens on the report's own drawing of where it runs, then lists the same environments by column.
+  // Cockpit's tab opens on the drawing of where it runs, then lists the same environments by column.
   const drawing = deployment.service === 'cockpit' ? `<div class="diagram full">${atNaturalSize(renderDiagram(model))}</div>
 <h2>Each environment</h2><p class="sectionnote">One column per environment, read from <code>${esc(deployment.source)}</code>.</p>` : '';
   return page({
@@ -190,7 +190,7 @@ const foldersOf = (layer, model) => {
   return model.dependencies.areas.map((area) => area.path).filter((area) => named.has(area));
 };
 
-const dependenciesFile = (file) => file.replace(/\.html$/, '-dependencies.html');
+export const dependenciesFile = (file) => file.replace(/\.html$/, '-dependencies.html');
 
 function layerPages(model, service) {
   const links = linksFor(model.drawnFrom);
@@ -230,6 +230,57 @@ function layerPages(model, service) {
     });
   }
   return pages;
+}
+
+// ---- the whole app's Modules page
+
+export const MODULES_DEPENDENCIES_FILE = dependenciesFile(MODULES_FILE);
+
+function modulesNote(model) {
+  const { counts, connectors } = model.modules;
+  const fileCount = counts.connectorFilesInCore;
+  return `<p class="sectionnote">Every area of the web app, the API and the packages, each on the row below everything that imports it, and a box per connector the description file declares. Only the shortest chain of imports is drawn, each arrow labelled with the files that make it. The marks are shown and nothing fails on them.</p>
+<div class="legend">
+  <span><i class="ln"></i>Imports an area below</span>
+  <span><i class="ln up"></i>An import back up the chain, closing a cycle, with its files; a tie where both halves are the same size</span>
+  <span><i class="ln core"></i>Connector code living in the core: move it into the connector${fileCount ? ` (${plural(fileCount, 'file')})` : ''}</span>
+  <span><i class="sw d-red"></i>A connector with no package of its own, or whose package is gone${connectors.length ? ` (${connectors.filter((each) => !each.package || each.package.state === 'gone').length} of ${connectors.length})` : ''}</span>
+  <span><i class="sw d-red"></i>A connector package importing beyond the SDK${counts.connectorBreaches ? ` (${counts.connectorBreaches})` : ''}</span>
+  <span><i class="sw d-amber"></i>Undescribed${counts.undescribed ? ` (${counts.undescribed})` : ''}</span>
+  <span><i class="sw d-red"></i>Gone: described, not on disk${counts.gone ? ` (${counts.gone})` : ''}</span>
+  <span><i class="sw d-green"></i>Connector package importing only the SDK</span>
+  <span><i class="sw d-worker"></i>Released together, in one deploy</span>
+</div>`;
+}
+
+function dependenciesNote(model) {
+  const mutedAreas = model.dependencies.areas.filter((each) => each.muted);
+  return `<p class="sectionnote">Each cell counts the files in the row's area importing the column's area, in dependency-chain order: each area stands above what it imports. The number beside a row is that area's source lines, tests excluded.</p>
+<div class="legend">
+  <span><i class="sw d-down"></i>Imports an area below</span>
+  <span><i class="sw d-up"></i>Imports an area above, against the order</span>
+  <span><i class="sw d-part"></i>The other half of a cycle</span>${mutedAreas.length ? `
+  <span><i class="sw d-muted"></i>Muted: everything reads ${mutedAreas.map((each) => `<code>${esc(each.name)}</code>`).join(', ')}</span>` : ''}
+</div>
+<p class="sectionnote">${orderNote(model.dependencies)}</p>`;
+}
+
+/**
+ * The whole app's two views, one page each: Modules and Dependencies over every area, each area opening its folder on
+ * GitHub. The Modules diagram is drawn at the size it was drawn, in a box that scrolls both ways. A report with no
+ * services view has no front page, so What changed goes at the foot of this one, where its trail starts.
+ * @param {{ comparison?: object }} [options] what compare.js answered
+ * @returns {Record<string, string>} the file name to the complete HTML document
+ */
+export function renderWholeAppPages(model, { comparison = NO_COMPARISON } = {}) {
+  const links = linksFor(model.drawnFrom);
+  const crumbs = [...trailOf(model)];
+  const tabs = (on) => [['Modules', MODULES_FILE, on === 'Modules'], ['Dependencies', MODULES_DEPENDENCIES_FILE, on === 'Dependencies']];
+  const standfirst = `${plural(model.modules.counts.areas, 'area')} of the web app, the API and the packages. For one service's layers, start from the <a href="${SERVICES_DESIGN_FILE}">services</a>.`;
+  return {
+    [MODULES_FILE]: page({ model, title: 'Modules', crumbs: [...crumbs, ['Modules']], tabs: tabs('Modules'), standfirst, body: `${modulesNote(model)}<div class="diagram full">${atNaturalSize(renderModules(model, { links }))}</div>${model.serviceMap ? '' : changesSection(comparison)}` }),
+    [MODULES_DEPENDENCIES_FILE]: page({ model, title: 'Dependencies', crumbs: [...crumbs, ['Modules', MODULES_FILE], ['Dependencies']], tabs: tabs('Dependencies'), standfirst, body: `${dependenciesNote(model)}<div class="diagram">${renderDependencies(model)}</div><p class="sectionnote">${cycleSummary(model.dependencies)}</p>` }),
+  };
 }
 
 /**

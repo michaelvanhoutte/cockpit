@@ -4,9 +4,9 @@ import { parseDescription } from '../../src/description.js';
 import { ReadError } from '../../src/errors.js';
 import { buildModel } from '../../src/model.js';
 import { crossImports, sharedStores } from '../../src/services.js';
-import { renderHtml } from '../../src/render/html.js';
+import { renderDesignPages, renderServicesDesignPage } from '../../src/render/design.js';
 import { renderLogicalPage, servicesOf } from '../../src/render/logical.js';
-import { renderServicePages } from '../../src/render/services.js';
+import { renderServicePages, renderWholeAppPages } from '../../src/render/services.js';
 import { descriptionFile, readDescription, rulesFile } from '../support/description.js';
 
 const chip = (id, extra = {}) => ({ id, name: id, ...extra });
@@ -202,7 +202,7 @@ describe('A service\'s Deployment tab has one column per environment its config 
     expect(html).toContain('<h2>Each environment</h2>');
   });
 
-  it('opens Cockpit\'s tab on the report\'s own deployment drawing', () => {
+  it('opens Cockpit\'s tab on the drawing of where it runs, then one column per environment', () => {
     const model = modelOf();
     const html = pageOf(model, 'service-cockpit-deployment.html');
     expect(html).toMatch(/<div class="diagram full"><svg viewBox="0 0 [\d.]+ [\d.]+" style="width:[\d.]+px;height:[\d.]+px"/);
@@ -265,7 +265,7 @@ describe('A layer page shows only that layer\'s folders and the imports between 
     expect(html).toContain('<a class="code" href="https://github.com/o/r/tree/abc1234def5678/apps/api/src/accounts" target="_blank" rel="noopener">');
     expect(html.match(/>↗<\/text>/g)).toHaveLength(2);
     expect(html).toContain('<nav class="switch"><span class="on">Modules</span><a href="cockpit-layer-logic-dependencies.html">Dependencies</a></nav>');
-    expect(html).toContain('<a href="services-design.html">Services</a> › <a href="service-cockpit-design.html">Cockpit</a> › Business logic');
+    expect(html).toContain('<a href="services-design.html">Architecture</a> › <a href="service-cockpit-design.html">Cockpit</a> › Business logic');
   });
 
   it('has the same imports as a matrix on its Dependencies tab', () => {
@@ -302,11 +302,11 @@ describe('A layer page shows only that layer\'s folders and the imports between 
   });
 });
 
-describe('The services page is linked from the report, and its crumbs lead back', () => {
-  it('adds one link to the report\'s header, and none where the description has no services map', () => {
+describe('The services page is linked to the Modules page, and its crumbs lead back to the front page', () => {
+  it('links the services page and the front page to the Modules page', () => {
     const model = modelOf();
-    expect(renderHtml(model)).toContain('<span><a href="services-design.html"><b>Services &rarr;</b></a></span>');
-    expect(renderHtml({ ...model, serviceMap: null })).not.toContain('services.html');
+    expect(renderServicePages(model)['services.html']).toContain('<a href="modules.html">Modules</a>');
+    expect(renderServicesDesignPage(model)).toContain('<a href="modules.html"><b>Modules &rarr;</b></a>');
   });
 
   it('draws a box per service, each opening its page, and the lines between them', () => {
@@ -315,7 +315,7 @@ describe('The services page is linked from the report, and its crumbs lead back'
     expect(html).toContain('<a href="service-harness-monitor-design.html"><text class="nb-t link"');
     expect(html).toContain('>its API</text>');
     expect(html).toContain('<a href="cockpit-layer-logic.html">');
-    expect(stripped(html)).toContain('<a href="index.html">Architecture</a> › Services');
+    expect(stripped(html)).toContain('<a href="services-design.html">Architecture</a> › Services');
   });
 
   it('lists what deploys on its own: the workflow, the environments and the stores of each service', () => {
@@ -354,5 +354,120 @@ describe('The services sections of the description file are checked like the res
 
   it('reads both sections as empty when the file has neither', () => {
     expect(read({})).toMatchObject({ deployments: [], serviceMap: null });
+  });
+});
+
+describe('The Modules page shows every area of the web app, the API and the packages, in two tabs', () => {
+  const pages = renderWholeAppPages(modelOf());
+
+  it('writes a page for each tab, each marking itself as the one shown and linking the other', () => {
+    expect(Object.keys(pages)).toEqual(['modules.html', 'modules-dependencies.html']);
+    expect(pages['modules.html']).toContain('<nav class="switch"><span class="on">Modules</span><a href="modules-dependencies.html">Dependencies</a></nav>');
+    expect(pages['modules-dependencies.html']).toContain('<nav class="switch"><a href="modules.html">Modules</a><span class="on">Dependencies</span></nav>');
+  });
+
+  it('draws every area in its layer on the Modules tab, each opening its folder on GitHub', () => {
+    const html = pages['modules.html'];
+    const areas = modelOf().modules.layers.flatMap((layer) => layer.areas).map((each) => each.path);
+    expect(areas.length).toBeGreaterThan(3);
+    for (const area of areas) {
+      expect(html).toContain(`data-area="${area}"`);
+      expect(html).toContain(`href="https://github.com/o/r/tree/abc1234def5678/${area}"`);
+    }
+    expect(html).toMatch(/<div class="diagram full"><svg viewBox="0 0 [\d.]+ [\d.]+" style="width:[\d.]+px;height:[\d.]+px"/);
+  });
+
+  it('draws the matrix of every area on the Dependencies tab, with its legend and the cycles under it', () => {
+    const html = pages['modules-dependencies.html'];
+    expect(html).toContain('<table class="dsm"');
+    expect(html).toContain('Imports an area above, against the order');
+    expect(html).toContain('The order is exact');
+    for (const area of modelOf().dependencies.areas) expect(html).toContain(`<span>${area.name}</span>`);
+  });
+
+  it('starts both trails at the front page', () => {
+    expect(stripped(pages['modules.html'])).toContain('<a href="services-design.html">Architecture</a> › Modules');
+    expect(stripped(pages['modules-dependencies.html'])).toContain('<a href="services-design.html">Architecture</a> › <a href="modules.html">Modules</a> › Dependencies');
+  });
+
+  it('carries What changed itself only when there is no front page to carry it', () => {
+    const bare = renderWholeAppPages({ ...modelOf(), serviceMap: null })['modules.html'];
+    expect(pages['modules.html']).not.toContain('id="changes"');
+    expect(bare).toContain('id="changes"');
+    expect(stripped(bare)).toContain('<a href="modules.html">Architecture</a>');
+  });
+});
+
+describe('What changed sits at the foot of the front page', () => {
+  const model = modelOf();
+  const from = { commit: 'a'.repeat(40), date: '2026-10-06T10:00:00+02:00', repo: null };
+  const compared = (changes, extra = {}) => ({ state: 'compared', from, to: model.drawnFrom, changes, descriptionFromElsewhere: false, ...extra });
+  const page = (comparison) => renderServicesDesignPage(model, { comparison });
+  const section = (comparison) => page(comparison).match(/<section id="changes">([\s\S]*?)<\/section>/)[1];
+
+  it('comes after the rules, the last thing before the footer', () => {
+    const html = page(compared([]));
+    expect(html.indexOf('id="changes"')).toBeGreaterThan(html.indexOf('What each service may call'));
+    expect(html.indexOf('id="changes"')).toBeLessThan(html.indexOf('<footer>'));
+    expect(html).toContain('<a href="model.json">model.json</a>');
+  });
+
+  it('is on the front page alone', () => {
+    const pages = renderDesignPages(model, { comparison: compared([]) });
+    expect(Object.entries(pages).filter(([, html]) => html.includes('id="changes"')).map(([file]) => file)).toEqual(['services-design.html']);
+  });
+
+  it('lists each change with where and a flag, naming both commits', () => {
+    const text = section(compared([{ type: 'Mark', change: 'added', text: 'web names Gmail', where: ['apps/web/src/a.ts'], flag: { label: 'new source mark', tone: 'call' } }]));
+    expect(text).toContain('aaaaaaa');
+    expect(text).toContain('abc1234');
+    expect(text).toContain('web names Gmail');
+    expect(text).toContain('<code>apps/web/src/a.ts</code>');
+    expect(text).toContain('<span class="pill p-hand">new source mark</span>');
+  });
+
+  it('dates each commit compared by the Belgian day, whatever offset its committer wrote it in', () => {
+    expect(section(compared([], { from: { ...from, date: '2026-10-22T00:30:00+05:30' } }))).toContain('(21 Oct 2026)');
+  });
+
+  it('says when the earlier commit was drawn with this one’s description file', () => {
+    expect(section(compared([], { descriptionFromElsewhere: true }))).toContain('has no description file');
+  });
+
+  it.each([
+    { situation: 'nothing differs', comparison: compared([]), says: 'Nothing changed.' },
+    { situation: 'there is no live report yet', comparison: { state: 'first' }, says: 'This is the first report' },
+    { situation: 'the live model could not be read', comparison: { state: 'unavailable', reason: 'the previous model is not valid JSON' }, says: 'There is nothing to compare: the previous model is not valid JSON.' },
+    { situation: 'no comparison was asked for', comparison: undefined, says: 'There is nothing to compare' },
+  ])('says so, and lists nothing, when $situation', ({ comparison, says }) => {
+    const text = section(comparison);
+    expect(text).toContain(says);
+    expect(text).not.toContain('<table');
+  });
+});
+
+describe('The front page links the harness reports at the Harness Monitor, given its address', () => {
+  const withMonitor = (monitor) => renderServicesDesignPage(modelOf(), { monitor });
+
+  it.each([
+    { situation: 'an address', monitor: 'https://monitor.test', links: ['https://monitor.test/tests', 'https://monitor.test/stability', 'https://monitor.test/cycle-time', 'https://monitor.test/selection'] },
+    { situation: 'an address with a trailing slash', monitor: 'https://monitor.test/', links: ['https://monitor.test/tests', 'https://monitor.test/cycle-time'] },
+  ])('links the four pages from $situation', ({ monitor, links }) => {
+    for (const link of links) expect(withMonitor(monitor)).toContain(`href="${link}"`);
+  });
+
+  it.each([
+    { situation: 'no address', monitor: undefined },
+    { situation: 'the repository variable unset', monitor: '' },
+    { situation: 'something that is not a web address', monitor: 'javascript:alert(1)' },
+    { situation: 'an http address, which publish.yml writes no redirects for either', monitor: 'http://monitor.test' },
+  ])('links none of them with $situation', ({ monitor }) => {
+    expect(withMonitor(monitor)).not.toContain('CI stability');
+  });
+
+  it('names the commit it was drawn from, linked to it', () => {
+    const html = renderServicesDesignPage(modelOf());
+    expect(html).toContain('https://github.com/o/r/tree/abc1234def5678');
+    expect(html).toContain('<b>abc1234</b>');
   });
 });

@@ -12,10 +12,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { changesSection, NO_COMPARISON } from './changes.js';
 import { designFile, LOGICAL_FILE, renderNested, serviceTabs, servicesOf, specOf } from './logical.js';
-import { linkPaths, linksFor } from './links.js';
+import { commitLineOf, linkPaths, linksFor } from './links.js';
 import { servicesSpec } from './services.js';
-import { crumbTrail, prose, SERVICES_DESIGN_FILE, SERVICES_TRAIL, switchNav, trailOf } from './shell.js';
+import { crumbTrail, MODULES_FILE, prose, SERVICES_DESIGN_FILE, switchNav, trailOf } from './shell.js';
 import { isOpened } from './parts.js';
 import { esc } from './svg.js';
 
@@ -86,7 +87,7 @@ ul.plain { padding-left: 18px; } ul.plain li { margin: 3px 0; }
 
 const LEGEND = '<div class="legend"><span><i class="ln" style="border-top-width:2px"></i>An allowed call, numbered: its rule and reason are below</span><span><i class="ln" style="border-top-color:var(--accent);border-top-style:dashed"></i>How a caller reaches it</span></div>';
 
-function page({ model, title, crumbs, tabs, standfirst, body, focus = '' }) {
+function page({ model, title, crumbs, tabs, standfirst, body, focus = '', runmeta = '' }) {
   const links = linksFor(model.drawnFrom);
   const styles = `${readFileSync(path.join(here, 'styles.css'), 'utf8')}${readFileSync(path.join(here, 'logical.css'), 'utf8')}${CSS}`;
   return `<!doctype html>
@@ -100,7 +101,7 @@ function page({ model, title, crumbs, tabs, standfirst, body, focus = '' }) {
 </head>
 <body>
 <div class="wrap wide">
-<header class="masthead"><p class="crumbs">${crumbTrail(crumbs)}</p><h1>${esc(title)}</h1>${tabs}<p class="standfirst">${linkPaths(standfirst, links)}</p></header>
+<header class="masthead"><p class="crumbs">${crumbTrail(crumbs)}</p><h1>${esc(title)}</h1>${tabs}<p class="standfirst">${linkPaths(standfirst, links)}</p>${runmeta ? `<div class="runmeta">${runmeta}</div>` : ''}</header>
 ${linkPaths(body, links)}
 </div>
 </body>
@@ -170,8 +171,20 @@ ${unruled ? '' : `<h2>What is not allowed</h2>${notAllowedList(Object.values(bre
   });
 }
 
-/** @returns {string} the services page's Design tab: the services and the calls allowed between them */
-export function renderServicesDesignPage(model) {
+/** The harness reports' pages on the Harness Monitor, as links; none unless the Monitor's address is an https one. */
+function monitorLinks(monitor) {
+  const base = /^https:\/\//.test(monitor) ? monitor.replace(/\/+$/, '') : '';
+  if (!base) return '';
+  return [['tests', 'Test coverage'], ['stability', 'CI stability'], ['cycle-time', 'Cycle time'], ['selection', 'Test selection']]
+    .map(([name, label]) => `<span><a href="${esc(`${base}/${name}`)}"><b>${label} &rarr;</b></a></span>`)
+    .join('');
+}
+
+/**
+ * @param {{ monitor?: string, comparison?: object }} [options] `monitor` is the Harness Monitor's address, which the harness reports' links point at, and without which the page links to none; `comparison` is what compare.js answered, and without one the foot says there is nothing to compare
+ * @returns {string} the report's front page, the services page's Design tab: the services and the calls allowed between them, then What changed since the last report
+ */
+export function renderServicesDesignPage(model, { monitor = '', comparison = NO_COMPARISON } = {}) {
   const links = linksFor(model.drawnFrom);
   const map = model.serviceMap;
   const { rows, side, nameOf, endOf } = servicesSpec(map, { opensOn: designFile, badges: false });
@@ -197,22 +210,25 @@ export function renderServicesDesignPage(model) {
 <h2>What each service may call, and why</h2>${groups}${generalHtml}
 <h2>What is not allowed</h2>${notAllowedList([])}
 <h2>How each caller reaches the services</h2>${callersTable(map.calls.filter((call) => !nameOf.has(call.from)).map((call) => ({ who: who(call.from), at: who(call.to), how: call.how })))}
-<p class="sectionnote">Written by hand in ${links.file('docs/architecture.yml')}. A rule is agreed by a pull request that sets <code>agreed: true</code> on it.</p>`;
+<p class="sectionnote">Written by hand in ${links.file('docs/architecture.yml')}. A rule is agreed by a pull request that sets <code>agreed: true</code> on it.</p>
+${changesSection(comparison)}
+<footer>The model is published beside this page as <a href="model.json">model.json</a>.</footer>`;
   return page({
     model,
     title: 'Services',
-    crumbs: [SERVICES_TRAIL[0], ['Services']],
+    crumbs: [['Architecture']],
     tabs: switchNav([['Design', SERVICES_DESIGN_FILE, true], ['Logical', 'services.html', false]]),
     standfirst: `The services and the calls allowed between them, with nothing from the code. <a href="services.html">Logical</a> shows what the code does. <b class="count">${esc(countLine(rules))}</b>.`,
     body,
     focus: drawing.focus,
+    runmeta: `${commitLineOf(model.drawnFrom, links)}<span><a href="${MODULES_FILE}"><b>Modules &rarr;</b></a></span>${monitorLinks(monitor)}`,
   });
 }
 
 /** @returns {Record<string, string>} the Design tab of every service with a page, and of the services page when the report has one */
-export function renderDesignPages(model) {
+export function renderDesignPages(model, options = {}) {
   return {
-    ...(model.serviceMap ? { [SERVICES_DESIGN_FILE]: renderServicesDesignPage(model) } : {}),
+    ...(model.serviceMap ? { [SERVICES_DESIGN_FILE]: renderServicesDesignPage(model, options) } : {}),
     ...Object.fromEntries(servicesOf(model).map((service) => [designFile(service.file), renderDesignPage(model, service)])),
   };
 }
