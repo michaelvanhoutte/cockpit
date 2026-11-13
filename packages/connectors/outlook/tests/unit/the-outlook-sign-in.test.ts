@@ -46,11 +46,15 @@ describe('Connector management', () => {
       for (const sentence of Object.values(OUTLOOK_REFUSALS)) expect(sentence).toMatch(/nothing was stored/);
     });
 
-    it('offers the flag to start, and the category Cockpit as the other choice', () => {
-      expect(connector.manifest.choice?.options).toEqual([
-        { value: 'flag', label: 'Flagged', listed: 'flagged' },
-        { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
-      ]);
+    it('offers the follow-up flag to start, and the category Cockpit as the other choice, with the line saying importance does not count', () => {
+      expect(connector.manifest.choice).toEqual({
+        question: 'Bring in messages',
+        options: [
+          { value: 'flag', label: 'Flagged for follow-up', listed: 'flagged' },
+          { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
+        ],
+        note: "Importance and other categories don't bring mail in.",
+      });
       expect(connector.manifest).toMatchObject({ pulled: true });
     });
   });

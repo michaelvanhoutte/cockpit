@@ -117,6 +117,8 @@ export const registeredConnectorSchema = z.object({
     .object({
       question: z.string(),
       options: z.object({ value: z.string(), label: z.string() }).array().min(1),
+      /** The line under the options, where the connector gives one (issue 1758). */
+      note: z.string().optional(),
     })
     .optional(),
   /**

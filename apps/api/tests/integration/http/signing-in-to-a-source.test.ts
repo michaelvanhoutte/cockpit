@@ -320,9 +320,10 @@ describe('Connector management', () => {
           choice: {
             question: 'Bring in messages',
             options: [
-              { value: 'flag', label: 'Flagged', listed: 'flagged' },
+              { value: 'flag', label: 'Flagged for follow-up', listed: 'flagged' },
               { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
             ],
+            note: "Importance and other categories don't bring mail in.",
           },
           names: { noun: 'category', example: 'a message with the category' },
           pulled: true,

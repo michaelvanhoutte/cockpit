@@ -39,6 +39,7 @@ function ChoiceQuestion({
         onChange={onChange}
         className="mt-1 flex-wrap"
       />
+      {choice.note && <p className="pt-1.5 text-sm text-ink-faint">{choice.note}</p>}
     </>
   );
 }
