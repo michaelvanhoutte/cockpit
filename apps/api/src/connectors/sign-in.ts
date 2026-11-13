@@ -100,7 +100,9 @@ export function tierAsked(
   attempt: { tier?: number | undefined },
 ): { scopes: string[]; grants: string[] | null } | null {
   if (!auth.tiers) return attempt.tier === undefined ? { scopes: auth.scopes, grants: null } : null;
-  const tier = auth.tiers[attempt.tier ?? 0];
+  // An attempt that names no tier (one begun by an older release) asks and
+  // stores nothing, rather than being read as the broadest.
+  const tier = attempt.tier === undefined ? undefined : auth.tiers[attempt.tier];
   return tier ? { scopes: tier.scopes, grants: tier.grants } : null;
 }
 
@@ -132,8 +134,8 @@ export function adminApprovalNeeded(reply: { error?: string | null | undefined; 
  * stays.
  */
 export function steppedDown<A extends Attempt & { tier?: number }>(auth: OAuthDescriptor, held: A, fresh: Attempt): A | null {
-  if (!auth.tiers) return null;
-  const next = (held.tier ?? 0) + 1;
+  if (!auth.tiers || held.tier === undefined) return null;
+  const next = held.tier + 1;
   if (next >= auth.tiers.length) return null;
   return { ...held, ...fresh, tier: next };
 }

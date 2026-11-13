@@ -2047,7 +2047,7 @@ export const connectorAccounts = sqliteTable(
      * connecting Teams asks for no read permission", issue 1754): the highest
      * tier the person's organisation let through. An empty array is a
      * connection granting nothing beyond who the person is; null is a
-     * connection made before this existed (`0105-connector-accounts-granted`,
+     * connection made before this existed (`0106-connector-accounts-granted`,
      * changes.ts) or one whose connector asks in no tiers, and reads as
      * granting nothing. No CHECK, for the reason `connector_id` has none:
      * which codes exist is the connector's to say. Read with the account's

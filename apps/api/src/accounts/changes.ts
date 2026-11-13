@@ -1711,7 +1711,7 @@ const ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST: Change = {
  *   leaves what was stored, and a release that returns reads it again.
  */
 const CONNECTOR_ACCOUNTS_GRANTED: Change = {
-  name: '0105-connector-accounts-granted',
+  name: '0106-connector-accounts-granted',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `granted` text' }],
 };
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

@@ -1575,7 +1575,9 @@ const routes = app
             const sign = signInOf(c.env, manifest.id);
             return sealable && sign !== null && clientOf(c.env, sign.auth) !== null;
           })
-          .map(({ manifest }) => ({
+          .map(({ manifest }) => {
+            const auth = signInOf(c.env, manifest.id)?.auth;
+            return {
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
@@ -1585,12 +1587,11 @@ const routes = app
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
             ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
-            refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
-            ...(signInOf(c.env, manifest.id)?.auth.permissions?.length
-              ? { permissions: signInOf(c.env, manifest.id)!.auth.permissions!.map((one) => ({ ...one })) }
-              : {}),
+            refusals: auth?.refusals ?? {},
+            ...(auth?.permissions?.length ? { permissions: auth.permissions.map((one) => ({ ...one })) } : {}),
             ...(manifest.auth.kind === 'texted-code' ? { textedCode: { textTo: manifest.auth.textTo } } : {}),
-          })),
+            };
+          }),
       },
       200,
     );

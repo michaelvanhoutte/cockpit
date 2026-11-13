@@ -3165,8 +3165,7 @@ export function replaceDuplicatesOf(
 export function grantedFrom(stored: string | null): string[] | null {
   if (stored === null) return null;
   try {
-    const parsed: unknown = JSON.parse(stored);
-    return Array.isArray(parsed) && parsed.every((code) => typeof code === 'string') ? parsed : null;
+    return z.string().array().safeParse(JSON.parse(stored)).data ?? null;
   } catch {
     return null;
   }

@@ -47,14 +47,14 @@ describe('Connector management', () => {
     });
 
     it.each([
-      { situation: 'starting', tier: undefined, scopes: ['identity', 'a', 'b'], grants: ['a', 'b'] },
+      { situation: 'the first tier', tier: 0, scopes: ['identity', 'a', 'b'], grants: ['a', 'b'] },
       { situation: 'the second tier', tier: 1, scopes: ['identity', 'a'], grants: ['a'] },
       { situation: 'the last tier', tier: 2, scopes: ['identity'], grants: [] },
     ])('asks the scopes and grants of $situation', ({ tier, scopes, grants }) => {
       expect(tierAsked(TIERED, { tier })).toEqual({ scopes, grants });
     });
 
-    it.each([{ tier: 3 }, { tier: 9 }])('asks nothing for tier $tier, which the description does not have', ({ tier }) => {
+    it.each([{ tier: undefined }, { tier: 3 }, { tier: 9 }])('asks nothing for tier $tier, which the description does not have, or names none', ({ tier }) => {
       expect(tierAsked(TIERED, { tier })).toBeNull();
     });
 
@@ -76,6 +76,7 @@ describe('Connector management', () => {
     it.each([
       { situation: 'the last tier', held: { tier: 2 }, auth: TIERED },
       { situation: 'a source that asks in no tiers', held: {}, auth: PLAIN },
+      { situation: 'an attempt naming no tier on a source that asks in tiers', held: {}, auth: TIERED },
     ])('has nothing to step to from $situation', ({ held, auth }) => {
       expect(steppedDown(auth, { ...newAttempt(), ...held }, newAttempt())).toBeNull();
     });

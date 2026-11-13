@@ -2010,7 +2010,7 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: { lines: [], olderRemain: false } });
       expect(await rowsIn()).toEqual({
-        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, `due_in_days` none, which `0091-due-in-days` does, and `granted` none, which `0105-connector-accounts-granted` does.
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, `due_in_days` none, which `0091-due-in-days` does, and `granted` none, which `0106-connector-accounts-granted` does.
         connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null, granted: null })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
@@ -2189,7 +2189,7 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0105-connector-accounts-granted` add on the same open.
+    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
@@ -2283,7 +2283,7 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0105-connector-accounts-granted` add on the same open.
+    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
@@ -3746,7 +3746,7 @@ describe('Triage', () => {
  */
 /**
  * The rows of an account kept before `0103-connection-history-started-at`, as the same open leaves them: each line with no start, and (with
- * `0105-connector-accounts-granted`) each connection granting none.
+ * `0106-connector-accounts-granted`) each connection granting none.
  */
 const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
   ...kept,

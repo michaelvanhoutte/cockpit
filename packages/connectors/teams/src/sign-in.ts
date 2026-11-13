@@ -36,11 +36,11 @@ export function teamsSignIn(issuer: string = MICROSOFT_ISSUER): OAuthDescriptor 
   return {
     kind: 'oauth2',
     endpoints: { issuer },
-    scopes: IDENTITY,
+    scopes: [...IDENTITY],
     tiers: [
       { scopes: [...IDENTITY, 'offline_access', 'Chat.Read', 'ChannelMessage.Read.All'], grants: ['chats', 'channels'] },
       { scopes: [...IDENTITY, 'offline_access', 'Chat.Read'], grants: ['chats'] },
-      { scopes: IDENTITY, grants: [] },
+      { scopes: [...IDENTITY], grants: [] },
     ],
     permissions: [...TEAMS_PERMISSIONS],
     clientSettings: { id: 'MS_CLIENT_ID', secret: 'MS_CLIENT_SECRET' },
