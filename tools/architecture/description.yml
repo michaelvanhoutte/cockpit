@@ -1,5 +1,5 @@
 # What the architecture report cannot read from the code: each area's wording,
-# where it sits on the Modules page, who uses Cockpit and what it talks to, how the design is drawn,
+# where it sits on the Modules page, how the design is drawn,
 # and the rules the marks come from. The design itself is docs/architecture.yml. tools/architecture/README.md says how it is read.
 
 # Where to look for areas. `one` is a folder drawn as a single area; `folders`
@@ -56,6 +56,9 @@ connectorRule:
 readByEveryone:
   - apps/api/src/*
 
+# Who uses Cockpit and the outside services it depends on. No page draws it since the
+# Context view went; it stays because the model, which What changed compares night to
+# night, still carries it.
 context:
   cockpit:
     name: Cockpit

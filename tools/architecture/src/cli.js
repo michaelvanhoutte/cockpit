@@ -44,6 +44,8 @@ export function parseArgs(argv) {
     else if (arg === '--out' || arg === '--root' || arg === '--model' || arg === '--previous') {
       const next = value();
       if (!next || next.startsWith('--')) args.invalid ??= `${arg} needs a path`;
+      // --out was once the page itself: a file name there would quietly become a folder of that name.
+      else if (arg === '--out' && /\.(html|json)$/i.test(next)) args.invalid ??= `--out is the folder the pages go in, not a file: ${next}`;
       else args[arg.slice(2)] = next;
     } else args.unknown ??= arg;
   }

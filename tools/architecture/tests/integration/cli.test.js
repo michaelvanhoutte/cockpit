@@ -129,6 +129,23 @@ describe('A flag that needs a path and is given none is refused', () => {
   it.each([['--out'], ['--root', '--json'], ['--model']])('exits 2 for %s', async (...argv) => {
     expect(await main(argv)).toBe(2);
   });
+
+  it.each([['out/index.html'], ['out/model.json']])('exits 2 for --out naming a file, %s, rather than writing a folder of that name', async (file) => {
+    expect(await main(['--out', path.join(tmp(), file)])).toBe(2);
+  });
+});
+
+describe('What changed', () => {
+  it('reaches the front page from the comparison the run made', async () => {
+    const out = tmp();
+    const missing = path.join(out, 'no-such-model.json');
+    expect(await main(['--root', checkout, '--out', out, '--previous', missing])).toBe(0);
+    const front = readFileSync(path.join(out, 'services-design.html'), 'utf8');
+    // A previous model that is not there yet is the first report: wording only the run's own comparison gives,
+    // where a front page handed no comparison would say none was given.
+    expect(front).toContain('<section id="changes">');
+    expect(front).toContain('This is the first report, so there is nothing to compare it with.');
+  }, REAL_DRAW_TIMEOUT);
 });
 
 describe('This repository\'s own config and workflows draw without error', () => {

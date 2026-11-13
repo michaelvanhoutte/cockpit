@@ -276,7 +276,7 @@ export function renderWholeAppPages(model, { comparison = NO_COMPARISON } = {}) 
   const links = linksFor(model.drawnFrom);
   const crumbs = [...trailOf(model)];
   const tabs = (on) => [['Modules', MODULES_FILE, on === 'Modules'], ['Dependencies', MODULES_DEPENDENCIES_FILE, on === 'Dependencies']];
-  const standfirst = `${plural(model.modules.counts.areas, 'area')} of the web app, the API and the packages. For one service's layers, start from the <a href="${SERVICES_DESIGN_FILE}">services</a>.`;
+  const standfirst = `${plural(model.modules.counts.areas, 'area')} of the web app, the API and the packages.${model.serviceMap ? ` For one service's layers, start from the <a href="${SERVICES_DESIGN_FILE}">services</a>.` : ''}`;
   return {
     [MODULES_FILE]: page({ model, title: 'Modules', crumbs: [...crumbs, ['Modules']], tabs: tabs('Modules'), standfirst, body: `${modulesNote(model)}<div class="diagram full">${atNaturalSize(renderModules(model, { links }))}</div>${model.serviceMap ? '' : changesSection(comparison)}` }),
     [MODULES_DEPENDENCIES_FILE]: page({ model, title: 'Dependencies', crumbs: [...crumbs, ['Modules', MODULES_FILE], ['Dependencies']], tabs: tabs('Dependencies'), standfirst, body: `${dependenciesNote(model)}<div class="diagram">${renderDependencies(model)}</div><p class="sectionnote">${cycleSummary(model.dependencies)}</p>` }),
