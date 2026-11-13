@@ -31,7 +31,8 @@ const test = base.extend<{ deployed: Deployments }>({
   },
 });
 
-const MESSAGE = { name: 'A new version of Cockpit is out' };
+/** The card at a desk, the bar along the top on a phone (below 768px): same dialog, its own words. */
+const messageFor = (isMobile: boolean) => ({ name: isMobile ? 'New version of Cockpit' : 'A new version of Cockpit is out' });
 
 /** Opens the deployed version and reloads once, so this tab is held by its worker: a page that loaded before its worker was active is not. */
 async function open(page: Page, deployed: Deployments): Promise<void> {
@@ -74,23 +75,40 @@ function pageAsks(page: Page, path: string): Promise<number> {
 
 test.describe('Updating', () => {
   test.describe('a tab open across a deploy keeps working on its own version until the click', () => {
-    test('says a new version is out, once', async ({ page, deployed }) => {
+    test('says a new version is out, once', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
       deployed.deploy();
 
       await comeBackIntoView(page);
 
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
       expect(await buildOf(page)).toBe(deployed.entryOf(1));
     });
 
-    test('still gets a file of its own version that the server no longer has', async ({ page, deployed }) => {
+    test('shows the message as a bar along the top of a phone, and a card at the foot of a desk', async ({ page, deployed, isMobile }) => {
+      await open(page, deployed);
+      deployed.deploy();
+
+      await comeBackIntoView(page);
+
+      const box = await page.getByRole('alertdialog', messageFor(isMobile)).boundingBox();
+      const height = page.viewportSize()?.height ?? 0;
+      expect(box).not.toBeNull();
+      if (isMobile) {
+        expect(box!.y).toBeLessThan(8);
+        expect(box!.height).toBeLessThan(height / 6);
+      } else {
+        expect(box!.y + box!.height).toBeGreaterThan(height / 2);
+      }
+    });
+
+    test('still gets a file of its own version that the server no longer has', async ({ page, deployed, isMobile }) => {
       const file = deployed.aFileOf(1);
       await open(page, deployed);
       deployed.deploy();
       await comeBackIntoView(page);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toBeVisible();
 
       expect(await serverSays(deployed, file)).toBe(404);
       expect(await pageAsks(page, file)).toBe(200);
@@ -98,7 +116,7 @@ test.describe('Updating', () => {
   });
 
   test.describe('Continue loads the deployed version, and a plain reload stays on it', () => {
-    test('runs the new build after Continue', async ({ page, deployed }) => {
+    test('runs the new build after Continue', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
       const next = deployed.deploy();
       await comeBackIntoView(page);
@@ -110,10 +128,10 @@ test.describe('Updating', () => {
         deployed.entryOf(next),
       );
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(0);
     });
 
-    test('opens Cockpit on the new build with no message after a plain reload', async ({ page, deployed }) => {
+    test('opens Cockpit on the new build with no message after a plain reload', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
       const next = deployed.deploy();
       await comeBackIntoView(page);
@@ -128,35 +146,36 @@ test.describe('Updating', () => {
       expect(await buildOf(page)).toBe(deployed.entryOf(next));
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(page.locator('#root > *')).not.toHaveCount(0);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(0);
     });
   });
 
   test.describe('however many versions have stacked up, there is one message and Continue loads the latest', () => {
-    test('lands on the newest when a version waits from an earlier visit and a newer one was deployed since', async ({ page, deployed }) => {
+    test('lands on the newest when a version waits from an earlier visit and a newer one was deployed since', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
       deployed.deploy();
       await comeBackIntoView(page);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toBeVisible();
       const newest = deployed.deploy();
 
       await page.reload();
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
+      // Before the app opens the message is the full-screen card at every width.
+      await expect(page.getByRole('alertdialog', messageFor(false))).toHaveCount(1);
       await page.getByRole('button', { name: 'Continue' }).click();
 
       await onBuild(page, deployed.entryOf(newest));
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(page.locator('#root > *')).not.toHaveCount(0);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(0);
     });
   });
 
   test.describe('a plain reload always loads Cockpit', () => {
-    test('loads the newest after Continue while that version was still downloading', async ({ page, deployed }) => {
+    test('loads the newest after Continue while that version was still downloading', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
       deployed.deploy();
       await comeBackIntoView(page);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toBeVisible();
       const newest = deployed.deploy();
       const download = deployed.hold();
       await comeBackIntoView(page);
@@ -167,7 +186,8 @@ test.describe('Updating', () => {
       download.release();
       await reloaded;
       // Whichever version the click loaded, a second message is answered the same way.
-      const message = page.getByRole('alertdialog', MESSAGE);
+      // Either the full-screen card (found at opening) or, on a phone, the bar (found once open).
+      const message = page.getByRole('alertdialog', { name: /^(A new version of Cockpit is out|New version of Cockpit)$/ });
       await Promise.race([onBuild(page, deployed.entryOf(newest)), message.waitFor()]);
       if (await message.isVisible()) await page.getByRole('button', { name: 'Continue' }).click();
       await onBuild(page, deployed.entryOf(newest));
@@ -197,7 +217,7 @@ test.describe('Updating', () => {
   });
 
   test.describe('opening with nothing new shows no message', () => {
-    test('opens the app when no deploy has landed since the last visit', async ({ page, deployed }) => {
+    test('opens the app when no deploy has landed since the last visit', async ({ page, deployed, isMobile }) => {
       await open(page, deployed);
 
       await page.reload();
@@ -205,21 +225,21 @@ test.describe('Updating', () => {
       // Past the opening check, which holds the window empty until it has an answer.
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(page.locator('#root > *')).not.toHaveCount(0);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toHaveCount(0);
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(0);
       expect(await buildOf(page)).toBe(deployed.entryOf(1));
     });
   });
 
   test.describe("another tab's click reaches this tab", () => {
-    test('shows the message in the tab that did not click', async ({ page, context, deployed }) => {
+    test('shows the message in the tab that did not click', async ({ page, context, deployed, isMobile }) => {
       await open(page, deployed);
       const other = await context.newPage();
       await open(other, deployed);
       const next = deployed.deploy();
       await comeBackIntoView(page);
       await comeBackIntoView(other);
-      await expect(page.getByRole('alertdialog', MESSAGE)).toBeVisible();
-      await expect(other.getByRole('alertdialog', MESSAGE)).toBeVisible();
+      await expect(page.getByRole('alertdialog', messageFor(isMobile))).toBeVisible();
+      await expect(other.getByRole('alertdialog', messageFor(isMobile))).toBeVisible();
 
       await page.getByRole('button', { name: 'Continue' }).click();
       await page.waitForFunction(
@@ -227,7 +247,7 @@ test.describe('Updating', () => {
         deployed.entryOf(next),
       );
 
-      await expect(other.getByRole('alertdialog', MESSAGE)).toHaveCount(1);
+      await expect(other.getByRole('alertdialog', messageFor(isMobile))).toHaveCount(1);
       expect(await buildOf(other)).toBe(deployed.entryOf(1));
       // Not asserted, because it does not hold: the click activates the new
       // worker, which clears the old version's files from the shared precache, so

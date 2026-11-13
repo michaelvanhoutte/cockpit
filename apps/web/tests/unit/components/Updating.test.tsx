@@ -507,6 +507,83 @@ describe('a new version is announced, and loaded on a click', () => {
     });
   });
 
+  describe('on a phone, a new version found after opening is a bar at the top', () => {
+    const wide = window.innerWidth;
+    const atWidth = (width: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    afterEach(() => atWidth(wide));
+
+    const bar = () => screen.findByRole('alertdialog', { name: 'New version of Cockpit' });
+
+    it('is a slim bar with Continue and no dimmed backdrop at phone width', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      const { container } = opened(worker);
+      await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      expect(await bar()).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+      expect(screen.queryByText(/Save what you are writing/)).not.toBeInTheDocument();
+      expect(container.ownerDocument.querySelector('.bg-ground\\/60')).toBeNull();
+    });
+
+    it('is the card at the foot over a dimmed backdrop at desk width', async () => {
+      atWidth(1280);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      opened(worker);
+      await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      expect(await screen.findByRole('alertdialog', { name: 'A new version of Cockpit is out' })).toBeVisible();
+      expect(screen.getByText(/Save what you are writing/)).toBeVisible();
+      expect(document.querySelector('.bg-ground\\/60')).not.toBeNull();
+    });
+
+    it('lets the field being typed in keep focus and take the keystrokes', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      opened(worker);
+      const field = await screen.findByLabelText('Description');
+      await userEvent.click(field);
+      worker.takenOverByAnotherTab();
+      await bar();
+
+      await userEvent.keyboard('still typing');
+
+      expect(field).toHaveFocus();
+      expect(field).toHaveValue('still typing');
+      // Only the bar takes pointer events; what holds it is let through.
+      expect(document.querySelector('.fixed.pointer-events-none')).not.toBeNull();
+    });
+
+    it('says it could not load the new version in the bar, and the app still works', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      worker.activate.mockResolvedValueOnce(false);
+      opened(worker);
+      const field = await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      const failure = await screen.findByText('Could not load the new version. Try again.');
+      expect(failure).toBeVisible();
+      expect(await bar()).toContainElement(failure);
+      await userEvent.type(field, 'ok');
+      expect(field).toHaveValue('ok');
+    });
+
+    it('keeps the full-screen card, not the bar, when opening with a version waiting', async () => {
+      atWidth(480);
+      opened(aWorker({ waiting: true }));
+
+      expect(await screen.findByRole('alertdialog', { name: 'A new version of Cockpit is out' })).toBeVisible();
+      expect(screen.queryByRole('alertdialog', { name: 'New version of Cockpit' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Description')).not.toBeInTheDocument();
+    });
+  });
+
   describe('the opening check is bounded', () => {
     // The decision is a function of the worker's answer and the clock, so the
     // clock is faked rather than waited for.
