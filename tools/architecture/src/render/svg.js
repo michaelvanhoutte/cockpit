@@ -45,3 +45,10 @@ export function wrap(text, width, perChar = SANS) {
   if (line) lines.push(line);
   return lines.length > 0 ? lines : [''];
 }
+
+/** A drawing at the size it was drawn: the width and height its own viewBox gives, for a box that scrolls. */
+export function atNaturalSize(svg) {
+  const match = svg.match(/^<svg viewBox="0 0 ([\d.]+) ([\d.]+)" style="[^"]*"/);
+  if (!match) throw new Error('a diagram did not start with a sized <svg>');
+  return svg.replace(match[0], `<svg viewBox="0 0 ${match[1]} ${match[2]}" style="width:${match[1]}px;height:${match[2]}px"`);
+}

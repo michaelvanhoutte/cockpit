@@ -24,6 +24,13 @@ export function nothingToCompare(comparison) {
   return `There is nothing to compare: ${comparison.reason}.`;
 }
 
+/** What the page says when it was given no comparison. */
+export const NO_COMPARISON = { state: 'unavailable', reason: 'no earlier report was given to compare against' };
+
+/** The section: its heading and what changed, for the page that carries it. */
+export const changesSection = (comparison) => `<section id="changes"><h2>What changed</h2>
+${renderChanges(comparison)}</section>`;
+
 export function renderChanges(comparison) {
   if (comparison.state !== 'compared') return `<p class="sectionnote">${esc(nothingToCompare(comparison))}</p>`;
 

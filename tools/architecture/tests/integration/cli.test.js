@@ -56,10 +56,10 @@ function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'te
 
 /** The run's exit code and whether it left anything behind. */
 async function draw(root) {
-  const out = path.join(tmp(), 'index.html');
-  const model = path.join(path.dirname(out), 'model.json');
+  const out = tmp();
+  const model = path.join(out, 'model.json');
   const code = await main(['--root', root, '--out', out, '--model', model]);
-  return { code, out, model, page: existsSync(out), modelFile: existsSync(model), written: readdirSync(path.dirname(out)) };
+  return { code, out, model, modelFile: existsSync(model), written: readdirSync(out) };
 }
 
 /**
@@ -71,30 +71,34 @@ async function draw(root) {
 let real;
 let drawing;
 const drawReal = () => (drawing ??= draw(checkout).then((run) => {
-  const logicalFile = path.join(path.dirname(run.out), 'service-cockpit.html');
-  const monitorFile = path.join(path.dirname(run.out), 'service-harness-monitor.html');
-  const widgetFile = path.join(path.dirname(run.out), 'service-android-widget.html');
-  const dir = path.dirname(run.out);
+  const logicalFile = path.join(run.out, 'service-cockpit.html');
+  const monitorFile = path.join(run.out, 'service-harness-monitor.html');
+  const widgetFile = path.join(run.out, 'service-android-widget.html');
+  const dir = run.out;
+  const written = readdirSync(dir);
   const pages = Object.fromEntries(readdirSync(dir).filter((name) => name.endsWith('.html')).map((name) => [name, readFileSync(path.join(dir, name), 'utf8')]));
-  real = { pages, code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
+  real = { pages, written, code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
+/** The pages of the report this one replaced, which a run no longer writes. */
+const OLD_REPORT = ['index.html', 'context.html', 'register.html', 'account-store.html', 'deployment.html'];
 
 describe('A run that cannot read a file it needs fails and writes nothing', () => {
-  it('writes the page and the model beside it when every file reads', async () => {
+  it('writes the pages and the model into the folder when every file reads', async () => {
     const run = await draw(fixture());
     expect(run.code).toBe(0);
     expect(JSON.parse(readFileSync(run.model, 'utf8')).deployment.workflows.map((each) => each.file)).toEqual(['tests.yml']);
-    expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
+    expect(readFileSync(path.join(run.out, 'modules.html'), 'utf8')).toContain('<h1>Modules</h1>');
   });
 
-  it('writes the five diagram pages and the two pages of each database beside the report when every file reads, and none when asked for the model alone', async () => {
+  it('writes the Modules page, its Dependencies tab and the two pages of each database when every file reads, none of the old report\'s pages, and the model alone when asked for it', async () => {
     const run = await draw(fixture());
-    for (const name of ['context.html', 'modules.html', 'register.html', 'account-store.html', 'deployment.html', ...['register', 'account-store', 'harness-monitor'].flatMap((key) => [`db-${key}.html`, `db-${key}-columns.html`])]) {
-      expect(existsSync(path.join(path.dirname(run.out), name))).toBe(true);
+    for (const name of ['modules.html', 'modules-dependencies.html', 'model.json', ...['register', 'account-store', 'harness-monitor'].flatMap((key) => [`db-${key}.html`, `db-${key}-columns.html`])]) {
+      expect(existsSync(path.join(run.out, name)), name).toBe(true);
     }
+    for (const name of OLD_REPORT) expect(existsSync(path.join(run.out, name)), name).toBe(false);
     const dir = tmp();
-    expect(await main(['--root', fixture(), '--json', '--out', path.join(dir, 'model.json')])).toBe(0);
+    expect(await main(['--root', fixture(), '--json', '--out', dir])).toBe(0);
     expect(readdirSync(dir)).toEqual(['model.json']);
   });
 
@@ -116,7 +120,6 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
   ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());
     expect(run.code).toBe(1);
-    expect(run.page).toBe(false);
     expect(run.modelFile).toBe(false);
     expect(run.written).toEqual([]);
   });
@@ -126,6 +129,23 @@ describe('A flag that needs a path and is given none is refused', () => {
   it.each([['--out'], ['--root', '--json'], ['--model']])('exits 2 for %s', async (...argv) => {
     expect(await main(argv)).toBe(2);
   });
+
+  it.each([['out/index.html'], ['out/model.json']])('exits 2 for --out naming a file, %s, rather than writing a folder of that name', async (file) => {
+    expect(await main(['--out', path.join(tmp(), file)])).toBe(2);
+  });
+});
+
+describe('What changed', () => {
+  it('reaches the front page from the comparison the run made', async () => {
+    const out = tmp();
+    const missing = path.join(out, 'no-such-model.json');
+    expect(await main(['--root', checkout, '--out', out, '--previous', missing])).toBe(0);
+    const front = readFileSync(path.join(out, 'services-design.html'), 'utf8');
+    // A previous model that is not there yet is the first report: wording only the run's own comparison gives,
+    // where a front page handed no comparison would say none was given.
+    expect(front).toContain('<section id="changes">');
+    expect(front).toContain('This is the first report, so there is nothing to compare it with.');
+  }, REAL_DRAW_TIMEOUT);
 });
 
 describe('This repository\'s own config and workflows draw without error', () => {
@@ -156,7 +176,7 @@ describe('Modules', () => {
   it('draws this repository’s own areas as boxes, one per area on disk, none overlapping, with arrows between them', () => {
     expect(real.code).toBe(0);
     const { modules } = real.model;
-    const { page } = real;
+    const page = real.pages['modules.html'];
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-area="([^"]*)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => ({ area: each[1], x: +each[2], y: +each[3], w: +each[4], h: +each[5] }));
     // A package a source names is its connector's box, which the next test counts.
     const packages = modules.connectors.flatMap((each) => (each.package ? [each.package.path] : []));
@@ -168,7 +188,7 @@ describe('Modules', () => {
   it('draws a box for every source this repository declares, and the Worker round them', () => {
     expect(real.code).toBe(0);
     const declared = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS().sources.map((each) => each.id);
-    const { page } = real;
+    const page = real.pages['modules.html'];
     expect(declared.length).toBeGreaterThan(0);
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-connector="([^"]*)"/g)].map((each) => each[1]);
     expect(boxes.sort()).toEqual([...declared].sort());
@@ -332,7 +352,7 @@ describe('Logical', () => {
     const run = await draw(fixture({ files, ...withDesign() }));
     expect(run.code).toBe(0);
     expect(run.written).toContain('service-cockpit.html');
-    expect(readFileSync(path.join(path.dirname(run.out), 'service-cockpit.html'), 'utf8')).toContain('<h1>Cockpit</h1>');
+    expect(readFileSync(path.join(run.out, 'service-cockpit.html'), 'utf8')).toContain('<h1>Cockpit</h1>');
     expect((await draw(fixture({ files }))).written).not.toContain('service-cockpit.html');
   });
 
@@ -379,16 +399,20 @@ describe('Logical', () => {
 describe('Services', () => {
   beforeAll(drawReal, REAL_DRAW_TIMEOUT);
 
-  it('writes the services page, each service\'s two tabs, the layer pages and the database pages beside the report, all of which the nightly upload takes', () => {
+  it('writes the services page, each service\'s tabs, the layer pages, the Modules page and the database pages, all of which the nightly upload takes, and none of the old report\'s', () => {
     expect(Object.keys(real.pages)).toEqual(expect.arrayContaining([
       'services.html',
       'services-design.html',
+      'modules.html',
+      'modules-dependencies.html',
       ...['cockpit', 'harness-monitor', 'android-widget'].flatMap((id) => [`service-${id}.html`, `service-${id}-design.html`, `service-${id}-deployment.html`]),
       ...['api', 'logic', 'connectors'].flatMap((layer) => [`cockpit-layer-${layer}.html`, `cockpit-layer-${layer}-dependencies.html`]),
       'cockpit-layer-data.html',
       ...['register', 'account-store', 'harness-monitor'].map((key) => `db-${key}.html`),
     ]));
-    expect(real.page).toContain('<a href="services-design.html"><b>Services &rarr;</b></a>');
+    for (const name of OLD_REPORT) expect(real.written, name).not.toContain(name);
+    expect(real.pages['services.html']).toContain('<a href="modules.html">Modules</a>');
+    expect(real.pages['services-design.html']).toContain('<section id="changes">');
   });
 
   it('says that no file imports another service\'s code and no store is used by two services, as this repository stands', () => {
@@ -420,13 +444,16 @@ describe('Services', () => {
     expect(production.shippedBy.map((each) => each.file)).toEqual(real.model.deployment.environments[0].deployedBy);
   });
 
-  it('gives each layer a page with only its own folders, and every link in the view lands on a page that was written', () => {
+  it('gives each layer a page with only its own folders', () => {
     const logic = real.pages['cockpit-layer-logic.html'];
     expect([...logic.matchAll(/data-area="([^"]+)"/g)].map((each) => each[1])).toHaveLength(8);
     expect(logic).not.toContain('apps/api/src/http');
-    for (const [name, html] of Object.entries(real.pages)) {
-      for (const [, href] of html.matchAll(/<a href="([a-z0-9.-]+\.html)(?:#[^"]*)?"/g)) expect(real.pages, `${name} links ${href}`).toHaveProperty([href]);
-    }
+  });
+
+  it('links no page that the run did not write, whatever the link is on: a crumb, a tab, a box or a footer', () => {
+    const hrefs = Object.entries(real.pages).flatMap(([name, html]) => [...html.matchAll(/\bhref="([^"#:]+)(?:#[^"]*)?"/g)].map(([, href]) => [name, href]));
+    expect(hrefs.length).toBeGreaterThan(100);
+    for (const [name, href] of hrefs) expect([...Object.keys(real.pages), 'model.json'], `${name} links ${href}`).toContain(href);
   });
 });
 describe('Databases', () => {
@@ -441,8 +468,6 @@ describe('Databases', () => {
     expect(items.columns.find((each) => each.name === 'title').unused).toBeNull();
     expect(items.indexes.find((each) => each.name === 'items_tenant_workspace_status').unused).toMatch(/Covers status/);
     expect(register.tables.find((each) => each.name === 'users').unused).toBeNull();
-    expect(real.page).toContain('<a class="open" href="account-store.html"');
-    expect(real.page).toContain('<a class="open" href="register.html"');
   });
 
   it('holds this repository’s three databases, the Monitor’s read from its own schema file with inferred pointers, and every table linked to where it is defined', () => {

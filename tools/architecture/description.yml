@@ -1,5 +1,5 @@
 # What the architecture report cannot read from the code: each area's wording,
-# where it sits on the Modules view, who the Context view shows, how the design is drawn,
+# where it sits on the Modules page, how the design is drawn,
 # and the rules the marks come from. The design itself is docs/architecture.yml. tools/architecture/README.md says how it is read.
 
 # Where to look for areas. `one` is a folder drawn as a single area; `folders`
@@ -56,6 +56,9 @@ connectorRule:
 readByEveryone:
   - apps/api/src/*
 
+# Who uses Cockpit and the outside services it depends on. No page draws it since the
+# Context view went; it stays because the model, which What changed compares night to
+# night, still carries it.
 context:
   cockpit:
     name: Cockpit
@@ -80,8 +83,8 @@ context:
 # layers below give it; none is needed today.
 pins: []
 
-# The layers, top to bottom, and the areas in each in order, as the Modules view
-# draws them; the order also settles a tie in the Dependencies view. An area's
+# The layers, top to bottom, and the areas in each in order, as the Modules page
+# draws them; the order also settles a tie on its Dependencies tab. An area's
 # `name` labels it there and defaults to its path.
 layers:
   - title: Web app
@@ -392,8 +395,8 @@ otherServices:
         - { from: signin, to: browser, how: '/oauth/authorize, PKCE' }
 
 # How each service is deployed, for the Deployment tab of its page: one column per environment. A Worker names its
-# config, which is read the way the report's Deployment view reads Cockpit's, and the file that declares its bindings,
-# where its secrets' names are read from; what ships an environment is what the report's reading of the workflows
+# config, which is read the way Cockpit's deployment drawing reads it, and the file that declares its bindings,
+# where its secrets' names are read from; what ships an environment is what the generator's reading of the workflows
 # credits with deploying it, unless `shippedBy` names the workflows. A service that is not a Worker lists its
 # environments by hand: `workflow` is the file that ships it, `by` the words when nothing does, and its secrets are the
 # names the workflow `secretsFrom` reads.

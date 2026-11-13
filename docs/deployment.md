@@ -95,8 +95,8 @@ Workers AI binding — which has no local simulator, so a local run that declare
 one would need a Cloudflare account to start at all ("Flag a captured note that
 says what another one already said", issue 407).
 A third *GitHub* environment, `github-pages`, does exist beside these two and holds no
-part of the app: it is where CI publishes the architecture page at `/architecture/`
-(`tools/architecture/README.md`), and a redirect at each address the harness reports
+part of the app: it is where CI publishes the architecture page, whose front page is
+`/architecture/services-design.html` (`tools/architecture/README.md`), and a redirect at each address the harness reports
 had there. Those reports (cycle time, test selection, tests and CI stability) are
 pages of the Harness Monitor, drawn from the rows CI sends it ("The Harness Monitor"
 below). Every date on the architecture page is the Belgian day in Belgian
