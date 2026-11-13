@@ -1648,6 +1648,57 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, gathering)).toContain(idle);
       await expect.poll(() => itemsOn(page, gathering)).toContain(chase);
     });
+
+    /**
+     * A grouped Filter's heading goes to the Panel it names ("Filter panel
+     * grouped by Panel or Dashboard: make a heading go to that Panel or
+     * Dashboard", issue 1736). F3 because only a browser sees the router
+     * switch, the board take the request and the outline come together; which
+     * place a heading asks for is apps/web/tests/unit/components/ItemList.test.tsx.
+     */
+    test('a Panel heading opens the Panel’s Dashboard, outlines the Panel, clears a filter hiding it, and Back returns', async ({
+      page,
+      isMobile,
+    }) => {
+      const gathering = uniqueTitle('Due soon');
+      const tasks = uniqueTitle('Tasks');
+      const chase = uniqueTitle('Chase the invoice');
+      const here = uniqueTitle('Today');
+      const away = uniqueTitle('Privé');
+      await signIn(page, ADA, isMobile);
+      const filterBoard = await giveAnEmptyDashboard(page, here, [{ name: gathering, kind: 'filter' }]);
+      const awayBoard = await giveAnEmptyDashboard(page, away, [tasks]);
+      await giveToAPanel(page, awayBoard.panels[0]!, [chase]);
+      await arrange(page, 'set_due_date', { itemId: awayBoard.panels[0]!.itemIds[0], dueDate: today() });
+      await arrange(page, 'set_panel_filter', {
+        panelId: filterBoard.panels[0]!.id,
+        rows: [[{ field: 'dueDate', window: 'today', orOverdue: true }]],
+        groupBy: 'panel',
+      });
+      await page.reload();
+      await openDashboard(page, here, isMobile);
+
+      const heading = () => page.getByRole('button', { name: `Go to ${tasks} · ${away}` });
+      const landed = async () => {
+        await expect(page.getByRole('heading', { name: away, level: 2 })).toBeVisible();
+        await expect(page.getByRole('region', { name: tasks })).toHaveAttribute('data-jumped-to', '');
+      };
+
+      await press(heading(), isMobile);
+      await landed();
+
+      // Back returns to the Filter panel, where the heading is again.
+      await page.goBack();
+      await expect(page.getByRole('heading', { name: here, level: 2 })).toBeVisible();
+      await expect(heading()).toBeVisible();
+
+      // A Dashboard filter hiding Tasks is cleared on the way in.
+      const key = `cockpit.dashboard-filter.${awayBoard.id}`;
+      await page.evaluate(([k]) => localStorage.setItem(k!, JSON.stringify({ text: 'nothing matches this' })), [key]);
+      await press(heading(), isMobile);
+      await landed();
+      await expect.poll(() => page.evaluate(([k]) => localStorage.getItem(k!), [key])).toBeNull();
+    });
   });
 });
 
