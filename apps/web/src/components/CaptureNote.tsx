@@ -589,7 +589,7 @@ export function CaptureNote({
    * undone, drawn at once from the last answer kept, and never waited on. Only for a chosen Workspace; *Any workspace* offers none.
    */
   const { data: used } = useQuery(mostUsedPanelsQuery);
-  const offered = belongsTo === null ? [] : panelsToOffer(used?.panels ?? [], belongsTo);
+  const offered = panelsToOffer(used?.panels ?? [], belongsTo);
 
   /**
    * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710) reads

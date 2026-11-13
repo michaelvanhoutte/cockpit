@@ -52,6 +52,7 @@ export function FileOnLine({
    * The most-used Panels offered as buttons under the field, ranked
    * (`mostUsedPanels.ts`); none draws no row. A button puts its Panel on the
    * line as `onAdd` does, or takes it off as `onRemove` does where it is there.
+   * Under *Any workspace* (`where` null) each adds a dot in its Workspace's colour.
    */
   offered?: readonly MostUsedPanel[];
 }) {
@@ -123,6 +124,8 @@ export function FileOnLine({
             {offered.map((panel) => {
               const lit = filed.some((one) => one.panelId === panel.panelId);
               const path = `${panel.dashboardName} ▸ ${panel.panelName}`;
+              // Under Any workspace the buttons span Workspaces, so each names its own by its colour.
+              const dot = where === null ? workspaces.find((one) => one.id === panel.workspaceId)?.color : undefined;
               return (
                 <button
                   key={panel.panelId}
@@ -148,8 +151,11 @@ export function FileOnLine({
                       : 'border-shade/10 bg-field text-ink hover:border-accent hover:bg-accent-tint'
                   }`}
                 >
-                  <span className={`truncate text-xs sm:text-[10.5px] ${lit ? 'text-accent' : 'text-ink-faint'}`}>
-                    {panel.dashboardName}
+                  <span className={`flex min-w-0 items-center gap-1 text-xs sm:text-[10.5px] ${lit ? 'text-accent' : 'text-ink-faint'}`}>
+                    {dot && (
+                      <span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />
+                    )}
+                    <span className="truncate">{panel.dashboardName}</span>
                   </span>
                   <span className="truncate text-sm sm:text-[13px]">{panel.panelName}</span>
                 </button>
