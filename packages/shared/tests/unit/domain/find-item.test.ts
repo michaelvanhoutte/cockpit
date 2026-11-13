@@ -37,7 +37,7 @@ function aSnapshot(items: Item[], filed: [string, string][] = []): WorkspaceSnap
       { id: 'plan', dashboardId: 'today', name: 'Plan', kind: 'items' },
       { id: 'urgent', dashboardId: 'today', name: 'Urgent', kind: 'items' },
       { id: 'review', dashboardId: 'later', name: 'Review', kind: 'items' },
-      { id: 'gather', dashboardId: 'today', name: 'Gathered', kind: 'filter', filter: { rows: [], groupBy: 'none' } },
+      { id: 'gather', dashboardId: 'today', name: 'Gathered', kind: 'filter', filter: { sets: [], groupBy: 'none' } },
     ],
     filings: filed.map(([itemId, panelId], position) => ({ itemId, panelId, position })),
     agentRuns: [],
@@ -140,8 +140,8 @@ describe('Dashboards', () => {
   });
 
   describe('Find on Dashboard matches every open Item drawn on this Dashboard, filed on a Panel here or gathered by a Filter panel here', () => {
-    const dueToday = { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' };
-    const running = { rows: [[{ field: 'agent' }]], groupBy: 'none' };
+    const dueToday = { sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]], groupBy: 'none' };
+    const running = { sets: [[[{ field: 'agent' }]]], groupBy: 'none' };
     const filterPanel = (id: string, dashboardId: string, name: string, filter: object): Panel =>
       ({ id, dashboardId, name, kind: 'filter', filter }) as unknown as Panel;
     /** `invoice` is filed on Review (Later), with these Filter panels in place of the base one. */
@@ -198,7 +198,7 @@ describe('Dashboards', () => {
   });
 
   describe('an Item drawn on this Dashboard in several places is one row: the Panel it is filed on first, then the Filter panels in Panel order, the rest counted', () => {
-    const dueToday = { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' };
+    const dueToday = { sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]], groupBy: 'none' };
     const filterPanel = (id: string, name: string): Panel =>
       ({ id, dashboardId: 'today', name, kind: 'filter', filter: dueToday }) as unknown as Panel;
     const rowsFor2 = (filedOn: string, filters: Panel[], scope: 1 | 2) => {
@@ -221,7 +221,7 @@ describe('Dashboards', () => {
   describe('Find on Workspace still names where an Item is filed, never a Filter panel that gathers it', () => {
     it('reads Dashboard ▸ Panel of the Panel it is filed on, though a Filter panel on the Dashboard on screen gathers it', () => {
       const base = aSnapshot([anItem('invoice', { dueDate: '2026-09-01' } as Partial<Item>)], [['invoice', 'review']]);
-      const gathering = { id: 'f1', dashboardId: 'today', name: 'Due today', kind: 'filter', filter: { rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]], groupBy: 'none' } };
+      const gathering = { id: 'f1', dashboardId: 'today', name: 'Due today', kind: 'filter', filter: { sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]], groupBy: 'none' } };
       const snapshot = { ...base, panels: [...(base.panels ?? []).filter((panel) => panel.id !== 'gather'), gathering] } as unknown as WorkspaceSnapshot;
       const rows = findItems(indexForFind(snapshot, '2026-09-01'), 'invoice', 2, 'today').rows;
       expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['Later ▸ Review', 'review']]);

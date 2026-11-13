@@ -145,7 +145,7 @@ function keep(name: string, payload: Record<string, unknown>) {
     stored.panels = stored.panels.map((one) => (one.id === id ? ({ ...one, ...settingsOf(payload) } as Panel) : one));
   } else if (name === 'set_panel_filter') {
     stored.panels = stored.panels.map((one) =>
-      one.id === id ? { ...one, filter: { rows: payload.rows, groupBy: payload.groupBy } as Panel['filter'] } : one,
+      one.id === id ? { ...one, filter: { sets: payload.sets, groupBy: payload.groupBy } as Panel['filter'] } : one,
     );
   } else if (name === 'set_panel_sort') {
     stored.panels = stored.panels.map((one) => (one.id === id ? { ...one, sort: payload.sort as Panel['sort'] } : one));
@@ -370,7 +370,7 @@ describe('Panels', () => {
     it('shows a Filter the Items its new conditions match', async () => {
       const filing = (panelId: string, itemId: string, position: number): Filing => ({ panelId, itemId, position });
       const user = await show(
-        [aPanel(FALCON, 'Falcon'), aPanel(URGENT, 'Urgent', { kind: 'filter', filter: { rows: [], groupBy: 'none' } })],
+        [aPanel(FALCON, 'Falcon'), aPanel(URGENT, 'Urgent', { kind: 'filter', filter: { sets: [], groupBy: 'none' } })],
         [inRows(FALCON, URGENT)],
         [filing(FALCON, 'i-alpha', 0), filing(FALCON, 'i-bravo', 1), filing(FALCON, 'i-charlie', 2)],
       );

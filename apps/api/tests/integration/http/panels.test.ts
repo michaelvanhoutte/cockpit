@@ -125,16 +125,21 @@ const PRIORITY_HIGH_OR_NORMAL = { field: 'priority', values: ['high', 'normal'] 
 const STATUS_TO_DO = { field: 'status', values: ['to_do'] };
 
 /** A Filter with nothing chosen, as one reads back. */
-const NOTHING_CHOSEN = { rows: [], groupBy: 'none' };
+const NOTHING_CHOSEN = { sets: [], groupBy: 'none' };
 
 /** A save carrying `groupBy` only where given: leaving it out is what a client from before it existed sends. */
-function setFilter(panelId: string, rows: unknown[][], groupBy?: unknown) {
+function setFilterSets(panelId: string, sets: unknown[][][], groupBy?: unknown) {
   return send('set_panel_filter', {
     workspaceId: WORKSPACE_ID,
     panelId,
-    rows,
+    sets,
     ...(groupBy === undefined ? {} : { groupBy }),
   });
+}
+
+/** A save of one set of these rows, or of nothing where there are none: what a Filter of the rows alone is. */
+function setFilter(panelId: string, rows: unknown[][], groupBy?: unknown) {
+  return setFilterSets(panelId, rows.length === 0 ? [] : [rows], groupBy);
 }
 
 /** One panel as the snapshot hands it back. */
@@ -866,7 +871,7 @@ describe('Panels', () => {
       expect(await panelNow(panelId)).toMatchObject({ kind: 'filter', filter: NOTHING_CHOSEN });
 
       expect((await setFilter(panelId, [[DUE_TODAY]])).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ rows: [[DUE_TODAY]], groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [[[DUE_TODAY]]], groupBy: 'none' });
 
       // Saved whole, so taking the last one out puts it back to saying nothing
       // has been chosen rather than leaving the old answer standing.
@@ -885,7 +890,7 @@ describe('Panels', () => {
       const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO], [{ field: 'panel', values: [itemsPanelId] }]];
 
       expect((await setFilter(panelId, rows)).status).toBe(200);
-      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [rows], groupBy: 'none' });
     });
 
     it.each([
@@ -899,7 +904,7 @@ describe('Panels', () => {
         expect((await setFilter(panelId, rows, groupBy)).status).toBe(200);
       }
 
-      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: reads });
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [rows], groupBy: reads });
     });
 
     it('refuses a grouping nothing knows about, and the stored grouping stays as it was', async () => {
@@ -908,7 +913,7 @@ describe('Panels', () => {
 
       expect((await setFilter(panelId, [[DUE_TODAY]], 'priority')).status).toBe(400);
 
-      expect((await panelNow(panelId)).filter).toEqual({ rows: [[DUE_TODAY]], groupBy: 'panel' });
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [[[DUE_TODAY]]], groupBy: 'panel' });
     });
 
     it('shows nothing chosen where what is stored cannot be read, and the workspace still opens', async () => {
@@ -973,26 +978,62 @@ describe('Panels', () => {
 
       // And nothing of a refusal is stored: one that half-landed would leave a
       // Filter gathering something nobody asked for.
-      expect((await panelNow(panelId)).filter).toEqual({ rows: stored ? rows : [[STATUS_TO_DO]], groupBy: 'none' });
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [stored ? rows : [[STATUS_TO_DO]]], groupBy: 'none' });
     });
 
-    it('refuses the conditions and all-or-any a tab on the previous release sends, and keeps the rows stored', async () => {
-      // That tab reads a Filter stored in rows as nothing chosen, so a save
+    it('refuses the rows, and the conditions and all-or-any, a tab on a previous release sends, and keeps the sets stored', async () => {
+      // That tab reads a Filter stored in sets as nothing chosen, so a save
       // from it would overwrite the real Filter with that.
       const { panelId } = await aFilter();
-      const rows = [[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO]];
-      expect((await setFilter(panelId, rows)).status).toBe(200);
+      const sets = [[[DUE_TODAY, PRIORITY_HIGH_OR_NORMAL], [STATUS_TO_DO]], [[{ field: 'agent' }]]];
+      expect((await setFilterSets(panelId, sets)).status).toBe(200);
 
-      const fromThePreviousRelease = await send('set_panel_filter', {
-        workspaceId: WORKSPACE_ID,
-        panelId,
-        conditions: [],
-        match: 'all',
-        groupBy: 'none',
-      });
+      for (const sent of [{ rows: [[DUE_TODAY]] }, { conditions: [], match: 'all' }]) {
+        const fromThePreviousRelease = await send('set_panel_filter', {
+          workspaceId: WORKSPACE_ID,
+          panelId,
+          ...sent,
+          groupBy: 'none',
+        });
 
-      expect(fromThePreviousRelease.status).toBe(400);
-      expect((await panelNow(panelId)).filter).toEqual({ rows, groupBy: 'none' });
+        expect(fromThePreviousRelease.status).toBe(400);
+      }
+      expect((await panelNow(panelId)).filter).toEqual({ sets, groupBy: 'none' });
+    });
+
+    it('reads a Filter stored with rows alone, by an earlier release, as one set', async () => {
+      const { panelId } = await aFilter();
+      await inTheStore((sql) =>
+        sql.exec(
+          'UPDATE panels SET filter_conditions = ? WHERE id = ?',
+          JSON.stringify({ rows: [[DUE_TODAY], [STATUS_TO_DO]], groupBy: 'panel' }),
+          panelId,
+        ),
+      );
+
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [[[DUE_TODAY], [STATUS_TO_DO]]], groupBy: 'panel' });
+    });
+
+    it('stores two sets in order and reads both back', async () => {
+      const { panelId } = await aFilter();
+      const sets = [[[DUE_TODAY], [{ field: 'priority', values: ['low'], exclude: true }]], [[{ field: 'agent' }]]];
+
+      expect((await setFilterSets(panelId, sets, 'panel')).status).toBe(200);
+
+      expect((await panelNow(panelId)).filter).toEqual({ sets, groupBy: 'panel' });
+    });
+
+    it.each([
+      { situation: 'an empty set', sets: [[[DUE_TODAY]], []] },
+      { situation: 'a field twice in one row of the second set', sets: [[[DUE_TODAY]], [[{ field: 'agent' }, { field: 'agent' }]]] },
+      { situation: 'more conditions than the limit, across two sets', sets: [Array.from({ length: CONDITIONS_LIMIT / 2 }, () => [DUE_TODAY]), Array.from({ length: CONDITIONS_LIMIT / 2 + 1 }, () => [DUE_TODAY])] },
+    ])('refuses $situation and keeps the stored sets', async ({ sets }) => {
+      const { panelId } = await aFilter();
+      expect((await setFilter(panelId, [[STATUS_TO_DO]])).status).toBe(200);
+
+      expect((await setFilterSets(panelId, sets)).status).toBe(400);
+
+      expect((await panelNow(panelId)).filter).toEqual({ sets: [[[STATUS_TO_DO]]], groupBy: 'none' });
     });
   });
 

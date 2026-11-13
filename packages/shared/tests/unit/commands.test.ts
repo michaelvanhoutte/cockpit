@@ -218,6 +218,49 @@ describe('Panels', () => {
     });
   });
 
+  describe('a Filter is saved as sets, and anything else is refused', () => {
+    const save = (extra: Record<string, unknown>) =>
+      setPanelFilterSchema.safeParse({
+        commandId: uuidv7(),
+        issuedAt: '2026-11-13T09:00:00.000Z',
+        workspaceId: 'ws-work',
+        panelId: uuidv7(),
+        ...extra,
+      });
+    const high: FilterCondition = { field: 'priority', values: ['high'] };
+    const agent: FilterCondition = { field: 'agent' };
+    /** `count` distinct-enough conditions, in rows of one. */
+    const rowsOfOne = (count: number) => Array.from({ length: count }, () => [{ field: 'status' }]);
+
+    it.each([
+      { situation: 'two sets', sets: [[[high]], [[agent]]], accepted: true },
+      { situation: 'no sets: nothing chosen', sets: [], accepted: true },
+      { situation: 'an empty set', sets: [[[high]], []], accepted: false },
+      { situation: 'an empty row in a set', sets: [[[high]], [[agent], []]], accepted: false },
+      { situation: 'a field twice in one row of the second set', sets: [[[high]], [[agent, agent]]], accepted: false },
+      { situation: 'the same field in a row of each set', sets: [[[high]], [[high]]], accepted: true },
+      { situation: '50 conditions across two sets', sets: [rowsOfOne(30), rowsOfOne(20)], accepted: true },
+      { situation: '51 conditions across two sets', sets: [rowsOfOne(30), rowsOfOne(21)], accepted: false },
+    ])('with $situation, the save is accepted: $accepted', ({ sets, accepted }) => {
+      expect(save({ sets }).success).toBe(accepted);
+    });
+
+    it('refuses a save carrying rows, as a tab on the previous release sends it', () => {
+      expect(save({ rows: [[high]] }).success).toBe(false);
+    });
+
+    it('keeps the sets in order through the schema, the stored text and the read', () => {
+      const saved = save({ sets: [[[high]], [[agent]]], groupBy: 'panel' });
+      expect(saved.success).toBe(true);
+      if (!saved.success) return;
+
+      expect(panelFilterFrom(panelFilterAsStored(saved.data.sets, saved.data.groupBy))).toEqual({
+        sets: [[[high]], [[agent]]],
+        groupBy: 'panel',
+      });
+    });
+  });
+
   describe('a Filter saved with an exclusion and Status values is stored and read back as it was saved', () => {
     const save = (conditions: unknown[]) =>
       setPanelFilterSchema.safeParse({
@@ -225,7 +268,7 @@ describe('Panels', () => {
         issuedAt: new Date().toISOString(),
         workspaceId: 'ws-work',
         panelId: uuidv7(),
-        rows: [conditions],
+        sets: [[conditions]],
       });
 
     it('keeps the exclusion flag and the Status values through the schema, the stored text and the read', () => {
@@ -237,9 +280,9 @@ describe('Panels', () => {
       expect(saved.success).toBe(true);
       if (!saved.success) return;
 
-      const read = panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy));
+      const read = panelFilterFrom(panelFilterAsStored(saved.data.sets, saved.data.groupBy));
 
-      expect(read?.rows).toEqual([conditions]);
+      expect(read?.sets).toEqual([[conditions]]);
     });
 
     it('keeps a Filter saved before Waiting for reply was a Status value exactly as it was, and takes the new value beside the old ones', () => {
@@ -250,7 +293,7 @@ describe('Panels', () => {
         const saved = save([condition]);
         expect(saved.success).toBe(true);
         if (!saved.success) return;
-        expect(panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy))?.rows).toEqual([[condition]]);
+        expect(panelFilterFrom(panelFilterAsStored(saved.data.sets, saved.data.groupBy))?.sets).toEqual([[[condition]]]);
       }
     });
 
@@ -266,7 +309,7 @@ describe('Panels', () => {
         issuedAt: new Date().toISOString(),
         workspaceId: 'ws-work',
         panelId: uuidv7(),
-        rows,
+        sets: [rows],
       });
     const agent: FilterCondition = { field: 'agent' };
 
@@ -282,7 +325,7 @@ describe('Panels', () => {
       expect(saved.success).toBe(true);
       if (!saved.success) return;
 
-      expect(panelFilterFrom(panelFilterAsStored(saved.data.rows, saved.data.groupBy))?.rows).toEqual(rows);
+      expect(panelFilterFrom(panelFilterAsStored(saved.data.sets, saved.data.groupBy))?.sets).toEqual([rows]);
     });
 
     it('refuses it twice in one row, as a duplicate field is refused', () => {

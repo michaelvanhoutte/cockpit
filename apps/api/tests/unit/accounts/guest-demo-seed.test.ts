@@ -235,7 +235,7 @@ describe('Accounts', () => {
         if (condition.field === 'status') return item.started !== undefined;
         throw new Error('the check does not know this Filter condition');
       };
-      return filter.rows.every((row) => row.some(holds));
+      return filter.sets.some((set) => set.every((row) => row.some(holds)));
     }
 
     it('shows five items or fewer on every panel of every workspace, filters included', () => {
@@ -442,7 +442,7 @@ describe('Accounts', () => {
       dashboards: [{ name: 'Day to day', rows: panels.map((row) => ({ panels: row })) }],
     });
     const filter = (name: string, rows: unknown[][], groupBy = 'none'): SeedPanel =>
-      ({ name, filter: { groupBy, rows } }) as SeedPanel;
+      ({ name, filter: { groupBy, sets: rows.length === 0 ? [] : [rows] } }) as SeedPanel;
     const DUE_SOON = { field: 'dueDate', window: 'week', orOverdue: true };
 
     it.each([
@@ -503,6 +503,15 @@ describe('Accounts', () => {
         says: 'the Filter "Everything"',
       },
       {
+        why: 'a filter has an empty set',
+        demo: [
+          workspace('Personal', [
+            [{ name: 'Hollow', filter: { groupBy: 'none', sets: [[[DUE_SOON]], []] } } as unknown as SeedPanel],
+          ]),
+        ],
+        says: 'the Filter "Hollow"',
+      },
+      {
         why: 'a filter has an empty row',
         demo: [workspace('Personal', [[filter('Gap', [[DUE_SOON], []])]])],
         says: 'the Filter "Gap"',
@@ -550,8 +559,8 @@ describe('Accounts', () => {
 
       expect(filters).toHaveLength(GUEST_DEMO.flatMap(panelsOf).filter(isFilter).length);
       for (const stored of filters) {
-        expect(Object.keys(JSON.parse(stored)).sort(), stored).toEqual(['groupBy', 'rows']);
-        expect(panelFilterFrom(stored)?.rows.length, stored).toBeGreaterThan(0);
+        expect(Object.keys(JSON.parse(stored)).sort(), stored).toEqual(['groupBy', 'sets']);
+        expect(panelFilterFrom(stored)?.sets.length, stored).toBeGreaterThan(0);
       }
     });
   });

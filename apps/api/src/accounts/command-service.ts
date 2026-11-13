@@ -1444,7 +1444,7 @@ export function runCommand<N extends CommandName>(
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
           .set({
-            filterConditions: panelFilterAsStored(cmd.rows, cmd.groupBy),
+            filterConditions: panelFilterAsStored(cmd.sets, cmd.groupBy),
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();

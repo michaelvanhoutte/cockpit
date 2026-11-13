@@ -1537,15 +1537,17 @@ test.describe('Panels', () => {
       // it is on Work, and it is about to appear on a panel it was never filed
       // onto.
       const chase = uniqueTitle('Chase the invoice');
+      // Filed beside it but dated nowhere, so only the second set below gathers it.
+      const idle = uniqueTitle('Sort the receipts');
       const here = await ownDashboard(page, isMobile, [work, { name: gathering, kind: 'filter' }], async (board) => {
-        await giveToAPanel(page, board.panels[0]!, [chase]);
+        await giveToAPanel(page, board.panels[0]!, [chase, idle]);
         await arrange(page, 'set_due_date', { itemId: board.panels[0]!.itemIds[0], dueDate: today() });
       });
 
       // Nothing chosen yet, so it says how to choose rather than drawing rows.
       const filter = page.getByRole('region', { name: gathering });
       await expect(filter.getByText('Choose what this shows from its menu.')).toBeVisible();
-      await expect.poll(() => itemsOn(page, work)).toEqual([chase]);
+      await expect.poll(() => itemsOn(page, work)).toEqual([chase, idle]);
 
       // A Filter is never a place to file into, so it is not among the targets
       // the filing above went through. Nor is Work, which it is on already.
@@ -1574,7 +1576,7 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, gathering)).toContain(chase);
       // Still filed where it was filed: a Filter draws what it gathers and
       // takes nothing away from anywhere.
-      await expect.poll(() => itemsOn(page, work)).toEqual([chase]);
+      await expect.poll(() => itemsOn(page, work)).toEqual([chase, idle]);
       // And the funnel says what it is gathering, without reopening the
       // question.
       await expect(filter.getByRole('img', { name: 'Shows due today or overdue' })).toBeVisible();
@@ -1623,6 +1625,28 @@ test.describe('Panels', () => {
 
       await page.reload();
       await expect(underWork().getByRole('listitem').filter({ hasText: chase })).toHaveCount(1);
+
+      // **Then a second set** ("Let a Filter hold sets of rows joined by or",
+      // issue 1737): Due date not set, which gathers the undated item the first
+      // set leaves out. Wiring only - the rule is proved in shared's
+      // filters.test.ts and the question's drawing in PanelBoard.test.tsx; what
+      // only a browser proves is that the sets the question sends are the sets
+      // the store keeps and the board draws from after a reload.
+      await expect.poll(() => itemsOn(page, gathering)).not.toContain(idle);
+      const twoSets = answerTo(page, 'set_panel_filter');
+      await choosePanelAction(page, gathering, 'Filter…', isMobile);
+      const question = page.getByRole('dialog');
+      await press(question.getByRole('button', { name: '+ Or another set…' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Due date' }), isMobile);
+      await question.getByRole('combobox', { name: /Due date is/ }).last().selectOption('none');
+      await expect(question.getByRole('group', { name: 'Set 2' })).toBeVisible();
+      await press(question.getByRole('button', { name: 'Save' }), isMobile);
+      expect((await twoSets).status()).toBe(200);
+
+      await expect.poll(() => itemsOn(page, gathering)).toContain(idle);
+      await page.reload();
+      await expect.poll(() => itemsOn(page, gathering)).toContain(idle);
+      await expect.poll(() => itemsOn(page, gathering)).toContain(chase);
     });
 
     /**
@@ -1648,7 +1672,7 @@ test.describe('Panels', () => {
       await arrange(page, 'set_due_date', { itemId: awayBoard.panels[0]!.itemIds[0], dueDate: today() });
       await arrange(page, 'set_panel_filter', {
         panelId: filterBoard.panels[0]!.id,
-        rows: [[{ field: 'dueDate', window: 'today', orOverdue: true }]],
+        sets: [[[{ field: 'dueDate', window: 'today', orOverdue: true }]]],
         groupBy: 'panel',
       });
       await page.reload();

@@ -287,8 +287,8 @@ describe('MCP connections', () => {
     async function aFilterOfPriority(name: string, priority: string, workspaceId = WORKSPACE_ID): Promise<string> {
       const panelId = nextId();
       expect((await send('add_panel', { workspaceId, dashboardId: DASHBOARD_ID, panelId, name, kind: 'filter' })).status).toBe(200);
-      const rows = [[{ field: 'priority', values: [priority] }]];
-      expect((await send('set_panel_filter', { workspaceId, panelId, rows })).status).toBe(200);
+      const sets = [[[{ field: 'priority', values: [priority] }]]];
+      expect((await send('set_panel_filter', { workspaceId, panelId, sets })).status).toBe(200);
       return panelId;
     }
 
@@ -381,8 +381,8 @@ describe('MCP connections', () => {
       const admin = await aPanel('Admin');
       const filterId = nextId();
       expect((await send('add_panel', { dashboardId: DASHBOARD_ID, panelId: filterId, name: 'Due today', kind: 'filter' })).status).toBe(200);
-      const rows = [[{ field: 'dueDate', window: 'today', orOverdue: false }]];
-      expect((await send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId: filterId, rows })).status).toBe(200);
+      const sets = [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]];
+      expect((await send('set_panel_filter', { workspaceId: WORKSPACE_ID, panelId: filterId, sets })).status).toBe(200);
       await anItem('Due on the 3rd', { panelIds: [admin], dueDate: '2030-01-03' });
       await anItem('Due on the 4th', { panelIds: [admin], dueDate: '2030-01-04' });
 

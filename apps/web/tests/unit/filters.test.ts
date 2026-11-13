@@ -3,6 +3,7 @@ import type {
   DueCondition,
   Filing,
   FilterCondition,
+  FilterGrouping,
   Item,
   Panel,
   Priority,
@@ -96,7 +97,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     body: '',
     readOnly: false,
     neverPropose: false,
-    filter: kind === 'filter' ? { rows: [], groupBy: 'none' } : null,
+    filter: kind === 'filter' ? { sets: [], groupBy: 'none' } : null,
     sort: null,
     columns: null,
   };
@@ -113,9 +114,18 @@ function due(window: DueCondition['window'], orOverdue = true): DueCondition {
   return { field: 'dueDate', window, orOverdue };
 }
 
+/** What a Filter of these rows, as one set, reads back as. */
+function saysRows(
+  rows: readonly (readonly FilterCondition[])[],
+  ...rest: [Panel[]?, FilterGrouping?, { id: string; name: string }[]?]
+): string {
+  return saysWhatItShows(rows.length === 0 ? [] : [rows], ...rest);
+}
+
 /** A Filter of these conditions, saved as the question's All / Any choice saves it. */
 function asFilter(conditions: FilterCondition[], match: FilterMatch = 'all') {
-  return { rows: rowsOf(conditions, match), groupBy: 'none' as const };
+  const rows = rowsOf(conditions, match);
+  return { sets: rows.length === 0 ? [] : [rows], groupBy: 'none' as const };
 }
 
 
@@ -172,8 +182,8 @@ describe('Panels', () => {
     const agent: FilterCondition = { field: 'agent' };
 
     it('is read back as Agent running, alone and beside another condition', () => {
-      expect(saysWhatItShows([[agent]])).toBe('Agent running');
-      expect(saysWhatItShows([[due('today', false), agent], [{ field: 'status' }]])).toBe(
+      expect(saysRows([[agent]])).toBe('Agent running');
+      expect(saysRows([[due('today', false), agent], [{ field: 'status' }]])).toBe(
         '(Due today or Agent running) and Status is In progress',
       );
     });
@@ -275,7 +285,7 @@ describe('Panels', () => {
         reads: 'Not filed on wiki',
       },
     ])('reads $situation', ({ conditions, panels = [], reads }) => {
-      expect(saysWhatItShows(rowsOf(conditions, 'all'), panels)).toBe(reads);
+      expect(saysRows(rowsOf(conditions, 'all'), panels)).toBe(reads);
     });
 
     it.each([
@@ -308,7 +318,7 @@ describe('Panels', () => {
         reads: 'Nothing chosen yet',
       },
     ])('reads any, with $situation', ({ conditions, reads }) => {
-      expect(saysWhatItShows(rowsOf(conditions, 'any'), [])).toBe(reads);
+      expect(saysRows(rowsOf(conditions, 'any'), [])).toBe(reads);
     });
 
     it.each([
@@ -317,7 +327,7 @@ describe('Panels', () => {
       { situation: 'by nothing, which adds nothing', groupBy: 'none' as const, conditions: [due('week')], match: 'all' as const, reads: 'Due this week or overdue' },
       { situation: 'by Panel, set to any', groupBy: 'panel' as const, conditions: [due('week'), priority('high')], match: 'any' as const, reads: 'Any of: Due this week or overdue; Priority is High; grouped by Panel' },
     ])('ends with the grouping where there is one, grouped $situation', ({ conditions, match, groupBy, reads }) => {
-      expect(saysWhatItShows(rowsOf(conditions, match), [], groupBy)).toBe(reads);
+      expect(saysRows(rowsOf(conditions, match), [], groupBy)).toBe(reads);
     });
 
     it.each([
@@ -327,7 +337,7 @@ describe('Panels', () => {
       // Rows of nothing but conditions that filter nothing let everything
       // through, which is what matching does with them too.
       const nothingToExclude: FilterCondition = { field: 'panel', values: [], exclude: true };
-      expect(saysWhatItShows(rows(nothingToExclude), [], 'panel')).toBe('Everything filed; grouped by Panel');
+      expect(saysRows(rows(nothingToExclude), [], 'panel')).toBe('Everything filed; grouped by Panel');
     });
 
     it.each([
@@ -342,7 +352,7 @@ describe('Panels', () => {
         reads: 'Due this week or overdue',
       },
     ])('reads rows joined by and: $situation', ({ rows, reads }) => {
-      expect(saysWhatItShows(rows, [])).toBe(reads);
+      expect(saysRows(rows, [])).toBe(reads);
     });
 
     it.each([
@@ -365,7 +375,7 @@ describe('Panels', () => {
           { id: 'work', name: 'Work' },
           { id: 'volleyball', name: 'Volleyball club' },
         ];
-        expect(saysWhatItShows([[condition]], [], 'none', dashboards)).toBe(reads);
+        expect(saysRows([[condition]], [], 'none', dashboards)).toBe(reads);
       },
     );
   });
@@ -455,6 +465,74 @@ describe('Panels', () => {
       expect(filtersUsingPanel('wiki', [FALCON, journal, gathers])).toEqual([
         { filter: gathers, leftEmpty: true },
       ]);
+    });
+  });
+
+  describe('a Filter of several sets reads each set bracketed, joined by or', () => {
+    const agent: FilterCondition = { field: 'agent' };
+    const high: FilterCondition = { field: 'priority', values: ['high'] };
+    const dashboards = [
+      { id: 'cockpit', name: 'Cockpit' },
+      { id: 'conselit', name: 'conselit.be' },
+    ];
+    const notOnDashboards: FilterCondition = { field: 'dashboard', values: ['cockpit', 'conselit'], exclude: true };
+
+    it.each([
+      {
+        situation: 'a set of rows beside a set of one condition',
+        sets: [[[due('week'), high], [notOnDashboards]], [[agent]]],
+        reads: '((Due this week or overdue or Priority is High) and Not on Cockpit or conselit.be) or Agent running',
+      },
+      {
+        situation: 'a set of one row of alternatives beside another set',
+        sets: [[[due('week'), high]], [[agent]]],
+        reads: '(Due this week or overdue or Priority is High) or Agent running',
+      },
+      {
+        situation: 'two sets of one condition each',
+        sets: [[[due('today', false)]], [[agent]]],
+        reads: 'Due today or Agent running',
+      },
+      {
+        situation: 'one set, which reads as it always did with no outer brackets',
+        sets: [[[due('week'), high], [notOnDashboards]]],
+        reads: '(Due this week or overdue or Priority is High) and Not on Cockpit or conselit.be',
+      },
+      {
+        // A set whose conditions all filter nothing lets every Item through, so
+        // the Filter shows everything however the other sets read.
+        situation: 'a set that filters nothing beside another set',
+        sets: [[[{ field: 'panel', values: [], exclude: true } as FilterCondition]], [[agent]]],
+        reads: 'Everything filed',
+      },
+    ])('reads $situation', ({ sets, reads }) => {
+      expect(saysWhatItShows(sets, [], 'none', dashboards)).toBe(reads);
+    });
+
+    it('ends with the grouping once, after every set', () => {
+      expect(saysWhatItShows([[[due('today', false)]], [[agent]]], [], 'panel')).toBe(
+        'Due today or Agent running; grouped by Panel',
+      );
+    });
+
+    it('says nothing chosen with no sets', () => {
+      expect(saysWhatItShows([])).toBe('Nothing chosen yet');
+    });
+  });
+
+  describe('deleting a Panel empties a Filter of several sets only when every set is emptied', () => {
+    const wikiOnly: FilterCondition[][] = [[{ field: 'panel', values: ['wiki'] }]];
+    const filterOf = (...sets: FilterCondition[][][]): Panel => ({
+      ...aPanel('due', 'filter'),
+      filter: { sets, groupBy: 'none' },
+    });
+
+    it.each([
+      { situation: 'the other set does not name it', sets: [wikiOnly, [[due('today')]]], leftEmpty: false },
+      { situation: 'both sets hold only it', sets: [wikiOnly, wikiOnly], leftEmpty: true },
+    ])('with $situation', ({ sets, leftEmpty }) => {
+      const gathers = filterOf(...sets);
+      expect(filtersUsingPanel('wiki', [FALCON, gathers])).toEqual([{ filter: gathers, leftEmpty }]);
     });
   });
 

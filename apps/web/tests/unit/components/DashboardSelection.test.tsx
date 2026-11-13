@@ -381,7 +381,7 @@ describe('Selection', () => {
       const urgent = { ...BART, priority: 'high' as const };
       const gathering = aPanel('gathering', 'Urgent', {
         kind: 'filter',
-        filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' },
+        filter: { sets: [[[{ field: 'priority', values: ['high'] }]]], groupBy: 'none' },
       });
       const user = await showDashboard({
         ...TWO_PANELS,
@@ -510,7 +510,7 @@ describe('Selection', () => {
     it('adds an Item this Dashboard shows only through a Filter, instead of a move naming no Panel', async () => {
       const gathering = aPanel('gathering', 'Urgent', {
         kind: 'filter',
-        filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' },
+        filter: { sets: [[[{ field: 'priority', values: ['high'] }]]], groupBy: 'none' },
       });
       const urgent = { ...BART, priority: 'high' as const };
       const user = await showDashboard({
@@ -529,7 +529,7 @@ describe('Selection', () => {
     it('chains the orders when a move and an add are mixed in one selection', async () => {
       const gathering = aPanel('gathering', 'Urgent', {
         kind: 'filter',
-        filter: { rows: [[{ field: 'priority', values: ['high'] }]], groupBy: 'none' },
+        filter: { sets: [[[{ field: 'priority', values: ['high'] }]]], groupBy: 'none' },
       });
       const urgent = { ...RENEW, priority: 'high' as const };
       const user = await showDashboard({

@@ -176,7 +176,7 @@ describe('Panels', () => {
       await sent('set_panel_filter', {
         dashboardId,
         panelId: gathers,
-        rows: [[{ field: 'dashboard', values: [dashboardId] }]],
+        sets: [[[{ field: 'dashboard', values: [dashboardId] }]]],
         groupBy: 'panel',
       });
       await anItem('On both', { priority: 'high', on: [admin, falcon] });
@@ -197,7 +197,7 @@ describe('Panels', () => {
       await sent('set_panel_filter', {
         dashboardId: DASHBOARD_ID,
         panelId: gathers,
-        rows: [[{ field: 'dueDate', window: 'today', orOverdue: false }]],
+        sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]],
       });
       const filedOn = await aPanel('Falcon');
       await anItem('Due on the phone’s day', { dueDate: FAR_AHEAD, on: [filedOn] });
@@ -205,6 +205,22 @@ describe('Panels', () => {
 
       expect(labels(await rowsOf(token, gathers, FAR_AHEAD))).toEqual(['Due on the phone’s day']);
       expect(labels(await rowsOf(token, gathers, THE_DAY_BEFORE))).toEqual([]);
+    });
+
+    it('gives a Filter panel of two sets the Items of either, an Item meeting both once', async () => {
+      const gathers = await aPanel('Due today or High', 'filter');
+      await sent('set_panel_filter', {
+        dashboardId: DASHBOARD_ID,
+        panelId: gathers,
+        sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]], [[{ field: 'priority', values: ['high'] }]]],
+      });
+      const filedOn = await aPanel('Falcon');
+      await anItem('Due only', { dueDate: FAR_AHEAD, on: [filedOn] });
+      await anItem('High only', { priority: 'high', on: [filedOn] });
+      await anItem('Both', { dueDate: FAR_AHEAD, priority: 'high', on: [filedOn] });
+      await anItem('Neither', { on: [filedOn] });
+
+      expect(labels(await rowsOf(await aWidget(), gathers, FAR_AHEAD)).toSorted()).toEqual(['Both', 'Due only', 'High only']);
     });
 
     it('leaves out an Item that is finished or dismissed', async () => {
@@ -242,7 +258,7 @@ describe('Panels', () => {
       await sent('set_panel_filter', {
         dashboardId: DASHBOARD_ID,
         panelId: gathers,
-        rows: [[{ field: 'priority', values: ['high'] }]],
+        sets: [[[{ field: 'priority', values: ['high'] }]]],
       });
       const mine = await aPanel('Mine');
       await anItem('In this Workspace', { priority: 'high', on: [mine] });
@@ -367,7 +383,7 @@ describe('Panels', () => {
       await sent('set_panel_filter', {
         dashboardId,
         panelId: gathers,
-        rows: [[{ field: 'dashboard', values: [dashboardId] }]],
+        sets: [[[{ field: 'dashboard', values: [dashboardId] }]]],
         groupBy: 'panel',
       });
       await anItem('Send the Q4 forecast to Sander', { priority: 'high', dueDate: '2026-10-21', on: [admin, falcon] });

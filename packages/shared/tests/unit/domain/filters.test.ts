@@ -5,6 +5,7 @@ import type {
   Filing,
   FilterCondition,
   FilterRow,
+  FilterSet,
   Panel,
 } from '../../../src/domain/panel.js';
 import { filingsThatFile, itemsInTheInbox } from '../../../src/domain/filing.js';
@@ -101,7 +102,7 @@ function aPanel(id: string, kind: Panel['kind'] = 'items'): Panel {
     body: '',
     readOnly: false,
     neverPropose: false,
-    filter: kind === 'filter' ? { rows: [], groupBy: 'none' } : null,
+    filter: kind === 'filter' ? { sets: [], groupBy: 'none' } : null,
     sort: null,
     columns: null,
   };
@@ -144,7 +145,8 @@ function shown(
 
 /** A Filter of these conditions, saved as the question's All / Any choice saves it. */
 function asFilter(conditions: FilterCondition[], match: FilterMatch = 'all') {
-  return { rows: rowsOf(conditions, match), groupBy: 'none' as const };
+  const rows = rowsOf(conditions, match);
+  return { sets: rows.length === 0 ? [] : [rows], groupBy: 'none' as const };
 }
 
 /** What a Filter of these rows draws, out of these items and filings. */
@@ -164,7 +166,27 @@ function shownByRows(
     withRun?: readonly string[];
   } = {},
 ): string[] {
-  return itemsMatchingFilter(items, filings, panels, dashboards, { rows, groupBy: 'none' }, new Set(withRun), on).map(
+  return shownBySets(items, filings, rows.length === 0 ? [] : [rows], { panels, dashboards, on, withRun });
+}
+
+/** What a Filter of these sets draws, out of these items and filings. */
+function shownBySets(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  sets: FilterSet[],
+  {
+    panels = [FALCON, GATHERS],
+    dashboards = [...new Set(panels.map((panel) => panel.dashboardId))].map((id) => ({ id })),
+    on = TODAY,
+    withRun = [],
+  }: {
+    panels?: readonly Panel[];
+    dashboards?: readonly { id: string }[];
+    on?: string;
+    withRun?: readonly string[];
+  } = {},
+): string[] {
+  return itemsMatchingFilter(items, filings, panels, dashboards, { sets, groupBy: 'none' }, new Set(withRun), on).map(
     (item) => item.id,
   );
 }
@@ -678,6 +700,67 @@ describe('Panels', () => {
         expect(shownByRows([anItem('x', item)], [filed(on, 'x')], rows, { panels })).toEqual(drawn ? ['x'] : []);
       },
     );
+  });
+
+  describe('a Filter shows an item that meets every row of any one set', () => {
+    // The Due today Filter of issue 1737: this week or overdue, and not on the
+    // Cockpit Dashboard, or any item with an agent running.
+    const cockpit = { ...aPanel('cockpit-day'), dashboardId: 'cockpit' };
+    const errands = { ...aPanel('errands'), dashboardId: 'day' };
+    const panels = [cockpit, errands, GATHERS];
+    const agent: FilterCondition = { field: 'agent' };
+    const notCockpit: FilterCondition = { field: 'dashboard', values: ['cockpit'], exclude: true };
+    const dueSet: FilterSet = [[due('week')], [notCockpit]];
+    const running: FilterSet = [[agent]];
+    const dashboards = [{ id: 'cockpit' }, { id: 'day' }];
+    const drawn = (items: Item[], filings: Filing[], sets: FilterSet[], withRun: string[] = []) =>
+      shownBySets(items, filings, sets, { panels, dashboards, withRun });
+
+    it.each([
+      {
+        situation: 'an item with a run on the excluded Dashboard',
+        item: { dueDate: '2026-12-31' },
+        on: 'cockpit-day',
+        withRun: ['x'],
+        shows: true,
+      },
+      { situation: 'an item due this week on Errands, with no run', item: { dueDate: TODAY }, on: 'errands', withRun: [], shows: true },
+      { situation: 'an item due this week on the excluded Dashboard, with no run', item: { dueDate: TODAY }, on: 'cockpit-day', withRun: [], shows: false },
+    ])('with two sets, $situation shows: $shows', ({ item, on, withRun, shows }) => {
+      expect(drawn([anItem('x', item)], [filed(on, 'x')], [dueSet, running], withRun)).toEqual(shows ? ['x'] : []);
+    });
+
+    it('shows an item meeting both sets once', () => {
+      expect(drawn([anItem('x', { dueDate: TODAY })], [filed('errands', 'x')], [dueSet, running], ['x'])).toEqual(['x']);
+    });
+
+    it('shows an item filed on two Panels once, however many sets it meets', () => {
+      expect(
+        drawn([anItem('x', { dueDate: TODAY })], [filed('errands', 'x'), filed('cockpit-day', 'x')], [dueSet, [[due('week')]]]),
+      ).toEqual(['x']);
+    });
+
+    it('shows what the rows alone showed where there is one set', () => {
+      const items = [anItem('a', { dueDate: TODAY }), anItem('b', { dueDate: '2026-12-31' })];
+      const filings = [filed('errands', 'a'), filed('errands', 'b')];
+      expect(drawn(items, filings, [dueSet])).toEqual(shownByRows(items, filings, dueSet, { panels, dashboards }));
+      expect(drawn(items, filings, [dueSet])).toEqual(['a']);
+    });
+
+    it('follows a Dashboard condition in the second set alone', () => {
+      const onDay: FilterCondition = { field: 'dashboard', values: ['day'] };
+      const items = [anItem('a'), anItem('b')];
+      const filings = [filed('errands', 'a'), filed('cockpit-day', 'b')];
+      expect(drawn(items, filings, [[[{ field: 'priority', values: ['high'] }]], [[onDay]]])).toEqual(['a']);
+    });
+
+    it('never shows an item still in the Inbox, whichever set it meets', () => {
+      expect(drawn([anItem('x', { dueDate: TODAY })], [], [dueSet, running], ['x'])).toEqual([]);
+    });
+
+    it('shows nothing with no sets', () => {
+      expect(drawn([anItem('x', { dueDate: TODAY })], [filed('errands', 'x')], [])).toEqual([]);
+    });
   });
 
   describe('a due window follows the calendar of whoever is looking', () => {

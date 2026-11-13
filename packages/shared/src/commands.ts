@@ -273,13 +273,13 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * asked for. No rows is a real answer — the Filter goes back to saying it has
  * nothing chosen.
  *
- * **Rows only** ("Store every Filter as rows, and save the All / Any choice as
- * rows", issue 1081): an Item meets every row, and meets a row by meeting any
- * one of its conditions. The flat `conditions` and `match` a tab on the
- * previous release sends is refused, since that tab reads a Filter stored in
- * rows as nothing chosen, and its save would overwrite the real one with that.
+ * **Sets only** ("Let a Filter hold sets of rows joined by or", issue 1737): an
+ * Item shows when it meets every row of any one set, and meets a row by
+ * meeting any one of its conditions. The `rows` a tab on the previous release
+ * sends is refused, since accepting it as one set would let that tab overwrite
+ * a Filter of several sets with only the part it could read.
  *
- * **Capped across rows**, as `panelTextSchema` caps the other free-form thing a
+ * **Capped across all sets**, as `panelTextSchema` caps the other free-form thing a
  * Panel stores: this is written into a column every snapshot of the Workspace
  * then carries to every device on it, and nothing downstream bounds it the way
  * an `order` is bounded by the Items it names. Far past any question built a
@@ -289,9 +289,9 @@ export const CONDITIONS_LIMIT = 50;
 export const setPanelFilterSchema = commandEnvelopeSchema
   .extend({
     panelId: z.uuid(),
-    // An empty row would be met by every Item or none depending on how it was
-    // read, so it is refused rather than given a meaning.
-    rows: z.array(z.array(filterConditionSchema).min(1)).max(CONDITIONS_LIMIT),
+    // An empty row or set would be met by every Item or none depending on how
+    // it was read, so it is refused rather than given a meaning.
+    sets: z.array(z.array(z.array(filterConditionSchema).min(1)).min(1)).max(CONDITIONS_LIMIT),
     /**
      * What the Filter's Items are grouped under ("Group a Filter panel's items
      * by the Dashboard or Panel they are filed on", issue 805). Left out means
@@ -301,9 +301,9 @@ export const setPanelFilterSchema = commandEnvelopeSchema
      */
     groupBy: filterGroupingSchema.default('none'),
   })
-  .refine((cmd) => cmd.rows.reduce((total, row) => total + row.length, 0) <= CONDITIONS_LIMIT, {
+  .refine((cmd) => cmd.sets.flat().reduce((total, row) => total + row.length, 0) <= CONDITIONS_LIMIT, {
     message: `a Filter holds at most ${CONDITIONS_LIMIT} conditions`,
-    path: ['rows'],
+    path: ['sets'],
   })
   // A field already in a row is not offered a second time in it ("Filter a
   // Filter panel by priority and type", issue 464); this is that same rule
@@ -311,8 +311,10 @@ export const setPanelFilterSchema = commandEnvelopeSchema
   // would no longer offer it. The same field in two rows is a real question.
   .refine(
     (cmd) =>
-      cmd.rows.every((row) => new Set(row.map((condition) => condition.field)).size === row.length),
-    { message: 'a field appears once in a row of a Filter', path: ['rows'] },
+      cmd.sets.every((set) =>
+        set.every((row) => new Set(row.map((condition) => condition.field)).size === row.length),
+      ),
+    { message: 'a field appears once in a row of a Filter', path: ['sets'] },
   );
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 
