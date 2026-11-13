@@ -423,6 +423,26 @@ export interface ReplyReadLimits {
   characters: number;
 }
 
+/**
+ * The one message a pasted link names, as a connector read it
+ * (`readMessageAtLink`, "Read pasted Teams links", issue 1755): what an Item
+ * the source's own save makes is made of.
+ */
+export interface MessageAtLink {
+  /** The source's own id for the message, unique within the source. */
+  sourceId: string;
+  /** Who wrote it, as the source names them, cut to a title's length; null where it names nobody. */
+  sender: string | null;
+  /** When it was sent, an ISO instant; null where the source said nothing usable. */
+  sentAt: string | null;
+  /**
+   * The captured message the Item holds from now on: the message as plain
+   * text and, where a note was handed in, the note after it, written and cut
+   * exactly as the source's own save writes a message with a note.
+   */
+  capturedMessage: string;
+}
+
 /** The draft a connector made, and where it lives. */
 export interface DraftMade {
   /** The source's own id for the draft, which `draftsWaiting` hands back. */
@@ -859,4 +879,28 @@ export interface Connector {
    * would not answer. Changes nothing at the source.
    */
   readConversationForReply?(host: OnDemandHost, conversationId: string, limits: ReplyReadLimits): Promise<MessageForReply[]>;
+
+  /**
+   * Which of the codes its sign-in's tiers grant (`OAuthDescriptor.tiers`) a
+   * connection needs to read the message at a link this connector declared in
+   * `messageLinks` ("Read pasted Teams links", issue 1755), or null where no
+   * grant reads it (a link to a source nothing can be asked of). Pure: the host
+   * asks only connections holding the code, and none where it is null.
+   */
+  grantToRead?(link: string): string | null;
+
+  /**
+   * Reads the one message at a link this connector declared in `messageLinks`,
+   * on demand from a background job ("Read pasted Teams links", issue 1755),
+   * with `note` - what the person typed beside the link, the link taken out,
+   * possibly empty - written after it as the source's own save writes a note.
+   * Answers null where this connection cannot read it, for good: not there, not
+   * allowed, the sign-in refused, or a link nothing can be asked of; the host
+   * then asks the next connection, and **never marks the connection failing**,
+   * since the paste is optional. Throws `SourceError` where the source did not
+   * answer this time (busy, down, unreachable), which the host may try again.
+   * Changes nothing at the source; a credential it renewed is handed back
+   * through `host.setCredentials`.
+   */
+  readMessageAtLink?(host: OnDemandHost, link: string, note: string): Promise<MessageAtLink | null>;
 }

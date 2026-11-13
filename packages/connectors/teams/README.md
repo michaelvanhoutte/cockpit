@@ -71,6 +71,17 @@ host does the rest ("Save a Teams message to Cockpit", issue 486).
 - **The manifest carries only properties its schema defines.** Teams refuses an
   upload for one it does not, and the first invented one (`packageName`) was
   found by uploading; `tests/unit/the-teams-app-manifest.test.ts` holds it.
+- **A pasted message link is read through Graph with the connection's own
+  grant** (`src/reading.ts`, "Read pasted Teams links", issue 1755). A chat
+  link, a meeting chat's included, is `GET /chats/{thread}/messages/{id}`; a
+  channel link is the one whose query carries the team as `groupId`, read at
+  `GET /teams/{groupId}/channels/{thread}/messages/{id}`, under its post's
+  `/replies/` where the link names a `parentMessageId`. A personal
+  (`teams.live.com`) link is never read: Graph offers no access to it. The
+  sealed token response says only how long its access token lasted, so a read
+  renews it first, on the `MS_CLIENT_ID` client, and hands the renewed one
+  back. Inferred from Microsoft's documentation, not yet seen against a real
+  tenant: the link shapes above and that a meeting chat reads as any chat.
 
 ## Setting it up (once, by hand)
 
@@ -110,3 +121,6 @@ one-time developer setup per environment (issue 486, "Out of scope").
 - The route, the identity resolution and the Item that comes out of it are
   proved in `apps/api/tests/integration/http/teams-ingress.test.ts`, entered the
   way Teams enters it.
+- Reading a pasted link against Graph faked at the network is
+  `tests/unit/reading-a-pasted-link.test.ts`; which connections are asked and
+  what is written is `apps/api/tests/integration/http/pasted-message-links.test.ts`.

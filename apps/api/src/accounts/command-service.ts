@@ -143,6 +143,7 @@ import {
   applyProposedPanel,
   applyClaudeProposals,
   applyProposedTexts,
+  applyPastedLinkRead,
   applySetDescription,
   applySetDismissed,
   applySetDone,
@@ -1942,6 +1943,32 @@ export function runCommand<N extends CommandName>(
           tx.update(items)
             // Both source columns, as the capture above (`asStored`, domain/items.ts).
             .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'read_pasted_link': {
+      const cmd = payload as CommandPayload<'read_pasted_link'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      // Decided against the Item as it stands, in the same step as the write
+      // (see `propose_item_texts` above): an Item that is no longer an Own note
+      // - read already by a delivery before this one - is left as it is, and
+      // the command logged so a redelivery is a replay ("Read pasted Teams
+      // links", issue 1755).
+      const read = applyPastedLinkRead(existing, cmd);
+      if (read === null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(read))
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
             .run();
           tx.insert(commands).values(commandRow).run();

@@ -23,6 +23,7 @@ import {
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import { sourceNames } from '../connectors/registry.js';
+import { pastedLinkIn, readThePastedLink, type PastedLinkRead } from '../connectors/pasted-link.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from '../accounts/debounce.js';
@@ -359,6 +360,10 @@ export async function enqueueCleanUp(
   // Dismissed and erased already, or captured by some other door that never
   // reaches this queue - nothing to show a history of.
   if (!item) return;
+  // A note holding a link a connector can read is queued without a key too:
+  // the read makes it what the source's own save makes, which needs no model
+  // ("Read pasted Teams links", issue 1755).
+  const readsALink = pastedLinkIn(env, item) !== null;
 
   const attemptId = crypto.randomUUID();
   const attempt: QueuedRewriteAttempt = {
@@ -381,7 +386,7 @@ export async function enqueueCleanUp(
    * Pending would sit there for ever, unlike the true race `cleanUpACapturedNote`
    * itself still checks for (a key removed between here and there).
    */
-  if (!hasKey) {
+  if (!hasKey && !readsALink) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -435,7 +440,11 @@ export async function enqueueCleanUp(
  * proposal that will not validate all end here quietly with the Item keeping the
  * mechanical title capture wrote; only a call that failed is left to throw.
  */
-export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<void> {
+export async function cleanUpACapturedNote(
+  env: Env,
+  job: CleanUpJob,
+  delivery: { lastAttempt: boolean } = { lastAttempt: false },
+): Promise<void> {
   // A fresh id stands in for a message enqueued before `attemptId` existed
   // (found in review, on the same deploy-skew window `enrichmentJobSchema`'s
   // own `.optional()` now allows through) - no queued row exists to update
@@ -471,11 +480,26 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     return say(job.itemId, GUEST_NEVER_CALLS_THE_MODEL);
   }
 
+  const found = await account.item(job.itemId);
+  // First, for an Own note holding a link a connector declared: the message it
+  // names, read from its source ("Read pasted Teams links", issue 1755). A
+  // source not answering throws here, before anything is written, so the
+  // retry starts over; on the last try the note is read as typed.
+  const fromLink = found ? await readThePastedLink(env, account, found, delivery.lastAttempt) : null;
+  if (fromLink) say(job.itemId, `read the message its pasted link names from ${fromLink.capturedFrom.source}`);
+  // From here the note is the read one: her message, then your words as its note.
+  const item = found && fromLink ? { ...found, capturedMessage: fromLink.capturedMessage } : found;
+  /** The read written with nothing else, where no reading of the note goes with it. */
+  const readAlone = async () => {
+    if (item && fromLink) await writeThePastedLinkRead(env, account, job, item, fromLink);
+  };
+
   const ai = aiFor(env);
   if (!ai) {
     // The race `enqueueCleanUp`'s own guard cannot close: a key can go away
     // between there and here, and the job is entered from a queue rather than
-    // only from there.
+    // only from there. A note queued for its link alone arrives here too.
+    await readAlone();
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -485,7 +509,6 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     return say(job.itemId, `nothing was enriched: ${noClaudeKeyBecause(env)}`);
   }
 
-  const item = await account.item(job.itemId);
   // Not an error and not worth retrying: an item can be dismissed and erased
   // between capture and here, and an id that belongs to another account matches
   // no row because every query in the store filters on the account. Nothing is
@@ -518,6 +541,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
   // asked only where the texts are settled and that would decide (issue 1409).
   const connectionGave = item.textsSettledAt === null ? null : await account.givenDueDateOf(item.id);
   if (item.textsSettledAt !== null && !aStatedFieldIsOpen(item, day !== null, connectionGave)) {
+    await readAlone();
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -573,6 +597,9 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
       { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null },
     );
   } catch (error) {
+    // The read is kept rather than paid for again: the retry finds the Item
+    // already the source's save, and reads it as one.
+    await readAlone();
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'failed',
@@ -582,6 +609,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
     throw error;
   }
   if (!('proposal' in read)) {
+    await readAlone();
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'left-as-is',
@@ -593,14 +621,7 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
 
   let written;
   try {
-    written = await account.applyChange('propose_item_texts', {
-      commandId: crypto.randomUUID(),
-      issuedAt: new Date().toISOString(),
-      // The Workspace the Item is in, which is the envelope's and not a
-      // decision: an Item belonging to none is still in the one it was captured
-      // from, and the store is what tells every other Workspace it changed.
-      workspaceId: item.workspaceId,
-      itemId: item.id,
+    const texts = {
       title: read.proposal.title,
       description: read.proposal.message,
       // Translated onto the wire shape the Item's own form uses, the same way
@@ -611,7 +632,24 @@ export async function cleanUpACapturedNote(env: Env, job: CleanUpJob): Promise<v
         description: candidate.message,
         meaning: candidate.meaning,
       })),
-    });
+    };
+    const envelope = {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      // The Workspace the Item is in, which is the envelope's and not a
+      // decision: an Item belonging to none is still in the one it was captured
+      // from, and the store is what tells every other Workspace it changed.
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+    };
+    // A note read from its pasted link has the read and the texts written in
+    // one change, so the device hears of it once (issue 1755); the texts land
+    // only where nobody has made them their own, as any reading's do.
+    written = fromLink
+      ? await account
+          .applyChange('read_pasted_link', { ...envelope, ...fromLink, texts })
+          .then((result) => ({ ...result, applied: result.applied && item.textsSettledAt === null }))
+      : await account.applyChange('propose_item_texts', { ...envelope, ...texts });
   } catch (error) {
     // The item went between the read above and this write. The same
     // not-worth-retrying case as above, arriving by the other door.
@@ -833,6 +871,39 @@ async function captureDayOf(
     if (day !== null) return day;
   }
   return null;
+}
+
+/**
+ * The read of a pasted link written alone, where no reading of the note goes
+ * with it - no key, the reading failed or proposed nothing, or the texts are
+ * the person's already ("Read pasted Teams links", issue 1755). The title and
+ * description become what a capture makes of the new captured message, unless
+ * the person made them their own. Where it landed, what the Item means and
+ * what to do with it are asked again, as after any rewrite of its texts.
+ */
+async function writeThePastedLinkRead(
+  env: Env,
+  account: Account,
+  job: CleanUpJob,
+  item: { id: string; workspaceId: string },
+  read: PastedLinkRead,
+): Promise<void> {
+  let written;
+  try {
+    written = await account.applyChange('read_pasted_link', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      ...read,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) return;
+    throw error;
+  }
+  if (!written.applied) return;
+  await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy);
+  await enqueueProposalForClaude(env, job.accountName, job.itemId, job.triggeredBy);
 }
 
 /**

@@ -17,7 +17,8 @@
 // /me/messages/{id}/createReply`, "Email… makes an Outlook draft the Item then
 // follows", issue 1709), and the mail sent from the mailbox (`GET
 // /me/mailFolders/sentitems/messages`, "Follow a sent email… in Capture", issue 1710).
-// Nothing here ships.
+// It also answers the one Teams chat or channel message a pasted link names
+// ("Read pasted Teams links", issue 1755). Nothing here ships.
 //
 
 /** The folders a stand-in mailbox holds a message in. */
@@ -384,11 +385,83 @@ export function createStubGraph({ mailboxOfToken, json }) {
     return json(response, { id: added.id, conversation: added.conversationId });
   }
 
+  /**
+   * Teams messages, as Graph answers one to a connection granted chats or
+   * channel posts ("Read pasted Teams links", issue 1755): `GET
+   * /v1.0/chats/{chat}/messages/{id}`, and `GET
+   * /v1.0/teams/{team}/channels/{channel}/messages/{id}` (a reply under
+   * `/messages/{post}/replies/{id}`). Every access token this issuer issued
+   * reads every one, the grant being Microsoft's to check. `POST
+   * /graph-stub/teams-message?chat=&id=&from=&text=` (or `team=&channel=` for a
+   * channel post) adds one, answering the link Teams' "Copy link" gives it.
+   */
+  const teamsMessages = new Map(
+    [
+      teamsMessage('chats/19:stub-chat-with-els@thread.v2/messages/1731490000000', {
+        from: 'Els Maes',
+        html: '<p>Can you send me the <b>Q3 numbers</b> by Friday?</p>',
+        at: '2026-11-12T08:15:00Z',
+      }),
+      teamsMessage('chats/19:meeting_StubWeeklySync@thread.v2/messages/1731490000100', {
+        from: 'Pieter Claes',
+        html: '<p>Notes from the weekly sync are in the channel, please add yours.</p>',
+        at: '2026-11-12T10:00:00Z',
+      }),
+      teamsMessage('teams/stub-team-sales/channels/19:stub-general@thread.tacv2/messages/1731490000200', {
+        from: 'Lotte Janssens',
+        html: '<div>Who can take the supplier call on Thursday?</div>',
+        at: '2026-11-12T12:30:00Z',
+      }),
+    ].map((one) => [one.path, one]),
+  );
+
+  function teamsMessage(path, { from, html, at }) {
+    return {
+      path,
+      answer: {
+        id: path.split('/').at(-1),
+        createdDateTime: at,
+        deletedDateTime: null,
+        body: { contentType: 'html', content: html },
+        from: { user: { displayName: from } },
+      },
+    };
+  }
+
+  function teamsRead(url, request, response) {
+    const email = mailboxOfToken((request.headers.authorization ?? '').replace(/^Bearer /, ''));
+    if (!email) return json(response, { error: { code: 'InvalidAuthenticationToken', message: 'Access token is empty or invalid.' } }, 401);
+    const path = url.pathname.slice('/v1.0/'.length).split('/').map((segment) => decodeURIComponent(segment)).join('/');
+    const held = teamsMessages.get(path);
+    if (!held) return json(response, { error: { code: 'NotFound', message: 'The requested resource does not exist.' } }, 404);
+    return json(response, held.answer);
+  }
+
+  function addTeamsMessage(url, response) {
+    const id = url.searchParams.get('id') ?? String(1731490000000 + teamsMessages.size + 1);
+    const team = url.searchParams.get('team');
+    const thread = url.searchParams.get(team ? 'channel' : 'chat') ?? '19:stub-chat-with-els@thread.v2';
+    const path = team ? `teams/${team}/channels/${thread}/messages/${id}` : `chats/${thread}/messages/${id}`;
+    const text = (url.searchParams.get('text') ?? 'A message, a moment ago.').replace(/</g, '&lt;');
+    const one = teamsMessage(path, { from: url.searchParams.get('from') ?? 'Els Maes', html: `<p>${text}</p>`, at: new Date().toISOString() });
+    teamsMessages.set(path, one);
+    const link = `https://teams.microsoft.com/l/message/${encodeURIComponent(thread)}/${id}?${team ? `groupId=${encodeURIComponent(team)}&` : ''}tenantId=stub-tenant`;
+    return json(response, { link });
+  }
+
   return {
     /** Answers the request when it is one of this stand-in's, and says whether it did. */
     handle(url, request, response, origin) {
       if (url.pathname.startsWith('/v1.0/me/')) {
         void graph(url, request, response, origin);
+        return true;
+      }
+      if (/^\/v1\.0\/(chats|teams)\//.test(url.pathname) && request.method === 'GET') {
+        teamsRead(url, request, response);
+        return true;
+      }
+      if (url.pathname === '/graph-stub/teams-message' && request.method === 'POST') {
+        addTeamsMessage(url, response);
         return true;
       }
       const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply|drafts|send-draft|delete-draft|edit-draft)$/.exec(url.pathname);

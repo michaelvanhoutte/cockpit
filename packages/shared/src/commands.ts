@@ -934,6 +934,25 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
 
 /**
+ * read_pasted_link - an Own note holding a message link a connector declared,
+ * made what that source's own save makes once the connector has read the
+ * message ("Read pasted Teams links", issue 1755): where it came from, and the
+ * captured message written again as the message and the person's words as its
+ * note. Sent by the enrichment job alone, with the texts it read where it read
+ * any, so both land in one write; without them the title and description are
+ * made from the new captured message as a capture makes them. Changes nothing
+ * on an Item that is no longer an Own note, and the texts nothing where a
+ * person has made them their own.
+ */
+export const readPastedLinkSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  capturedFrom: capturedFromSchema.extend({ sourceLink: z.url().max(2_000) }),
+  capturedMessage: z.string().trim().min(1).max(60_000),
+  texts: proposeItemTextsSchema.pick({ title: true, description: true, readings: true }).optional(),
+});
+export type ReadPastedLinkCommand = z.infer<typeof readPastedLinkSchema>;
+
+/**
  * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
  * offered rather than filed ("Propose where a captured note belongs, without
  * filing it there", issue 298; architecture.md §4.4).
@@ -1259,6 +1278,7 @@ export const commandSchemas = {
   set_follow_up_days: setFollowUpDaysSchema,
   set_email_address: setEmailAddressSchema,
   propose_item_texts: proposeItemTextsSchema,
+  read_pasted_link: readPastedLinkSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,
   propose_item_for_claude: proposeItemForClaudeSchema,
@@ -1283,6 +1303,7 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  */
 export type SelfSentCommandName =
   | 'propose_item_texts'
+  | 'read_pasted_link'
   | 'propose_item_panel'
   | 'propose_item_fields'
   | 'propose_item_for_claude'

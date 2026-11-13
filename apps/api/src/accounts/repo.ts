@@ -3283,6 +3283,27 @@ export function sourceAccountsIn(
 }
 
 /**
+ * Every connection of one connector in the account, in every live Workspace,
+ * oldest first, with what each was granted - the ones a pasted link may be
+ * read with ("Read pasted Teams links", issue 1755). Identifiers only, as
+ * `sourceAccountsIn` above: the credential is fetched for the one asked.
+ */
+export function connectionsOfConnector(
+  db: AccountDb,
+  tenantId: string,
+  connectorId: string,
+): { id: string; workspaceId: string; granted: string[] | null }[] {
+  return db
+    .select({ id: connectorAccounts.id, workspaceId: connectorAccounts.workspaceId, granted: connectorAccounts.granted })
+    .from(connectorAccounts)
+    .innerJoin(workspaces, and(eq(workspaces.tenantId, connectorAccounts.tenantId), eq(workspaces.id, connectorAccounts.workspaceId)))
+    .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.connectorId, connectorId), isNull(workspaces.deletedAt)))
+    .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
+    .all()
+    .map((row) => ({ ...row, granted: grantedFrom(row.granted) }));
+}
+
+/**
  * The connection one Workspace holds to this account at this source, by the
  * key the source names it with - what a push is matched against ("Save a Teams
  * message to Cockpit", issue 486).

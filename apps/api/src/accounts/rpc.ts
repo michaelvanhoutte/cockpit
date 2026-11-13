@@ -509,6 +509,11 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   ): Awaitable<Answer<null>>;
   /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
   listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Awaitable<Answer<ListingAsk>>;
+  /** Every connection of one connector in the account, with what each was granted (issue 1755). */
+  connectionsOfConnector(
+    accountName: string,
+    connectorId: string,
+  ): Awaitable<Answer<{ id: string; workspaceId: string; granted: string[] | null }[]>>;
   /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
   followSentEmail(accountName: string, pick: SentPick): Awaitable<Answer<{ itemId: string; made: boolean }>>;
   resealCredential(
