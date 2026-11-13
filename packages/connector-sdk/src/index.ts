@@ -61,6 +61,14 @@ export interface ConnectorManifest {
    */
   itemSourceName?: string;
   /**
+   * The addresses of the source's own messages, each a web host and the start
+   * of its path ("Open Items captured with a pasted Teams message link in
+   * Teams", issue 1738). An Item with no link of its own that carries one in
+   * its text is offered Open in this source at it; the app matches only what
+   * connectors declare here and names none. Absent: the source has none.
+   */
+  messageLinks?: readonly { host: string; pathStart: string }[];
+  /**
    * Whether an Item a push files belongs to the Workspace of the connection it
    * arrived on. Absent is yes, as for every pushed Item so far. `false`: the
    * host captures it on *Any workspace*, and that Workspace is only where it

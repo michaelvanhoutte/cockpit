@@ -8,6 +8,12 @@ import { demoPageOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 export type SourceNames = WorkspaceSnapshot['sourceNames'];
 
 /**
+ * The addresses of each source's own messages, by connector id, as the
+ * snapshot carries them; possibly absent, as `SourceNames` is.
+ */
+export type MessageLinks = WorkspaceSnapshot['messageLinks'];
+
+/**
  * What a source is called on screen ("Take source names out of the shared
  * contract", issue 927): its connector's own name, where the environment
  * registers it, and the id itself where it does not - so a source this app was
@@ -65,10 +71,11 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * "has a source link" means.
  *
  * **An Item with no stored link of its own, and no connector behind it** (one
- * captured in Cockpit, or by an app) is opened at the first Teams message link
- * in its description, then in its captured message ("Open Items captured with
- * a pasted Teams message link in Teams", issue 1738), found here each time and
- * never stored. A Gmail, Outlook or Teams Item keeps what its source gave.
+ * captured in Cockpit, or by an app) is opened at the first link in its
+ * description, then in its captured message, that a connector declared as one
+ * of its message links ("Open Items captured with a pasted Teams message link
+ * in Teams", issue 1738), under that connector's name; found here each time
+ * and never stored. A Gmail, Outlook or Teams Item keeps what its source gave.
  *
  * **Only a web address is ever a link.** The stored field is any URL the schema
  * parses, `javascript:` and `data:` included, and this is the first place it is
@@ -81,10 +88,14 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * opens nothing. Any other link - a named person's real one included - passes
  * through as it was.
  */
-export function openableAtSource(item: Item, names: SourceNames): { name: string; link: string } | null {
+export function openableAtSource(
+  item: Item,
+  names: SourceNames,
+  messageLinks?: MessageLinks,
+): { name: string; link: string } | null {
   if (!item.sourceLink && (item.source === 'internal' || item.source === 'mcp')) {
-    const link = firstTeamsMessageLink(item.description) ?? firstTeamsMessageLink(item.capturedMessage);
-    return link === null ? null : { name: sourceNamed(names, 'teams'), link };
+    const found = firstMessageLink(item.description, messageLinks) ?? firstMessageLink(item.capturedMessage, messageLinks);
+    return found === null ? null : { name: sourceNamed(names, found.source), link: found.link };
   }
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
@@ -93,21 +104,23 @@ export function openableAtSource(item: Item, names: SourceNames): { name: string
   return link === null ? null : { name, link };
 }
 
-const TEAMS_HOSTS = new Set(['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft']);
-
 /**
- * The first Teams message link in a text, or null. A candidate is an `https?://`
- * run up to whitespace, a square or angle bracket or a double quote, less the
- * sentence punctuation after it and any closing parenthesis it never opened:
- * so a Markdown `[name](link)` or "see link." gives the link alone, while a
- * channel link keeps the `(` `)` and `'` that Teams leaves unencoded in a team
- * or channel name. It counts only when it parses as an `https` address on
- * exactly one of the Teams hosts with a `/l/message/` path. It is text somebody
- * else may have written and goes into an `href`, so the parsed host decides,
- * never a pattern over the text.
+ * The first message link in a text, or null, with the connector that declared
+ * it. A candidate is an `https?://` run up to whitespace, a square or angle
+ * bracket or a double quote, less the sentence punctuation after it and any
+ * closing parenthesis it never opened: so a Markdown `[name](link)` or "see
+ * link." gives the link alone, while a channel link keeps the `(` `)` and `'`
+ * that Teams leaves unencoded in a team or channel name. It counts only when it
+ * parses as an `https` address whose host is exactly a declared one and whose
+ * path starts with that declaration's. It is text somebody else may have
+ * written and goes into an `href`, so the parsed host decides, never a pattern
+ * over the text. No declarations (a copy from a release that sent none): none.
  */
-export function firstTeamsMessageLink(text: string | null | undefined): string | null {
-  if (!text) return null;
+export function firstMessageLink(
+  text: string | null | undefined,
+  messageLinks: MessageLinks,
+): { source: string; link: string } | null {
+  if (!text || !messageLinks) return null;
   for (const [run] of text.matchAll(/https?:\/\/[^\s\]>"<]+/gi)) {
     const candidate = withoutTrailingPunctuation(run);
     let url: URL;
@@ -116,8 +129,12 @@ export function firstTeamsMessageLink(text: string | null | undefined): string |
     } catch {
       continue;
     }
-    if (url.protocol === 'https:' && TEAMS_HOSTS.has(url.hostname.toLowerCase()) && url.pathname.startsWith('/l/message/')) {
-      return candidate;
+    if (url.protocol !== 'https:') continue;
+    const host = url.hostname.toLowerCase();
+    for (const [source, declared] of Object.entries(messageLinks)) {
+      if (declared.some((one) => one.host.toLowerCase() === host && url.pathname.startsWith(one.pathStart))) {
+        return { source, link: candidate };
+      }
     }
   }
   return null;

@@ -348,7 +348,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
+  const atSource = item ? openableAtSource(item, data?.sourceNames, data?.messageLinks) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is

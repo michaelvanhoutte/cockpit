@@ -246,6 +246,9 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
         sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
+        messageLinks: {
+          teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
+        },
       } as unknown as WorkspaceSnapshot;
     },
   }),

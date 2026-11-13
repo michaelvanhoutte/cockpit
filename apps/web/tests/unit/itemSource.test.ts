@@ -27,7 +27,16 @@ const CHANNEL =
 const TEAMS = { name: 'Microsoft Teams' };
 
 /** What the Workspace's snapshot calls each source (issue 927). */
-const NAMES = { gmail: 'Gmail', teams: 'Microsoft Teams' };
+const NAMES = { gmail: 'Gmail', teams: 'Microsoft Teams', inmail: 'LinkedIn message' };
+
+/** What the connectors declare as their message links (issue 1738); the app names none of them. */
+const LINKS = {
+  teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
+};
+
+/** A second connector's declaration, for a source this app was never built with. */
+const INMAIL = 'https://www.linkedin.example/messaging/thread/2-abc/';
+const TWO_CONNECTORS = { ...LINKS, inmail: [{ host: 'www.linkedin.example', pathStart: '/messaging/thread/' }] };
 
 describe('Connector management', () => {
   describe('Open on a demo item opens Cockpit’s own page for its source, and on any other item opens the source as before', () => {
@@ -64,7 +73,7 @@ describe('Connector management', () => {
         opens: { name: 'outlook', link: 'https://outlook.example/m/1' },
       },
     ])('$situation', ({ item, opens }) => {
-      expect(openableAtSource(item, NAMES)).toEqual(opens);
+      expect(openableAtSource(item, NAMES, LINKS)).toEqual(opens);
     });
   });
 
@@ -111,7 +120,7 @@ describe('Connector management', () => {
         link: LIVE,
       },
     ])('$situation', ({ item, link }) => {
-      expect(openableAtSource(item, NAMES)).toEqual({ ...TEAMS, link });
+      expect(openableAtSource(item, NAMES, LINKS)).toEqual({ ...TEAMS, link });
     });
   });
 
@@ -132,7 +141,7 @@ describe('Connector management', () => {
         link: WORK,
       },
     ])('$situation', ({ item, link }) => {
-      expect(openableAtSource(item, NAMES)).toEqual(link ? { ...TEAMS, link } : null);
+      expect(openableAtSource(item, NAMES, LINKS)).toEqual(link ? { ...TEAMS, link } : null);
     });
   });
 
@@ -150,7 +159,36 @@ describe('Connector management', () => {
         opens: { name: 'Els Maes', link: 'https://notion.example/p/1' },
       },
     ])('$situation', ({ item, opens }) => {
-      expect(openableAtSource(item, NAMES)).toEqual(opens);
+      expect(openableAtSource(item, NAMES, LINKS)).toEqual(opens);
+    });
+  });
+
+  describe('Only what connectors declare is a message link', () => {
+    it('an older copy that carries no declarations offers nothing for an Own Item with a Teams link', () => {
+      expect(openableAtSource(withTexts('internal', null, { description: WORK }), NAMES, undefined)).toBeNull();
+    });
+
+    it('a link declared by another connector opens under that connector’s name', () => {
+      expect(openableAtSource(withTexts('internal', null, { description: `see ${INMAIL}` }), NAMES, TWO_CONNECTORS)).toEqual({
+        name: 'LinkedIn message',
+        link: INMAIL,
+      });
+    });
+
+    it('with two connectors’ links in one text, the first in the text wins', () => {
+      expect(openableAtSource(withTexts('internal', null, { description: `${INMAIL} and ${WORK}` }), NAMES, TWO_CONNECTORS)).toEqual({
+        name: 'LinkedIn message',
+        link: INMAIL,
+      });
+      expect(openableAtSource(withTexts('internal', null, { description: `${WORK} and ${INMAIL}` }), NAMES, TWO_CONNECTORS)).toEqual({
+        ...TEAMS,
+        link: WORK,
+      });
+    });
+
+    it('a declared host matches whatever its case', () => {
+      const shouted = 'https://TEAMS.Microsoft.com/l/message/19:abc/1';
+      expect(openableAtSource(withTexts('internal', null, { description: shouted }), NAMES, LINKS)?.name).toBe('Microsoft Teams');
     });
   });
 });

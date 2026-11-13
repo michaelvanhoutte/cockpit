@@ -35,7 +35,7 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
-import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type SourceNames } from '../itemSource';
+import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
 import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -95,6 +95,7 @@ const EMPTY_ALSO_IN: readonly string[] = [];
 export function ItemRow({
   item,
   sourceNames,
+  messageLinks,
   workspaceId,
   inInbox = false,
   liftedFrom,
@@ -123,6 +124,8 @@ export function ItemRow({
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
   sourceNames?: SourceNames;
+  /** The addresses of each source's own messages, from the same snapshot, for opening an Item at one in its text. */
+  messageLinks?: MessageLinks;
   workspaceId: string;
   /**
    * That this row is drawn in the Inbox rather than on a Panel or a Filter
@@ -515,7 +518,7 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
-  const atSource = openableAtSource(item, sourceNames);
+  const atSource = openableAtSource(item, sourceNames, messageLinks);
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
   const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
