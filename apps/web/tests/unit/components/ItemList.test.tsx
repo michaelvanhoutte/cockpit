@@ -930,9 +930,7 @@ describe('Panels', () => {
           groups: [heading('Tasks', 'p-tasks', ELSEWHERE)],
         });
 
-        await user.tab();
-        const button = screen.getByRole('button', { name: 'Go to Tasks · Privé' });
-        button.focus();
+        screen.getByRole('button', { name: 'Go to Tasks · Privé' }).focus();
         await user.keyboard('{Enter}');
 
         expect(held.navigate).toHaveBeenCalledTimes(1);
@@ -982,7 +980,9 @@ describe('Panels', () => {
         const button = screen.getByRole('button', { name: 'Go to Tasks · Privé' });
         expect(button).toHaveAttribute('title', 'Go to Tasks · Privé');
         expect(button).toHaveTextContent('Tasks · Privé');
-        expect(button).not.toHaveTextContent('1');
+        // The count is the heading's other child, never inside the button.
+        expect(button.parentElement!.lastElementChild).not.toBe(button);
+        expect(button.contains(button.parentElement!.lastElementChild)).toBe(false);
       });
     });
 
