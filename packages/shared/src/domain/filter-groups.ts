@@ -15,6 +15,8 @@ export interface FilterGroup {
   key: string;
   /** What the heading says first: the Dashboard's name, or the Panel's. */
   name: string;
+  /** The Dashboard the heading is, or the Panel's heading sits on: what the heading goes to. */
+  dashboardId: string;
   /** The Dashboard a Panel heading says after its name, fainter. Null on a Dashboard heading. */
   dashboardName: string | null;
   /** The Panel a Panel heading is, which a row under it leaves out of its "also in". Null on a Dashboard heading. */
@@ -66,13 +68,13 @@ export function groupFilterRows(
       for (const panel of panels) {
         const here = items.filter((item) => filedOn.get(panel.id)?.has(item.id));
         if (here.length > 0) {
-          groups.push({ key: panel.id, name: panel.name, dashboardName: dashboard.name, panelId: panel.id, items: here });
+          groups.push({ key: panel.id, name: panel.name, dashboardId: dashboard.id, dashboardName: dashboard.name, panelId: panel.id, items: here });
         }
       }
     } else {
       const here = items.filter((item) => panels.some((panel) => filedOn.get(panel.id)?.has(item.id)));
       if (here.length > 0) {
-        groups.push({ key: dashboard.id, name: dashboard.name, dashboardName: null, panelId: null, items: here });
+        groups.push({ key: dashboard.id, name: dashboard.name, dashboardId: dashboard.id, dashboardName: null, panelId: null, items: here });
       }
     }
   }
