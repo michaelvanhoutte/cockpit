@@ -2,7 +2,7 @@ import { checkWriteKey } from './auth';
 import { exportClaudeCalls } from './claude-calls-export';
 import { callsPage, callsQueryString, parseCallsQuery } from './claude-calls-page';
 import { renderClaudeCalls } from './claude-calls-view';
-import { costsPage, DEFAULT_GROUP, parseQuery, queryString } from './costs';
+import { costsPage, DEFAULT_GROUP, parseQuery, parseTrendLines, parseTrendQuery, queryString, trendPage, trendQueryString } from './costs';
 import { checkAttempts } from './ci-attempts';
 import { newestAttempt, parseScope, storeAttempts } from './ci-attempts-store';
 import { checkPulls, checkTimelines } from './cycle-time';
@@ -13,6 +13,7 @@ import { loadTimeline, renderTimelinePiece } from './cycle-time-timeline';
 import { exportCsv } from './export';
 import { isJob, JOBS, runJob, type JobName } from './jobs';
 import { renderPage } from './page';
+import { renderTrendPage } from './trend-page';
 import { pullRequestPage } from './pull-request';
 import { renderNothingFound, renderPullRequest } from './pull-request-page';
 import { checkSelection } from './selection';
@@ -46,7 +47,7 @@ export interface Env {
   USAGE_READ_TOKEN?: string;
   /** Cockpit's production address, set in wrangler.jsonc; `pnpm dev:harness` points it at the local API. */
   COCKPIT_URL?: string;
-  /** How long the edge keeps the costs page and the Claude calls page, in seconds; 0 turns the cache off (local runs and tests). */
+  /** How long the edge keeps the costs, Harness trend and Claude calls pages, in seconds; 0 turns the cache off (local runs and tests). */
   PAGE_CACHE_SECONDS?: string;
 }
 
@@ -513,6 +514,27 @@ async function costs(request: Request, env: Env, ctx: ExecutionContext): Promise
   return response;
 }
 
+/** The Harness trend page, cached at the edge like the costs page; its key is the period, the filters and the cost chart's view. */
+async function harnessTrend(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(request.url);
+  const query = parseTrendQuery(url.searchParams);
+  const lines = parseTrendLines(url.searchParams);
+  const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
+  const cache = seconds > 0 ? caches.default : null;
+  const key = new Request(`${url.origin}/harness-trend${trendQueryString(query, lines)}`);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const response = new Response(renderTrendPage(await trendPage(env.DB, query, Date.now(), lines)), {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': cache ? `public, max-age=${seconds}` : 'no-store',
+    },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
 /** Cockpit's Claude calls page, cached at the edge like the costs page; the totals it reads are the import's own. */
 async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -536,7 +558,8 @@ async function claudeCalls(request: Request, env: Env, ctx: ExecutionContext): P
 /** One pull request's page, cached like the costs page; a number no link knows is "nothing found". */
 async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, raw: string): Promise<Response> {
   const url = new URL(request.url);
-  const query = parseQuery(url.searchParams);
+  // A pull request's page shows its whole cost over a period, never one day of it or a range of days.
+  const query = { ...parseQuery(url.searchParams), day: null, range: null };
   const number = pullRequestNumber(raw);
   const seconds = Number(env.PAGE_CACHE_SECONDS ?? 0);
   const cache = seconds > 0 ? caches.default : null;
@@ -559,6 +582,8 @@ async function pullRequest(request: Request, env: Env, ctx: ExecutionContext, ra
 /** The request rows under the page's filters (and one pull request's, with `pr`), as a CSV download. Never cached: it can be a year of rows. */
 function exportRows(request: Request, env: Env): Response {
   const params = new URL(request.url).searchParams;
+  // The export has no rows to group, and a day is only read beside rows that are not "each day".
+  params.set('group', 'pr');
   const pr = params.get('pr');
   const number = pr === null ? null : pullRequestNumber(pr);
   if (pr !== null && number === null) return exportCsv(env.DB, parseQuery(params), -1, 'claude-code-requests.csv');
@@ -571,6 +596,7 @@ export default {
     const prPath = /^\/pr\/([^/]*)\/?$/.exec(pathname);
     if (prPath && request.method === 'GET') return pullRequest(request, env, ctx, prPath[1]!);
     if (pathname === '/export.csv' && request.method === 'GET') return exportRows(request, env);
+    if (pathname === '/harness-trend' && request.method === 'GET') return harnessTrend(request, env, ctx);
     if (pathname === '/claude-calls' && request.method === 'GET') return claudeCalls(request, env, ctx);
     // Never cached: it can be a year of calls.
     if (pathname === '/claude-calls/export.csv' && request.method === 'GET') return exportClaudeCalls(env.DB, parseCallsQuery(new URL(request.url).searchParams));

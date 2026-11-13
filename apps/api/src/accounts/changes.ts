@@ -185,6 +185,13 @@ export function accountChanges(accountId: string): readonly Change[] {
     ACCOUNT_FOLLOW_UPS,
     ACCOUNT_EMAIL_ADDRESS,
     ITEM_ADDITIONS,
+    ITEM_CONVERSATIONS,
+    ITEM_CONVERSATIONS_STOPPED,
+    ITEM_CONVERSATIONS_DRAFT_LINK,
+    CONNECTION_HISTORY_STARTED_AT,
+    ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST,
+    PANEL_ITEMS_FILED_AT,
+    CONNECTOR_ACCOUNTS_GRANTED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1554,6 +1561,184 @@ const ITEM_ADDITIONS: Change = {
   ],
 };
 
+/**
+ * The conversations Items follow at their source ("A Gmail starred
+ * conversation is one Item whose status follows who wrote last", issue 1705): a
+ * table of its own beside `items` and `pulled_links`, both untouched;
+ * `schema.ts` says what each column carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `CREATE TABLE` and its index, and no statement that
+ *   reads or writes a row. It is the whole of the expand; there is no contract
+ *   step. `pnpm backup:export` runs before the deploy that carries it.
+ * - **If it stops halfway:** it cannot. The statements commit with the record
+ *   that they ran in one `transactionSync` (store.ts), so a store has the table
+ *   and its index or neither, and the next request retries.
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that break the new rule:** none can; the table starts empty. Items a
+ *   star brought in one email at a time stay as they are and never follow.
+ * - **What is in each environment:** real Items and connections in staging and
+ *   production, none of them touched; nothing is written on deploy.
+ * - **Interruptible at:** an account opening mid-change, where the transaction
+ *   rolls back and the account answers as before.
+ * - **Rolled back after it has run:** an older release never names the table,
+ *   so its rows show each followed Item's source and sender, and a Gmail
+ *   connection following the star reads stars by email again; the rows stay,
+ *   and show again when the release goes forward.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_CONVERSATIONS: Change = {
+  name: '0100-item-conversations',
+  statements: [
+    {
+      sql: `CREATE TABLE \`item_conversations\` (
+	\`tenant_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`connector_id\` text NOT NULL,
+	\`external_account_key\` text NOT NULL,
+	\`conversation_id\` text NOT NULL,
+	\`link\` text NOT NULL,
+	\`last_by\` text NOT NULL,
+	\`last_from\` text,
+	\`last_at\` text NOT NULL,
+	\`last_excerpt\` text NOT NULL,
+	\`message_count\` integer NOT NULL,
+	\`started_at\` text NOT NULL,
+	\`with_whom\` text,
+	\`draft_id\` text,
+	\`status_before_draft\` text,
+	PRIMARY KEY(\`item_id\`, \`connector_id\`, \`external_account_key\`, \`conversation_id\`),
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_conversations_last_by_is_known" CHECK(last_by IN ('you', 'them')),
+	CONSTRAINT "item_conversations_message_count_is_positive" CHECK(message_count > 0),
+	CONSTRAINT "item_conversations_last_at_is_timestamp" CHECK(last_at IS NULL OR (datetime(last_at) IS NOT NULL AND substr(last_at, 11, 1) = 'T' AND substr(last_at, -1) = 'Z' AND length(last_at) >= 20 AND date(last_at) = substr(last_at, 1, 10))),
+	CONSTRAINT "item_conversations_started_at_is_timestamp" CHECK(started_at IS NULL OR (datetime(started_at) IS NOT NULL AND substr(started_at, 11, 1) = 'T' AND substr(started_at, -1) = 'Z' AND length(started_at) >= 20 AND date(started_at) = substr(started_at, 1, 10)))
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX `item_conversations_by_conversation` ON `item_conversations` (`connector_id`,`external_account_key`,`conversation_id`)',
+    },
+  ],
+};
+
+/**
+ * When an Item stopped following its conversation (`item_conversations.stopped_at`,
+ * whose meaning `schema.ts` gives): a nullable column added, nothing else.
+ * A change of its own rather than an edit of `0100-item-conversations`, so a
+ * store that already ran that one gains the column too.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which is "still following" - what every row was.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a stopped Item follows again until the release goes forward.
+ */
+const ITEM_CONVERSATIONS_STOPPED: Change = {
+  name: '0101-item-conversations-stopped',
+  statements: [
+    {
+      sql: `ALTER TABLE \`item_conversations\` ADD COLUMN \`stopped_at\` text ${timestampCheck('item_conversations', 'stopped_at')}`,
+    },
+  ],
+};
+
+/**
+ * Where the draft an Item waits on opens (`item_conversations.draft_link`,
+ * whose meaning `schema.ts` gives): a nullable column added, nothing else.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which links the conversation - what every row did.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so Open goes to the conversation again while a draft is unsent; the
+ *   column's values stay, and a draft recorded meanwhile keeps a link that a
+ *   later release still reads.
+ */
+const ITEM_CONVERSATIONS_DRAFT_LINK: Change = {
+  name: '0102-item-conversations-draft-link',
+  statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `draft_link` text' }],
+};
+
+/**
+ * Adds when a check began to its line of a connection's history (`0103-connection-history-started-at`,
+ * issue 1725): NULL for a delivery and for every line written before it, which
+ * a release before it ignores. Expand only.
+ */
+const CONNECTION_HISTORY_STARTED_AT: Change = {
+  name: '0103-connection-history-started-at',
+  statements: [{ sql: 'ALTER TABLE `connection_history` ADD COLUMN `started_at` text' }],
+};
+
+/**
+ * The fingerprint of a draft Claude wrote (`item_conversations.claude_draft_digest`,
+ * whose meaning `schema.ts` gives; "Mail follow-up: a Claude draft looks like
+ * any other and cannot be redone…", issue 1732): a nullable column added,
+ * nothing else. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which is a draft of yours - so every draft made
+ *   before it is never rewritten.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so every draft reads as *Draft started* and none is rewritten; a
+ *   fingerprint left on a row whose draft that release sends or deletes is
+ *   cleared by the next draft recorded there, and a draft mistaken for Claude's
+ *   meanwhile is still read back and kept where it was edited.
+ */
+const ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST: Change = {
+  name: '0104-item-conversations-claude-draft-digest',
+  statements: [{ sql: 'ALTER TABLE `item_conversations` ADD COLUMN `claude_draft_digest` text' }],
+};
+
+/**
+ * What a source granted a connection (`connector_accounts.granted`, whose
+ * meaning `schema.ts` gives; "Read pasted Teams links: connecting Teams asks
+ * for no read permission", issue 1754): a nullable column added, nothing else.
+ * Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which reads as granting nothing, as every
+ *   connection made before it did.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a connection reads as granting nothing; the next reconnect there
+ *   leaves what was stored, and a release that returns reads it again.
+ */
+const CONNECTOR_ACCOUNTS_GRANTED: Change = {
+  name: '0106-connector-accounts-granted',
+  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `granted` text' }],
+};
+
+/**
+ * When an Item landed on a Panel (`panel_items.filed_at`, whose meaning
+ * `schema.ts` gives; "Capture: offer today's and this week's most-used
+ * Panels…", issue 1743), and the index the most-used read ranges over. Expand
+ * only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN` and
+ *   one `CREATE INDEX`. Every existing row is left null, which is "not
+ *   counted"; nothing is backfilled or guessed from `created_at`.
+ * - **If it stops halfway, or runs twice:** both commit with the change's record
+ *   in one transaction, and once recorded it never runs again; the index is
+ *   `IF NOT EXISTS` besides.
+ * - **Rolled back after it has run:** an older release rewrites a Panel's rows
+ *   without the column, so they go back to null and count less until filed again.
+ */
+const PANEL_ITEMS_FILED_AT: Change = {
+  name: '0105-panel-items-filed-at',
+  statements: [
+    { sql: `ALTER TABLE \`panel_items\` ADD COLUMN \`filed_at\` text ${timestampCheck('panel_items', 'filed_at')}` },
+    { sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_filed` ON `panel_items` (`tenant_id`,`filed_at`)' },
+  ],
+};
+
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
 
@@ -1865,7 +2050,8 @@ export function filterRowsStatements(accountId: string): readonly Statement[] {
 
 /**
  * Every Filter stored as rows - conditions within a row joined by *or*, rows
- * joined by *and* - in place of its flat `conditions` and `match` ("Store every
+ * joined by *and*; later read as one set, "Let a Filter hold sets of rows
+ * joined by or", issue 1737 - in place of its flat `conditions` and `match` ("Store every
  * Filter as rows, and save the All / Any choice as rows", issue 1081;
  * `filterRowsStatements` says how each is rewritten).
  *
@@ -5563,7 +5749,7 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
           }
           panelNames.add(folded);
           // A Filter the app cannot read draws as one with nothing chosen
-          // (`panelFilterFrom`), one with no rows - or an empty row -
+          // (`panelFilterFrom`), one with no sets - or an empty set or row -
           // demonstrates nothing, a field twice in a row is read as its first,
           // and a `groupBy` it cannot read is quietly None - each a typo here
           // rather than a choice.
@@ -5571,9 +5757,13 @@ export function checkedGuestDemo(demo: readonly SeedWorkspace[]): readonly SeedW
             const read = panelFilterSchema.safeParse(panel.filter);
             if (
               !read.success ||
-              read.data.rows.length === 0 ||
-              read.data.rows.some(
-                (row) => row.length === 0 || new Set(row.map((condition) => condition.field)).size !== row.length,
+              read.data.sets.length === 0 ||
+              read.data.sets.some(
+                (set) =>
+                  set.length === 0 ||
+                  set.some(
+                    (row) => row.length === 0 || new Set(row.map((condition) => condition.field)).size !== row.length,
+                  ),
               ) ||
               !filterGroupingSchema.safeParse(panel.filter.groupBy).success
             ) {

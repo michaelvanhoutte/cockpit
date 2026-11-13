@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { checkTree, readSources, strayCallsIn, strayCalls, withoutComments } from './provider-calls.mjs';
+import { checkTree, paidCallFiles, readSources, strayCallsIn, strayCalls, withoutComments } from './provider-calls.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -66,11 +66,35 @@ describe('nothing reaches a provider except through the gateway', () => {
 
   it('fails a holder that no longer exists, since nothing would be guarding it', () => {
     const failures = strayCalls([], rules, (path) => path.startsWith('apps/api/src/gateway'));
-    assert.deepEqual(failures, ['scripts/provider-rules.json: holder apps/api/src/ai/index.ts does not exist, remove it']);
+    assert.deepEqual(failures, ['docs/architecture.yml: apps/api/src/ai/index.ts is named by the paid-call rule and does not exist, remove it']);
   });
 
   it('does not take a URL for a comment', () => {
     assert.match(withoutComments("fetch('https://api.openai.com/x'); // then"), /api\.openai\.com.*\); {0,2}$/);
+  });
+});
+
+const RULES_FILE = [
+  'cockpit:',
+  '  rules:',
+  '    - rule: Only the gateway makes a paid call',
+  '      check: paid-calls',
+  '      files: [apps/api/src/gateway/]',
+  '      reason: Recorded.',
+  '    - rule: Another rule',
+  '      files: [apps/api/src/other.ts]',
+  '',
+].join('\n');
+
+describe('the files the paid-call rule names', () => {
+  it('reads them from the rule with check: paid-calls, and not from another rule', () => {
+    assert.deepEqual(paidCallFiles(RULES_FILE), ['apps/api/src/gateway/']);
+    assert.deepEqual(paidCallFiles('    - rule: x\n      files: [\'a.ts\', "b/"]\n      check: paid-calls\n'), ['a.ts', 'b/']);
+  });
+
+  it('fails a rules file without the rule, or with its files not on one line, saying so', () => {
+    assert.throws(() => paidCallFiles('cockpit:\n  rules: []\n'), /no rule has check: paid-calls/);
+    assert.throws(() => paidCallFiles('    - rule: x\n      check: paid-calls\n      files:\n        - a.ts\n'), /one list on one line/);
   });
 });
 
@@ -79,7 +103,10 @@ describe('the check over a tree', () => {
   const treeOf = (files) => {
     const dir = mkdtempSync(join(tmpdir(), 'provider-calls-'));
     mkdirSync(join(dir, 'scripts'), { recursive: true });
-    writeFileSync(join(dir, 'scripts/provider-rules.json'), JSON.stringify({ ...rules, holders: ['apps/api/src/gateway/'] }));
+    const { holders: _holders, ...detection } = rules;
+    writeFileSync(join(dir, 'scripts/provider-rules.json'), JSON.stringify(detection));
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs/architecture.yml'), RULES_FILE);
     for (const [path, text] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       writeFileSync(join(dir, path), text);

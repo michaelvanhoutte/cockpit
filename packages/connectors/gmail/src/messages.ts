@@ -19,7 +19,7 @@ export const STARRED = 'STARRED';
  * Gmail's own labels for mail on its way out: in the bin, or marked spam. A
  * labelled message there keeps the label, and no longer counts as labelled.
  */
-const AWAY: readonly string[] = ['TRASH', 'SPAM'];
+export const AWAY: readonly string[] = ['TRASH', 'SPAM'];
 
 /**
  * What a source id starts with when it names one email rather than a
@@ -121,13 +121,6 @@ export function namesOf(answer: unknown, userLabels: ReadonlyMap<string, string>
   return names;
 }
 
-/** One email's names: the user labels on it alone, the mark left out - what an Item brought in by star carries. */
-export function namesOfEmail(message: unknown, userLabels: ReadonlyMap<string, string>, markId: string): string[] {
-  const names: string[] = [];
-  addNamesOf(message as GmailMessage | null, userLabels, markId, names);
-  return names;
-}
-
 function addNamesOf(
   message: GmailMessage | null | undefined,
   userLabels: ReadonlyMap<string, string>,
@@ -198,7 +191,15 @@ interface Scanned {
   readonly historyId: string | null;
 }
 
-function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'email'): Scanned {
+/**
+ * Which records of a history page read without a label filter concern the
+ * mark: a label change on a message that carries the mark or moves it, and a
+ * deletion, which says no labels, in a conversation an Item follows. Absent for
+ * a page Gmail already filtered by the mark, where every record does.
+ */
+type Concerns = (threadId: string, messageLabels: unknown, moved: unknown, deleted: boolean) => boolean;
+
+function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'email', concerns?: Concerns): Scanned {
   const { history, nextPageToken, historyId } = (answer ?? {}) as Record<string, unknown>;
   const gained = new Map<string, string>();
   const changed = new Map<string, string>();
@@ -224,23 +225,25 @@ function scanHistory(answer: unknown, markId: string, by: 'conversation' | 'emai
         changed.set(subject.key, subject.threadId);
       }
     }
+    const concerned = (entry: HistoryEntry, subject: { threadId: string }, deleted = false) =>
+      !concerns || concerns(subject.threadId, entry.message?.labelIds, entry.labelIds, deleted);
     for (const added of entries('labelsAdded')) {
       const subject = subjectOf(added);
-      if (!subject) continue;
+      if (!subject || !concerned(added, subject)) continue;
       if (carries(added.labelIds)) gained.set(subject.key, subject.threadId);
       if (movesAway(added.labelIds)) changed.set(subject.key, subject.threadId);
       if (namesMoved(added.labelIds)) relabelled.set(subject.key, subject.threadId);
     }
     for (const removed of entries('labelsRemoved')) {
       const subject = subjectOf(removed);
-      if (!subject) continue;
+      if (!subject || !concerned(removed, subject)) continue;
       if (carries(removed.labelIds)) gained.delete(subject.key);
       if (movesAway(removed.labelIds)) changed.set(subject.key, subject.threadId);
       if (namesMoved(removed.labelIds)) relabelled.set(subject.key, subject.threadId);
     }
     for (const deleted of entries('messagesDeleted')) {
       const subject = subjectOf(deleted);
-      if (subject) changed.set(subject.key, subject.threadId);
+      if (subject && concerned(deleted, subject, true)) changed.set(subject.key, subject.threadId);
     }
   }
   return {
@@ -302,8 +305,27 @@ export interface EmailHistoryPage {
  * star may have come off or gone back, one relabelled - and, so that one read
  * of a conversation answers for them all, grouped by the conversation each is in.
  */
-export function emailHistoryPage(answer: unknown, markId: string): EmailHistoryPage {
-  const page = scanHistory(answer, markId, 'email');
+export function emailHistoryPage(
+  answer: unknown,
+  markId: string,
+  followed?: ReadonlySet<string>,
+): EmailHistoryPage {
+  // Read without a label filter where `followed` is given, since a reply in a
+  // followed conversation arrives without the star: only the records that
+  // concern the star are about this connection - a label change on a starred
+  // message or of the star itself, and a deletion in a followed conversation,
+  // which says no labels and may be its starred email's. A label change on
+  // another of its messages is not: read, it would close an Item reopened in
+  // Cockpit, whose star is not put back.
+  const holds = (labels: unknown) => Array.isArray(labels) && labels.includes(markId);
+  const page = scanHistory(
+    answer,
+    markId,
+    'email',
+    followed &&
+      ((threadId, messageLabels, moved, deleted) =>
+        holds(messageLabels) || holds(moved) || (deleted && followed.has(threadId))),
+  );
   const groups = new Map<string, { gained: string[]; changed: string[]; relabelled: string[] }>();
   const group = (threadId: string) => {
     let held = groups.get(threadId);
@@ -377,14 +399,16 @@ export interface GmailConversation {
   readonly sentAt: string | null;
 }
 
-interface GmailPart {
+export interface GmailPart {
   mimeType?: unknown;
   headers?: unknown;
   body?: { data?: unknown } | null;
   parts?: unknown;
 }
 
-interface GmailMessage {
+export interface GmailMessage {
+  id?: unknown;
+  threadId?: unknown;
   labelIds?: unknown;
   internalDate?: unknown;
   payload?: GmailPart | null;
@@ -412,18 +436,6 @@ export function conversationFrom(answer: unknown, markId: string, mailboxAddress
   return { threadId: id, ...describe(message, id, mailboxAddress) };
 }
 
-/** What one email brings in as its Item. */
-export interface GmailEmail {
-  readonly id: string;
-  readonly threadId: string;
-  readonly title: string;
-  readonly text: string;
-  readonly sender: string | null;
-  /** Where Gmail shows the email, in the connected mailbox. */
-  readonly link: string;
-  readonly sentAt: string | null;
-}
-
 /** Whether an email, as `threads.get` carries it, has the mark outside the bin and spam. */
 export function emailMarked(message: unknown, markId: string): boolean {
   const { labelIds } = (message ?? {}) as GmailMessage;
@@ -437,16 +449,10 @@ export function emailIn(answer: unknown, emailId: string): unknown {
 }
 
 /**
- * One email, as `threads.get` carries it in full, made into what its Item says:
- * its own subject, plain text, sender and time, and a link that names it.
+ * The title, text, sender, link and time of one message. The link names the
+ * message itself, `linkId` standing in where it has no id: a conversation's id
+ * is its first message's, which Gmail opens with conversation view off.
  */
-export function emailFrom(message: unknown, mailboxAddress: string): GmailEmail | null {
-  const { id, threadId } = (message ?? {}) as { id?: unknown; threadId?: unknown };
-  if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !threadId) return null;
-  return { id, threadId, ...describe(message as GmailMessage, id, mailboxAddress) };
-}
-
-/** The title, text, sender, link and time of one message, the link naming `linkId`. */
 function describe(message: GmailMessage, linkId: string, mailboxAddress: string) {
   const subject = oneLine(headerOf(message.payload, 'Subject') ?? '');
   const title = cutTo(subject, TITLE_LENGTH) || NO_SUBJECT;
@@ -456,17 +462,17 @@ function describe(message: GmailMessage, linkId: string, mailboxAddress: string)
     title,
     text,
     sender: senderIn(headerOf(message.payload, 'From')),
-    link: `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(linkId)}`,
+    link: conversationLink(typeof message.id === 'string' && message.id ? message.id : linkId, mailboxAddress),
     sentAt: at > 0 ? new Date(at).toISOString() : null,
   };
 }
 
-function sentAt(message: GmailMessage): number {
+export function sentAt(message: GmailMessage): number {
   const at = Number(message?.internalDate);
   return Number.isFinite(at) ? at : 0;
 }
 
-function headerOf(part: GmailPart | null | undefined, name: string): string | null {
+export function headerOf(part: GmailPart | null | undefined, name: string): string | null {
   if (!Array.isArray(part?.headers)) return null;
   for (const header of part.headers as unknown[]) {
     const { name: called, value } = (header ?? {}) as Record<string, unknown>;
@@ -490,7 +496,7 @@ export function senderIn(from: string | null): string | null {
 }
 
 /** The message's text: its first plain-text part, else its first HTML part with the tags taken out. */
-function textOf(payload: GmailPart | null | undefined): string {
+export function textOf(payload: GmailPart | null | undefined): string {
   const plain = firstPart(payload, 'text/plain');
   if (plain !== null) return plain.replace(/\r\n?/g, '\n');
   const html = firstPart(payload, 'text/html');
@@ -515,7 +521,7 @@ function firstPart(part: GmailPart | null | undefined, mimeType: string): string
  * nothing where it cannot be read, so one malformed message is brought in
  * under its subject rather than stopping every conversation after it.
  */
-function decodedBody(data: string): string {
+export function decodedBody(data: string): string {
   const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
   try {
     const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
@@ -551,7 +557,174 @@ export function plainTextOf(html: string): string {
     .trim();
 }
 
-function oneLine(text: string): string {
+/**
+ * Gmail's label on every message sent from the mailbox, whatever address it was
+ * sent as: what makes a message yours ("A Gmail starred conversation is one
+ * Item whose status follows who wrote last", issue 1705, whose design counts
+ * a message sent from this mailbox as yours rather than one From this address).
+ */
+export const SENT = 'SENT';
+
+/** Gmail's label on a message not yet sent, which is no turn of anybody's. */
+export const DRAFT = 'DRAFT';
+
+/** How much of a message's text a turn carries: the first lines, which the row shows on hover. */
+export const EXCERPT_LENGTH = 280;
+
+/**
+ * The messages a history page says were added to a conversation an Item
+ * follows, in the order the page names them, each once: the turns to read. A
+ * draft is not one, nor is a message arriving in the bin or spam. **A draft
+ * sent where it stands** - the Draft label taken off, or Sent put on, the same
+ * message - is one too, since a draft that keeps its id when sent leaves no
+ * added message behind; reading it again says whether it was really sent.
+ */
+export function addedToFollowed(answer: unknown, followed: ReadonlySet<string>): { id: string; threadId: string }[] {
+  return addedWhere(answer, (threadId) => followed.has(threadId));
+}
+
+/** As `addedToFollowed`, for the conversations `wanted` says yes to: every one for the mail of a sender to be looked at. */
+export function addedWhere(answer: unknown, wanted: (threadId: string) => boolean): { id: string; threadId: string }[] {
+  const { history } = (answer ?? {}) as { history?: unknown };
+  const added = new Map<string, string>();
+  const has = (labels: unknown, label: string) => Array.isArray(labels) && labels.includes(label);
+  for (const record of Array.isArray(history) ? (history as Record<string, unknown>[]) : []) {
+    const entries = (key: string) => (Array.isArray(record?.[key]) ? (record[key] as HistoryEntry[]) : []);
+    const candidates = [
+      ...entries('messagesAdded'),
+      ...entries('labelsAdded').filter((entry) => has(entry?.labelIds, SENT)),
+      ...entries('labelsRemoved').filter((entry) => has(entry?.labelIds, DRAFT)),
+    ];
+    for (const entry of candidates) {
+      const { id, threadId, labelIds } = entry?.message ?? {};
+      if (typeof id !== 'string' || !id || typeof threadId !== 'string' || !wanted(threadId)) continue;
+      const labels = Array.isArray(labelIds) ? labelIds : [];
+      if (labels.includes(DRAFT) || labels.some((label) => AWAY.includes(label as string))) continue;
+      if (!added.has(id)) added.set(id, threadId);
+    }
+  }
+  return [...added].map(([id, threadId]) => ({ id, threadId }));
+}
+
+/** One message as a turn of its conversation: who sent it, when, and its first lines. */
+export interface GmailTurn {
+  readonly by: 'you' | 'them';
+  readonly from: string | null;
+  readonly at: string;
+  readonly excerpt: string;
+}
+
+/**
+ * A message as `users.messages.get` with `format=full` answers it, read as a
+ * turn - or null for one that is gone, a draft, or in the bin or spam. **Sent
+ * from this mailbox is yours**: Gmail's Sent label, not the From address, so a
+ * send-as alias is still you.
+ */
+export function turnFrom(message: unknown): GmailTurn | null {
+  const held = (message ?? null) as GmailMessage | null;
+  if (!held || !Array.isArray(held.labelIds)) return null;
+  const labels = held.labelIds as unknown[];
+  if (labels.includes(DRAFT) || labels.some((label) => AWAY.includes(label as string))) return null;
+  const at = sentAt(held);
+  if (at <= 0) return null;
+  return {
+    by: labels.includes(SENT) ? 'you' : 'them',
+    from: senderIn(headerOf(held.payload, 'From')),
+    at: new Date(at).toISOString(),
+    excerpt: excerptOf(held),
+  };
+}
+
+/** A conversation as an Item following it reads it: where it is, and where it stands. */
+export interface GmailConversationRead {
+  readonly id: string;
+  readonly link: string;
+  readonly latest: GmailTurn;
+  readonly messageCount: number;
+  readonly startedAt: string;
+  readonly withWhom: string | null;
+}
+
+/**
+ * A conversation as `threads.get` with `format=full` answers it, read as the
+ * Item following it holds it: its messages that are turns, oldest first, the
+ * latest of them, how many there are and since when, and who it is with - the
+ * latest sender who is not this mailbox, else whom its first message was sent
+ * to. Null for one with no message that is a turn.
+ */
+export function conversationReadOf(answer: unknown, mailboxAddress: string): GmailConversationRead | null {
+  const { id, messages } = (answer ?? {}) as { id?: unknown; messages?: unknown };
+  if (typeof id !== 'string' || !id || !Array.isArray(messages)) return null;
+  const turns = (messages as GmailMessage[])
+    .map((message) => ({ message, turn: turnFrom(message) }))
+    .filter((one): one is { message: GmailMessage; turn: GmailTurn } => one.turn !== null)
+    .sort((a, b) => sentAt(a.message) - sentAt(b.message));
+  if (turns.length === 0) return null;
+  const { message: latestMessage, turn: latest } = turns[turns.length - 1]!;
+  const theirs = [...turns].reverse().find((one) => one.turn.by === 'them');
+  return {
+    id,
+    // The latest message's own id: the conversation's is its first message's,
+    // which Gmail opens with conversation view off.
+    link: conversationLink(typeof latestMessage.id === 'string' && latestMessage.id ? latestMessage.id : id, mailboxAddress),
+    latest,
+    messageCount: turns.length,
+    startedAt: turns[0]!.turn.at,
+    withWhom: theirs ? theirs.turn.from : senderIn(firstRecipientIn(headerOf(turns[0]!.message.payload, 'To'))),
+  };
+}
+
+/** The first of the addresses a To header lists, a comma inside quotes or angle brackets kept. */
+function firstRecipientIn(to: string | null): string | null {
+  if (!to) return null;
+  return /^(?:"[^"]*"|<[^>]*>|[^,])*/.exec(to)![0].trim() || null;
+}
+
+/**
+ * Where Gmail shows one email in the connected mailbox, and with conversation
+ * view on, the conversation it is in. Given an email's id, never a
+ * conversation's: that is its first email's, which is what Gmail opens with
+ * conversation view off.
+ */
+export function conversationLink(id: string, mailboxAddress: string): string {
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#all/${encodeURIComponent(id)}`;
+}
+
+/** A message's first lines, on one line, as long as a turn carries: what it adds, the earlier email it quotes left out. */
+function excerptOf(message: GmailMessage): string {
+  return cutTo(oneLine(withoutQuotedText(textOf(message.payload))), EXCERPT_LENGTH);
+}
+
+/**
+ * Where an earlier email quoted below a reply starts: a line of underscores
+ * (Outlook's separator), a `From:`/`Van:` header followed by its
+ * `Sent:`/`Verzonden:`, Gmail's own `On … wrote:` / `Op … schreef …:`, or a
+ * line starting `>`. Each holds in text still on its lines and in text already
+ * on one, but the `>` line, which only a line can start.
+ */
+const QUOTE_STARTS: readonly RegExp[] = [
+  /_{10,}/,
+  /\b(?:From|Van):[\s\S]{0,300}?\b(?:Sent|Verzonden):/,
+  /\bOn\s[\s\S]{1,200}?\swrote:/,
+  /\bOp\s[\s\S]{1,200}?\sschreef\s[\s\S]{0,100}?:/,
+  /^[ \t]*>/m,
+];
+
+/**
+ * A message's text up to where it quotes an earlier email (`QUOTE_STARTS`) -
+ * what the message itself adds. A message that is nothing but a quote is kept
+ * whole, so the row still says something.
+ */
+export function withoutQuotedText(text: string): string {
+  let at = text.length;
+  for (const start of QUOTE_STARTS) {
+    const found = start.exec(text);
+    if (found && found.index < at) at = found.index;
+  }
+  return text.slice(0, at).trim() || text;
+}
+
+export function oneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim();
 }
 
@@ -560,7 +733,7 @@ function oneLine(text: string): string {
  * outside the BMP is two code units, and a cut between them leaves a lone
  * surrogate that renders as a replacement box.
  */
-function cutTo(text: string, limit: number): string {
+export function cutTo(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const lead = text.charCodeAt(limit - 1);
   return text.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit);

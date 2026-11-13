@@ -1,6 +1,6 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
-import type { CommandName, CommandPayload, CommandResult, Item, PanelKind } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
@@ -18,6 +18,7 @@ import {
   DEAD_STATUS_VALUE,
   decisionHistory,
   itemAdditions,
+  itemConversations,
   items,
   layoutRows,
   layouts,
@@ -25,6 +26,7 @@ import {
   panelPlacements,
   panels,
   pulledConnections,
+  pulledLinks,
   series,
   seriesPanels,
   textCorrections,
@@ -40,6 +42,7 @@ import {
   getLayout,
   getPanel,
   getSeries,
+  getFollowUpDays,
   getSourceAccount,
   givenDueDateOf,
   getWorkspace,
@@ -51,6 +54,7 @@ import {
   masterPanelIdsOf,
   listDashboards,
   openAgentRunOn,
+  recentCapturedTimeZones,
   recordClaudeSend,
   rememberSentence,
   editRememberedSentence,
@@ -70,6 +74,14 @@ import {
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
 import { captureDay } from '../domain/capture-day.js';
+import {
+  applyConversationTurn,
+  applyDropDraft,
+  applyStartDraft,
+  statusBeforeDraftIn,
+  statusBeforeDraftOf,
+  turnDueDate,
+} from '../domain/conversations.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
 import { couldStillBeActedOn, pairOf } from '../domain/duplicates.js';
 import {
@@ -131,6 +143,7 @@ import {
   applyProposedPanel,
   applyClaudeProposals,
   applyProposedTexts,
+  applyPastedLinkRead,
   applySetDescription,
   applySetDismissed,
   applySetDone,
@@ -219,6 +232,14 @@ export class WaitRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'WaitRefusedError';
+  }
+}
+
+/** *Email…* refused on an Item whose conversation no mailbox of this connection reaches, in the words the person is told (issue 1708). */
+export class DraftRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DraftRefusedError';
   }
 }
 
@@ -722,13 +743,15 @@ function settleWorkspace(
 /**
  * Everything the domain needs to decide a filing, read before it decides: the
  * store is asked, the domain answers (`decideMoveToPanel`, `decideAddToPanel`).
- * `named` is the Panels a move takes the Item off.
+ * `named` is the Panels a move takes the Item off; `bySource`, a filing a
+ * source made on its own.
  */
 function filingFactsFor(
   db: AccountDb,
   tenantId: string,
   cmd: { workspaceId: string; itemId: string; panelId: string | null },
   named: readonly string[],
+  bySource = false,
 ): FilingFacts {
   const item = getItem(db, tenantId, cmd.itemId);
   const found = cmd.panelId ? getPanel(db, tenantId, cmd.panelId) : null;
@@ -739,6 +762,7 @@ function filingFactsFor(
     workspaceExists: !!getWorkspace(db, tenantId, cmd.workspaceId),
     panel: panel ? { id: panel.id, name: panel.name, kind: panel.kind } : null,
     held: panel ? listFilingsOnPanel(db, tenantId, panel.id) : [],
+    bySource,
     // As of the store's clock now, as the Workspace's read is made: an order
     // built on any read since names at least what this leaves required.
     heldOutOfTheRead: panel ? listFilingsOnPanelOutOfTheRead(db, tenantId, panel.id, finishedKeptAfter(new Date())) : [],
@@ -773,16 +797,6 @@ function refusedOrFiling(decision: FilingRefusal | FilingDecided): FilingDecided
     case 'order-stale':
       throw new PanelOrderStaleError(decision.why);
   }
-}
-
-/**
- * A filing as a source made it: the same rows, and no decision recorded, since
- * the source's name rather than a person's choice put it there and routing
- * learns only from people ("File Outlook mail on the Panel named after its
- * category", issue 1146).
- */
-function asTheSourceFiles(decided: FilingDecided, fromTheSource: boolean): FilingDecided {
-  return fromTheSource ? { ...decided, decision: null } : decided;
 }
 
 /** Writes what a filing decided, inside the transaction of the change that made it. */
@@ -942,7 +956,9 @@ function decideOccurrence(db: AccountDb, tenantId: string, cmd: CommandPayload<'
     const panel = panelNamedFor(db, tenantId, workspaceId, panelId);
     if (!panel || !panelTakesItems(panel)) return [];
     const order = [copied.id, ...panel.held.map((filing) => filing.itemId)];
-    return [{ panelId: panel.id, rows: filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }) }];
+    // The recurring item's own filing, not a person's: the copy's row is not counted as a Panel used.
+    const rows = filingRows(tenantId, { itemId: copied.id, panelId: panel.id, order, issuedAt: cmd.issuedAt }, panel.held, null);
+    return [{ panelId: panel.id, rows }];
   });
   return { kind: 'writes', nextOn, anchorOn, workspaceId: toldIn, item: copied, panels };
 }
@@ -1013,6 +1029,45 @@ function endTheOpenRun(tx: InATransaction, tenantId: string, itemId: string, at:
     .set({ endedAt: at })
     .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId), isNull(agentRuns.endedAt)))
     .run();
+}
+
+/**
+ * The Item as a conversation's message by `by` leaves it (`applyConversationTurn`),
+ * due by the turn's date - or null on a finished or dismissed Item.
+ */
+function turnApplied(
+  db: AccountDb,
+  tenantId: string,
+  item: Item,
+  by: ConversationTurnBy,
+  issuedAt: string,
+  connectionDays: number | null,
+): Item | null {
+  if (item.completedAt !== null || item.deletedAt !== null) return null;
+  const dueDate = turnDueDate(by, issuedAt, recentCapturedTimeZones(db, tenantId), {
+    connectionDays,
+    followUpDays: getFollowUpDays(db, tenantId),
+  });
+  return applyConversationTurn(item, { by, recordedAt: issuedAt }, dueDate);
+}
+
+/**
+ * Writes what a conversation's message did to its Item, in the caller's
+ * transaction: the Item, its date recorded as the connection's on its link -
+ * the date is the source's, as a reopen's fresh one is (`givenAFreshDate`), so a
+ * later reopen moves it on and a reading may still replace it - and, on their
+ * message, the end of an open run, as To do ends one.
+ */
+function writeTurnStatus(tx: InATransaction, tenantId: string, updated: Item, by: ConversationTurnBy, at: string): void {
+  tx.update(items)
+    .set(asStored(updated))
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, updated.id)))
+    .run();
+  tx.update(pulledLinks)
+    .set({ givenDueDate: updated.dueDate })
+    .where(and(eq(pulledLinks.tenantId, tenantId), eq(pulledLinks.itemId, updated.id)))
+    .run();
+  if (by === 'them') endTheOpenRun(tx, tenantId, updated.id, at);
 }
 
 /**
@@ -1102,6 +1157,8 @@ export function runCommand<N extends CommandName>(
   let fieldsSet: FieldsSet | null = null;
   // Set only by `set_email_address`, where it replaced or dropped an address.
   let addressLetGo: string | null = null;
+  // Set only by `read_pasted_link`, where it applied.
+  let textsWritten: boolean | null = null;
 
   switch (name) {
     case 'create_workspace': {
@@ -1385,7 +1442,7 @@ export function runCommand<N extends CommandName>(
           // once, so the later save standing is the same answer this app gives
           // everywhere else.
           .set({
-            filterConditions: panelFilterAsStored(cmd.rows, cmd.groupBy),
+            filterConditions: panelFilterAsStored(cmd.sets, cmd.groupBy),
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
@@ -1739,7 +1796,7 @@ export function runCommand<N extends CommandName>(
         if (!panel || !getDashboard(db, tenantId, cmd.workspaceId, panel.dashboardId)) return [];
         return [{ id: panel.id, name: panel.name, kind: panel.kind, held: listFilingsOnPanel(db, tenantId, panel.id) }];
       });
-      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets);
+      const { item, filings } = decideCaptureFiling(captureItem(cmd, tenantId), cmd, targets, fromTheSource);
       // An item belonging to no workspace shows in every workspace's Inbox, so
       // every workspace's snapshot is now stale - not only the one it was
       // captured from ("Capture something before you know which workspace it
@@ -1751,7 +1808,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, asTheSourceFiles(decided, fromTheSource));
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1799,10 +1856,7 @@ export function runCommand<N extends CommandName>(
       // Reachable from every workspace while it belongs to none, and settled by
       // landing on a panel - exactly as a move, because putting an item on a
       // panel is putting it on a panel whichever of the two commands says so.
-      const decided = asTheSourceFiles(
-        refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, []))),
-        fromTheSource,
-      );
+      const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [], fromTheSource)));
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided);
@@ -1895,6 +1949,35 @@ export function runCommand<N extends CommandName>(
             .run();
           tx.insert(commands).values(commandRow).run();
         });
+      }
+      break;
+    }
+    case 'read_pasted_link': {
+      const cmd = payload as CommandPayload<'read_pasted_link'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives.
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      // Decided against the Item as it stands, in the same step as the write
+      // (see `propose_item_texts` above): an Item that is no longer an Own note
+      // - read already by a delivery before this one - is left as it is, and
+      // the command logged so a redelivery is a replay ("Read pasted Teams
+      // links", issue 1755).
+      const read = applyPastedLinkRead(existing, cmd);
+      if (read === null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          tx.update(items)
+            .set(asStored(read))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+          tx.insert(commands).values(commandRow).run();
+        });
+        // Decided against the Item as it stood here, not as the job read it
+        // before asking the model, so an edit made meanwhile is reported.
+        textsWritten = existing.textsSettledAt === null;
       }
       break;
     }
@@ -2230,6 +2313,9 @@ export function runCommand<N extends CommandName>(
             // And whether it gives each Item a due date, and in how many days
             // (issue 1409).
             dueInDays: cmd.dueInDays ?? null,
+            // What the source granted, for a connector that asks in tiers
+            // (issue 1754).
+            granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2260,6 +2346,9 @@ export function runCommand<N extends CommandName>(
               ...(cmd.filesByName !== undefined ? { filesByName: cmd.filesByName } : {}),
               // And the days, answered the same way (issue 1409).
               ...(cmd.dueInDays !== undefined ? { dueInDays: cmd.dueInDays } : {}),
+              // Asked from the top again on a reconnect, so what it got now
+              // replaces what the connection held, more or less (issue 1754).
+              granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
             },
           })
           .run();
@@ -2550,6 +2639,315 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'follow_conversation': {
+      // An Item comes to follow a conversation at its source ("A Gmail starred
+      // conversation is one Item whose status follows who wrote last", issue
+      // 1705): the row is made, or where the Item already follows it, where it
+      // stands is replaced only by a newer latest message - a turn may already
+      // have recorded one the read that sent this did not see - or where it had
+      // stopped following, which this ends. Where that is new to an open Item,
+      // its latest message is applied as a turn, so the status follows who wrote
+      // last from the start.
+      const cmd = payload as CommandPayload<'follow_conversation'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const standing = {
+        link: cmd.link,
+        lastBy: cmd.latest.by,
+        lastFrom: cmd.latest.from,
+        lastAt: cmd.latest.at,
+        lastExcerpt: cmd.latest.excerpt,
+        messageCount: cmd.messageCount,
+        startedAt: cmd.startedAt,
+        withWhom: cmd.withWhom,
+        stoppedAt: null,
+      };
+      if (cmd.draft) {
+        // The draft Email… made, recorded (issue 1708): no turn is applied, the
+        // Item staying In progress as `start_draft` left it. A new conversation
+        // takes over the row that stood in for it under the click's id; a
+        // followed one keeps where it stands and records the draft alone.
+        const draft = cmd.draft;
+        // Claude's fingerprint, or none: a draft of yours (issue 1732).
+        const claudeDraftDigest = draft.claudeDigest ?? null;
+        const atConnection = (conversationId: string) =>
+          and(
+            eq(itemConversations.tenantId, tenantId),
+            eq(itemConversations.itemId, cmd.itemId),
+            eq(itemConversations.connectorId, cmd.connectorId),
+            eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+            eq(itemConversations.conversationId, conversationId),
+          );
+        const standIn = atConnection(`${DRAFT_STARTING_PREFIX}${draft.startedBy}`);
+        if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+        db.transaction((tx) => {
+          const stoodIn = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(standIn).get();
+          const followed = tx.select({ itemId: itemConversations.itemId }).from(itemConversations).where(atConnection(cmd.conversationId)).get();
+          // The draft's link kept beside it, which Open goes to while it is unsent (issue 1720).
+          if (stoodIn && !followed) {
+            tx.update(itemConversations)
+              .set({ ...standing, conversationId: cmd.conversationId, draftId: draft.id, draftLink: draft.link, claudeDraftDigest })
+              .where(standIn)
+              .run();
+          } else if (followed) {
+            tx.update(itemConversations)
+              .set({ draftId: draft.id, draftLink: draft.link, claudeDraftDigest, stoppedAt: null })
+              .where(atConnection(cmd.conversationId))
+              .run();
+          } else {
+            // The row that stood in is gone - another click on Email… took it
+            // over meanwhile - so this draft's conversation gets one of its own.
+            tx.insert(itemConversations)
+              .values({
+                tenantId,
+                itemId: cmd.itemId,
+                connectorId: cmd.connectorId,
+                externalAccountKey: cmd.externalAccountKey,
+                conversationId: cmd.conversationId,
+                ...standing,
+                draftId: draft.id,
+                draftLink: draft.link,
+                claudeDraftDigest,
+                statusBeforeDraft: statusBeforeDraftOf(existing, true),
+              })
+              .run();
+          }
+          tx.insert(commands).values(commandRow).run();
+        });
+        break;
+      }
+      const held = db
+        .select({ lastAt: itemConversations.lastAt, stoppedAt: itemConversations.stoppedAt })
+        .from(itemConversations)
+        .where(
+          and(
+            eq(itemConversations.tenantId, tenantId),
+            eq(itemConversations.itemId, cmd.itemId),
+            eq(itemConversations.connectorId, cmd.connectorId),
+            eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+            eq(itemConversations.conversationId, cmd.conversationId),
+          ),
+        )
+        .get();
+      // Nothing new where the row already holds this latest message or a newer
+      // one: logged, and nothing else, so open tabs read nothing again.
+      if (held && held.stoppedAt === null && held.lastAt >= cmd.latest.at) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const updated = turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays);
+      if (updated && !existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.insert(itemConversations)
+          .values({
+            tenantId,
+            itemId: cmd.itemId,
+            connectorId: cmd.connectorId,
+            externalAccountKey: cmd.externalAccountKey,
+            conversationId: cmd.conversationId,
+            ...standing,
+          })
+          .onConflictDoUpdate({
+            target: [
+              itemConversations.itemId,
+              itemConversations.connectorId,
+              itemConversations.externalAccountKey,
+              itemConversations.conversationId,
+            ],
+            set: standing,
+          })
+          .run();
+        if (updated) writeTurnStatus(tx, tenantId, updated, cmd.latest.by, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'record_conversation_turn': {
+      // A message in a conversation the Item follows (issue 1705). The
+      // conversation's row takes it as its latest where it is newer than what
+      // the row holds, and the Item's status follows who wrote it
+      // (`applyConversationTurn`), both in one transaction with the log entry.
+      // A turn no newer than the row's latest - read already by the follow
+      // that made the row - changes neither. On a finished or dismissed Item it
+      // changes nothing at all: Done ended the following. A `standing` turn is
+      // the row's own latest applied again as the source reopens the Item: the
+      // status only, the row as it is.
+      const cmd = payload as CommandPayload<'record_conversation_turn'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const where = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+        eq(itemConversations.conversationId, cmd.conversationId),
+      );
+      const followed = db
+        .select({
+          lastAt: itemConversations.lastAt,
+          messageCount: itemConversations.messageCount,
+          statusBeforeDraft: itemConversations.statusBeforeDraft,
+        })
+        .from(itemConversations)
+        .where(where)
+        .get();
+      // A conversation a draft of Email… started holds nothing but the draft
+      // until it is sent (issue 1708): its first message is newer than the
+      // draft's own stamp whatever the two clocks say, and is its first.
+      const opening = statusBeforeDraftIn(followed?.statusBeforeDraft ?? null)?.opened === true && cmd.standing !== true;
+      const newer = followed !== undefined && (cmd.standing === true || opening || cmd.at > followed.lastAt);
+      const updated = newer ? turnApplied(db, tenantId, existing, cmd.by, cmd.issuedAt, cmd.connectionDays) : null;
+      if (!followed || updated === null) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (cmd.standing !== true) {
+          tx.update(itemConversations)
+            .set({
+              lastBy: cmd.by,
+              lastFrom: cmd.from,
+              lastAt: cmd.at,
+              lastExcerpt: cmd.excerpt,
+              messageCount: opening ? 1 : followed.messageCount + 1,
+              ...(opening ? { startedAt: cmd.at } : {}),
+              ...(cmd.by === 'them' && cmd.from ? { withWhom: cmd.from } : {}),
+              // Open goes to the newest message, where the source says where it is (issue 1720).
+              ...(cmd.link ? { link: cmd.link } : {}),
+              // A message in it ends the wait on a draft (issue 1708): yours is
+              // the draft sent, and theirs sets the status the draft would put back.
+              draftId: null,
+              draftLink: null,
+              claudeDraftDigest: null,
+              statusBeforeDraft: null,
+            })
+            .where(where)
+            .run();
+        }
+        writeTurnStatus(tx, tenantId, updated, cmd.by, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'start_draft': {
+      // Email… or Reply… pressed (issue 1708), logged under the click's id
+      // before the source is asked: the Item In progress, the status it had kept
+      // on the conversation's row so a draft never made or deleted unsent puts
+      // it back. A reply's row is the followed conversation's; a new
+      // conversation's is one standing in under the click's id until the draft
+      // names it - an unrecorded one this Item already has is taken over, its
+      // status before kept, so a click after one that stopped halfway leaves no
+      // second row.
+      const cmd = payload as CommandPayload<'start_draft'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing || !couldStillBeActedOn(existing)) throw new ItemNotFoundError(cmd.itemId);
+      const ofTheItem = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+      );
+      const row = (conversationId: string) => and(ofTheItem, eq(itemConversations.conversationId, conversationId));
+      const replyingIn =
+        cmd.replyIn === null
+          ? null
+          : db.select({ statusBeforeDraft: itemConversations.statusBeforeDraft }).from(itemConversations).where(row(cmd.replyIn)).get();
+      if (cmd.replyIn !== null && !replyingIn) throw new ItemNotFoundError(cmd.itemId);
+      const standingIn =
+        cmd.replyIn === null
+          ? db
+              .select({ conversationId: itemConversations.conversationId, statusBeforeDraft: itemConversations.statusBeforeDraft })
+              .from(itemConversations)
+              .where(and(ofTheItem, sql`${itemConversations.conversationId} LIKE ${`${DRAFT_STARTING_PREFIX}%`}`, isNull(itemConversations.draftId)))
+              .get()
+          : undefined;
+      const keptBefore = replyingIn?.statusBeforeDraft ?? standingIn?.statusBeforeDraft ?? null;
+      const before = keptBefore ?? statusBeforeDraftOf(existing, cmd.replyIn === null);
+      const updated = applyStartDraft(existing, cmd.issuedAt);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        tx.update(items)
+          .set(asStored(updated))
+          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+          .run();
+        if (cmd.replyIn !== null) {
+          tx.update(itemConversations)
+            .set({ statusBeforeDraft: before, draftId: null, draftLink: null, claudeDraftDigest: null })
+            .where(row(cmd.replyIn))
+            .run();
+        } else {
+          const standIn = {
+            conversationId: `${DRAFT_STARTING_PREFIX}${cmd.commandId}`,
+            link: '',
+            lastBy: 'you' as const,
+            lastFrom: null,
+            lastAt: cmd.issuedAt,
+            lastExcerpt: '',
+            messageCount: 1,
+            startedAt: cmd.issuedAt,
+            withWhom: null,
+            draftId: null,
+            draftLink: null,
+            claudeDraftDigest: null,
+            statusBeforeDraft: before,
+            stoppedAt: null,
+          };
+          if (standingIn) tx.update(itemConversations).set(standIn).where(row(standingIn.conversationId)).run();
+          else {
+            tx.insert(itemConversations)
+              .values({ tenantId, itemId: cmd.itemId, connectorId: cmd.connectorId, externalAccountKey: cmd.externalAccountKey, ...standIn })
+              .run();
+          }
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'drop_draft': {
+      // A draft never made, or deleted unsent (issue 1708): only while the row
+      // still waits on that draft - `draftId` null for one never recorded - and
+      // the status before put back only while the Item is still In progress as
+      // the click left it (`applyDropDraft`). A conversation the draft started
+      // is no longer followed: its row goes, there being no conversation left.
+      const cmd = payload as CommandPayload<'drop_draft'>;
+      const existing = getItem(db, tenantId, cmd.itemId);
+      if (!existing) throw new ItemNotFoundError(cmd.itemId);
+      const where = and(
+        eq(itemConversations.tenantId, tenantId),
+        eq(itemConversations.itemId, cmd.itemId),
+        eq(itemConversations.connectorId, cmd.connectorId),
+        eq(itemConversations.externalAccountKey, cmd.externalAccountKey),
+        eq(itemConversations.conversationId, cmd.conversationId),
+      );
+      const held = db
+        .select({ draftId: itemConversations.draftId, statusBeforeDraft: itemConversations.statusBeforeDraft })
+        .from(itemConversations)
+        .where(where)
+        .get();
+      const before = statusBeforeDraftIn(held?.statusBeforeDraft ?? null);
+      if (!held || !before || held.draftId !== cmd.draftId) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      const updated = applyDropDraft(existing, before, cmd.issuedAt);
+      if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (updated) {
+          tx.update(items)
+            .set(asStored(updated))
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
+        if (before.opened) tx.delete(itemConversations).where(where).run();
+        else tx.update(itemConversations).set({ draftId: null, draftLink: null, claudeDraftDigest: null, statusBeforeDraft: null }).where(where).run();
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'set_repeat': {
@@ -2951,5 +3349,6 @@ export function runCommand<N extends CommandName>(
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
     ...(addressLetGo ? { addressLetGo } : {}),
+    ...(textsWritten !== null ? { textsWritten } : {}),
   };
 }

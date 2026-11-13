@@ -11,8 +11,7 @@ import { VERIFY_API, verifyAnswer, verifyIsEmpty } from './verify.js';
  *
  * Signing in is a conversation with an issuer, and an issuer is horizontal -
  * another service, over the network - which L2 may not touch
- * (docs/testing-strategy.md, "Test level definitions and dependency
- * restrictions"). So the issuer is faked at the network boundary and nothing
+ * (.claude/skills/testing/SKILL.md, "What each level may use"). So the issuer is faked at the network boundary and nothing
  * else is: the application does its own redirect, its own code exchange and its
  * own signature check against a key this file publishes, exactly as it does
  * against Google.
@@ -127,6 +126,7 @@ export async function issuerIsReachable(): Promise<void> {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.origin === GMAIL_API) return gmailAnswer(url, init);
+    if (url.origin === ANTHROPIC_API) return claudeAnswer(input, init);
     if (url.origin === GRAPH_API) return graphAnswer(url, init);
     if (url.origin === VERIFY_API) return verifyAnswer(url, init);
     if (url.origin !== ISSUER) {
@@ -213,6 +213,7 @@ export function issuerAnswersTogether(expected: number): {
 /** Puts the issuer back out of reach, and forgets what it was going to say. */
 export function issuerIsForgotten(): void {
   vi.unstubAllGlobals();
+  claudeIsForgotten();
   gmailIsEmpty();
   graphIsEmpty();
   verifyIsEmpty();
@@ -296,6 +297,198 @@ function labelsChanged(answer: unknown, change: { addLabelIds?: string[]; remove
 /** Every refresh Google was asked for, oldest first, by the refresh token it named. */
 export const refreshes: string[] = [];
 
+/**
+ * Claude, as a draft is written by it ("Mail follow-up: Reply… in Gmail makes an
+ * empty draft: have Claude write it from the Item, your points and the
+ * conversation", issue 1730): the Messages API answering in its documented shape
+ * (the contract tier checks the real one, apps/api/tests/contract/one-call.test.ts),
+ * writing what a case says it writes, failing, or going silent until the request
+ * is abandoned - what the SDK's own timer does at the cut-off.
+ */
+export const ANTHROPIC_API = 'https://api.anthropic.com';
+
+/** Every request Claude was asked, oldest first: the model, the room for the answer, what it was told and what it was shown. */
+export const claudeAsked: { model: string; maxTokens: number; system: string; message: string }[] = [];
+
+type ClaudeWill = { writes: { language: string; body: string } } | { answers: number } | 'goes silent';
+let claudeWill: ClaudeWill = { writes: { language: 'English', body: 'Hi,\n\nThanks for your mail.\n\nAnna' } };
+
+/** Claude writing this body in this language, from now on. */
+export function claudeWrites(body: string, language = 'English'): void {
+  claudeWill = { writes: { language, body } };
+}
+
+/** Claude answering every request with this error status, as an overloaded API does. */
+export function claudeAnswersWith(status: number): void {
+  claudeWill = { answers: status };
+}
+
+/** Claude not answering until the request is abandoned. */
+export function claudeGoesSilent(): void {
+  claudeWill = 'goes silent';
+}
+
+export function claudeIsForgotten(): void {
+  claudeAsked.length = 0;
+  claudeWill = { writes: { language: 'English', body: 'Hi,\n\nThanks for your mail.\n\nAnna' } };
+}
+
+async function claudeAnswer(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const sent = JSON.parse(input instanceof Request ? await input.clone().text() : String(init?.body ?? '{}')) as {
+    model: string;
+    max_tokens: number;
+    system: { text: string }[];
+    messages: { content: string }[];
+  };
+  claudeAsked.push({
+    model: sent.model,
+    maxTokens: sent.max_tokens,
+    system: sent.system.map((block) => block.text).join('\n\n'),
+    message: sent.messages[0]!.content,
+  });
+  if (claudeWill === 'goes silent') {
+    return new Promise<Response>((_, reject) => {
+      const abandoned = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+      if (init?.signal?.aborted) abandoned();
+      init?.signal?.addEventListener('abort', abandoned);
+    });
+  }
+  if ('answers' in claudeWill) {
+    return Response.json({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, { status: claudeWill.answers });
+  }
+  return Response.json({
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    model: sent.model,
+    content: [{ type: 'text', text: JSON.stringify(claudeWill.writes) }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 1200, output_tokens: 150 },
+  });
+}
+
+/**
+ * Every draft `users.drafts.create` made, oldest first ("Email… makes a Gmail
+ * draft the Item then follows", issue 1708): its id, its message's, its
+ * conversation's, and the message it was asked for decoded from `raw`. The
+ * draft's message joins its conversation - a new one where none was named -
+ * as Gmail keeps a draft, labelled Draft.
+ */
+export const gmailDrafts: { id: string; messageId: string; threadId: string; text: string }[] = [];
+
+/** A draft's message as the mailbox keeps it: what `threads.get` lists, and what `drafts.get` reads with `format=full`. */
+type DraftMessage = {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  internalDate: string;
+  payload: { mimeType: string; headers: { name: string; value: string }[]; body: { size: number; data?: string }; parts?: unknown[] };
+};
+
+/** Raw message text, from Gmail's URL-safe base64. */
+function rawText(raw: string): string {
+  return new TextDecoder().decode(Uint8Array.from(atob(raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+}
+
+/** A message's body as its encoding says, from its raw text. */
+function bodyOfRaw(text: string): string {
+  const [headers, ...rest] = text.split('\r\n\r\n');
+  const body = rest.join('\r\n\r\n');
+  if (!/^Content-Transfer-Encoding: base64$/im.test(headers!)) return body;
+  return new TextDecoder().decode(Uint8Array.from(atob(body.replace(/\s+/g, '')), (c) => c.charCodeAt(0)));
+}
+
+/** Text in Gmail's URL-safe base64, as a message part's `body.data` carries it. */
+function asBodyData(text: string): string {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The payload a draft's raw text makes: its subject, and its body as plain text. */
+function payloadOf(text: string): DraftMessage['payload'] {
+  const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.replace(/\r$/, '') ?? '';
+  const body = bodyOfRaw(text);
+  return { mimeType: 'text/plain', headers: [{ name: 'Subject', value: subject }], body: body ? { size: body.length, data: asBodyData(body) } : { size: 0 } };
+}
+
+/** `users.drafts.create`, answered as Gmail answers it. */
+function draftMade(body: string): Response {
+  const asked = JSON.parse(body) as { message: { raw: string; threadId?: string } };
+  const n = gmailDrafts.length + 1;
+  const messageId = `draft-m-${n}`;
+  const threadId = asked.message.threadId ?? messageId;
+  const text = rawText(asked.message.raw);
+  const draft: DraftMessage = { id: messageId, threadId, labelIds: ['DRAFT'], internalDate: String(Date.UTC(2026, 9, 9, 12, n)), payload: payloadOf(text) };
+  const thread = mailbox.threads.find((one) => one.id === threadId);
+  if (thread) ((thread.answer as { messages: unknown[] }).messages ??= []).push(draft);
+  else mailbox.threads.push({ id: threadId, labelled: false, answer: { id: threadId, historyId: mailbox.historyId, messages: [draft] } });
+  gmailDrafts.push({ id: `r-${n}`, messageId, threadId, text });
+  return Response.json({ id: `r-${n}`, message: { id: messageId, threadId, labelIds: ['DRAFT'] } });
+}
+
+/** A draft's message while it is still a draft in the mailbox, with its labels - the Bin's among them once binned. */
+function draftMessage(id: string): DraftMessage | undefined {
+  const draft = gmailDrafts.find((one) => one.id === id);
+  return draft
+    ? (mailbox.threads
+        .flatMap((thread) => (thread.answer as { messages?: DraftMessage[] }).messages ?? [])
+        .find((message) => message.id === draft.messageId && (message.labelIds ?? []).includes('DRAFT')) as DraftMessage | undefined)
+    : undefined;
+}
+
+/**
+ * `users.drafts.get`: the draft while its message is still a draft in the
+ * mailbox, else not found - with `format=full` its payload too, and with
+ * `format=raw` the message as `raw` holds it (issue 1732).
+ */
+function draftRead(id: string, format: string | null): Response {
+  const held = draftMessage(id);
+  if (!held) return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+  const draft = gmailDrafts.find((one) => one.id === id)!;
+  const message = { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds };
+  if (format === 'full') return Response.json({ id, message: { ...message, payload: held.payload } });
+  if (format === 'raw') return Response.json({ id, message: { ...message, raw: asBodyData(draft.text) } });
+  return Response.json({ id, message });
+}
+
+/** Every draft `users.drafts.update` replaced, oldest first: its id and the message it was given, decoded from `raw` (issue 1732). */
+export const gmailDraftsUpdated: { id: string; threadId: string | undefined; text: string }[] = [];
+
+/** `users.drafts.update`: the draft's message replaced, the draft keeping its id and its conversation. */
+function draftUpdated(id: string, body: string): Response {
+  const held = draftMessage(id);
+  if (!held) return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
+  const asked = JSON.parse(body) as { id?: string; message: { raw: string; threadId?: string } };
+  const text = rawText(asked.message.raw);
+  gmailDraftsUpdated.push({ id, threadId: asked.message.threadId, text });
+  held.payload = payloadOf(text);
+  gmailDrafts.find((one) => one.id === id)!.text = text;
+  return Response.json({ id, message: { id: held.id, threadId: held.threadId, labelIds: held.labelIds } });
+}
+
+/**
+ * A person editing a draft in Gmail (issue 1732): its body written anew,
+ * and, where `attaching`, a file added, which makes it a message of parts.
+ */
+export function gmailDraftEdited(id: string, words: string, { attaching = false }: { attaching?: boolean } = {}): void {
+  const held = draftMessage(id)!;
+  const draft = gmailDrafts.find((one) => one.id === id)!;
+  const [headers] = draft.text.split('\r\n\r\n');
+  draft.text = `${headers}\r\n\r\n${words}`.replace(/^Content-Transfer-Encoding: base64\r\n/im, '');
+  held.payload = attaching
+    ? {
+        ...held.payload,
+        mimeType: 'multipart/mixed',
+        body: { size: 0 },
+        parts: [
+          { mimeType: 'text/plain', body: { size: words.length, data: asBodyData(words) } },
+          { mimeType: 'application/pdf', filename: 'menu.pdf', body: { size: 1000, attachmentId: 'a-1' } },
+        ],
+      }
+    : { ...held.payload, body: { size: words.length, data: asBodyData(words) } };
+}
+
 /** How Google answers a refresh: as it does, refusing the sign-in, or not answering usefully. */
 let refreshing: 'answers' | 'refuses' | 'fails' = 'answers';
 
@@ -311,6 +504,8 @@ export function gmailIsEmpty(): void {
   mailbox = { labels: { labels: [] }, historyId: '1', threads: [], history: [], historyLapsed: false };
   gmailCalls.length = 0;
   gmailModifies.length = 0;
+  gmailDrafts.length = 0;
+  gmailDraftsUpdated.length = 0;
   refreshes.length = 0;
   refreshing = 'answers';
   gmailFailing = null;
@@ -406,6 +601,10 @@ async function gmailAnswer(url: URL, init?: RequestInit): Promise<Response> {
 async function answered(url: URL, init?: RequestInit): Promise<Response> {
   const path = url.pathname.replace(/^\/gmail\/v1\/users\/me\//, '');
   if (path === 'labels') return Response.json(mailbox.labels);
+  if (path === 'drafts' && init?.method === 'POST') return draftMade(String(init.body));
+  const draft = /^drafts\/([^/]+)$/.exec(path);
+  if (draft && init?.method === 'PUT') return draftUpdated(decodeURIComponent(draft[1]!), String(init.body));
+  if (draft) return draftRead(decodeURIComponent(draft[1]!), url.searchParams.get('format'));
   if (path === 'profile') {
     return Response.json({ emailAddress: 'anna@example.com', messagesTotal: 10, threadsTotal: 10, historyId: mailbox.historyId });
   }
@@ -441,6 +640,30 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
       resultSizeEstimate: labelled.length,
     });
   }
+  // `users.messages.list` by sender (`q=from:<address>`), which finds a
+  // LinkedIn notification among the mail a page of history added (issue 1711).
+  const sender = path === 'messages' ? /^from:(\S+)$/.exec(url.searchParams.get('q') ?? '')?.[1] : undefined;
+  if (sender) {
+    const sentBy = mailbox.threads.flatMap((one) =>
+      ((one.answer as { messages?: { id: string; payload?: { headers?: unknown } }[] }).messages ?? [])
+        .filter((message) => JSON.stringify(message.payload?.headers ?? []).toLowerCase().includes(`<${sender.toLowerCase()}>`))
+        .map((message) => ({ id: message.id, threadId: one.id })),
+    );
+    return Response.json({ messages: sentBy, resultSizeEstimate: sentBy.length });
+  }
+  // `users.messages.list` of the mail sent from the mailbox, newest first ("Follow a sent
+  // email… in Capture", issue 1710): the messages of the conversations held that carry the Sent label.
+  if (path === 'messages' && url.searchParams.get('labelIds') === 'SENT') {
+    const sent = mailbox.threads
+      .flatMap((one) =>
+        ((one.answer as { messages?: { id: string; labelIds?: string[]; internalDate?: string }[] }).messages ?? [])
+          .filter((message) => (message.labelIds ?? []).includes('SENT') && !(message.labelIds ?? []).includes('TRASH'))
+          .map((message) => ({ id: message.id, threadId: one.id, at: Number(message.internalDate) })),
+      )
+      .sort((a, b) => b.at - a.at)
+      .slice(0, Number(url.searchParams.get('maxResults') ?? 100));
+    return Response.json({ messages: sent.map(({ id, threadId }) => ({ id, threadId })), resultSizeEstimate: sent.length });
+  }
   const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
   if (modified && init?.method === 'POST') {
     const change = JSON.parse(String(init.body)) as { addLabelIds?: string[]; removeLabelIds?: string[] };
@@ -453,5 +676,15 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
   }
   const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
   if (thread) return Response.json(thread.answer);
+  // `users.messages.get`: one message of whichever conversation holds it, as
+  // the conversation's own answer carries it (issue 1705).
+  const email = /^messages\/([^/]+)$/.exec(path);
+  if (email) {
+    const id = decodeURIComponent(email[1]!);
+    const found = mailbox.threads
+      .flatMap((one) => ((one.answer as { messages?: { id?: string }[] }).messages ?? []))
+      .find((message) => message.id === id);
+    if (found) return Response.json(found);
+  }
   return Response.json({ error: { code: 404, message: 'Requested entity was not found.' } }, { status: 404 });
 }

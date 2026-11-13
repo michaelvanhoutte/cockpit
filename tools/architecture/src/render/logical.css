@@ -1,0 +1,93 @@
+/* The Logical page, on top of the report's styles: the nested diagram, its tables and the links to GitHub */
+.crumbs { font-size: 13px; color: var(--ink-3); margin: 0 0 6px; }
+.crumbs a { color: var(--accent); text-decoration: none; }
+.t-link { fill: var(--accent); }
+g.node a { cursor: pointer; }
+table.flows { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+table.flows th, table.flows td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.flows th { font-weight: 600; color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+table.flows a { color: var(--accent); text-decoration: none; }
+table.flows tr.bad td:first-child { border-left: 3px solid var(--red); }
+table.flows tr:target td { background: var(--red-soft); }
+.dim { color: var(--ink-3); }
+.bad { color: var(--red); font-weight: 600; }
+tr.bad { color: inherit; font-weight: inherit; }
+.ok { color: var(--green); font-weight: 600; }
+details.files summary { cursor: pointer; color: var(--accent); }
+details.files code { display: block; }
+.num { display: inline-block; min-width: 20px; height: 20px; border-radius: 10px; background: var(--red); color: var(--card); font: 700 11px/20px var(--sans); text-align: center; }
+
+.nb { stroke-width: 1.2; }
+.nb-layer { fill: var(--soft); stroke: var(--line); }
+.nb-clients { fill: none; stroke: var(--neutral); stroke-dasharray: 5 4; }
+.nb-outside { fill: var(--bg); stroke: var(--line); }
+.nb-service { fill: var(--soft); stroke: var(--accent); stroke-width: 1.8; }
+.nb-context { fill: none; stroke: var(--neutral); stroke-dasharray: 2 4; stroke-width: 1.2; }
+.nb-t { font: 600 12.5px var(--sans); fill: var(--ink-2); }
+.nb-t.link { fill: var(--accent); }
+.nb-n { font: 400 11px var(--sans); fill: var(--ink-3); }
+.nc { fill: var(--card); stroke: var(--accent); stroke-width: 1.3; }
+.nc-cl { fill: var(--card); stroke: var(--neutral); stroke-dasharray: 4 3; }
+.nc-st { fill: color-mix(in srgb, var(--amber) 12%, var(--card)); stroke: var(--amber); stroke-width: 1.3; }
+.nc-ext { fill: var(--card); stroke: var(--line); }
+.nc-t { font: 600 12px var(--sans); fill: var(--ink-1); }
+.nc-s { font: 400 10.5px var(--sans); fill: var(--ink-3); }
+.nc-gh { font: 600 11px var(--sans); fill: var(--ink-3); }
+a.code { cursor: pointer; }
+a.code:hover .nc-gh { fill: var(--accent); }
+g.node a:hover .nc, g.node a:hover .nc-st, g.node a:hover .nc-cl, g.node a:hover .nc-ext { stroke-width: 2.4; }
+.nl { fill: none; stroke-linejoin: round; }
+.nl-ok { stroke: var(--neutral); stroke-width: 2; }
+.nl-decl { stroke: var(--accent); stroke-dasharray: 5 3; stroke-width: 1.3; }
+.nl-miss { stroke: var(--neutral); stroke-dasharray: 2 4; stroke-width: 1.6; }
+.nl-bad { stroke: var(--red); stroke-width: 2; }
+.nl-hit { fill: none; stroke: transparent; stroke-width: 12; }
+a.nl-a { cursor: pointer; }
+a.nl-a:hover .nl-bad { stroke-width: 3.4; }
+.nl-acc { stroke: var(--ink-3); stroke-width: 1.6; opacity: .8; }
+.nm-acc, .nl-num.nl-num-acc { fill: var(--ink-3); }
+.num.num-acc { background: var(--ink-3); }
+button.copy { font: 600 12px var(--sans); color: var(--accent); background: var(--card); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+button.copy:hover { background: var(--soft); }
+dialog#dev { max-width: 760px; width: calc(100% - 32px); background: var(--card); color: var(--ink-1); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+dialog#dev::backdrop { background: rgb(0 0 0 / .45); }
+dialog#dev h3 { margin: 0 0 6px; font-size: 16px; }
+dialog#dev .why { margin: 0 0 8px; color: var(--ink-2); }
+dialog#dev .files a { display: block; }
+dialog#dev textarea { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--mono); background: var(--bg); color: var(--ink-1); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
+.dlg-b { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.dlg-b button { font: 600 13px var(--sans); padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--ink-1); cursor: pointer; }
+.dlg-b button.primary { background: var(--accent); border-color: var(--accent); color: var(--card); }
+.nm-ok, .nm-miss { fill: var(--neutral); }
+.nm-bad { fill: var(--red); }
+.nm-decl { fill: var(--accent); }
+.nl-num { fill: var(--red); }
+.nl-num-t { font: 700 10px var(--sans); fill: var(--card); }
+.nl-l { font: 500 10.5px var(--sans); fill: var(--ink-3); paint-order: stroke; stroke: var(--card); stroke-width: 4px; }
+.nl-l-decl { fill: var(--accent); }
+.nl-l-miss { font-style: italic; }
+a.gh { text-decoration: none; }
+a.gh code { color: var(--accent); }
+a.gh:hover code, a.gh:hover b { text-decoration: underline; }
+a.gh b { color: var(--accent); }
+
+/* The services view: the switch between a page's tabs, a service box's badge, the chips of a Deployment tab and a layer's stores as cards */
+nav.switch { display: inline-flex; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+nav.switch a, nav.switch span { padding: 6px 16px; text-decoration: none; }
+nav.switch a { color: var(--accent); background: var(--card); }
+nav.switch a:hover { background: var(--soft); }
+nav.switch span.on { background: var(--accent); color: var(--card); font-weight: 600; }
+.nb-badge { fill: var(--red-soft); stroke: var(--red); }
+.nb-badge-t { font: 600 11px var(--sans); fill: var(--red); }
+table.flows th.row { text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--ink-1); white-space: nowrap; width: 150px; }
+table.flows ul { margin: 0; padding-left: 16px; }
+.chip { display: inline-block; font: 600 11.5px var(--mono); padding: 2px 8px; border-radius: 10px; margin: 0 4px 4px 0; background: color-mix(in srgb, var(--amber) 14%, var(--card)); color: var(--amber); border: 1px solid var(--amber); }
+.chip.q { background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--accent); border-color: var(--accent); }
+.chip.o { background: var(--soft); color: var(--ink-2); border-color: var(--line); }
+.chip.s { background: var(--soft); color: var(--ink-3); border: 1px dashed var(--neutral); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+.card { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; color: inherit; text-decoration: none; }
+a.card:hover { border-color: var(--accent); }
+.card h4 { margin: 0 0 4px; font: 600 13.5px var(--mono); color: var(--ink-1); }
+.card p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.card .meta { color: var(--ink-3); font-size: 12px; margin-top: 8px; }

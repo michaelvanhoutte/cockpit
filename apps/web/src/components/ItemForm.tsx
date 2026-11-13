@@ -98,6 +98,8 @@ const KeepWhichNote = lazy(() => import('./KeepWhichNote').then((loaded) => ({ d
 
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
+/** The conversation an Item follows (issue 1706), with Reply…, or Email… where it follows none (issue 1708): fetched the first time a form opens. */
+const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((loaded) => ({ default: loaded.ItemFormConversation })));
 
 const DESCRIPTION_LIMIT = 60_000;
 
@@ -351,7 +353,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openableAtSource(item, data?.sourceNames) : null;
+  const atSource = item ? openableAtSource(item, data?.sourceNames, data?.messageLinks) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -1886,6 +1888,19 @@ function TheForm({
                     )}
                   </p>
                 )}
+                {/* An item of your own that carries a Teams message link: the way back alone, with no "From Own" ("Open Items captured with a pasted Teams message link in Teams", issue 1738). */}
+                {item.source === 'internal' && atSource && (
+                  <p className="mt-2 shrink-0 text-xs text-ink-faint">
+                    <a
+                      href={atSource.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-deep underline"
+                    >
+                      Open in {atSource.name}
+                    </a>
+                  </p>
+                )}
 
                 {/* Four tabs, the form, its files ("Give an Item's
                     attachments a tab of their own", issue 1410), its technical
@@ -2191,6 +2206,21 @@ function TheForm({
                           onAPage={onAPage}
                         />
                       </div>
+
+                      {/* The conversation this Item follows, from the row the Workspace
+                        read carries ("Show the conversation an Item follows in its
+                        form", issue 1706); none for an Item that follows none, which
+                        offers Email… there instead (issue 1708). */}
+                      <Suspense fallback={null}>
+                        <ItemFormConversation
+                          item={item}
+                          itemId={itemId}
+                          workspaceId={workspaceId}
+                          conversations={data?.conversations}
+                          mailboxes={data?.mailboxes}
+                          sourceNames={data?.sourceNames}
+                        />
+                      </Suspense>
 
                       {/* The Panels it is filed on, each with ✕, and the search that adds more - Capture's *File on* in the Item's own Workspace (issue 1106). Docked a change is written at once with Undo; otherwise it waits for Save. */}
                       <div>

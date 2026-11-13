@@ -1,0 +1,23 @@
+/* The table diagrams, on top of the report's styles */
+.crumbs { font-size: 13px; color: var(--ink-3); margin: 0 0 6px; }
+.crumbs a { color: var(--accent); text-decoration: none; }
+nav.switch { display: inline-flex; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+nav.switch a, nav.switch span { padding: 6px 16px; text-decoration: none; }
+nav.switch a { color: var(--accent); background: var(--card); }
+nav.switch a:hover { background: var(--soft); }
+nav.switch span.on { background: var(--accent); color: var(--card); font-weight: 600; }
+.rl { fill: none; stroke: var(--neutral); stroke-width: 1.4; }
+.rl.far { opacity: 0; pointer-events: none; }
+.erd-o { fill: var(--card); stroke: var(--neutral); stroke-width: 1.5; }
+.db-t .fk, .fk-k { fill: var(--accent); color: var(--accent); font-weight: 600; }
+.db-c.pk { font-weight: 700; }
+.db-more { font: italic 400 11px var(--sans); fill: var(--accent); }
+.tb { transition: opacity .1s; }
+a.gh { text-decoration: none; }
+a.gh code { color: var(--accent); }
+a.gh:hover code, a.gh:hover b { text-decoration: underline; }
+a.gh b { color: var(--accent); }
+.nc-gh { font: 600 11px var(--sans); fill: var(--ink-3); }
+a.code { cursor: pointer; }
+a.code:hover .nc-gh { fill: var(--accent); }
+.tb a.code:hover .t-h { text-decoration: underline; }

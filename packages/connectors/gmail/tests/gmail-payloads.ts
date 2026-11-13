@@ -98,6 +98,8 @@ interface MessageOptions {
   readonly sentAt: string;
   readonly subject?: string;
   readonly from?: string;
+  /** Whom it was sent to, as the To header says it; this mailbox unless said. */
+  readonly to?: string;
   readonly labelled?: boolean;
   /** Starred, as Outlook's flag for follow-up stars it (issue 822). */
   readonly starred?: boolean;
@@ -118,7 +120,7 @@ export function message(threadId: string, options: MessageOptions) {
     header('Delivered-To', 'anna@example.com'),
     header('Date', new Date(options.sentAt).toUTCString()),
     header('From', options.from ?? 'Pieter Claes <pieter@example.com>'),
-    header('To', 'anna@example.com'),
+    header('To', options.to ?? 'anna@example.com'),
     ...(options.subject === undefined ? [] : [header('Subject', options.subject)]),
     header('Message-ID', `<${options.id}@mail.example.com>`),
   ];

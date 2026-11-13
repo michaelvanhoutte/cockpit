@@ -135,4 +135,24 @@ describe('Connector management', () => {
       }
     });
   });
+
+  /** "Open Items captured with a pasted Teams message link in Teams" (issue 1738): the registry's declarations travel beside the names. */
+  describe('the Workspace carries the message links connectors declare, by connector id', () => {
+    it('Teams declares its three hosts, and a connector declaring none is absent', async () => {
+      env.TEST_CONNECTORS = [OUTLOOK];
+      try {
+        const snapshot = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+        const { messageLinks } = workspaceSnapshotSchema.parse(await snapshot.json());
+        expect(messageLinks?.teams?.map((one) => one.host).sort()).toEqual([
+          'teams.cloud.microsoft',
+          'teams.live.com',
+          'teams.microsoft.com',
+        ]);
+        expect(messageLinks?.teams?.every((one) => one.pathStart === '/l/message/')).toBe(true);
+        expect(messageLinks?.outlook).toBeUndefined();
+      } finally {
+        delete env.TEST_CONNECTORS;
+      }
+    });
+  });
 });

@@ -70,7 +70,7 @@ The desktop-app tools named here are missing from a terminal, scheduled or remot
 
 ## Tests
 
-**Follow the `testing` skill before writing, moving or reviewing any test.** It restates every binding rule, so writing a test needs nothing else. `docs/testing-strategy.md` is the version of record: open it to change a rule, or to settle what the skill does not decide.
+**Follow the `testing` skill before writing, moving or reviewing any test.** It is the test strategy, with no other copy: change a rule there.
 
 Two of its rules are restated here because this file is in context always and the skill only once something triggers it:
 
@@ -83,7 +83,7 @@ Two of its rules are restated here because this file is in context always and th
 
 | Change | Runs |
 |---|---|
-| only `docs/`, `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no browser pass |
+| only `docs/` (not `docs/architecture.yml`, which CI reads), `.claude/` or root markdown | the writing rules and `pnpm test:scripts`; no browser pass |
 | only test files, or a test deletion | that package's suite and `pnpm test:scripts`; no browser pass |
 | anything touching product code | everything the definition of done lists today |
 
@@ -150,7 +150,7 @@ It names a SHA because for the seconds after a push GitHub's head is still the p
 
 **Merge `main` into the branch only when GitHub reports the pull request conflicted, or when `node scripts/merge-recheck.mjs <number>` refuses the merge against today's `main`.** Any other merge buys nothing that lands, since the pull request lands squashed and CI already tests the branch merged with `main`, and only restarts CI.
 
-**Read what `main` has gained before finishing, not only what it has changed.** This file is read into a session once, at the start, so a rule that merges while you work changes nothing you believe until you look. Diff against the commit you started from — not the merge-base with `origin/main`, which the conflict-merge above moves to `origin/main` itself, silencing the diff on exactly what that merge brought in.
+**Read what `main` has gained before running a skill and before finishing, not only what it has changed.** This file is read into a session once, at the start, and a skill is read from the worktree's own copy, so a rule that merges while you work changes nothing you believe until you look. Before a skill runs mid-session, narrow the diff below to its folder and, where `main` has a newer version, follow `main`'s (`git show origin/main:.claude/skills/<name>/SKILL.md`): on "Architecture page: the Harness Monitor is missing and nothing shows where the code departs from the intended design…" (issue 1651) the engineering plan was first run without "Make engineering-plan answer seven lenses and draw each one that moves" (pull request 1648) and "Make engineering-plan open with how it works, and draw its diagrams by boundary" (pull request 1650), and had to be run again. Diff against the commit you started from — not the merge-base with `origin/main`, which the conflict-merge above moves to `origin/main` itself, silencing the diff on exactly what that merge brought in.
 
 ```bash
 git fetch origin main
@@ -167,10 +167,9 @@ Anything it prints is a rule you are already working under and have not read.
 | `docs/product/*.md` | what the product is, one file per area |
 | `docs/design-system.md` | how it looks |
 | `docs/architecture.md` | how it is built |
-| `docs/testing-strategy.md` | what counts as proof it works |
+| `.claude/skills/testing/SKILL.md` | what counts as proof it works |
 | `docs/deployment.md` | where it runs and how it gets there |
-| `tools/architecture/README.md` | the architecture page drawn nightly from the checkout: areas and their layers, what imports what, every table and index, and the deployment, which a design is a diff to |
-| `docs/ideas.md` | unscheduled ideas, deliberately not scheduled |
+| `tools/architecture/README.md` | the architecture page drawn nightly from the checkout, from its services view (`services-design.html`) to the Modules and Dependencies page, every table and index and the deployment, which a design is a diff to |
 
 Options documents (`docs/*-options.md`) record integration research. `poc/` holds proofs of concept and is outside the workspace, so it never runs in CI.
 

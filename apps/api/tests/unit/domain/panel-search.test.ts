@@ -24,8 +24,8 @@ const aDashboard = (id: string): Dashboard => ({ id, name: id }) as Dashboard;
 const aPanel = (id: string, name: string, dashboardId = 'd1', over: Partial<Panel> = {}): Panel =>
   ({ id, name, dashboardId, kind: 'items', filter: null, ...over }) as Panel;
 
-const aFilter = (id: string, name: string, rows: PanelFilter['rows'], dashboardId = 'd1'): Panel =>
-  aPanel(id, name, dashboardId, { kind: 'filter', filter: { rows, groupBy: 'none' } });
+const aFilter = (id: string, name: string, rows: PanelFilter['sets'][number], dashboardId = 'd1'): Panel =>
+  aPanel(id, name, dashboardId, { kind: 'filter', filter: { sets: [rows], groupBy: 'none' } });
 
 const filed = (panelId: string, itemId: string): Filing => ({ panelId, itemId, position: 0 });
 

@@ -96,6 +96,14 @@ const SEED = {
   ],
 };
 
+/** A page's intro text runs to the edge of the panel below it, less only the inset it keeps for itself on each side. */
+const endsWithPanel = async (page: Page, lead: Locator, below: Locator, inset: number) => {
+  const [l, b] = await Promise.all([lead.boundingBox(), below.boundingBox()]);
+  const width = `at ${page.viewportSize()!.width}px`;
+  expect(Math.abs(l!.x - b!.x - inset), `left ${width}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(b!.x + b!.width - (l!.x + l!.width) - inset), `right ${width}`).toBeLessThanOrEqual(2);
+};
+
 test.describe('Harness Monitor', () => {
   /** A word of the band's sentence, or one of the filters under "Only", by what a screen reader calls it. */
   const choice = (page: Page, name: string) => page.getByRole('combobox', { name, exact: true });
@@ -211,12 +219,249 @@ test.describe('Harness Monitor', () => {
     await expect(choice(page, 'Rows')).toHaveValue('engineer');
   });
 
-  test('the sentence stays on screen as the page scrolls, on a desk and on a phone', async ({ page, request: api }) => {
+  test('a spike on the per-day chart opens as that day, each pull request dearest first, the sentence regroups it or leaves it for the period, and "Pick a day…" opens any other', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
+
+    await page.goto(`${monitor}/?period=7d&split=model`);
+
+    // A strip is a full-height target, not a dot: tall, and as wide as its day's share of the chart, which a phone can still hit.
+    const strip = page.getByRole('img', { name: /^Cost per day/ }).locator('.day-strips a').last();
+    await strip.scrollIntoViewIfNeeded();
+    const box = (await strip.boundingBox())!;
+    expect(box.height).toBeGreaterThan(100);
+    expect(box.width).toBeGreaterThanOrEqual(16);
+    if (onAPhone) await strip.tap();
+    else await strip.click();
+
+    // The day beside the period it was opened from, the rows each pull request dearest first, the colouring kept.
+    await expect(page).toHaveURL(/[?&]period=7d(&|$)/);
+    await expect(page).toHaveURL(/[?&]day=\d{4}-\d{2}-\d{2}(&|$)/);
+    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
+    await expect(page).toHaveURL(/[?&]split=model(&|$)/);
+    const table = page.getByRole('region', { name: 'Cost by pull request' });
+    await expect(table.getByRole('row').nth(1)).toContainText('#9001');
+    await expect(table.getByRole('row').nth(2)).toContainText('#9002');
+    await expect(page.getByRole('heading', { name: /Where \d+ \w+.s \$9\.00 went, by model/ })).toBeVisible();
+    // The dropdown shows the day first, above the four periods and "Pick a day…".
+    await expect(choice(page, 'Period').locator('option')).toHaveText([/^\d+ \w+ \d{4}$/, 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    // Each engineer, on that day: was it one person?
+    await choose(page, 'Rows', 'each engineer', /[?&]group=engineer(&|$)/);
+    await expect(page).toHaveURL(/[?&]day=/);
+    const byEngineer = page.getByRole('region', { name: 'Cost by engineer' });
+    await expect(byEngineer.getByRole('row').nth(1)).toContainText('e2e-alice');
+    await expect(byEngineer.getByRole('row').nth(1)).toContainText('$6.00');
+
+    // Each day leaves it, back to the period it was opened from.
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    expect(new URL(page.url()).searchParams.get('day') ?? '').toBe('');
+    expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
+    await expect(choice(page, 'Period')).toHaveValue('7d');
+    await expect(page.getByRole('heading', { name: /Where the period.s \$9\.00 went/ })).toBeVisible();
+
+    // "Pick a day…" opens a day from any rows, each day becoming each pull request, and a period leaves it.
+    // The picker itself is the browser's own and cannot be driven; a date it hands back is what the field is given here.
+    const pick = async (day: string) => page.locator('.day-pick').fill(day);
+
+    await page.goto(`${monitor}/?group=issue`);
+    // The picker stops at the Belgian today, which is the day the seeded requests were made.
+    const today = (await page.locator('.day-pick').getAttribute('max'))!;
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // From each issue: that day, by issue.
+    await pick(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    await expect(choice(page, 'Rows')).toHaveValue('issue');
+    await expect(page.getByRole('region', { name: 'Cost by issue' }).getByRole('row', { name: /#9000/ })).toContainText('$6.00');
+    await expect(choice(page, 'Period').locator('option').first()).toHaveAttribute('value', today);
+
+    // From a period's other rows the day keeps them; a period chosen leaves the day.
+    await choose(page, 'Period', 'the last 7 days', /[?&]period=7d(&|$)/);
+    expect(new URL(page.url()).searchParams.get('day') ?? '').toBe('');
+    await expect(choice(page, 'Rows')).toHaveValue('issue');
+
+    // From each day, which has no day to show: the picked day by pull request.
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    await pick(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    await expect(page).toHaveURL(/[?&]group=pr(&|$)/);
+    await expect(choice(page, 'Rows')).toHaveValue('pr');
+    await expect(page.getByRole('region', { name: 'Cost by pull request' }).getByRole('row').nth(1)).toContainText('#9001');
+
+    // Export CSV on a day carries it: the file holds that day's requests, which is all seven of the seeded ones.
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+    const csv = (await readFile((await download.path())!, 'utf8')).trimEnd().split('\r\n');
+    expect(csv).toHaveLength(1 + SEED.rows.length);
+  });
+
+  test('a drag across days of the per-day chart zooms the whole page into them, on a phone only after a hold so a swipe still scrolls it, a click still opens a day, and a period or "Pick a day…" zooms out', async ({ page, request: api }) => {
+    test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
+    expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
+    // On a phone the gesture is a touch, a walk of its own below; on a desk it is a mouse drag.
+    if ((page.viewportSize()?.width ?? 0) <= 640) return zoomByTouch(page);
+    const navigations: string[] = [];
+    page.on('request', (r) => r.isNavigationRequest() && navigations.push(r.url()));
+
+    await page.goto(`${monitor}/?period=7d`);
+    const today = (await page.locator('.day-pick').getAttribute('max'))!;
+    const daysBefore = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    const strip = (n: number) => page.getByRole('img', { name: /^Cost per day/ }).locator('.day-strips rect').nth(n);
+    const centre = async (n: number) => {
+      const box = (await strip(n).boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    /** Presses on strip `from`, drags to strip `to` and leaves the button down. */
+    const dragTo = async (from: number, to: number) => {
+      const start = await centre(from);
+      const end = await centre(to);
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move((start.x + end.x) / 2, end.y, { steps: 4 });
+      await page.mouse.move(end.x, end.y, { steps: 4 });
+    };
+    const params = () => new URL(page.url()).searchParams;
+    await strip(0).scrollIntoViewIfNeeded();
+
+    // Holding the drag: the three last days are shaded and their first and last dates show above them, and nothing was asked for.
+    const before = navigations.length;
+    await dragTo(4, 6);
+    await expect(page.locator('svg.zoomable').first().locator('.brush')).toBeVisible();
+    await expect(page.locator('svg.zoomable').first().locator('.brush-label')).toHaveText(/^\d+ \w+ \d{4} – \d+ \w+ \d{4}$/);
+    expect(navigations.length).toBe(before);
+    expect(params().get('from')).toBeNull();
+
+    // Let go: the page for those three days, chosen in the period select, and every panel following it.
+    await page.mouse.up();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}&to=${today}(&|$)`));
+    expect(params().get('period')).toBe('7d');
+    await expect(choice(page, 'Period')).toHaveValue('range');
+    await expect(choice(page, 'Period').locator('option').first()).toHaveText(/^\d+ \w+ \d{4} – \d+ \w+ \d{4}$/);
+    await expect(page.getByRole('heading', { name: /Where \d+ \w+ to \d+ \w+.s \$9\.00 went, by phase/ })).toBeVisible();
+    await expect(page.locator('.day-strips').first().locator('rect')).toHaveCount(3);
+
+    // Back is the period the drag started on; forward is the range again.
+    await page.goBack();
+    await expect(page).toHaveURL(`${monitor}/?period=7d`);
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}&to=${today}(&|$)`));
+
+    // Dragging again inside the zoomed chart zooms further.
+    await strip(0).scrollIntoViewIfNeeded();
+    await dragTo(1, 2);
+    await page.mouse.up();
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(1)}&to=${today}(&|$)`));
+    await expect(page.locator('.day-strips').first().locator('rect')).toHaveCount(2);
+
+    // A drag that stays within one day opens nothing, and the click after it is not swallowed: it opens its day.
+    const here = page.url();
+    await strip(0).scrollIntoViewIfNeeded();
+    const inside = await centre(1);
+    await page.mouse.move(inside.x - 10, inside.y);
+    await page.mouse.down();
+    await page.mouse.move(inside.x + 10, inside.y, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    expect(page.url()).toBe(here);
+    await page.mouse.click(inside.x, inside.y);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+
+    // The day keeps the range as well as the period; choosing each day returns to the range, not to the period.
+    expect(params().get('from')).toBe(daysBefore(1));
+    expect(params().get('to')).toBe(today);
+    expect(params().get('period')).toBe('7d');
+    await expect(choice(page, 'Period').locator('option')).toHaveText([/^\d+ \w+ \d{4}$/, /–/, 'the last 7 days', 'the last 30 days', 'the last 90 days', 'all time', 'Pick a day…']);
+    await choose(page, 'Rows', 'each day', /[?&]group=day(&|$)/);
+    expect(params().get('day')).toBeNull();
+    expect(params().get('from')).toBe(daysBefore(1));
+    await expect(choice(page, 'Period')).toHaveValue('range');
+
+    // Export CSV carries the range: the file holds the seeded requests, all made today.
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Export CSV' }).click()]);
+    expect((await readFile((await download.path())!, 'utf8')).trimEnd().split('\r\n')).toHaveLength(1 + SEED.rows.length);
+
+    // A period chosen leaves the range.
+    await choose(page, 'Period', 'the last 30 days', /[?&]period=30d(&|$)/);
+    expect(params().get('from')).toBeNull();
+    expect(params().get('to')).toBeNull();
+
+    // On a day opened from a range, choosing the range from the select returns to the zoomed page, each day with its charts.
+    await page.goto(`${monitor}/?period=7d&day=${today}&from=${daysBefore(2)}&to=${today}&group=pr`);
+    await choice(page, 'Period').selectOption('range');
+    await expect(page).toHaveURL(new RegExp(`[?&]from=${daysBefore(2)}(&|$)`));
+    expect(params().get('day')).toBeNull();
+    expect(params().get('group')).toBe('day');
+    await expect(page.getByRole('img', { name: /^Cost per day/ })).toBeVisible();
+
+    // "Pick a day…" on a range opens that day with no range.
+    await page.goto(`${monitor}/?period=7d&from=${daysBefore(2)}&to=${today}`);
+    await page.locator('.day-pick').fill(today);
+    await expect(page).toHaveURL(new RegExp(`[?&]day=${today}(&|$)`));
+    expect(params().get('from')).toBeNull();
+    expect(params().get('to')).toBeNull();
+  });
+
+  /** On a phone a swipe over the per-day chart does not select, and a press held a moment then dragged zooms into the days. */
+  async function zoomByTouch(page: Page) {
+    await page.goto(`${monitor}/?period=7d`);
+    const chart = page.getByRole('img', { name: /^Cost per day/ });
+    await chart.scrollIntoViewIfNeeded();
+    // The chart is wider than its panel, so a swipe must be left to scroll it.
+    expect(await chart.evaluate((el) => getComputedStyle(el).touchAction)).toBe('auto');
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', x?: number, y?: number) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: x!, y: y! }] });
+    const centre = async (n: number) => {
+      const box = (await chart.locator('.day-strips rect').nth(n).boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    // Strips are 91px wide on a 640px chart, so two of them are on screen from the chart's start; the last days scroll into view.
+    await chart.evaluate((el) => (el.parentElement!.scrollLeft = el.parentElement!.scrollWidth));
+    const first = await centre(4);
+    const last = await centre(6);
+    const here = page.url();
+
+    // A quick swipe: moved before the hold, so it selects nothing and opens nothing.
+    await touch('touchStart', last.x, last.y);
+    for (let i = 1; i <= 4; i++) await touch('touchMove', last.x - i * 20, last.y);
+    await touch('touchEnd');
+    await page.waitForTimeout(800);
+    await expect(chart.locator('.brush')).toBeHidden();
+    expect(page.url()).toBe(here);
+
+    // Held half a second without moving, then dragged: the days are selected and letting go zooms.
+    await touch('touchStart', first.x, first.y);
+    await page.waitForTimeout(700);
+    await expect(chart.locator('.brush')).toBeVisible();
+    for (let i = 1; i <= 4; i++) await touch('touchMove', first.x + ((last.x - first.x) * i) / 4, first.y);
+    await touch('touchEnd');
+    await expect(page).toHaveURL(/[?&]from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}(&|$)/);
+    expect(new URL(page.url()).searchParams.get('period')).toBe('7d');
+  }
+
+  test("the sentence stays on screen as the page scrolls, the page's intro ends where the panels below it end, and each per-day chart's total and mean sit at the right of its heading on a desk and under it on a phone", async ({ page, request: api }) => {
     test.skip(!monitor, 'the Harness Monitor is started by the local stack only, not by a deployment');
     expect((await api.post(`${monitor}/__e2e/seed`, { data: SEED })).ok()).toBe(true);
     const onAPhone = (page.viewportSize()?.width ?? 0) <= 640;
 
     await page.goto(`${monitor}/`);
+    // Every page opens with the same intro; its paragraph keeps the lead's 2px padding.
+    await endsWithPanel(page, page.locator('.lead-more'), page.locator('section.panel').first(), 2);
+
+    // The seed spends $9.00 (4.2M tokens) on one day.
+    const cost = page.getByRole('region', { name: 'Cost per day' });
+    const tokens = page.getByRole('region', { name: 'Tokens per day' });
+    await expect(cost.locator('.aside')).toHaveText('$9.00 total · $9.00 a day on average, over 1 day with spend');
+    await expect(tokens.locator('.aside')).toHaveText('4.2M tokens total · 4.2M a day on average, over 1 day with tokens');
+    for (const chart of [cost, tokens]) {
+      const [title, note, heading] = await Promise.all([chart.locator('h2').boundingBox(), chart.locator('.aside').boundingBox(), chart.locator('.section-band').boundingBox()]);
+      // At the band's right edge either way; on a desk it shares the title's row, on a phone it wraps beneath it.
+      expect(Math.abs(note!.x + note!.width - (heading!.x + heading!.width)), "at the band's right edge").toBeLessThanOrEqual(12);
+      if (onAPhone) expect(note!.y).toBeGreaterThanOrEqual(title!.y + title!.height - 1);
+      else expect(note!.y).toBeLessThan(title!.y + title!.height);
+    }
 
     // Scrolled to the table, the band is still the first thing on screen.
     await page.getByRole('region', { name: 'Cost by day' }).scrollIntoViewIfNeeded();
@@ -1473,6 +1718,8 @@ test.describe('Harness Monitor', () => {
     await expect(drill).toHaveCount(0);
     const misses = page.getByRole('region', { name: 'Tests that were skipped, then failed on main' });
     await expect(misses.getByRole('row')).toHaveCount(3);
+    // The view's lead runs to the table's edge, less its own 10px margin.
+    await endsWithPanel(page, misses.locator('.view-lead'), misses.locator('.view-lead + .well.table'), 10);
     const flaky = misses.getByRole('row').filter({ hasText: 'flaky.test.ts' });
     const capture = misses.getByRole('row').filter({ hasText: 'capture.test.ts' });
     await expect(flaky).toContainText('#9101 Add a filter panel');

@@ -59,7 +59,7 @@ const legend = (html: string) => [...html.matchAll(/<li><i style="background:([^
 const segments = (html: string) => [...(/<div class="bar" role="img"[^>]*>(.*?)<\/div>\s*<ul/s.exec(html)?.[1] ?? '').matchAll(/background:([^"]*)"/g)].map((m) => m[1]!);
 /** A per-day chart's lines: key, stroke and the title of its first point. */
 const lines = (html: string, chart: string) =>
-  [...new RegExp(`aria-labelledby="${chart}">.*?</section>`, 's').exec(html)![0].matchAll(/<g data-line="([^"]*)"><polyline [^>]*stroke="([^"]*)"[^>]*\/>(?:<circle [^>]*><title>(.*?)<\/title>)?/g)].map((m) => [m[1]!, m[2]!, m[3] ?? '']);
+  [...new RegExp(`aria-labelledby="${chart}">.*?</section>`, 's').exec(html)![0].matchAll(/<g data-line="([^"]*)"><polyline [^>]*stroke="([^"]*)"[^>]*\/>(?:(?:<a [^>]*>)?<circle [^>]*><title>(.*?)<\/title>)?/g)].map((m) => [m[1]!, m[2]!, m[3] ?? '']);
 
 const names = (count: number, prefix: string) => Array.from({ length: count }, (_, i) => `${prefix}${i + 1}`);
 
@@ -108,7 +108,6 @@ function costsOf(split: Split, onRecord: { engineers?: string[]; models?: string
     lastLinkSuccessAt: null,
     creditedThrough: null,
     jobs: [],
-    trends: null,
   };
 }
 

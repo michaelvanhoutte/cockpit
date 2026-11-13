@@ -31,7 +31,21 @@
     'video/webm',
     'video/quicktime',
     'application/pdf',
+    'text/markdown',
+    'text/plain',
   ];
+  var NO_USEFUL_TYPE = ['', 'application/octet-stream'];
+
+  /** Copy of `resolveAttachmentType` (packages/shared/src/domain/attachment.ts): a text file's type, from its name where the device reports none that helps. */
+  function typeOf(file) {
+    var name = String(file.name);
+    var reported = file.type;
+    if (/\.(md|markdown)$/i.test(name) && NO_USEFUL_TYPE.concat(['text/x-markdown', 'text/plain']).indexOf(reported) >= 0) {
+      return 'text/markdown';
+    }
+    if (/\.txt$/i.test(name) && NO_USEFUL_TYPE.indexOf(reported) >= 0) return 'text/plain';
+    return reported;
+  }
   var MAX_FILE_SIZE = 25 * 1024 * 1024;
   // What the holding area keeps in all: a share past it is refused, visibly,
   // rather than filling the device with what nobody has claimed.
@@ -67,11 +81,12 @@
       files.map(function (file) {
         // A file Attachments refuse keeps its name, type and size and no bytes:
         // the page says why it was refused, and nothing of it is stored.
-        if (file.size > MAX_FILE_SIZE || ALLOWED_TYPES.indexOf(file.type) < 0) {
+        var type = typeOf(file);
+        if (file.size > MAX_FILE_SIZE || ALLOWED_TYPES.indexOf(type) < 0) {
           return { name: nameOf(file), type: file.type, size: file.size, bytes: null };
         }
         return file.arrayBuffer().then(function (bytes) {
-          return { name: nameOf(file), type: file.type, size: file.size, bytes: bytes };
+          return { name: nameOf(file), type: type, size: file.size, bytes: bytes };
         });
       }),
     ).then(function (kept) {
@@ -192,6 +207,7 @@
     DATABASE: DATABASE,
     STORE: STORE,
     ALLOWED_TYPES: ALLOWED_TYPES,
+    typeOf: typeOf,
     MAX_FILE_SIZE: MAX_FILE_SIZE,
     receive: receive,
     isAShare: isAShare,

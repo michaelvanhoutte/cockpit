@@ -15,8 +15,10 @@ import {
   itemTitleSchema,
   panelFitSchema,
   prioritySchema,
+  TITLE_LENGTH,
   workspaceNameSchema,
 } from './domain/item.js';
+import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/conversation.js';
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import {
@@ -271,13 +273,13 @@ export type SetPanelFormatCommand = z.infer<typeof setPanelFormatSchema>;
  * asked for. No rows is a real answer — the Filter goes back to saying it has
  * nothing chosen.
  *
- * **Rows only** ("Store every Filter as rows, and save the All / Any choice as
- * rows", issue 1081): an Item meets every row, and meets a row by meeting any
- * one of its conditions. The flat `conditions` and `match` a tab on the
- * previous release sends is refused, since that tab reads a Filter stored in
- * rows as nothing chosen, and its save would overwrite the real one with that.
+ * **Sets only** ("Let a Filter hold sets of rows joined by or", issue 1737): an
+ * Item shows when it meets every row of any one set, and meets a row by
+ * meeting any one of its conditions. The `rows` a tab on the previous release
+ * sends is refused, since accepting it as one set would let that tab overwrite
+ * a Filter of several sets with only the part it could read.
  *
- * **Capped across rows**, as `panelTextSchema` caps the other free-form thing a
+ * **Capped across all sets**, as `panelTextSchema` caps the other free-form thing a
  * Panel stores: this is written into a column every snapshot of the Workspace
  * then carries to every device on it, and nothing downstream bounds it the way
  * an `order` is bounded by the Items it names. Far past any question built a
@@ -287,9 +289,9 @@ export const CONDITIONS_LIMIT = 50;
 export const setPanelFilterSchema = commandEnvelopeSchema
   .extend({
     panelId: z.uuid(),
-    // An empty row would be met by every Item or none depending on how it was
-    // read, so it is refused rather than given a meaning.
-    rows: z.array(z.array(filterConditionSchema).min(1)).max(CONDITIONS_LIMIT),
+    // An empty row or set would be met by every Item or none depending on how
+    // it was read, so it is refused rather than given a meaning.
+    sets: z.array(z.array(z.array(filterConditionSchema).min(1)).min(1)).max(CONDITIONS_LIMIT),
     /**
      * What the Filter's Items are grouped under ("Group a Filter panel's items
      * by the Dashboard or Panel they are filed on", issue 805). Left out means
@@ -299,9 +301,9 @@ export const setPanelFilterSchema = commandEnvelopeSchema
      */
     groupBy: filterGroupingSchema.default('none'),
   })
-  .refine((cmd) => cmd.rows.reduce((total, row) => total + row.length, 0) <= CONDITIONS_LIMIT, {
+  .refine((cmd) => cmd.sets.flat().reduce((total, row) => total + row.length, 0) <= CONDITIONS_LIMIT, {
     message: `a Filter holds at most ${CONDITIONS_LIMIT} conditions`,
-    path: ['rows'],
+    path: ['sets'],
   })
   // A field already in a row is not offered a second time in it ("Filter a
   // Filter panel by priority and type", issue 464); this is that same rule
@@ -309,8 +311,10 @@ export const setPanelFilterSchema = commandEnvelopeSchema
   // would no longer offer it. The same field in two rows is a real question.
   .refine(
     (cmd) =>
-      cmd.rows.every((row) => new Set(row.map((condition) => condition.field)).size === row.length),
-    { message: 'a field appears once in a row of a Filter', path: ['rows'] },
+      cmd.sets.every((set) =>
+        set.every((row) => new Set(row.map((condition) => condition.field)).size === row.length),
+      ),
+    { message: 'a field appears once in a row of a Filter', path: ['sets'] },
   );
 export type SetPanelFilterCommand = z.infer<typeof setPanelFilterSchema>;
 
@@ -706,6 +710,136 @@ export const bringBackOccurrenceSchema = commandEnvelopeSchema.extend({
 });
 export type BringBackOccurrenceCommand = z.infer<typeof bringBackOccurrenceSchema>;
 
+/** Where a conversation is, as both conversation changes name it: the connection's connector and account, and the source's own id for it. */
+const conversationAtSchema = {
+  connectorId: z.string().min(1),
+  externalAccountKey: z.string().min(1),
+  conversationId: z.string().min(1).max(500),
+};
+
+/** The latest message of a conversation, as both conversation changes carry it. */
+const latestMessageSchema = {
+  by: conversationTurnBySchema,
+  from: z.string().max(TITLE_LENGTH).nullable(),
+  at: z.iso.datetime(),
+  excerpt: z.string().max(CONVERSATION_EXCERPT_LENGTH),
+};
+
+/**
+ * follow_conversation - an Item comes to follow a conversation at its source
+ * ("A Gmail starred conversation is one Item whose status follows who wrote
+ * last", issue 1705), with where the conversation stands as it is read: the one
+ * change every way in takes, so far a star a pulled check read. Following again
+ * replaces where it stands only with a newer latest message, or where the Item
+ * had stopped following it. **Where it stands is new to an open Item, its latest
+ * message is applied as a turn** (`record_conversation_turn`): status follows who
+ * wrote last from the moment it is followed, so starring a conversation you wrote
+ * last in makes it Waiting for reply. Self-sent, by the account's store on a
+ * pulled check.
+ */
+export const followConversationSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  link: z.url().max(2_000),
+  latest: z.object(latestMessageSchema),
+  messageCount: z.number().int().positive(),
+  startedAt: z.iso.datetime(),
+  withWhom: z.string().max(TITLE_LENGTH).nullable(),
+  /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
+  connectionDays: dueInDaysSchema.nullable(),
+  /**
+   * The draft *Email…* or *Reply…* made in it ("Email… makes a Gmail draft the
+   * Item then follows", issue 1708), recorded under the click that asked for it
+   * (`startedBy`, the id `start_draft` was logged under). With it, no turn is
+   * applied: the Item stays In progress until the draft is sent or deleted. A
+   * new conversation's row takes where it stands from here; a followed one's
+   * keeps its own and only records the draft. `link` is where the draft opens,
+   * which the same click resent is answered with from this change's log entry.
+   * `claudeDigest` is the fingerprint of the text Claude wrote into it ("Mail
+   * follow-up: a Claude draft looks like any other and cannot be redone…", issue
+   * 1732): the draft is Claude's while it is set, and a draft recorded without
+   * one, or with null, is yours. Recorded again for a draft already waited on,
+   * the change sets the fingerprint alone: Claude's rewrite, or a draft found
+   * edited and so yours.
+   */
+  draft: z
+    .object({
+      id: z.string().min(1).max(500),
+      startedBy: z.uuid(),
+      link: z.url().max(2_000),
+      claudeDigest: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/)
+        .nullable()
+        .optional(),
+    })
+    .optional(),
+});
+export type FollowConversationCommand = z.infer<typeof followConversationSchema>;
+
+/**
+ * start_draft - *Email…* or *Reply…* pressed on an Item (issue 1708), logged
+ * under the click's own id before the source is asked for the draft: the Item
+ * goes In progress, keeping the status it had so a draft never made or deleted
+ * unsent can put it back. `replyIn` is the followed conversation the draft
+ * replies in, or null for a new one, whose row stands in for it until the
+ * draft is recorded (`DRAFT_STARTING_PREFIX`). Self-sent, by the route that
+ * makes the draft.
+ */
+export const startDraftSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  connectorId: z.string().min(1),
+  externalAccountKey: z.string().min(1),
+  replyIn: z.string().min(1).max(500).nullable(),
+});
+export type StartDraftCommand = z.infer<typeof startDraftSchema>;
+
+/**
+ * drop_draft - a draft that was never made, or was deleted unsent (issue
+ * 1708): the Item gets back the status it had before the click, while it is
+ * still In progress as the click left it, and a conversation the draft would
+ * have started is no longer followed. `draftId` is the draft the row must
+ * still be waiting on, or null for one never recorded. Self-sent, by the route
+ * whose draft failed and by a pulled check that found the draft gone.
+ */
+export const dropDraftSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  draftId: z.string().min(1).max(500).nullable(),
+});
+export type DropDraftCommand = z.infer<typeof dropDraftSchema>;
+
+/**
+ * record_conversation_turn - a message in a conversation an Item follows, as its
+ * source reported it (issue 1705). **The core decides what it does to the
+ * Item** (`applyConversationTurn`, apps/api/src/domain/conversations.ts): yours
+ * makes it Waiting for reply, due after the Follow-ups delay; theirs makes it To
+ * do, due after `connectionDays`, else the Follow-ups delay; on a finished or
+ * dismissed Item, nothing. Its id derives from the message, so a turn read twice
+ * is applied once. Self-sent, by the account's store on a pulled check.
+ */
+export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  ...conversationAtSchema,
+  ...latestMessageSchema,
+  /** The days the connection gives an Item, or null where it gives none. */
+  connectionDays: dueInDaysSchema.nullable(),
+  /**
+   * Where the source shows this message, which the conversation then links in
+   * place of the one it had, as its latest ("Conversation follow-up: Open,
+   * previews, drafts and Check now misbehave on real Gmail and Outlook
+   * mailboxes", issue 1720). Absent: the link stays.
+   */
+  link: z.url().max(2_000).optional(),
+  /**
+   * The conversation's latest message applied again, not a new one: sent as its
+   * source reopens the Item, so it takes the status of whoever wrote last rather
+   * than the one it had. Leaves where the conversation stands as it is.
+   */
+  standing: z.literal(true).optional(),
+});
+export type RecordConversationTurnCommand = z.infer<typeof recordConversationTurnSchema>;
+
 /** set_title / set_description — two commands rather than one save ("Edit an item's title and description on a form of its own", issue 159; architecture.md §4.4). */
 export const setTitleSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
@@ -798,6 +932,25 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
   readings: z.array(itemReadingSchema),
 });
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
+
+/**
+ * read_pasted_link - an Own note holding a message link a connector declared,
+ * made what that source's own save makes once the connector has read the
+ * message ("Read pasted Teams links", issue 1755): where it came from, and the
+ * captured message written again as the message and the person's words as its
+ * note. Sent by the enrichment job alone, with the texts it read where it read
+ * any, so both land in one write; without them the title and description are
+ * made from the new captured message as a capture makes them. Changes nothing
+ * on an Item that is no longer an Own note, and the texts nothing where a
+ * person has made them their own.
+ */
+export const readPastedLinkSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  capturedFrom: capturedFromSchema.extend({ sourceLink: z.url().max(2_000) }),
+  capturedMessage: z.string().trim().min(1).max(60_000),
+  texts: proposeItemTextsSchema.pick({ title: true, description: true, readings: true }).optional(),
+});
+export type ReadPastedLinkCommand = z.infer<typeof readPastedLinkSchema>;
 
 /**
  * propose_item_panel — the Panel Cockpit thinks a captured note belongs on,
@@ -938,6 +1091,17 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * connection starts with none, and a reconnect leaves the stored one alone.
    */
   dueInDays: dueInDaysSchema.nullable().optional(),
+  /**
+   * What the source granted, as the codes the connector's sign-in names for the
+   * tier the person's organisation let through ("Read pasted Teams links:
+   * connecting Teams asks for no read permission", issue 1754): an empty list
+   * is a connection granting nothing beyond who the person is. Written by the
+   * callback route only for a connector whose sign-in asks in tiers, from the
+   * tier the attempt reached, which the route has checked is one the description has.
+   * Absent: the connection holds none, which reads as granting nothing, and a
+   * reconnect replaces what was stored.
+   */
+  granted: z.string().min(1).max(40).array().max(10).optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -1102,6 +1266,10 @@ export const commandSchemas = {
   write_recurring_item: writeRecurringItemSchema,
   delete_recurring_item: deleteRecurringItemSchema,
   bring_back_occurrence: bringBackOccurrenceSchema,
+  follow_conversation: followConversationSchema,
+  record_conversation_turn: recordConversationTurnSchema,
+  start_draft: startDraftSchema,
+  drop_draft: dropDraftSchema,
   set_title: setTitleSchema,
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
@@ -1110,6 +1278,7 @@ export const commandSchemas = {
   set_follow_up_days: setFollowUpDaysSchema,
   set_email_address: setEmailAddressSchema,
   propose_item_texts: proposeItemTextsSchema,
+  read_pasted_link: readPastedLinkSchema,
   propose_item_panel: proposeItemPanelSchema,
   propose_item_fields: proposeItemFieldsSchema,
   propose_item_for_claude: proposeItemForClaudeSchema,
@@ -1134,6 +1303,7 @@ export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchem
  */
 export type SelfSentCommandName =
   | 'propose_item_texts'
+  | 'read_pasted_link'
   | 'propose_item_panel'
   | 'propose_item_fields'
   | 'propose_item_for_claude'
@@ -1144,7 +1314,13 @@ export type SelfSentCommandName =
   // Sent by the `report_run` MCP tool (see `reportClaudeRunSchema` above).
   | 'report_claude_run'
   // Sent by the account's store when a series' day comes (see `bringBackOccurrenceSchema` above).
-  | 'bring_back_occurrence';
+  | 'bring_back_occurrence'
+  // Sent by the account's store on a pulled check (see `followConversationSchema` above).
+  | 'follow_conversation'
+  | 'record_conversation_turn'
+  // Sent by the route that makes a draft, and `drop_draft` by a pulled check too (see `startDraftSchema` above).
+  | 'start_draft'
+  | 'drop_draft';
 
 /**
  * The commands a client sends, which is every command with a generic JSON
@@ -1195,6 +1371,12 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * Cockpit address, and receive mail at it", issue 1466). Read off the same
  * atomic call for the reason `settledRouting` is, and never sent to the browser.
  *
+ * `textsWritten` is present only for `read_pasted_link`, and only where it
+ * applied: whether the title and description changed too (the texts it
+ * carried, else the ones a capture makes of the message read), which they do
+ * not where a person made the texts their own first. Read off the same
+ * atomic call for the reason `settledRouting` is.
+ *
  * All absent, not `false`, everywhere else - every other command answers
  * `applied` alone, exactly as before any of them existed.
  */
@@ -1205,6 +1387,7 @@ export const commandResultSchema = z.object({
   settledRouting: z.boolean().optional(),
   recordedCorrection: z.boolean().optional(),
   addressLetGo: z.string().optional(),
+  textsWritten: z.boolean().optional(),
   fieldsSet: z
     .object({
       priority: prioritySchema.optional(),

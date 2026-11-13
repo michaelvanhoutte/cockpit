@@ -8,6 +8,8 @@ import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
 import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v4.js';
 import { buildRememberASentence, type EditToRemember } from './prompts/remember-a-sentence.v1.js';
+import { buildDraftAReply, REPLY_LIMITS, type ReplyBrief } from './prompts/draft-a-reply.v1.js';
+import { readReplyBody, type ReplyWritten } from './reply-body.js';
 import { readSentenceOffer, type SentenceOfferRead } from './sentence-offers.js';
 import type { RememberedSentence } from '../domain/remembered-sentences.js';
 import { readClaudeProposals, type ClaudeProposalsRead } from './claude-proposals.js';
@@ -23,6 +25,8 @@ export type { ItemToPlace } from './prompts/choose-a-panel.v3.js';
 export type { ItemToPropose } from './prompts/propose-for-claude.v4.js';
 export type { EditToRemember } from './prompts/remember-a-sentence.v1.js';
 export type { SentenceOfferRead } from './sentence-offers.js';
+export type { ReplyBrief } from './prompts/draft-a-reply.v1.js';
+export type { ReplyWritten } from './reply-body.js';
 export type { ClaudeProposalsRead } from './claude-proposals.js';
 
 /**
@@ -34,6 +38,7 @@ const CHOOSE_A_PANEL = 'choose-a-panel.v3';
 const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';
 const REMEMBER_A_SENTENCE = 'remember-a-sentence.v1';
+const DRAFT_A_REPLY = 'draft-a-reply.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {
@@ -47,7 +52,7 @@ export interface CallFor {
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
  * takes domain values, returns domain values, so everything around it stays
  * testable with the model faked. Enrichment runs on ingest, in jobs; nothing a
- * person waits for waits on a model call.
+ * person waits for waits on a model call but `writeAReply`, below.
  *
  * **No method that nothing reads back.** `summarizeFilingPatterns` wrote a
  * paragraph nothing ever read ("Drop the nightly filing summary, keep the
@@ -172,6 +177,17 @@ export interface AiService {
    * Refuses and throws on the same terms as `cleanUpNote`.
    */
   offerSentence(edit: EditToRemember, workspaces: readonly { id: string; name: string }[], callFor: CallFor): Promise<SentenceOfferRead>;
+
+  /**
+   * The body of an email, written as the person from the Item, the points they
+   * typed and the conversation's latest messages ("Mail follow-up: Reply… in
+   * Gmail makes an empty draft…", issue 1730). **The one call a person waits
+   * on**: held to 1,000 tokens out and cut off at 20 seconds, and **never
+   * repeated**, since a retry would run past the cut-off. Answers a refusal
+   * rather than throwing for anything the model itself said; a call that fails
+   * or passes the cut-off throws, and no draft is made.
+   */
+  writeAReply(brief: ReplyBrief, callFor: CallFor): Promise<ReplyWritten>;
 }
 
 /**
@@ -318,6 +334,17 @@ export class ClaudeAiService implements AiService {
     return 'refused' in answer ? { none: answer.refused } : readSentenceOffer(answer.text, workspaces);
   }
 
+  async writeAReply(brief: ReplyBrief, callFor: CallFor): Promise<ReplyWritten> {
+    const prompt = buildDraftAReply(brief);
+    const answer = await this.#ask(
+      prompt,
+      prompt.message,
+      { ...callFor, operation: 'draft-a-reply', promptVersion: DRAFT_A_REPLY },
+      REPLY_LIMITS,
+    );
+    return 'refused' in answer ? { discarded: answer.refused } : readReplyBody(answer.text);
+  }
+
   async proposeForClaude(
     item: ItemToPropose,
     folders: readonly string[],
@@ -346,12 +373,14 @@ export class ClaudeAiService implements AiService {
     },
     content: string,
     callFor: CallFor & { operation: string; promptVersion: string },
+    // A call someone waits on: room for this many tokens out, cut off after this long, and made once.
+    limits?: { maxTokens: number; cutoffMs: number },
   ): Promise<{ text: string | undefined } | { refused: string }> {
     const about: CallAbout = { ...callFor, provider: 'anthropic', model: prompt.model, paidBy: this.#paidBy };
     const answer = await callThrough(
       about,
       async () => {
-        const answer = await this.#askOnce(prompt, content);
+        const answer = await this.#askOnce(prompt, content, limits);
         const usage = answer.usage;
         return {
           value: answer,
@@ -363,7 +392,7 @@ export class ClaudeAiService implements AiService {
           },
         };
       },
-      CLAUDE_RETRIES,
+      limits ? { ...CLAUDE_RETRIES, retries: 0 } : CLAUDE_RETRIES,
       inRealTime(this.#record),
     );
     // A refusal is the model declining, not a fault: it reaches here as a
@@ -383,8 +412,11 @@ export class ClaudeAiService implements AiService {
       schema: Record<string, unknown>;
     },
     content: string,
+    limits?: { maxTokens: number; cutoffMs: number },
   ): Promise<Anthropic.Message> {
-    return this.#client.messages.create({
+    // A call someone waits on is cut off at its own limit, which the SDK ends with a timeout the gateway records as `timed-out`.
+    const client = limits ? this.#client.withOptions({ timeout: limits.cutoffMs }) : this.#client;
+    return client.messages.create({
       model: prompt.model,
       /**
        * Room for the reasoning as well as the answer, since thinking is on by
@@ -393,7 +425,7 @@ export class ClaudeAiService implements AiService {
        * off mid-JSON, which reaches `readProposal` as an answer that will not
        * parse.
        */
-      max_tokens: 8_192,
+      max_tokens: limits?.maxTokens ?? 8_192,
       /**
        * Three blocks, the one that changes least first, with a breakpoint
        * after each of the first two: the fixed instructions, then what changes

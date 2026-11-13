@@ -61,6 +61,14 @@ export interface ConnectorManifest {
    */
   itemSourceName?: string;
   /**
+   * The addresses of the source's own messages, each a web host and the start
+   * of its path ("Open Items captured with a pasted Teams message link in
+   * Teams", issue 1738). An Item with no link of its own that carries one in
+   * its text is offered Open in this source at it; the app matches only what
+   * connectors declare here and names none. Absent: the source has none.
+   */
+  messageLinks?: readonly { host: string; pathStart: string }[];
+  /**
    * Whether an Item a push files belongs to the Workspace of the connection it
    * arrived on. Absent is yes, as for every pushed Item so far. `false`: the
    * host captures it on *Any workspace*, and that Workspace is only where it
@@ -106,6 +114,14 @@ export interface ConnectorManifest {
    * a source that is only pushed to is never woken for nothing.
    */
   pulled?: boolean;
+  /**
+   * Whether an Item can start a conversation here, and under which of the
+   * connection's choices: the values its `choice` options take under which
+   * `makeDraft` makes a draft whose conversation the connection then reads
+   * turns for ("Email… makes a Gmail draft the Item then follows", issue
+   * 1708). Absent: no Item starts one, and *Email…* is not offered.
+   */
+  startsConversations?: { underChoices: readonly string[] };
   auth: OAuthDescriptor | TextedCodeDescriptor | { kind: 'none' };
 }
 
@@ -185,6 +201,26 @@ export interface OAuthDescriptor {
    */
   endpoints: { issuer: string } | { authorizationUrl: string; tokenUrl: string };
   scopes: string[];
+  /**
+   * Permissions asked in tiers, highest first ("Read pasted Teams links:
+   * connecting Teams asks for no read permission", issue 1754): the host asks
+   * the first tier's scopes and, where the source answers that an administrator
+   * must approve one of them, asks the next. Any other refusal (cancelled,
+   * failed) ends the connect, and so does one at the last tier. Each tier
+   * names the codes (`PermissionDescriptor.code`) it grants, which the host
+   * stores on the connection as it got them. Absent: `scopes` is asked once.
+   * When present, `scopes` is what a connection holding no tier is described
+   * by and is not asked.
+   */
+  tiers?: { scopes: string[]; grants: string[] }[];
+  /**
+   * What a connection says about each code the tiers grant, in the order the
+   * card says them: `granted` where the connection holds the code, `withheld`
+   * where it holds another and not this one. Neither is said for a connection
+   * that holds none. Data, so the card can say it without the connector
+   * running.
+   */
+  permissions?: PermissionDescriptor[];
   /** The names of the environment settings holding the client the source issued this Cockpit. */
   clientSettings: { id: string; secret: string };
   /**
@@ -202,6 +238,15 @@ export interface OAuthDescriptor {
    * shown as a plain refusal.
    */
   refusals?: Record<string, string>;
+}
+
+/** One permission an `OAuthDescriptor`'s tiers may grant, and the sentences a connection says about it. */
+export interface PermissionDescriptor {
+  code: string;
+  /** Said where the connection holds the code; absent: nothing is said for it. */
+  granted?: string;
+  /** Said where the connection holds another code and not this one; absent: nothing is said. */
+  withheld?: string;
 }
 
 /**
@@ -283,7 +328,211 @@ export type SourceItem = Pick<
    * line, that it was not filed by (issue 1197).
    */
   followed?: string;
+  /**
+   * The conversation this Item follows at the source, and where it stands as
+   * read, for a connector whose Items follow one (a Gmail thread under the
+   * star). The host has the Item follow it, whether the Item was just made or
+   * was already known, and then hands the connector its later messages to
+   * report as turns (`followedConversations`, `reportTurn`). Absent: the Item
+   * follows nothing.
+   */
+  conversation?: ConversationRead;
 };
+
+/**
+ * One message of a conversation as the source holds it: who sent it - `you`
+ * where the source says it was sent from the connected account, `them`
+ * otherwise - when, and its first lines.
+ */
+export interface ConversationMessage {
+  by: 'you' | 'them';
+  /** Who sent it, as its source names them; null where it names nobody. */
+  from: string | null;
+  at: string;
+  /** Its first lines, plain text; the host keeps the first 280 characters. */
+  excerpt: string;
+}
+
+/** A conversation as a connector read it whole: where it is, and where it stands. */
+export interface ConversationRead {
+  /** The source's own id for the conversation, unique within the connected account. */
+  id: string;
+  /** Where the source shows it: its latest message, which a link to the conversation as a whole does not open where the source shows one message at a time. */
+  link: string;
+  latest: ConversationMessage;
+  messageCount: number;
+  /** When its first message was sent. */
+  startedAt: string;
+  /** Who it is with: the latest sender who is not the connected account, where there is one. */
+  withWhom: string | null;
+}
+
+/**
+ * A message added to a conversation an Item follows, reported by the connector
+ * ("A Gmail starred conversation is one Item whose status follows who wrote
+ * last", issue 1705). **The connector only says who wrote; the host decides
+ * what that does to the Item**, the same rule for every source. `messageId` is
+ * what makes reporting the same message twice change nothing.
+ */
+export interface ConversationTurn extends ConversationMessage {
+  conversationId: string;
+  messageId: string;
+  /**
+   * Where the source shows this message, which then opens the conversation in
+   * place of the link it had. Absent: the conversation keeps its link, as one
+   * whose messages have no address of their own does (a LinkedIn conversation).
+   */
+  link?: string;
+}
+
+/**
+ * What *Email…* asks a connector to make (issue 1708): a draft with this
+ * subject and no recipient, or a reply in the conversation `replyIn` names.
+ */
+export interface DraftWanted {
+  subject: string;
+  /** The source's id of the conversation the Item follows, for a reply; null for a new conversation. */
+  replyIn: string | null;
+  /**
+   * The text of the draft's body, written by the host and handed over as it is
+   * (issue 1730). Absent: an empty body. A connector never writes it itself.
+   */
+  body?: string;
+}
+
+/**
+ * One message of a conversation as a reply to it is written from
+ * (`readConversationForReply`, issue 1730): who, when, and the text the message
+ * itself adds, with the earlier emails it quotes taken out.
+ */
+export interface MessageForReply {
+  by: 'you' | 'them';
+  /** Who sent it, as its source names them; null where it names nobody. */
+  from: string | null;
+  /** When it was sent, an ISO instant. */
+  at: string;
+  /** Its own text without what it quotes, at most `ReplyReadLimits.characters` characters. */
+  text: string;
+}
+
+/** How much of a conversation `readConversationForReply` may answer with. */
+export interface ReplyReadLimits {
+  /** The newest this many messages, oldest first. */
+  messages: number;
+  /** Each message's text is cut to this many characters. */
+  characters: number;
+}
+
+/**
+ * The one message a pasted link names, as a connector read it
+ * (`readMessageAtLink`, "Read pasted Teams links", issue 1755): what an Item
+ * the source's own save makes is made of.
+ */
+export interface MessageAtLink {
+  /** The source's own id for the message, unique within the source. */
+  sourceId: string;
+  /** Who wrote it, as the source names them, cut to a title's length; null where it names nobody. */
+  sender: string | null;
+  /** When it was sent, an ISO instant; null where the source said nothing usable. */
+  sentAt: string | null;
+  /**
+   * The captured message the Item holds from now on: the message as plain
+   * text and, where a note was handed in, the note after it, written and cut
+   * exactly as the source's own save writes a message with a note.
+   */
+  capturedMessage: string;
+}
+
+/** The draft a connector made, and where it lives. */
+export interface DraftMade {
+  /** The source's own id for the draft, which `draftsWaiting` hands back. */
+  draftId: string;
+  /** The conversation it is in: a new one's id, or `replyIn`. */
+  conversationId: string;
+  /** Where the source opens the draft, for the tab opened at the click. */
+  draftLink: string;
+  /** Where the source shows the conversation once the draft is sent. */
+  conversationLink: string;
+}
+
+/**
+ * What `findDraft` found of a draft `makeDraft` made ("Conversation follow-up:
+ * Open, previews, drafts and Check now misbehave on real Gmail and Outlook
+ * mailboxes", issue 1720): still there unsent, with where the source opens it;
+ * or sent, its conversation holding a message of yours since the draft's
+ * `after`, as the draft watch tells a draft sent from one deleted.
+ *
+ * `text`, only where the look asked for it (`DraftLook`), is the words the
+ * draft itself holds, above any earlier email it quotes, as plain text ("Mail
+ * follow-up: a Claude draft looks like any other and cannot be redone…", issue
+ * 1732); null where the source cannot say what they are, as for a draft that
+ * carries an attachment, which then counts as edited.
+ */
+export type DraftFound = { draftLink: string; text?: string | null } | { sent: true };
+
+/** What a look for a draft also reads: its own words, for the host to tell an unchanged draft from one edited (issue 1732). */
+export interface DraftLook {
+  text: true;
+}
+
+/**
+ * Claude's own unsent draft written again in place (`rewriteDraft`, issue 1732):
+ * the words it holds now (`was`, as `findDraft` read them) replaced by `body`,
+ * everything else it holds kept.
+ */
+export interface DraftRewrite {
+  was: string;
+  body: string;
+}
+
+/**
+ * One email sent from the connection's mailbox, as *Follow a sent email…*
+ * lists it ("Follow a sent email… in Capture", issue 1710): the conversation it
+ * is in, what a person picks it by, and what an Item following that conversation
+ * starts with. Newest first is the connector's to answer; the Worker sorts
+ * again across mailboxes.
+ */
+export interface SentEmail {
+  /** The source's id of the conversation the email is in, which an Item then follows. */
+  conversationId: string;
+  subject: string;
+  /** Who it went to, as the source names them; null where it went to nobody it names. */
+  to: string | null;
+  /** When it was sent, an ISO instant. */
+  sentAt: string;
+  /** Where the source shows the conversation. */
+  link: string;
+  /** The email's first lines, on one line. */
+  excerpt: string;
+}
+
+/** A draft an open Item still waits on: its conversation, its id, and the time after which a message of yours means it was sent. */
+export interface DraftWaiting {
+  conversationId: string;
+  draftId: string;
+  /**
+   * The conversation's latest message the Item knew of when the draft was
+   * made; null for a conversation the draft started, where any message of
+   * yours in it is the draft sent.
+   */
+  after: string | null;
+}
+
+/**
+ * What the host offers a connector asked for something on demand, during a
+ * person's request rather than on the cadence ("Email… makes a Gmail draft the
+ * Item then follows", issue 1708): the connection's credential, opened once,
+ * a rotated one handed back, and the connector's own saved state to read -
+ * never to write, since a run may hold it meanwhile.
+ */
+export interface OnDemandHost {
+  getCredentials(): Promise<Record<string, string>>;
+  /** As `ConnectorHost.setCredentials`: saved only while the stored one is still the one opened. */
+  setCredentials(credentials: Record<string, string>): Promise<void>;
+  /** The connector's private state as the last run saved it, or null. */
+  getState(): Promise<unknown>;
+  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void;
+}
 
 /**
  * An Item's names as the source holds them now, reported whenever the set
@@ -434,6 +683,35 @@ export interface ConnectorHost extends ConnectedAccountHost {
    */
   reportNames(report: NamesReport): Promise<void>;
 
+  /**
+   * The ids of the conversations this connection's open Items follow, as this
+   * run starts: the ones whose later messages the connector reads and reports.
+   * A finished or dismissed Item's conversation is not among them.
+   */
+  followedConversations(): Promise<string[]>;
+
+  /**
+   * Reports a message added to a conversation an open Item follows. The host
+   * decides what it does to the Item, and changes nothing for a conversation
+   * no open Item of this connection follows, or a message already reported.
+   */
+  reportTurn(turn: ConversationTurn): Promise<void>;
+
+  /**
+   * The drafts `makeDraft` made that open Items still wait on, as this is
+   * asked: none sent yet as far as the host has heard (a turn of yours in the
+   * conversation ends the wait). Asked once the conversations' turns of a run
+   * are reported, so a draft sent and read this run is not among them.
+   */
+  draftsWaiting(): Promise<DraftWaiting[]>;
+
+  /**
+   * Reports a draft gone from the source with no message of yours sent in its
+   * conversation since `after`: deleted unsent. The host puts the Item's
+   * status back; a draft it no longer waits on changes nothing.
+   */
+  reportDraftGone(draft: Pick<DraftWaiting, 'conversationId' | 'draftId'>): Promise<void>;
+
   /** Rate-limit/backoff helper so connectors don't roll their own. */
   sleep(ms: number): Promise<void>;
 }
@@ -548,4 +826,81 @@ export interface Connector {
    * out is handed over again next time.
    */
   mirrorOpenState?(host: ConnectorHost, wanted: OpenStateWanted[]): Promise<MirroredOpenStates>;
+
+  /**
+   * Makes a draft at the source, on demand while a person waits, for a
+   * connector whose manifest `startsConversations` (issue 1708). Throws
+   * `SourceError`, worded for the person, where the source would not; **a
+   * draft made cannot be taken back**, so it is called once per click.
+   */
+  makeDraft?(host: OnDemandHost, draft: DraftWanted): Promise<DraftMade>;
+
+  /**
+   * Asks the source what became of a draft `makeDraft` made, on demand while a
+   * person waits (issue 1720), told as `draftsWaiting` tells it: still there
+   * unsent, and where it opens; sent, its conversation holding a message of
+   * yours since `after`; or null where it is gone or in the bin, which counts
+   * as deleted unsent. Throws `SourceError`, worded for the person, where the
+   * source would not answer. Changes nothing at the source. Every connector
+   * that makes drafts has it. Asked with `read`, a draft still there also says
+   * its own words (`DraftFound.text`), read in the same calls.
+   */
+  findDraft?(host: OnDemandHost, draft: DraftWaiting, read?: DraftLook): Promise<DraftFound | null>;
+
+  /**
+   * Writes Claude's own unsent draft again in place, while a person waits
+   * ("Mail follow-up: a Claude draft looks like any other and cannot be
+   * redone…", issue 1732): the same draft, the same link, its words `was`
+   * replaced by `body` and everything else it holds kept - never a delete and a
+   * new draft. Answers `changed`, writing nothing, where what it reads to
+   * rewrite the draft shows it is no longer only `was` in words (an attachment
+   * added, or the words not found where they go), so it is the person's. That
+   * the words still match the fingerprint is the host's to check, from the
+   * look just before. Throws
+   * `SourceError`, worded for the person, where the source would not, or the
+   * draft is gone. For a connector that has `readConversationForReply`.
+   */
+  rewriteDraft?(host: OnDemandHost, draft: DraftWaiting, rewrite: DraftRewrite): Promise<'rewritten' | 'changed'>;
+
+  /**
+   * Lists the newest `limit` emails sent, one for each conversation (its newest), from the mailbox, newest first, on
+   * demand while a person waits ("Follow a sent email… in Capture", issue
+   * 1710), for a connector whose manifest `startsConversations`. Throws
+   * `SourceError`, worded for the person, where the source would not answer.
+   * Changes nothing at the source.
+   */
+  listRecentSent?(host: OnDemandHost, limit: number): Promise<SentEmail[]>;
+
+  /**
+   * Reads the newest messages of a conversation for a reply to be written from,
+   * on demand while a person waits (issue 1730), for a connector that can make a
+   * draft with a body it is handed. Oldest first, drafts and messages in the
+   * bin left out. Throws `SourceError`, worded for the person, where the source
+   * would not answer. Changes nothing at the source.
+   */
+  readConversationForReply?(host: OnDemandHost, conversationId: string, limits: ReplyReadLimits): Promise<MessageForReply[]>;
+
+  /**
+   * Which of the codes its sign-in's tiers grant (`OAuthDescriptor.tiers`) a
+   * connection needs to read the message at a link this connector declared in
+   * `messageLinks` ("Read pasted Teams links", issue 1755), or null where no
+   * grant reads it (a link to a source nothing can be asked of). Pure: the host
+   * asks only connections holding the code, and none where it is null.
+   */
+  grantToRead?(link: string): string | null;
+
+  /**
+   * Reads the one message at a link this connector declared in `messageLinks`,
+   * on demand from a background job ("Read pasted Teams links", issue 1755),
+   * with `note` - what the person typed beside the link, the link taken out,
+   * possibly empty - written after it as the source's own save writes a note.
+   * Answers null where this connection cannot read it, for good: not there, not
+   * allowed, the sign-in refused, or a link nothing can be asked of; the host
+   * then asks the next connection, and **never marks the connection failing**,
+   * since the paste is optional. Throws `SourceError` where the source did not
+   * answer this time (busy, down, unreachable), which the host may try again.
+   * Changes nothing at the source; a credential it renewed is handed back
+   * through `host.setCredentials`.
+   */
+  readMessageAtLink?(host: OnDemandHost, link: string, note: string): Promise<MessageAtLink | null>;
 }

@@ -131,6 +131,7 @@ interface Line {
   count: number;
   firstAt: string;
   lastAt: string;
+  startedAt: string | null;
 }
 
 async function historyOf(sourceAccountId: string, workspaceId = WORKSPACE_ID): Promise<{ status: number; lines: Line[] }> {
@@ -282,6 +283,63 @@ describe('Connector management', () => {
     });
   });
 
+  describe('a check’s line keeps when its run started (issue 1725)', () => {
+    /** The moment the run held the connection to, read while it runs: what the start is counted back from. */
+    const holdEnds: string[] = [];
+    const readingTheHold = (rest: () => Promise<void | SyncAnswer> = async () => {}) => async () => {
+      const held = await inTheStore(
+        (sql) => [...sql.exec<{ lease_until: string }>('SELECT lease_until FROM pulled_connections')][0]!.lease_until,
+      );
+      holdEnds.push(held);
+      return rest();
+    };
+    const TEN_MINUTES = 10 * 60_000;
+
+    it.each([
+      { situation: 'a scheduled check', script: () => readingTheHold() },
+      { situation: 'a failed check', script: () => readingTheHold(fails('the source stopped answering')) },
+    ])('$situation writes the end of its hold less the length of the hold', async ({ script }) => {
+      holdEnds.length = 0;
+      runsIn(script());
+      const id = await connect();
+      await firstCheckRuns();
+
+      const [line] = (await historyOf(id)).lines;
+      expect(line!.startedAt).toBe(new Date(Date.parse(holdEnds[0]!) - TEN_MINUTES).toISOString());
+      expect(Date.parse(line!.startedAt!)).toBeLessThanOrEqual(Date.parse(line!.lastAt));
+    });
+
+    it('a follow-up check writes it too', async () => {
+      holdEnds.length = 0;
+      runsIn(async () => ({ moreToDo: true }), readingTheHold(fails('the source stopped answering')));
+      const id = await connect();
+      await firstCheckRuns();
+      await nextChecksRun();
+
+      const [followUp] = (await historyOf(id)).lines;
+      expect(followUp).toMatchObject({ reason: 'follow-up' });
+      expect(followUp!.startedAt).toBe(new Date(Date.parse(holdEnds[0]!) - TEN_MINUTES).toISOString());
+    });
+
+    it('a line a like check extends keeps its first start', async () => {
+      const id = await connect();
+      await firstCheckRuns();
+      const [first] = (await historyOf(id)).lines;
+      await nextChecksRun();
+
+      const { lines } = await historyOf(id);
+      expect(lines[0]).toMatchObject({ count: 2, startedAt: first!.startedAt });
+      expect(first!.startedAt).not.toBeNull();
+    });
+
+    it('a line from before it has none', async () => {
+      const id = await connect();
+      await firstCheckRuns();
+      await inTheStore((sql) => sql.exec('UPDATE connection_history SET started_at = NULL'));
+
+      expect((await historyOf(id)).lines[0]!.startedAt).toBeNull();
+    });
+  });
   describe('consecutive alike checks are stored as one line', () => {
     it('a check that worked after a quiet line extends it rather than adding a second', async () => {
       const id = await connect();

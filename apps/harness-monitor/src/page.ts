@@ -1,4 +1,4 @@
-import { formatDateTime, formatDay } from './belgium';
+import { belgianDay, formatDateTime, formatDay, formatDayMonth } from './belgium';
 import {
   categoryName,
   dayChart,
@@ -8,6 +8,7 @@ import {
   median,
   PAGE_SIZE,
   PERIODS,
+  shareChart,
   queryString,
   SAME_AS_ROWS,
   SPLITS,
@@ -22,6 +23,7 @@ import {
   type Measure,
   type Period,
   type Series,
+  type Sort,
   type Split,
   type TrendLine,
   type Trends,
@@ -31,7 +33,7 @@ import { LEAD_MORE, TABLES, WHAT } from './costs-explain';
 import { EXPLAIN_SCRIPT, EXPLAIN_STYLE, explain, lead, type Explanation, type Info } from './explain';
 import { type JobName, type JobStatus } from './jobs';
 import { band, esc, inline, lineKey, questionOf, shell } from './look';
-import { colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
+import { AMBER, colourByPlace, foldAmounts, foldSeries, GREY, isFolded, RED, slot, VIOLET } from './palette';
 import type { UnpricedLine } from './store';
 import { CATEGORIES, type Category } from './validate';
 
@@ -156,26 +158,70 @@ export const PERIOD_WORDS: Record<Period, string> = { '7d': 'the last 7 days', '
  * Everything below follows them. A colouring that would repeat the rows is
  * offered but disabled.
  */
-function controls({ query, engineers, models }: CostsPage): string {
+/** The "Only" filters, engineer, phase, model and requests, shared by the costs and Harness trend pages; one that would repeat the rows is left out. */
+export function onlyFilters({ query, engineers, models }: { query: CostQuery; engineers: string[]; models: string[] }): string[] {
   const engineerOptions: [string, string][] = [['', 'Everyone'], ...engineers.map((e): [string, string] => [e, e]), [UNATTRIBUTED, 'Unattributed']];
   // A named engineer who is no longer in the list stays selectable, so the form never silently drops a filter.
   if (query.engineer && !engineerOptions.some(([v]) => v === query.engineer)) engineerOptions.push([query.engineer, query.engineer]);
   const modelOptions: [string, string][] = [['', 'All models'], ...models.map((m): [string, string] => [m, m])];
   // A named model no longer on record stays selectable, so the form never silently drops a filter.
   if (query.model && !models.includes(query.model)) modelOptions.push([query.model, query.model]);
+  return [
+    query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', ''),
+    query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', ''),
+    inline('model', 'Model', modelOptions, query.model ?? '', ''),
+    inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all'),
+  ];
+}
+
+function controls(page: CostsPage, now: number): string {
+  const { query } = page;
   return `<form class="sentence-form" method="get" action="/">
 <p class="sentence">Show cost for ${inline('group', 'Rows', GROUPS.map((g): [string, string] => [g, ROW_WORDS[g]]), query.group)}
 coloured by ${inline('split', 'Colours', SPLITS.map((v): [string, string, boolean] => [v, COLOUR_WORDS[v], SAME_AS_ROWS[query.group] === v]), query.split)}
-over ${inline('period', 'Period', (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]), query.period)}</p>
+over ${periodPicker(query, now)}</p>
 <div class="only"><span>Only</span>
-${query.group === 'engineer' ? '' : inline('engineer', 'Engineer', engineerOptions, query.engineer ?? '', '')}
-${query.group === 'category' ? '' : inline('category', 'Phase', [['', 'All phases'], ...CATEGORIES.map((c): [string, string] => [c, categoryName(c)])], query.category ?? '', '')}
-${inline('model', 'Model', modelOptions, query.model ?? '', '')}
-${inline('who', 'Requests', WHOS.map((w): [string, string] => [w, w === 'all' ? 'All requests' : WHO_LABELS[w]]), query.who, 'all')}
-<a class="button" href="/export.csv${queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 })}" download>Export CSV</a></div>
-${query.sort === 'total' ? '<input type="hidden" name="sort" value="total">' : ''}
+${onlyFilters(page).join('\n')}
+<a class="button" href="/export.csv${exportQuery(query)}" download>Export CSV</a></div>
+${hiddenSort(query)}
 <noscript><button type="submit">Apply</button></noscript>
 </form>`;
+}
+
+/** The export takes the page's filters and its day, never its rows. The rows are reset, but "each day" cannot be written beside a day, so a day's are each pull request. */
+const exportQuery = (query: CostQuery) =>
+  query.day === null ? queryString(query, { group: DEFAULT_GROUP, split: 'phase', sort: 'default', page: 1 }) : queryString(query, { group: 'pr', split: 'phase', sort: 'total', page: 1 });
+
+/** What the form carries so a change to another control keeps the order the rows are in: a day is dearest first without asking, so on one it is the rows' own order. */
+function hiddenSort(query: CostQuery): string {
+  const carried: Sort = query.day === null ? 'total' : 'default';
+  return query.sort === carried && query.group !== 'engineer' ? `<input type="hidden" name="sort" value="${carried}">` : '';
+}
+
+/** A choice from the period select: "Pick a day…" opens the date picker and puts the select back; a period leaves the day and the range; the range leaves the day for the zoomed page, each day. */
+const CHOOSE_PERIOD =
+  "var f=this.form,v=this.value,d=f.querySelector('.day-pick');if(v==='pick'){this.value=this.dataset.was;try{d.showPicker()}catch(e){d.focus()}return}d.removeAttribute('name');if(v==='range')f.elements.group.value='day';else{f.querySelectorAll('.range-field').forEach(function(e){e.remove()});f.elements.period.value=v}f.submit()";
+/** A date from the picker: the input takes its name only now, it replaces any range, and "each day" has no day to show, so its rows become each pull request. */
+const CHOOSE_DAY = "if(!this.value)return;this.name='day';this.form.querySelectorAll('.range-field').forEach(function(e){e.remove()});var g=this.form.elements.group;if(g.value==='day')g.value='pr';this.form.submit()";
+
+/**
+ * The period select: the four periods, then "Pick a day…", with the chosen day first while one is shown and the zoomed range next.
+ * The day is the form's own field, a date input the picker fills, named only while a day is shown, so every
+ * other control carries a day and an address without one carries no empty `day=`; while one is shown the
+ * select sends nothing and the period it was opened from rides in a hidden field. A range rides in hidden
+ * fields the same way, beside a day too, so "each day" on a day opened from a range returns to the range.
+ */
+function periodPicker(query: CostQuery, now: number): string {
+  const periods = (Object.keys(PERIODS) as Period[]).map((p): [string, string] => [p, PERIOD_WORDS[p]]);
+  const range = query.range === null ? [] : [['range', `${formatDay(query.range.from)} – ${formatDay(query.range.to)}`] as [string, string]];
+  const options: [string, string][] = [...(query.day === null ? [] : [[query.day, formatDay(query.day)] as [string, string]]), ...range, ...periods, ['pick', 'Pick a day…']];
+  const current = query.day ?? (query.range === null ? query.period : 'range');
+  const narrowed = query.day !== null || query.range !== null;
+  const opts = options.map(([v, t]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(t)}</option>`).join('');
+  const select = `<select${narrowed ? '' : ' name="period"'} aria-label="Period" data-was="${esc(current)}" onchange="${CHOOSE_PERIOD}">${opts}</select>`;
+  const carried = query.range === null ? '' : `<input type="hidden" class="range-field" name="from" value="${query.range.from}"><input type="hidden" class="range-field" name="to" value="${query.range.to}">`;
+  const origin = (narrowed ? `<input type="hidden" name="period" value="${query.period}">` : '') + carried;
+  return `<span class="period-pick">${select}${origin}<input type="date"${query.day === null ? '' : ' name="day"'} class="day-pick" aria-label="Day" max="${belgianDay(now)}" value="${query.day ?? ''}" onchange="${CHOOSE_DAY}"></span>`;
 }
 
 function whereItWent(page: CostsPage): string {
@@ -198,8 +244,11 @@ function whereItWent(page: CostsPage): string {
         `<li><i style="background:${colourOf(query.split, s.key, knownKeys(page))}" aria-hidden="true"></i><span class="name">${esc(s.label)}</span><span class="amount">${dollars(cost(s))}</span></li>`,
     )
     .join('');
-  const info = explain('where', 'Where the period&rsquo;s cost went', WHAT.where);
-  return `<section class="panel" aria-labelledby="where">${band(`Where the period&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
+  // A day is named by its date, and a range by its two, not as the period they narrow.
+  const named = (d: string) => formatDayMonth(Date.parse(`${d}T12:00:00Z`));
+  const whose = query.day !== null ? named(query.day) : query.range !== null ? `${named(query.range.from)} to ${named(query.range.to)}` : 'the period';
+  const info = explain('where', `Where ${whose}&rsquo;s cost went`, WHAT.where);
+  return `<section class="panel" aria-labelledby="where">${band(`Where ${whose}&rsquo;s ${dollars(totalMicros)} went, by ${COLOUR_WORDS[query.split]}`, summary, 'where', info.both)}<div class="well pad">
 <div class="bar" role="img" aria-label="${esc(label)}">${segments}</div>
 <ul class="shares">${legend}</ul>
 </div></section>`;
@@ -218,9 +267,9 @@ export const tokenCount = (n: number) =>
   n >= 999.95e6 ? `${(n / 1e9).toFixed(2)}B` : n >= 999.5e3 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : number(Math.round(n));
 
 /** How each per-day chart is headed, labelled and read. */
-const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) => string; axis: (n: number) => string }> = {
-  cost: { title: 'Cost per day', id: 'perday', value: dollars, axis: dollars },
-  tokens: { title: 'Tokens per day', id: 'tokensperday', value: (n) => `${tokenCount(n)} tokens`, axis: tokenCount },
+const MEASURES: Record<Measure, { title: string; id: string; word: string; value: (n: number) => string; axis: (n: number) => string }> = {
+  cost: { title: 'Cost per day', id: 'perday', word: 'spend', value: dollars, axis: dollars },
+  tokens: { title: 'Tokens per day', id: 'tokensperday', word: 'tokens', value: (n) => `${tokenCount(n)} tokens`, axis: tokenCount },
 };
 
 /**
@@ -229,15 +278,20 @@ const MEASURES: Record<Measure, { title: string; id: string; value: (n: number) 
  */
 function overTime(page: CostsPage, now: number, measure: Measure): string {
   const { query } = page;
-  const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, firstDay(query.period, now), now, measure);
+  const chart = dayChart(page.groups, measure === 'cost' ? page.series : page.tokenSeries, query.range?.from ?? firstDay(query.period, now), now, measure, query.range?.to ?? null);
   const { id, title } = MEASURES[measure];
-  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay));
+  // The address a drag across days opens: this page's, with the range left for the script to fill.
+  const zoomed = `/${queryString(query, { day: null, range: { from: 'FROM', to: 'TO' }, page: 1 })}`;
+  return costPerDay(chart, (key) => colourOf(query.split, key, knownKeys(page)), measure, explain(id, title, measure === 'cost' ? WHAT.perDay : WHAT.tokensPerDay), (day) => `/${dayHref(query, day)}`, zoomed);
 }
 
+/** The address of one day's pull requests, dearest first, keeping the period it is opened from, the colouring and the filters. */
+const dayHref = (query: CostQuery, day: string) => queryString(query, { group: 'pr', day, sort: 'total', page: 1 });
+
 /** The per-day panel for a chart in its measure, each line in the colour `colour` gives its series, with the (i) of `info`; empty where the chart has no day. */
-export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info): string {
+export function costPerDay(chart: DayChart, colour: (key: string) => string, measure: Measure, info: Info, href?: (day: string) => string, zoomHref?: string): string {
   if (chart.days.length === 0) return '';
-  const { title, id, value, axis } = MEASURES[measure];
+  const { title, id, word, value, axis } = MEASURES[measure];
   const { width, height, left, right, top, bottom } = CHART;
   const peak = Math.max(...chart.total, 1);
   const x = (i: number) => (chart.days.length === 1 ? (left + width - right) / 2 : left + (i / (chart.days.length - 1)) * (width - left - right));
@@ -254,22 +308,98 @@ export function costPerDay(chart: DayChart, colour: (key: string) => string, mea
   const drawn = lines
     .map((l) => {
       const points = l.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+      // A point opens its day too, as its strip does.
       const dots = l.values
-        .map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`)
+        .map((v, i) => {
+          const dot = `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${l.colour}"><title>${esc(l.label)} · ${formatDay(chart.days[i]!)} · ${value(v)}</title></circle>`;
+          // Out of the tab order, as the strips are: the "By day" dates are the keyboard's way in.
+          return href === undefined ? dot : `<a href="${esc(href(chart.days[i]!))}" tabindex="-1">${dot}</a>`;
+        })
         .join('');
       return `<g data-line="${esc(l.key)}"><polyline points="${points}" fill="none" stroke="${l.colour}" stroke-width="2"${l.dash ? ' stroke-dasharray="6 4"' : ''}/>${dots}</g>`;
     })
     .join('');
   const area = `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${chart.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} ${x(chart.days.length - 1).toFixed(1)},${y(0).toFixed(1)}" class="total-area"/>`;
-  return `<section class="panel" aria-labelledby="${id}">${band(title, `<span class="legend">${keys(lines)}</span>`, id, info.both)}<div class="well chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}<g class="lines">${drawn}</g></svg></div>
+  // Given an address for a day, a full-height strip per day opens it (a dot alone is too small to hit, above all on a phone); its tooltip lists the day's total and each line. The strips sit under the lines, so pointing at a line still picks it out.
+  const step = chart.days.length === 1 ? width - left - right : (width - left - right) / (chart.days.length - 1);
+  const strips =
+    href === undefined
+      ? ''
+      : `<g class="day-strips">${chart.days
+          .map((d, i) => {
+            const says = [`${formatDay(d)} · Total ${value(chart.total[i]!)}`, ...chart.lines.filter((l) => l.values[i]! > 0).map((l) => `${esc(l.label)} ${value(l.values[i]!)}`), 'Click to see this day'].join('\n');
+            return `<a href="${esc(href(d))}" tabindex="-1"><rect x="${(x(i) - step / 2).toFixed(1)}" y="${top}" width="${step.toFixed(1)}" height="${height - top - bottom}"><title>${says}</title></rect></a>`;
+          })
+          .join('')}</g>`;
+  // Given an address for a range, a drag across two or more days opens it; the script reads the days and where the plot starts and ends from the chart.
+  const zoomable = zoomHref !== undefined && chart.days.length >= 2;
+  const zoom = zoomable
+    ? ` class="zoomable" data-range="${esc(zoomHref)}" data-days="${esc(JSON.stringify(chart.days))}" data-labels="${esc(JSON.stringify(chart.days.map(formatDay)))}" data-geom="${left},${width - right}"`
+    : '';
+  const brush = zoomable
+    ? `<g class="brush" style="display:none"><rect class="brush-area" y="${top}" height="${height - top - bottom}"/><text class="brush-label" y="${top + 14}" text-anchor="middle"></text></g>`
+    : '';
+  // The band's note: the drawn days added up, and their mean over the days with any of the measure (a day at zero is not one).
+  const sum = chart.total.reduce((a, b) => a + b, 0);
+  const active = chart.total.filter((v) => v > 0).length;
+  const strong = (s: string) => `<b>${s}</b>`;
+  const note = `${strong(value(sum))} total · ${active === 0 ? `no day with ${word}` : `${strong(axis(sum / active))} a day on average, over ${active} ${active === 1 ? 'day' : 'days'} with ${word}`}`;
+  return `<section class="panel" aria-labelledby="${id}">${band(title, note, id, info.both)}<div class="legend">${keys(lines)}</div><div class="well chart"><svg${zoom} viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}, ${formatDay(chart.days[0]!)} to ${formatDay(chart.days.at(-1)!)}: ${esc(lines.map((l) => l.label).join(', '))}">${area}${grid}${dates}${strips}<g class="lines">${drawn}</g>${brush}</svg></div>
 </section>`;
 }
+
+/**
+ * Press on a per-day chart, drag sideways across two or more days and let go: the page zooms into them.
+ * The days are shaded while dragging, with their first and last dates above. Loaded once per page, it reads the days
+ * each `svg.zoomable` carries and never fetches. With a mouse or pen, a press that moves past a few pixels starts selecting;
+ * under that it is a click, which the day's strip link answers. On touch a swipe still scrolls the chart and the page and a tap
+ * opens a day: selecting starts only after a press held for half a second without moving, and then the drag selects. A drag that
+ * ends within one day opens nothing.
+ */
+export const ZOOM_SCRIPT = `<script>(function(){
+var selecting=false;
+document.addEventListener('touchmove',function(e){if(selecting&&e.cancelable)e.preventDefault()},{passive:false});
+document.addEventListener('contextmenu',function(e){if(selecting)e.preventDefault()});
+document.addEventListener('pointerdown',function(e){
+var svg=e.target.closest&&e.target.closest('svg.zoomable');
+if(!svg||!e.isPrimary||e.button>0)return;
+var touch=e.pointerType==='touch';
+var days=JSON.parse(svg.dataset.days),labels=JSON.parse(svg.dataset.labels),g=svg.dataset.geom.split(',').map(Number),L=g[0],R=g[1],step=(R-L)/(days.length-1);
+var brush=svg.querySelector('.brush'),area=brush.querySelector('rect'),text=brush.querySelector('text');
+function at(cx){var p=svg.createSVGPoint();p.x=cx;p.y=0;var x=p.matrixTransform(svg.getScreenCTM().inverse()).x;return Math.max(0,Math.min(days.length-1,Math.round((x-L)/step)))}
+var x0=e.clientX,y0=e.clientY,a=at(e.clientX),b=a,dragging=false,hold=null;
+function begin(){dragging=true;selecting=touch;try{svg.setPointerCapture(e.pointerId)}catch(_){}brush.style.display='';paint()}
+function paint(){var lo=Math.min(a,b),hi=Math.max(a,b),x1=Math.max(L,L+lo*step-step/2),x2=Math.min(R,L+hi*step+step/2);
+area.setAttribute('x',x1);area.setAttribute('width',Math.max(1,x2-x1));text.setAttribute('x',(x1+x2)/2);
+text.textContent=lo===hi?labels[lo]:labels[lo]+' – '+labels[hi]}
+function move(ev){
+if(!dragging){
+if(!touch){if(Math.abs(ev.clientX-x0)<6)return;begin()}
+else{if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>8)abandon();return}}
+b=at(ev.clientX);paint()}
+function release(){svg.removeEventListener('pointermove',move);svg.removeEventListener('pointerup',up);svg.removeEventListener('pointercancel',cancel);clearTimeout(hold);selecting=false}
+function abandon(){release()}
+function stop(done){
+var was=dragging;release();
+if(!was)return;
+brush.style.display='none';
+var lo=Math.min(a,b),hi=Math.max(a,b);
+if(!done)return;
+var eat=function(c){c.preventDefault();c.stopPropagation()};
+svg.addEventListener('click',eat,true);
+setTimeout(function(){svg.removeEventListener('click',eat,true)},0);
+if(hi>lo)location.href=svg.dataset.range.replace('from=FROM&to=TO','from='+days[lo]+'&to='+days[hi])}
+function up(){stop(true)}function cancel(){stop(false)}
+if(touch)hold=setTimeout(function(){if(!dragging)begin()},500);
+svg.addEventListener('pointermove',move);svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',cancel)});
+document.addEventListener('dragstart',function(e){if(e.target.closest&&e.target.closest('svg.zoomable'))e.preventDefault()});
+})();</script>`;
 
 /** A chart's key: a swatch and a name for each line, the total's dashed. */
 const keys = (lines: { label: string; colour: string; dash?: boolean | undefined }[]) => lines.map((l) => lineKey(esc(l.label), l.dash ? null : l.colour)).join('');
 
 /** A count as an axis reads it: 120,000 is "120k". */
-const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
+export const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000).toLocaleString('en-US')}k` : n.toLocaleString('en-US', { maximumFractionDigits: 0 }));
 
 interface TrendDrawing {
   id: string;
@@ -280,15 +410,21 @@ interface TrendDrawing {
   /** A value as a point's title reads it, and as the axis does. */
   value: (n: number) => string;
   axis: (n: number) => string;
+  /** The top of the scale, fixed; the largest value drawn where absent. */
+  peak?: number;
+  /** The chart and its key alone, for a panel whose band already names it. */
+  bare?: boolean;
+  /** The straight trend line to draw over the series, from `trendOf`; none where it is null or absent. */
+  fit?: TrendFit | null;
 }
 
 /** One trend chart: a line per series over the buckets, broken where a bucket has no value rather than dropped to zero. */
-function trendChart(t: Trends, d: TrendDrawing): string {
+export function trendChart(t: Pick<Trends, 'buckets' | 'weekly'>, d: TrendDrawing): string {
   const { width, height, left, right, top, bottom } = CHART;
   const shown = d.lines.filter((l) => l.values.some((v) => v !== null));
-  const head = `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
+  const head = d.bare ? '<section class="trend">' : `<section class="trend" aria-labelledby="${d.id}"><div class="heading"><h3 id="${d.id}">${d.title}</h3>${explain(d.id, d.title, d.what).both}</div>`;
   if (shown.length === 0) return `${head}<p class="muted" data-empty="${d.id}">Nothing to chart in this period.</p></section>`;
-  const peak = Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
+  const peak = d.peak ?? Math.max(...shown.flatMap((l) => l.values.map((v) => v ?? 0)), 1);
   const x = (i: number) => (t.buckets.length === 1 ? (left + width - right) / 2 : left + (i / (t.buckets.length - 1)) * (width - left - right));
   const y = (v: number) => top + (1 - v / peak) * (height - top - bottom);
   const grid = [0, 0.5, 1]
@@ -312,42 +448,73 @@ function trendChart(t: Trends, d: TrendDrawing): string {
     })
     .join('');
   const legend = shown.length === 1 ? '' : `<div class="legend">${keys(shown)}</div>`;
-  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g></svg></div>${legend}</section>`;
+  const fitted = d.fit ?? null;
+  // The fit can run past the scale where it is steep, so it is clipped to the plot area rather than drawn over the axes.
+  const trend =
+    fitted === null
+      ? ''
+      : `<clipPath id="clip-${d.id}"><rect x="${left}" y="${top}" width="${width - left - right}" height="${height - top - bottom}"/></clipPath><line clip-path="url(#clip-${d.id})" x1="${x(fitted.from).toFixed(1)}" y1="${y(fitted.start).toFixed(1)}" x2="${x(fitted.to).toFixed(1)}" y2="${y(fitted.end).toFixed(1)}" stroke="${AMBER}" stroke-width="2.5" stroke-dasharray="8 5" stroke-linecap="round" data-trend><title>Trend · ${d.value(Math.round(fitted.start))} to ${d.value(Math.round(fitted.end))}</title></line>`;
+  return `${head}<div class="chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${d.title}, ${formatDay(t.buckets[0]!)} to ${formatDay(t.buckets.at(-1)!)}">${grid}${dates}<g class="lines">${drawn}</g>${trend}</svg></div>${legend}</section>`;
 }
 
-/** "Is the harness getting more expensive?": starting context, pull request size and cost per 1,000 lines changed. */
-function harnessTrends(page: CostsPage): string {
-  const t = page.trends;
-  if (t === null) return '';
-  const ink = VIOLET;
-  const charts = [
-    trendChart(t, {
-      id: 'starting-context',
-      title: 'Starting context',
-      what: WHAT.startingContext,
-      lines: [{ key: 'starting-context', label: 'Starting context', values: t.startingContext, colour: ink }],
-      value: (n) => `${number(n)} tokens`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'pull-request-size',
-      title: 'Pull request size',
-      what: WHAT.prSize,
-      lines: [{ key: 'pull-request-size', label: 'Lines changed', values: t.prSize, colour: ink }],
-      value: (n) => `${number(n)} lines`,
-      axis: compact,
-    }),
-    trendChart(t, {
-      id: 'cost-per-line',
-      title: 'Cost per 1,000 lines changed',
-      what: WHAT.costPerLine,
-      lines: t.costPerThousandLines.map((l) => (l.key === 'total' ? { ...l, colour: 'var(--ink-strong)', dash: true } : { ...l, colour: COLOURS[l.key as Category] })),
-      value: dollars,
-      axis: dollars,
-    }),
-  ];
-  const info = explain('trends', 'Is the harness getting more expensive?', WHAT.trends);
-  return `<section class="panel" aria-labelledby="trends">${band('Is the harness getting more expensive?', 'Not affected by &ldquo;coloured by&rdquo;: these follow the period and the &ldquo;Only&rdquo; filters.', 'trends', info.both)}<div class="well pad">${charts.join('\n')}</div></section>`;
+/** The middle value; the mean of the middle two where there is an even number of them. */
+function middle(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/** A straight line through a series, from its first bucket with a value (`from`) to its last (`to`), with the line's value at each end. */
+export interface TrendFit {
+  from: number;
+  to: number;
+  start: number;
+  end: number;
+}
+
+/**
+ * A straight line through a series that one spike cannot tilt (Theil-Sen): the slope is the median of the slopes between
+ * every pair of points, the intercept the median of what each point leaves. A bucket with no value is skipped, not read as
+ * zero. Null where fewer than two buckets have values, or where the line starts at or below zero, which leaves no change
+ * worth a percentage, so neither the line nor its words are drawn.
+ */
+export function trendOf(values: (number | null)[]): TrendFit | null {
+  const points = values.flatMap((v, i) => (v === null ? [] : [[i, v] as const]));
+  if (points.length < 2) return null;
+  const slopes = points.flatMap(([i, v], a) => points.slice(a + 1).map(([j, w]) => (w - v) / (j - i)));
+  const slope = middle(slopes);
+  const intercept = middle(points.map(([i, v]) => v - slope * i));
+  const from = points[0]![0];
+  const to = points.at(-1)![0];
+  const start = intercept + slope * from;
+  return start > 0 ? { from, to, start, end: intercept + slope * to } : null;
+}
+
+/** The fitted line's change over the period, in whole percent: "Trending up 25% over the last 30 days". A change that rounds to 0% is "Flat". Empty where there is no fit. */
+export function trendWords(fit: TrendFit | null, period: Period): string {
+  if (fit === null) return '';
+  const percent = Math.round(((fit.end - fit.start) / fit.start) * 100);
+  return `${percent === 0 ? 'Flat' : percent > 0 ? `Trending up ${percent}%` : `Trending down ${-percent}%`} over ${PERIOD_WORDS[period]}`;
+}
+
+const shareText = (n: number) => `${Math.round(n)}%`;
+
+/**
+ * "Where it went" over time: each colour of the sentence as its share of a bucket's dollars, on a fixed 0 to 100% scale.
+ * The buckets are the trend charts': the days of Cost per day for 7 and 30 days, weeks from Monday otherwise.
+ * A bucket with no dollars is a break in the lines, not a zero.
+ */
+function shareOverTime(page: CostsPage, now: number): string {
+  const { query } = page;
+  // As the bar above: a phase filter leaves the one phase it keeps.
+  const series = query.split === 'phase' && query.category !== null ? page.series.filter((s) => s.key === query.category) : page.series;
+  const { buckets, weekly, lines: shares } = shareChart(page.groups, series, query.period, now, query.range);
+  if (buckets.length === 0) return '';
+  const lines = shares.map((l) => ({ ...l, colour: colourOf(query.split, l.key, knownKeys(page)) }));
+  const title = `Share per ${weekly ? 'week' : 'day'}, by ${COLOUR_WORDS[query.split]}`;
+  const info = explain('share', title, WHAT.shareOverTime);
+  const drawn = trendChart({ buckets, weekly }, { id: 'share', title, what: WHAT.shareOverTime, lines, value: shareText, axis: shareText, peak: 100, bare: true });
+  return `<section class="panel" id="share" aria-labelledby="share-band">${band(title, weekly ? 'Of each week&rsquo;s dollars, from Monday' : 'Of each day&rsquo;s dollars', 'share-band', info.both)}<div class="well pad">${drawn}</div></section>`;
 }
 
 /** The repository as GitHub names it, `owner/name`; anything else is no repository and links nowhere. */
@@ -365,10 +532,12 @@ const github = (repository: string, path: string, text: string) =>
  */
 function firstCell(g: CostGroup, query: CostQuery, repository: string | null): string {
   const text = esc(g.label);
+  // A day opens that day's pull requests.
+  if (query.group === 'day') return `<td class="first"><a href="/${dayHref(query, g.key)}">${text}</a></td>`;
   const label = repository === null ? text : g.prNumber !== null ? github(repository, `pull/${g.prNumber}`, text) : g.issue !== null && query.group === 'issue' ? github(repository, `issues/${g.issue}`, text) : text;
   if (g.sub === null) return `<td class="first">${label}</td>`;
   const issue = repository !== null && g.prNumber !== null && g.issue !== null ? github(repository, `issues/${g.issue}`, esc(g.sub)) : esc(g.sub);
-  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', page: 1 })}">Sessions</a>`;
+  const sessions = g.prNumber === null ? '' : ` · <a href="/pr/${g.prNumber}${queryString(query, { engineer: null, group: DEFAULT_GROUP, sort: 'default', day: null, range: null, page: 1 })}">Sessions</a>`;
   return `<td class="first">${label}<div class="muted small">${issue}${sessions}</div></td>`;
 }
 
@@ -438,7 +607,7 @@ export function renderPage(
 ): string {
   const page = foldedPage(unfolded);
   const repository = report.repository !== undefined && REPOSITORY.test(report.repository) ? report.repository : null;
-  // The question its tab names opens the page, on every grouping; then what the sentence changes, in reading order; the trends, which only the filters change, come last.
+  // The question its tab names opens the page, on every grouping; then what the sentence changes, in reading order.
   const body = [
     '<h1 class="sr-only">Claude Code costs</h1>',
     costsLead(),
@@ -446,12 +615,13 @@ export function renderPage(
     whereItWent(page),
     page.query.group === 'day' ? overTime(page, now, 'cost') : '',
     page.query.group === 'day' ? overTime(page, now, 'tokens') : '',
+    page.query.group === 'day' ? shareOverTime(page, now) : '',
     table(page, repository),
-    harnessTrends(page),
     jobLines(page.jobs),
     EXPLAIN_SCRIPT,
+    page.query.group === 'day' ? ZOOM_SCRIPT : '',
   ].join('\n');
-  return shell({ current: 'costs', controls: controls(page), body, style: EXPLAIN_STYLE }, now);
+  return shell({ current: 'costs', controls: controls(page, now), body, style: EXPLAIN_STYLE }, now);
 }
 
 /** The costs page's lead, which a pull request's page, reached from its tab, opens with too. */

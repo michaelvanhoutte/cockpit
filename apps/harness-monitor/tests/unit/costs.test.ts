@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dayChart, firstDay, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
+import { addDays, weekStart } from '../../src/belgium';
+import { dayChart, firstDay, shareChart, trends, groupRows, seriesOf, median, parseQuery, queryString, type TotalRow } from '../../src/costs';
 
 const row = (over: Partial<TotalRow>): TotalRow => ({
   day: '',
@@ -32,27 +33,104 @@ const row = (over: Partial<TotalRow>): TotalRow => ({
 
 describe('Harness Monitor', () => {
   describe('the costs page is asked for by its address', () => {
+    describe('a day is asked for beside the period it was opened from', () => {
+      it('a day and a period are both kept, and the address spells them one way', () => {
+        const spelled = parseQuery(new URLSearchParams('group=pr&day=2026-10-24&period=7d&junk=1'));
+        const reordered = parseQuery(new URLSearchParams('period=7d&day=2026-10-24&group=pr'));
+
+        expect(spelled).toMatchObject({ day: '2026-10-24', period: '7d', group: 'pr' });
+        expect(queryString(spelled)).toBe('?period=7d&day=2026-10-24&group=pr');
+        expect(queryString(reordered)).toBe(queryString(spelled));
+      });
+
+      it.each([
+        { situation: 'a date that is not on the calendar', day: '2026-02-30' },
+        { situation: 'a month that does not exist', day: '2026-13-01' },
+        { situation: 'words', day: 'abc' },
+        { situation: 'a date with the wrong spelling', day: '24-10-2026' },
+        { situation: 'nothing', day: '' },
+      ])('$situation is ignored, and the period shows', ({ day }) => {
+        const query = parseQuery(new URLSearchParams({ group: 'pr', period: '7d', day }));
+
+        expect(query).toMatchObject({ day: null, period: '7d' });
+        expect(queryString(query)).toBe('?period=7d&group=pr');
+      });
+
+      it('choosing each day as the rows drops the day and shows the period it was opened from', () => {
+        const eachDay = parseQuery(new URLSearchParams('group=day&day=2026-10-24&period=90d'));
+
+        expect(eachDay).toMatchObject({ day: null, period: '90d', group: 'day' });
+        expect(queryString(eachDay)).toBe('?period=90d');
+      });
+
+      it('a day opens dearest first, and asking for the rows\' own order is kept in the address', () => {
+        const dearest = parseQuery(new URLSearchParams('group=pr&day=2026-10-24'));
+        const own = parseQuery(new URLSearchParams('group=pr&day=2026-10-24&sort=default'));
+
+        expect(dearest.sort).toBe('total');
+        expect(queryString(dearest)).toBe('?day=2026-10-24&group=pr');
+        expect(own.sort).toBe('default');
+        expect(queryString(own)).toBe('?day=2026-10-24&group=pr&sort=default');
+        expect(parseQuery(new URLSearchParams('group=pr&sort=total')).sort).toBe('total');
+        expect(parseQuery(new URLSearchParams('group=pr')).sort).toBe('default');
+      });
+    });
+
+    describe('a range of days is asked for beside the period it was opened from', () => {
+      it('a range and a period are both kept, and the address spells them one way whatever order they came in', () => {
+        const spelled = parseQuery(new URLSearchParams('to=2026-10-04&junk=1&group=day&from=2026-09-15&period=all'));
+        const reordered = parseQuery(new URLSearchParams('period=all&from=2026-09-15&to=2026-10-04'));
+
+        expect(spelled).toMatchObject({ range: { from: '2026-09-15', to: '2026-10-04' }, period: 'all', group: 'day' });
+        expect(queryString(spelled)).toBe('?period=all&from=2026-09-15&to=2026-10-04');
+        expect(queryString(reordered)).toBe(queryString(spelled));
+      });
+
+      it.each([
+        { situation: 'from equal to to', params: 'from=2026-10-04&to=2026-10-04' },
+        { situation: 'from after to', params: 'from=2026-10-05&to=2026-10-04' },
+        { situation: 'a from that is not on the calendar', params: 'from=2026-02-30&to=2026-10-04' },
+        { situation: 'a to that is not on the calendar', params: 'from=2026-09-15&to=2026-13-01' },
+        { situation: 'only from', params: 'from=2026-09-15' },
+        { situation: 'only to', params: 'to=2026-10-04' },
+        { situation: 'a range longer than ten years', params: 'from=1900-01-01&to=2026-10-04' },
+      ])('$situation is ignored, and the period shows', ({ params }) => {
+        const query = parseQuery(new URLSearchParams(`period=7d&${params}`));
+
+        expect(query).toMatchObject({ range: null, period: '7d' });
+        expect(queryString(query)).toBe('?period=7d');
+      });
+
+      it('a day opened from a range keeps the range, so each day returns to it and not to the period', () => {
+        const day = parseQuery(new URLSearchParams('period=all&from=2026-09-15&to=2026-10-04&day=2026-09-20&group=pr'));
+
+        expect(day).toMatchObject({ day: '2026-09-20', range: { from: '2026-09-15', to: '2026-10-04' } });
+        expect(queryString(day)).toBe('?period=all&day=2026-09-20&from=2026-09-15&to=2026-10-04&group=pr');
+        expect(queryString(day, { group: 'day', sort: 'default' })).toBe('?period=all&from=2026-09-15&to=2026-10-04');
+      });
+    });
+
     it.each([
-      { situation: 'nothing', query: '', expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
+      { situation: 'nothing', query: '', expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 } },
       {
         situation: 'every filter',
         query: 'period=all&engineer=alice&category=ci-reviews&model=claude-opus-5&who=subagents&group=pr&split=outcome&page=3',
-        expected: { period: 'all', engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
+        expected: { period: 'all', day: null, range: null, engineer: 'alice', category: 'ci-reviews', model: 'claude-opus-5', who: 'subagents', group: 'pr', split: 'outcome', sort: 'default', page: 3 },
       },
       {
         situation: 'values it does not know',
         query: 'period=forever&category=lunch&group=colour&split=colour&model=%20not%20a%20model&who=everyone&page=-2',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
       {
         situation: 'a colouring by engineer',
         query: 'split=engineer&group=pr',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'pr', split: 'engineer', sort: 'default', page: 1 },
       },
       {
         situation: 'names every object inherits',
         query: 'period=toString&category=constructor&group=__proto__&split=constructor&who=toString',
-        expected: { period: '30d', engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
+        expected: { period: '30d', day: null, range: null, engineer: null, category: null, model: null, who: 'all', group: 'day', split: 'phase', sort: 'default', page: 1 },
       },
     ])('$situation is read as the filters it names, or the default', ({ query, expected }) => {
       expect(parseQuery(new URLSearchParams(query))).toEqual(expected);
@@ -284,6 +362,108 @@ describe('Harness Monitor', () => {
     });
   });
 
+  describe('Share over time gives each colour its share of a bucket\'s dollars, in the trend charts\' buckets', () => {
+    const NOW = Date.parse('2026-10-31T12:00:00Z');
+    const spent = (d: string, series: string, dollars: number) => row({ day: d, series, costMicros: dollars * 1_000_000, prNumber: null, title: null, branch: '' });
+    const sharesOf = (rows: TotalRow[], period: '7d' | '30d' | '90d' | 'all') => {
+      const groups = groupRows(rows, 'day', null);
+      const totals: Record<string, number> = {};
+      for (const g of groups) for (const [k, v] of Object.entries(g.bySeries)) totals[k] = (totals[k] ?? 0) + v;
+      return shareChart(groups, seriesOf('model', totals), period, NOW);
+    };
+    const valuesOf = (chart: ReturnType<typeof sharesOf>) => Object.fromEntries(chart.lines.map((l) => [l.key, l.values]));
+
+    it('a day with three dollars on one model and one on another reads 75% and 25% over 30 days', () => {
+      const chart = sharesOf([spent('2026-10-30', 'opus', 3), spent('2026-10-30', 'sonnet', 1)], '30d');
+
+      expect(valuesOf(chart).opus!.at(-2)).toBe(75);
+      expect(valuesOf(chart).sonnet!.at(-2)).toBe(25);
+    });
+
+    it("a week's share is of the week's summed dollars, not an average of its days' shares", () => {
+      // Monday: all Opus, $1. Tuesday: all Sonnet, $9. An average of the days would say 50%; the week is 10% Opus.
+      const chart = sharesOf([spent('2026-10-26', 'opus', 1), spent('2026-10-27', 'sonnet', 9)], '90d');
+
+      expect(valuesOf(chart).opus!.at(-1)).toBe(10);
+      expect(valuesOf(chart).sonnet!.at(-1)).toBe(90);
+    });
+
+    it('the shares of every bucket add to 100%', () => {
+      const chart = sharesOf([spent('2026-10-28', 'opus', 3), spent('2026-10-28', 'sonnet', 2), spent('2026-10-28', 'haiku', 1), spent('2026-10-29', 'opus', 7)], '30d');
+      const lines = Object.values(valuesOf(chart));
+
+      for (let i = 0; i < chart.buckets.length; i++) {
+        const sum = lines.reduce((acc, v) => acc + (v[i] ?? 0), 0);
+        expect(sum === 0 || Math.abs(sum - 100) < 1e-9).toBe(true);
+      }
+    });
+
+    it('a day with no dollars is a break in every line, not 0%', () => {
+      const chart = sharesOf([spent('2026-10-28', 'opus', 3), spent('2026-10-30', 'opus', 1)], '7d');
+
+      expect(valuesOf(chart).opus).toEqual([null, null, null, 100, null, 100, null]);
+    });
+
+    it('a colour with no dollars in the period has no line', () => {
+      const chart = sharesOf([spent('2026-10-30', 'opus', 3), spent('2026-10-30', 'sonnet', 0)], '30d');
+
+      expect(chart.lines.map((l) => l.key)).toEqual(['opus']);
+    });
+
+    describe('a range is shared over its own days, by day up to 30 and by week beyond', () => {
+      const groups = groupRows([spent('2026-10-10', 'opus', 1), spent('2026-10-12', 'opus', 3)], 'day', null);
+      const series = seriesOf('model', { opus: 4_000_000 });
+
+      it('a 3-day range has one bucket per day, from its first day to its last', () => {
+        const chart = shareChart(groups, series, 'all', NOW, { from: '2026-10-10', to: '2026-10-12' });
+
+        expect(chart).toMatchObject({ weekly: false, buckets: ['2026-10-10', '2026-10-11', '2026-10-12'] });
+      });
+
+      it('a 30-day range is in days', () => {
+        const chart = shareChart(groups, series, 'all', NOW, { from: '2026-09-15', to: '2026-10-14' });
+
+        expect(chart.weekly).toBe(false);
+        expect(chart.buckets).toHaveLength(30);
+      });
+
+      it('a 31-day range is in weeks from Monday', () => {
+        const chart = shareChart(groups, series, '7d', NOW, { from: '2026-09-30', to: '2026-10-30' });
+
+        expect(chart.weekly).toBe(true);
+        expect(chart.buckets[0]).toBe(weekStart('2026-09-30'));
+      });
+    });
+
+    describe('the buckets are the trend charts\' over the same range', () => {
+      const rows = [spent('2026-10-05', 'opus', 1)];
+
+      it('the last 30 days are one bucket per day, the same as the trend charts', () => {
+        const chart = sharesOf(rows, '30d');
+
+        expect(chart.weekly).toBe(false);
+        expect(chart.buckets).toEqual(trends([], [], '30d', NOW).buckets);
+      });
+
+      it('the last 90 days are one bucket per week, each a Monday, the first holding the first day of the period', () => {
+        const chart = sharesOf(rows, '90d');
+
+        expect(chart.weekly).toBe(true);
+        expect(chart.buckets).toEqual(trends([], [], '90d', NOW).buckets);
+        expect(chart.buckets.every((b) => weekStart(b) === b)).toBe(true);
+        expect(chart.buckets[0]! <= firstDay('90d', NOW)! && firstDay('90d', NOW)! < addDays(chart.buckets[0]!, 7)).toBe(true);
+      });
+
+      it('all time starts at the week of the earliest day on record', () => {
+        const chart = sharesOf([spent('2026-09-23', 'opus', 1), spent('2026-10-05', 'opus', 1)], 'all');
+
+        expect(chart.buckets[0]).toBe('2026-09-21');
+        expect(chart.buckets).toEqual(trends([{ day: '2026-09-23', tokens: 1 }], [], 'all', NOW).buckets);
+        expect(chart.buckets.at(-1)).toBe('2026-10-26');
+      });
+    });
+  });
+
   describe("each trend chart's value per bucket is its median or ratio over that bucket", () => {
     const NOW = Date.parse('2026-10-31T12:00:00Z');
     const pr = (day: string, lines: number | null, costByPhase: Record<string, number>) => ({ day, lines, costByPhase });
@@ -301,6 +481,33 @@ describe('Harness Monitor', () => {
       expect(ninety.buckets[0]).toBe('2026-08-03');
       expect(ninety.buckets.every((b) => new Date(b).getUTCDay() === 1)).toBe(true);
       expect(all.buckets).toEqual(['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
+    });
+
+    describe("a range's per-day charts run over its own days, ending today where it would run past it", () => {
+      it('a range ending after today draws to today', () => {
+        const chart = dayChart(
+          groupRows([row({ day: '2026-10-29', series: 'building', costMicros: 5, prNumber: null, title: null, branch: '' })], 'day', null),
+          seriesOf('phase', { building: 5 }),
+          '2026-10-28',
+          NOW,
+          'cost',
+          '2026-11-05',
+        );
+        expect(chart.days).toEqual(['2026-10-28', '2026-10-29', '2026-10-30', '2026-10-31']);
+      });
+
+      it('a range ending before today ends on its last day', () => {
+        const chart = dayChart(
+          groupRows([row({ day: '2026-10-29', series: 'building', costMicros: 5, prNumber: null, title: null, branch: '' })], 'day', null),
+          seriesOf('phase', { building: 5 }),
+          '2026-10-28',
+          NOW,
+          'cost',
+          '2026-10-29',
+        );
+
+        expect(chart.days).toEqual(['2026-10-28', '2026-10-29']);
+      });
     });
 
     it('starting context and size are medians of the sessions and pull requests in the bucket', () => {

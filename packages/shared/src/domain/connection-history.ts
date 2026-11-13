@@ -62,6 +62,8 @@ export const connectionHistoryLineSchema = z.object({
   did: checkDidSchema,
   /** How many messages the check's complete listing returned (issue 1196); null where it listed nothing completely, and on a line from before it. */
   listed: z.number().int().min(0).nullable().default(null),
+  /** When the check's run began (issue 1725); null on a delivery, and on a line from before it. A folded line carries its first check's. */
+  startedAt: z.iso.datetime().nullable().default(null),
 });
 export type ConnectionHistoryLine = z.infer<typeof connectionHistoryLineSchema>;
 
@@ -92,5 +94,13 @@ export type ConnectionHistory = z.infer<typeof connectionHistorySchema>;
  */
 export const checkedNowSchema = z.object({
   status: z.enum(['queued', 'already queued', 'running']),
+  /**
+   * When it was pressed, on the store's clock: the check it leaves ends with a
+   * history line last run at or after it, which is how the note at the press
+   * knows the check is done ("Conversation follow-up: Open, previews, drafts
+   * and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720).
+   * Absent from a release before it.
+   */
+  at: z.iso.datetime().optional(),
 });
 export type CheckedNow = z.infer<typeof checkedNowSchema>;

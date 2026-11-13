@@ -100,7 +100,7 @@ export function analysisPrompt(data: AskData, key: string): string {
     '',
     `Before judging, read what the product promises for this area in docs/product/, its existing tests, and the code on those lines. Then, for each gap, say which it is and why: behaviour someone relies on that needs a test, dead code to delete, or not worth a test (wiring, a type, a log line). A file not worth a test is recorded with its reason in tools/test-explorer/not-worth-a-test.json by whoever builds the ticket, which moves it to the page's "Decided not to test" list.`,
     '',
-    "For each test worth adding, give the rule and its cases in the product's language, the level it belongs at under the testing skill and docs/testing-strategy.md (the lowest level that can prove it), and the test file it goes in. Leave out any test that re-proves what a lower level already covers, and say where an existing level is missing entirely (for example an area with no F3 walk).",
+    "For each test worth adding, give the rule and its cases in the product's language, the level it belongs at under the testing skill, .claude/skills/testing/SKILL.md (the lowest level that can prove it), and the test file it goes in. Leave out any test that re-proves what a lower level already covers, and say where an existing level is missing entirely (for example an area with no F3 walk).",
     '',
     'Rank the suggestions by what an untested regression there would cost someone using Cockpit. Then ask me whether to file them as one unsliced ticket through the scoping skill.',
   ].join('\n');

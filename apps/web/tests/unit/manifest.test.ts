@@ -26,11 +26,13 @@ describe('Capture', () => {
   describe('the installed app offers itself in the share sheet for what an Attachment accepts, and for text and links', () => {
     const target = manifest.share_target;
 
-    it('accepts every content type the Attachment allowlist accepts, and no other', () => {
+    it('accepts every content type the Attachment allowlist accepts, and no other, with the extensions of the text files a device reports no type for', () => {
       const files = [target?.params.files ?? []].flat();
 
       expect(files).toHaveLength(1);
-      expect([...(files[0]?.accept ?? [])].sort()).toEqual([...ATTACHMENT_CONTENT_TYPES].sort());
+      expect([...(files[0]?.accept ?? [])].sort()).toEqual(
+        [...ATTACHMENT_CONTENT_TYPES, '.md', '.markdown', '.txt'].sort(),
+      );
     });
 
     it('takes a shared title, text and link as well as files', () => {

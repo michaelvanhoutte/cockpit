@@ -8,12 +8,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { parseDocument } from 'yaml';
 
 import { main } from '../../src/cli.js';
-import { descriptionFile } from '../support/description.js';
-import { schemaFile } from '../support/schema.js';
+import { descriptionFile, rulesFile } from '../support/description.js';
+import { monitorSchemaFile, schemaFile } from '../support/schema.js';
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const dirs = [];
@@ -30,12 +30,20 @@ afterEach(() => {
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 
 /** A repository holding just what the generator reads, with the given text for each file. */
-function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, schema = schemaFile().text } = {}) {
+function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'tests.yml': WORKFLOW }, files = {}, description = descriptionFile().text, rules = rulesFile().text, schema = schemaFile().text, monitorSchema = monitorSchemaFile().text } = {}) {
   const root = tmp();
   mkdirSync(path.join(root, 'apps/api'), { recursive: true });
   mkdirSync(path.join(root, 'tools/architecture'), { recursive: true });
   writeFileSync(path.join(root, 'tools/architecture/description.yml'), description);
+  if (rules !== null) {
+    mkdirSync(path.join(root, 'docs'), { recursive: true });
+    writeFileSync(path.join(root, 'docs/architecture.yml'), rules);
+  }
   if (schema !== null) writeFileSync(path.join(root, 'apps/api/database-schema.json'), schema);
+  if (monitorSchema !== null) {
+    mkdirSync(path.join(root, 'apps/harness-monitor'), { recursive: true });
+    writeFileSync(path.join(root, 'apps/harness-monitor/database-schema.json'), monitorSchema);
+  }
   for (const [name, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
     writeFileSync(path.join(root, name), text);
@@ -48,10 +56,10 @@ function fixture({ config = '{ // comment\n "name": "w", }\n', workflows = { 'te
 
 /** The run's exit code and whether it left anything behind. */
 async function draw(root) {
-  const out = path.join(tmp(), 'index.html');
-  const model = path.join(path.dirname(out), 'model.json');
+  const out = tmp();
+  const model = path.join(out, 'model.json');
   const code = await main(['--root', root, '--out', out, '--model', model]);
-  return { code, out, model, page: existsSync(out), modelFile: existsSync(model), written: readdirSync(path.dirname(out)) };
+  return { code, out, model, modelFile: existsSync(model), written: readdirSync(out) };
 }
 
 /**
@@ -63,25 +71,34 @@ async function draw(root) {
 let real;
 let drawing;
 const drawReal = () => (drawing ??= draw(checkout).then((run) => {
-  real = { code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, page: run.page ? readFileSync(run.out, 'utf8') : undefined };
+  const logicalFile = path.join(run.out, 'service-cockpit.html');
+  const monitorFile = path.join(run.out, 'service-harness-monitor.html');
+  const widgetFile = path.join(run.out, 'service-android-widget.html');
+  const dir = run.out;
+  const written = readdirSync(dir);
+  const pages = Object.fromEntries(readdirSync(dir).filter((name) => name.endsWith('.html')).map((name) => [name, readFileSync(path.join(dir, name), 'utf8')]));
+  real = { pages, written, code: run.code, model: run.modelFile ? JSON.parse(readFileSync(run.model, 'utf8')) : undefined, logicalPage: existsSync(logicalFile) ? readFileSync(logicalFile, 'utf8') : undefined, monitorPage: existsSync(monitorFile) ? readFileSync(monitorFile, 'utf8') : undefined, widgetPage: existsSync(widgetFile) ? readFileSync(widgetFile, 'utf8') : undefined };
 }));
 const REAL_DRAW_TIMEOUT = 60_000;
+/** The pages of the report this one replaced, which a run no longer writes. */
+const OLD_REPORT = ['index.html', 'context.html', 'register.html', 'account-store.html', 'deployment.html'];
 
 describe('A run that cannot read a file it needs fails and writes nothing', () => {
-  it('writes the page and the model beside it when every file reads', async () => {
+  it('writes the pages and the model into the folder when every file reads', async () => {
     const run = await draw(fixture());
     expect(run.code).toBe(0);
     expect(JSON.parse(readFileSync(run.model, 'utf8')).deployment.workflows.map((each) => each.file)).toEqual(['tests.yml']);
-    expect(readFileSync(run.out, 'utf8')).toContain('<h1>Architecture</h1>');
+    expect(readFileSync(path.join(run.out, 'modules.html'), 'utf8')).toContain('<h1>Modules</h1>');
   });
 
-  it('writes the five diagram pages beside the report when every file reads, and none when asked for the model alone', async () => {
+  it('writes the Modules page, its Dependencies tab and the two pages of each database when every file reads, none of the old report\'s pages, and the model alone when asked for it', async () => {
     const run = await draw(fixture());
-    for (const name of ['context.html', 'modules.html', 'register.html', 'account-store.html', 'deployment.html']) {
-      expect(existsSync(path.join(path.dirname(run.out), name))).toBe(true);
+    for (const name of ['modules.html', 'modules-dependencies.html', 'model.json', ...['register', 'account-store', 'harness-monitor'].flatMap((key) => [`db-${key}.html`, `db-${key}-columns.html`])]) {
+      expect(existsSync(path.join(run.out, name)), name).toBe(true);
     }
+    for (const name of OLD_REPORT) expect(existsSync(path.join(run.out, name)), name).toBe(false);
     const dir = tmp();
-    expect(await main(['--root', fixture(), '--json', '--out', path.join(dir, 'model.json')])).toBe(0);
+    expect(await main(['--root', fixture(), '--json', '--out', dir])).toBe(0);
     expect(readdirSync(dir)).toEqual(['model.json']);
   });
 
@@ -96,11 +113,13 @@ describe('A run that cannot read a file it needs fails and writes nothing', () =
     { situation: 'the schema file is missing', make: () => fixture({ schema: null }) },
     { situation: 'the schema file does not parse', make: () => fixture({ schema: '{ "databases": [' }) },
     { situation: 'the schema file holds no list of databases', make: () => fixture({ schema: '{ "tables": [] }' }) },
+    { situation: 'the Monitor’s schema file is missing', make: () => fixture({ monitorSchema: null }) },
+    { situation: 'the Monitor’s schema file does not parse', make: () => fixture({ monitorSchema: '{ "databases": [' }) },
+    { situation: 'the Monitor’s schema file holds no list of databases', make: () => fixture({ monitorSchema: '{ "tables": [] }' }) },
     { situation: 'a pin names an area that does not exist', make: () => fixture({ description: descriptionFile({ layers: [{ title: 'L', role: 'core', areas: [{ path: 'apps/api/src/http', description: 'd' }] }], pins: [{ above: 'apps/api/src/http', below: 'apps/api/src/typo' }] }).text }) },
   ])('exits non-zero with nothing at all when $situation', async ({ make }) => {
     const run = await draw(make());
     expect(run.code).toBe(1);
-    expect(run.page).toBe(false);
     expect(run.modelFile).toBe(false);
     expect(run.written).toEqual([]);
   });
@@ -110,6 +129,23 @@ describe('A flag that needs a path and is given none is refused', () => {
   it.each([['--out'], ['--root', '--json'], ['--model']])('exits 2 for %s', async (...argv) => {
     expect(await main(argv)).toBe(2);
   });
+
+  it.each([['out/index.html'], ['out/model.json']])('exits 2 for --out naming a file, %s, rather than writing a folder of that name', async (file) => {
+    expect(await main(['--out', path.join(tmp(), file)])).toBe(2);
+  });
+});
+
+describe('What changed', () => {
+  it('reaches the front page from the comparison the run made', async () => {
+    const out = tmp();
+    const missing = path.join(out, 'no-such-model.json');
+    expect(await main(['--root', checkout, '--out', out, '--previous', missing])).toBe(0);
+    const front = readFileSync(path.join(out, 'services-design.html'), 'utf8');
+    // A previous model that is not there yet is the first report: wording only the run's own comparison gives,
+    // where a front page handed no comparison would say none was given.
+    expect(front).toContain('<section id="changes">');
+    expect(front).toContain('This is the first report, so there is nothing to compare it with.');
+  }, REAL_DRAW_TIMEOUT);
 });
 
 describe('This repository\'s own config and workflows draw without error', () => {
@@ -140,7 +176,7 @@ describe('Modules', () => {
   it('draws this repository’s own areas as boxes, one per area on disk, none overlapping, with arrows between them', () => {
     expect(real.code).toBe(0);
     const { modules } = real.model;
-    const { page } = real;
+    const page = real.pages['modules.html'];
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-area="([^"]*)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)].map((each) => ({ area: each[1], x: +each[2], y: +each[3], w: +each[4], h: +each[5] }));
     // A package a source names is its connector's box, which the next test counts.
     const packages = modules.connectors.flatMap((each) => (each.package ? [each.package.path] : []));
@@ -152,7 +188,7 @@ describe('Modules', () => {
   it('draws a box for every source this repository declares, and the Worker round them', () => {
     expect(real.code).toBe(0);
     const declared = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS().sources.map((each) => each.id);
-    const { page } = real;
+    const page = real.pages['modules.html'];
     expect(declared.length).toBeGreaterThan(0);
     const boxes = [...page.matchAll(/<rect class="[a-z]+" data-connector="([^"]*)"/g)].map((each) => each[1]);
     expect(boxes.sort()).toEqual([...declared].sort());
@@ -238,6 +274,188 @@ describe('Dependencies', () => {
   });
 });
 
+describe('Logical', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  /** A design of one component, over the fixture's folders: `design` overrides what it holds. Both files, as `fixture` takes them. */
+  const withDesign = (design = {}) => {
+    const overrides = {
+      design: {
+        layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }],
+        mayCall: {},
+        noLine: [{ folder: 'apps/api/src/*', name: 'env.ts' }],
+        ...design,
+      },
+    };
+    return { description: descriptionFile(overrides).text, rules: rulesFile(overrides).text };
+  };
+  const modelOf = async (root) => {
+    const run = await draw(root);
+    expect(run.code).toBe(0);
+    return JSON.parse(readFileSync(run.model, 'utf8'));
+  };
+  const files = { 'apps/api/src/http/app.ts': 'export {}' };
+
+  it('places every folder of this repository in exactly one component of the design', () => {
+    expect(real.code).toBe(0);
+    expect(real.model.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(real.model.logical.layers.map((layer) => layer.id)).toEqual(['clients', 'api', 'logic', 'data', 'conn', 'outside']);
+  });
+
+  it('draws this repository\'s own design with a numbered circle and a row for each line the design does not allow', () => {
+    const { logical } = real.model;
+    expect(logical.bad.length).toBeGreaterThan(0);
+    expect(real.logicalPage.match(/<circle class="nl-num /g)).toHaveLength(logical.bad.length + logical.accepted.length);
+    expect(real.logicalPage.match(/<tr class="bad" id="off-/g)).toHaveLength(logical.bad.length);
+    expect(logical.callers.filter((caller) => caller.status === 'found').map((caller) => caller.from)).toEqual(expect.arrayContaining(['web', 'widget']));
+  });
+
+  it('places every source file of the Harness Monitor in exactly one component, and draws no red line on its code as it stands', () => {
+    const [monitor] = real.model.services;
+    expect(monitor.id).toBe('harness-monitor');
+    expect(monitor.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(monitor.logical.layers.map((layer) => layer.id)).toEqual(['clients', 'routes', 'reports', 'data', 'shared', 'outside']);
+    expect(monitor.logical.bad).toEqual([]);
+    expect(monitor.logical.ok.map((each) => `${each.a}>${each.b}`)).toEqual(expect.arrayContaining(['routes>reports', 'reports>data', 'reports>outside']));
+    expect(real.monitorPage).toContain('<h1>Harness Monitor</h1>');
+  });
+
+  it('places every Kotlin file of the Android widget in exactly one part, finds its lines and its addresses, and opens it from the widget chip on the Cockpit page', () => {
+    const widget = real.model.services.find((each) => each.id === 'android-widget');
+    expect(widget.logical.placement).toEqual({ unplaced: [], gone: [], doubled: [] });
+    expect(widget.logical.within.length).toBeGreaterThan(5);
+    const [client, signIn] = widget.logical.callers;
+    expect(client).toMatchObject({ from: 'client', to: 'ctx-mcp', status: 'found' });
+    expect(client.addresses).toEqual(expect.arrayContaining(['/oauth/token', '/apps/v1/panels']));
+    expect(signIn).toMatchObject({ from: 'signin', to: 'browser', status: 'elsewhere' });
+    expect(real.widgetPage).toContain('<h1>Android widget</h1>');
+    expect(real.logicalPage).toMatch(/<g class="node n-widget"><a href="service-android-widget-design.html">/);
+  });
+
+  it('records a folder no component names, naming the folder', async () => {
+    const { logical } = await modelOf(fixture({ files: { ...files, 'apps/api/src/extra/x.ts': 'export {}' }, ...withDesign() }));
+    expect(logical.placement).toEqual({ unplaced: ['apps/api/src/extra'], gone: [], doubled: [] });
+  });
+
+  it('records a component naming a folder that is gone, naming it', async () => {
+    const { logical } = await modelOf(fixture({ files, ...withDesign({ layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http', 'apps/api/src/gone'] }]] }] }) }));
+    expect(logical.placement.gone).toEqual([{ folder: 'apps/api/src/gone', components: ['http'] }]);
+  });
+
+  it('records a folder named by two components, naming both', async () => {
+    const twice = { id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }, { id: 'again', name: 'again', folders: ['apps/api/src/http'] }]] };
+    const { logical } = await modelOf(fixture({ files, ...withDesign({ layers: [twice] }) }));
+    expect(logical.placement.doubled).toEqual([{ folder: 'apps/api/src/http', components: ['http', 'again'] }]);
+  });
+
+  it('writes Cockpit\'s page beside the report, and draws none when the description has no design', async () => {
+    const run = await draw(fixture({ files, ...withDesign() }));
+    expect(run.code).toBe(0);
+    expect(run.written).toContain('service-cockpit.html');
+    expect(readFileSync(path.join(run.out, 'service-cockpit.html'), 'utf8')).toContain('<h1>Cockpit</h1>');
+    expect((await draw(fixture({ files }))).written).not.toContain('service-cockpit.html');
+  });
+
+  it('names the rules file and the line when it does not parse, and writes nothing', async () => {
+    const written = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((text) => { written.push(String(text)); return true; });
+    try {
+      const run = await draw(fixture({ files, ...withDesign(), rules: `${rulesFile().text}cockpit: [\n` }));
+      expect(run.code).toBe(1);
+      expect(run.written).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(written.join('')).toMatch(/docs\/architecture\.yml: not valid YAML at line \d+/);
+  });
+
+  it('keeps the design out of the drawing file: no rule, and no name or folder for a part the rules file names', () => {
+    const drawn = parseDocument(readFileSync(path.join(checkout, 'tools/architecture/description.yml'), 'utf8')).toJS();
+    for (const design of [drawn.design, ...drawn.otherServices.map((service) => service.design)]) {
+      for (const key of ['mayCall', 'breaks', 'accepted']) expect(design[key], key).toBeUndefined();
+    }
+    const parts = drawn.design.layers.flatMap((layer) => layer.items.flat()).filter((chip) => chip.caller === undefined);
+    expect(parts.length).toBeGreaterThan(20);
+    for (const chip of parts) expect(Object.keys(chip).filter((key) => ['name', 'sub', 'folders', 'title'].includes(key)), chip.id).toEqual([]);
+    expect(drawn.design.layers.filter((layer) => 'title' in layer)).toEqual([]);
+  });
+
+  it.each([
+    { situation: 'the drawing is not valid YAML', given: { description: `${descriptionFile().text}design: [
+` } },
+    { situation: 'the rules file is not valid YAML', given: { rules: `${rulesFile().text}cockpit: [
+` } },
+    { situation: 'the rules file is missing', given: { rules: null, description: withDesign().description } },
+    { situation: 'the design names a layer that does not exist', given: withDesign({ mayCall: { api: ['nowhere'] } }) },
+    { situation: 'an acceptance names a component the design does not have', given: withDesign({ accepted: [{ from: 'http', to: 'ghost', files: ['apps/api/src/http/app.ts'], reason: 'Because.' }] }) },
+    { situation: 'an acceptance gives no reason', given: withDesign({ accepted: [{ from: 'http', to: 'http', files: ['apps/api/src/http/app.ts'] }] }) },
+  ])('fails the run and writes nothing when $situation', async ({ given }) => {
+    const run = await draw(fixture({ files, ...given }));
+    expect(run.code).toBe(1);
+    expect(run.written).toEqual([]);
+  });
+});
+
+describe('Services', () => {
+  beforeAll(drawReal, REAL_DRAW_TIMEOUT);
+
+  it('writes the services page, each service\'s tabs, the layer pages, the Modules page and the database pages, all of which the nightly upload takes, and none of the old report\'s', () => {
+    expect(Object.keys(real.pages)).toEqual(expect.arrayContaining([
+      'services.html',
+      'services-design.html',
+      'modules.html',
+      'modules-dependencies.html',
+      ...['cockpit', 'harness-monitor', 'android-widget'].flatMap((id) => [`service-${id}.html`, `service-${id}-design.html`, `service-${id}-deployment.html`]),
+      ...['api', 'logic', 'connectors'].flatMap((layer) => [`cockpit-layer-${layer}.html`, `cockpit-layer-${layer}-dependencies.html`]),
+      'cockpit-layer-data.html',
+      ...['register', 'account-store', 'harness-monitor'].map((key) => `db-${key}.html`),
+    ]));
+    for (const name of OLD_REPORT) expect(real.written, name).not.toContain(name);
+    expect(real.pages['services.html']).toContain('<a href="modules.html">Modules</a>');
+    expect(real.pages['services-design.html']).toContain('<section id="changes">');
+  });
+
+  it('says that no file imports another service\'s code and no store is used by two services, as this repository stands', () => {
+    expect(real.model.serviceMap.cross).toEqual({ imports: [], shared: [] });
+    expect(real.pages['services.html']).toContain('<span class="ok">No file imports another service\'s code.</span>');
+    expect(real.pages['services.html']).toContain('<span class="ok">No store is used by two services.</span>');
+  });
+
+  it('puts a badge on each service of as many lines as are red on its own page, linking to them', () => {
+    const [monitor, cockpit] = real.model.serviceMap.boxes;
+    expect(cockpit.off).toBe(real.model.logical.bad.length);
+    expect(monitor.off).toBe(real.model.services.find((each) => each.id === 'harness-monitor').logical.bad.length);
+    expect(real.pages['services.html']).toContain(`<a href="service-cockpit.html#off"><rect class="nb-badge"`);
+    expect(real.pages['service-cockpit.html']).toContain('<h2 id="off">');
+  });
+
+  it('draws a column for each environment this repository\'s configs declare, and names no secret\'s value', () => {
+    const [cockpit, monitor, widget] = real.model.deployments;
+    expect(cockpit.environments.map((each) => each.name)).toEqual(['production', 'staging', 'local']);
+    expect(monitor.environments.map((each) => each.name)).toEqual(['production']);
+    expect(widget.environments.map((each) => each.name)).toEqual(['production', 'staging']);
+    expect(monitor.environments[0].secrets).toEqual(expect.arrayContaining(['HARNESS_WRITE_KEY', 'GITHUB_TOKEN']));
+    expect(widget.environments[0].shippedBy).toEqual([{ file: 'widget-release.yml', starts: 'a tag push' }]);
+    expect(real.pages['service-android-widget-deployment.html']).toContain('<span class="chip s">WIDGET_KEYSTORE_BASE64</span>');
+  });
+
+  it('shows Cockpit\'s environments as the report\'s own deployment reads them, which credits the Monitor\'s workflow with deploying production', () => {
+    const production = real.model.deployments[0].environments[0];
+    expect(production.shippedBy.map((each) => each.file)).toEqual(real.model.deployment.environments[0].deployedBy);
+  });
+
+  it('gives each layer a page with only its own folders', () => {
+    const logic = real.pages['cockpit-layer-logic.html'];
+    expect([...logic.matchAll(/data-area="([^"]+)"/g)].map((each) => each[1])).toHaveLength(8);
+    expect(logic).not.toContain('apps/api/src/http');
+  });
+
+  it('links no page that the run did not write, whatever the link is on: a crumb, a tab, a box or a footer', () => {
+    const hrefs = Object.entries(real.pages).flatMap(([name, html]) => [...html.matchAll(/\bhref="([^"#:]+)(?:#[^"]*)?"/g)].map(([, href]) => [name, href]));
+    expect(hrefs.length).toBeGreaterThan(100);
+    for (const [name, href] of hrefs) expect([...Object.keys(real.pages), 'model.json'], `${name} links ${href}`).toContain(href);
+  });
+});
 describe('Databases', () => {
   beforeAll(drawReal, REAL_DRAW_TIMEOUT);
 
@@ -250,7 +468,16 @@ describe('Databases', () => {
     expect(items.columns.find((each) => each.name === 'title').unused).toBeNull();
     expect(items.indexes.find((each) => each.name === 'items_tenant_workspace_status').unused).toMatch(/Covers status/);
     expect(register.tables.find((each) => each.name === 'users').unused).toBeNull();
-    expect(real.page).toContain('<a class="open" href="account-store.html"');
-    expect(real.page).toContain('<a class="open" href="register.html"');
+  });
+
+  it('holds this repository’s three databases, the Monitor’s read from its own schema file with inferred pointers, and every table linked to where it is defined', () => {
+    const databases = real.model.tables.databases;
+    expect(databases.map((each) => each.key)).toEqual(['register', 'account-store', 'harness-monitor']);
+    const monitor = databases[2];
+    const jobs = monitor.tables.find((each) => each.name === 'stability_jobs');
+    expect(jobs.columns.find((each) => each.name === 'run_id').references).toEqual({ table: 'stability_runs', column: 'run_id', onDelete: null, inferred: true });
+    expect(monitor.tables.find((each) => each.name === 'usage_requests').columns.every((each) => !each.references)).toBe(true);
+    for (const database of databases) expect(database.tables.filter((each) => !each.at).map((each) => each.name)).toEqual([]);
+    expect(real.model.database.databases.map((each) => each.key)).toEqual(['register', 'account-store']);
   });
 });

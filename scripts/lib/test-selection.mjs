@@ -7,8 +7,8 @@
 // between them cover more test files than any one diff usually touches, which
 // is the cost "Run only the affected tests in CI's Test job on a pull
 // request" (issue 346) exists to cut. `main` always gets `full` - why that
-// still satisfies testing-strategy.md's "Definition of done for agents"
-// section (§6) is in ci.yml's own comment on this job.
+// still satisfies the testing skill's "Definition of done" is in ci.yml's own
+// comment on this job.
 //
 // A path `isNonProduct` (scripts/lib/what-changed.mjs) already calls
 // non-product - `docs/`, `.claude/`, a root-level `*.md` - never forces

@@ -90,8 +90,8 @@ describe('Panels', () => {
 
   describe('a panel that gathers what it shows says so however its rows were stored', () => {
     it('reads back exactly what was written', () => {
-      expect(panelFilterFrom(panelFilterAsStored([[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]]))).toEqual({
-        rows: [[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]],
+      expect(panelFilterFrom(panelFilterAsStored([[[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]]]))).toEqual({
+        sets: [[[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]]],
         groupBy: 'none',
       });
     });
@@ -103,8 +103,8 @@ describe('Panels', () => {
       // Filter panel by panel, and name the Filters a panel's deletion
       // affects", issue 465).
       expect(
-        panelFilterFrom(panelFilterAsStored([[DUE_TODAY], [PRIORITY_HIGH], [PANEL_Q3]])),
-      ).toEqual({ rows: [[DUE_TODAY], [PRIORITY_HIGH], [PANEL_Q3]], groupBy: 'none' });
+        panelFilterFrom(panelFilterAsStored([[[DUE_TODAY], [PRIORITY_HIGH], [PANEL_Q3]]])),
+      ).toEqual({ sets: [[[DUE_TODAY], [PRIORITY_HIGH], [PANEL_Q3]]], groupBy: 'none' });
     });
 
     it('reads a condition written without exclusion or Status values as including, with Status as In progress', () => {
@@ -113,9 +113,9 @@ describe('Panels', () => {
       // ("Include or exclude a Filter panel condition's values...", issue 908).
       const read = panelFilterFrom('{"rows":[[{"field":"priority","values":["high"]},{"field":"status"}]]}');
 
-      expect(read?.rows[0]?.[0]).toEqual({ field: 'priority', values: ['high'] });
-      expect(read?.rows[0]?.[0]).not.toHaveProperty('exclude');
-      expect(read?.rows[0]?.[1]).toEqual({ field: 'status' });
+      expect(read?.sets[0]?.[0]?.[0]).toEqual({ field: 'priority', values: ['high'] });
+      expect(read?.sets[0]?.[0]?.[0]).not.toHaveProperty('exclude');
+      expect(read?.sets[0]?.[0]?.[1]).toEqual({ field: 'status' });
       expect(statusValuesOf({ field: 'status' })).toEqual(['in_progress']);
     });
 
@@ -126,7 +126,31 @@ describe('Panels', () => {
         { field: 'dashboard', values: ['dashboard-volleyball'], exclude: true },
         { field: 'status', values: ['to_do', 'in_progress'], exclude: true },
       ];
-      expect(panelFilterFrom(panelFilterAsStored([held]))?.rows).toEqual([held]);
+      expect(panelFilterFrom(panelFilterAsStored([[held]]))?.sets).toEqual([[held]]);
+    });
+
+    it('reads a Filter stored with sets as those sets, grouping kept', () => {
+      const stored = JSON.stringify({ sets: [[[DUE_TODAY]], [[PANEL_Q3], [PRIORITY_HIGH]]], groupBy: 'panel' });
+      expect(panelFilterFrom(stored)).toEqual({ sets: [[[DUE_TODAY]], [[PANEL_Q3], [PRIORITY_HIGH]]], groupBy: 'panel' });
+    });
+
+    it('reads a Filter stored with rows only as one set holding those rows', () => {
+      const stored = JSON.stringify({ rows: [[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]], groupBy: 'dashboard' });
+      expect(panelFilterFrom(stored)).toEqual({ sets: [[[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]]], groupBy: 'dashboard' });
+    });
+
+    it('drops a set left empty by an empty row or a condition nobody reads any more, and keeps the others', () => {
+      const stored = JSON.stringify({
+        sets: [[[{ field: 'type', values: ['x'] }], []], [[DUE_TODAY]]],
+        groupBy: 'none',
+      });
+      expect(panelFilterFrom(stored)).toEqual({ sets: [[[DUE_TODAY]]], groupBy: 'none' });
+    });
+
+    it('reads text it cannot make sets of as nothing chosen, never a failure', () => {
+      for (const stored of ['not json', '[1,2]', '{"sets":"x"}', '{"sets":[[[{"field":"nope"}]]]}']) {
+        expect(panelFilterFrom(stored)).toEqual(NO_CONDITIONS);
+      }
     });
 
     it('is not a filter at all where nothing was stored', () => {
@@ -135,9 +159,8 @@ describe('Panels', () => {
 
     it('reads the same field in two rows as two conditions', () => {
       const notLow: FilterCondition = { field: 'priority', values: ['low'], exclude: true };
-      expect(panelFilterFrom(panelFilterAsStored([[PRIORITY_HIGH, DUE_TODAY], [notLow]]))?.rows).toEqual([
-        [PRIORITY_HIGH, DUE_TODAY],
-        [notLow],
+      expect(panelFilterFrom(panelFilterAsStored([[[PRIORITY_HIGH, DUE_TODAY], [notLow]]]))?.sets).toEqual([
+        [[PRIORITY_HIGH, DUE_TODAY], [notLow]],
       ]);
     });
 
@@ -147,8 +170,8 @@ describe('Panels', () => {
       // carried into rows as it was: read back deduplicated, a later save of
       // the same Panel is not refused for a duplicate nobody just chose.
       const week = { field: 'dueDate', window: 'week', orOverdue: false } as const;
-      expect(panelFilterFrom(panelFilterAsStored([[DUE_TODAY, PRIORITY_HIGH, week], [], [PANEL_Q3]]))).toEqual({
-        rows: [[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]],
+      expect(panelFilterFrom(panelFilterAsStored([[[DUE_TODAY, PRIORITY_HIGH, week], [], [PANEL_Q3]]]))).toEqual({
+        sets: [[[DUE_TODAY, PRIORITY_HIGH], [PANEL_Q3]]],
         groupBy: 'none',
       });
     });
@@ -175,7 +198,7 @@ describe('Panels', () => {
       // *Or overdue* is ticked unless somebody unticked it, so a condition
       // stored before the tick existed widens rather than narrows.
       expect(panelFilterFrom('{"rows":[[{"field":"dueDate","window":"week"}]]}')).toEqual({
-        rows: [[{ field: 'dueDate', window: 'week', orOverdue: true }]],
+        sets: [[[{ field: 'dueDate', window: 'week', orOverdue: true }]]],
         groupBy: 'none',
       });
     });
@@ -189,16 +212,16 @@ describe('Panels', () => {
       {
         situation: 'Type in a row of its own beside Priority',
         stored: stored([[TYPE], [PRIORITY_HIGH]]),
-        reads: [[PRIORITY_HIGH]],
+        reads: [[[PRIORITY_HIGH]]],
       },
       { situation: 'Type alone, which is nothing chosen', stored: stored([[TYPE]]), reads: [] },
       {
         situation: 'Type is not beside a Due date in one row',
         stored: stored([[{ ...TYPE, exclude: true }, DUE_TODAY]]),
-        reads: [[DUE_TODAY]],
+        reads: [[[DUE_TODAY]]],
       },
     ])('reads $situation without the Type', ({ stored, reads }) => {
-      expect(panelFilterFrom(stored)).toEqual({ rows: reads, groupBy: 'none' });
+      expect(panelFilterFrom(stored)).toEqual({ sets: reads, groupBy: 'none' });
     });
 
     it('still shows nothing chosen for a shape it cannot read, Type or not', () => {
@@ -227,12 +250,12 @@ describe('Panels', () => {
     it.each([
       {
         situation: 'saved grouped by Panel',
-        stored: panelFilterAsStored([[DUE_TODAY, PRIORITY_HIGH]], 'panel'),
+        stored: panelFilterAsStored([[[DUE_TODAY, PRIORITY_HIGH]]], 'panel'),
         reads: 'panel',
       },
       {
         situation: 'saved grouped by Dashboard',
-        stored: panelFilterAsStored([[DUE_TODAY, PRIORITY_HIGH]], 'dashboard'),
+        stored: panelFilterAsStored([[[DUE_TODAY, PRIORITY_HIGH]]], 'dashboard'),
         reads: 'dashboard',
       },
       {
@@ -248,11 +271,11 @@ describe('Panels', () => {
     ])('reads $situation, its rows intact', ({ stored, reads }) => {
       // The rows surviving is the point of the last row: a grouping a later
       // release wrote costs the grouping alone, never an empty Filter.
-      expect(panelFilterFrom(stored)).toEqual({ rows: [[DUE_TODAY, PRIORITY_HIGH]], groupBy: reads });
+      expect(panelFilterFrom(stored)).toEqual({ sets: [[[DUE_TODAY, PRIORITY_HIGH]]], groupBy: reads });
     });
 
     it('is written as none where no grouping is given', () => {
-      expect(panelFilterFrom(panelFilterAsStored([[DUE_TODAY]]))?.groupBy).toBe('none');
+      expect(panelFilterFrom(panelFilterAsStored([[[DUE_TODAY]]]))?.groupBy).toBe('none');
     });
   });
 

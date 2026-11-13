@@ -18,7 +18,7 @@ import {
   uniqueTitle,
 } from './support/app';
 import type { Page } from '@playwright/test';
-import { giveAnEmptyDashboard, giveToAPanel } from './support/arrange';
+import { giveAWorkspace, giveAnEmptyDashboard, giveToAPanel } from './support/arrange';
 
 /**
  * F3, because the whole of this rule is one item being in two workspaces at
@@ -331,6 +331,83 @@ test.describe('Capture', () => {
       const panel = page.getByRole('region', { name: 'Falcon' });
       await expect(panel.getByRole('listitem').first()).toContainText(note);
       await expect(panel.getByRole('listitem').nth(1)).toContainText(already);
+    });
+  });
+
+  test.describe('each most-used Panel’s button names its Dashboard above its Panel, and three fit one row', () => {
+    test('draws the three in equal thirds of one row, the Dashboard small above the Panel, a long name ending in “…”', async ({
+      page,
+      isMobile,
+    }) => {
+      // Only a real layout wraps, truncates and stacks; which three are offered
+      // is apps/web/tests/unit/mostUsedPanels.test.ts. A Workspace of the walk's
+      // own, so no other walk's filings count among its Panels.
+      await openInbox(page, isMobile);
+      const workspace = await giveAWorkspace(page, uniqueTitle('Most used'));
+      await page.reload();
+      await switchTo(page, workspace.name, isMobile);
+      const LONG = 'Admin & money: receipts, invoices, the bank, the accountants';
+      const filed: [string, string, number][] = [
+        ['Falcon', 'Tasks', 3],
+        ['Atlas', 'Tasks', 2],
+        ['Day to day', LONG, 1],
+      ];
+      for (const [dashboard, panel, count] of filed) {
+        const board = await giveAnEmptyDashboard(page, dashboard, [panel]);
+        await giveToAPanel(page, board.panels[0]!, Array.from({ length: count }, () => uniqueTitle('Filed')));
+      }
+      await page.reload();
+
+      await openCapture(page, isMobile);
+
+      const buttons = page.getByRole('group', { name: 'Most used Panels' }).getByRole('button');
+      await expect(buttons).toHaveCount(3);
+      const paths = filed.map(([dashboard, panel]) => `${dashboard} ▸ ${panel}`);
+      for (const [at, path] of paths.entries()) await expect(buttons.nth(at)).toHaveAttribute('title', path);
+      const drawn = await buttons.evaluateAll((all) =>
+        all.map((button) => {
+          const [dashboard, panel] = [...button.children] as HTMLElement[];
+          const box = button.getBoundingClientRect();
+          return {
+            top: Math.round(box.top),
+            width: Math.round(box.width),
+            dashboardAbove: dashboard!.getBoundingClientRect().bottom <= panel!.getBoundingClientRect().top + 1,
+            dashboardSmaller: parseFloat(getComputedStyle(dashboard!).fontSize) < parseFloat(getComputedStyle(panel!).fontSize),
+            cutWithDots: panel!.scrollWidth > panel!.clientWidth && getComputedStyle(panel!).textOverflow === 'ellipsis',
+          };
+        }),
+      );
+      expect(new Set(drawn.map((one) => one.top)).size, 'the three wrap onto more than one row').toBe(1);
+      expect(Math.max(...drawn.map((one) => one.width)) - Math.min(...drawn.map((one) => one.width))).toBeLessThanOrEqual(1);
+      expect(drawn.map((one) => [one.dashboardAbove, one.dashboardSmaller])).toEqual(drawn.map(() => [true, true]));
+      expect(drawn.map((one) => one.cutWithDots)).toEqual([false, false, true]);
+      await expectNoSidewaysScroll(page);
+      await expect(buttons.locator('[aria-hidden="true"]')).toHaveCount(0);
+
+      // Under Any workspace the buttons span Workspaces and each gains a dot on
+      // the Dashboard's line. Which three is the ranking's unit test: other
+      // walks' filings count here, so only the row's shape is asserted.
+      await page.getByRole('group', { name: 'Where' }).getByRole('button', { name: 'Any workspace' }).click();
+      await expect(buttons).toHaveCount(3);
+      const withDots = await buttons.evaluateAll((all) =>
+        all.map((button) => {
+          const [dashboard] = [...button.children] as HTMLElement[];
+          const dot = dashboard!.querySelector('[aria-hidden="true"]') as HTMLElement | null;
+          const box = button.getBoundingClientRect();
+          const text = dashboard!.querySelector(':scope > span:not([aria-hidden])') as HTMLElement;
+          return {
+            top: Math.round(box.top),
+            width: Math.round(box.width),
+            dotBeforeName: !!dot && dot.getBoundingClientRect().right <= text.getBoundingClientRect().left + 1,
+            sameLine: !!dot && Math.abs(dot.getBoundingClientRect().top - text.getBoundingClientRect().top) < text.getBoundingClientRect().height,
+            inside: !!dot && dot.getBoundingClientRect().right <= box.right,
+          };
+        }),
+      );
+      expect(new Set(withDots.map((one) => one.top)).size, 'the three wrap onto more than one row').toBe(1);
+      expect(Math.max(...withDots.map((one) => one.width)) - Math.min(...withDots.map((one) => one.width))).toBeLessThanOrEqual(1);
+      expect(withDots.map((one) => [one.dotBeforeName, one.sameLine, one.inside])).toEqual(withDots.map(() => [true, true, true]));
+      await expectNoSidewaysScroll(page);
     });
   });
 });

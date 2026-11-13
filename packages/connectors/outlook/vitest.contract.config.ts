@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config';
 import { sessionRunReporter } from '../../../scripts/lib/vitest-session-reporter.mjs';
 
 /**
- * The contract tier for this connector (docs/testing-strategy.md, "Third
- * parties"): what every tier below it fakes, asked of Microsoft Graph itself.
+ * The contract tier for this connector
+ * (.claude/skills/testing/references/third-parties.md): what every tier below it fakes, asked of Microsoft Graph itself.
  *
  * **Never per change**: it reaches the network, so it must never be picked up
  * by `pnpm test`, and a failure is Microsoft having moved rather than something

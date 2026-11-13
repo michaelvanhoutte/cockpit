@@ -29,6 +29,7 @@ const LOGO = `<svg aria-hidden="true" viewBox="0 0 32 32" class="logo"><rect x="
  */
 export const PAGES = [
   { name: 'costs', href: '/', label: 'Claude Code costs', question: 'What does building this app with Claude Code cost, and where does the money go?' },
+  { name: 'harness-trend', href: '/harness-trend', label: 'Harness trend', question: 'Is the harness getting more expensive?' },
   { name: 'claude-calls', href: '/claude-calls', label: 'Cockpit&rsquo;s Claude calls', question: 'What do the app&rsquo;s own AI features cost to run?' },
   { name: 'cycle-time', href: '/cycle-time', label: 'Cycle time', question: 'How long does a change take to land, and how much of that is waiting on checks rather than writing?' },
   { name: 'selection', href: '/selection', label: 'Test selection', question: 'Does CI run only the tests a change can affect?' },
@@ -61,7 +62,8 @@ export function selectField(id: string, label: string, options: [value: string, 
 export function inline(name: string, label: string, options: [value: string, text: string, off?: boolean | 'hidden'][], current: string, resting: string | null = null): string {
   const opts = options.map(([v, t, off]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}${off === 'hidden' ? ' hidden' : off ? ' disabled' : ''}>${esc(t)}</option>`).join('');
   // New rows start in their own order, so choosing them leaves the form's sort behind; every other choice keeps it.
-  const leave = name === 'group' ? 'if(this.form.elements.sort)this.form.elements.sort.disabled=true;' : '';
+  // Each day has no day to show, so choosing it leaves the day too.
+  const leave = name === 'group' ? "if(this.form.elements.sort)this.form.elements.sort.disabled=true;if(this.value==='day'&&this.form.elements.day)this.form.elements.day.removeAttribute('name');" : '';
   return `<select name="${name}" aria-label="${label}" onchange="${leave}this.form.submit()"${resting !== null && current !== resting ? ' data-set' : ''}>${opts}</select>`;
 }
 
@@ -154,7 +156,7 @@ const DARK = `
   --ground:#23242a;--surface:#24252b;--field:#141519;--well:#141418;
   --ink-strong:#e4e5ea;--ink:#c2c5cd;--ink-soft:#9a9eaa;--ink-faint:#8a8e9a;--shade:#e4e5ea;
   --accent-deep:#b3abdb;--accent-tint:color-mix(in srgb,#6f62b5 22%,#23242a);
-  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;
+  --series-1:#6c48d1;--series-2:#ea691f;--series-3:#b91a6f;--series-4:#01aaa2;--series-5:#895f11;--series-6:#408ffe;--series-7:#6a6e1a;--series-8:#9a5ca1;--series-grey:#80838d;--trend:#f0b429;--trend-ink:#f0b429;
   --due:#8f82d8;--due-soft:#4a3519;--due-ink:#e8c08a;--over-ink:#e0867f;--good:#4ad6a0;
   --shadow-panel:0 0 0 1px rgb(255 255 255 / .06),0 1px 2px rgb(0 0 0 / .3);
   --well-edge:inset 0 2px 3px -1px rgb(0 0 0 / .5),0 0 0 1px rgb(255 255 255 / .04);
@@ -170,7 +172,7 @@ export const STYLE = `
   --ink-strong:#16181d;--ink:#3a3f4b;--ink-soft:#555b68;--ink-faint:#5a5f6d;--shade:#16181d;
   --graphite-top:#2d2e35;--graphite-bottom:#16181d;--chrome-ink:#f2f1f8;--chrome-ink-soft:#a5a3b5;
   --accent:#6f62b5;--accent-deep:#5d5294;--accent-soft:#b5abfc;--accent-tint:#e7e5fe;--on-accent:#fff;--bar:#594e91;--logo-dot:#9a8fd6;
-  --series-1:#562ab4;--series-2:#eb6200;--series-3:#ab1f68;--series-4:#169b95;--series-5:#7f5704;--series-6:#257ff6;--series-7:#868b3d;--series-8:#7c2f85;--series-grey:#6e717a;
+  --series-1:#562ab4;--series-2:#eb6200;--series-3:#ab1f68;--series-4:#169b95;--series-5:#7f5704;--series-6:#257ff6;--series-7:#868b3d;--series-8:#7c2f85;--series-grey:#6e717a;--trend:#c79100;--trend-ink:#8a5a00;
   --due:#8579c4;--due-soft:#f1dcc0;--due-ink:#6b4515;--over:#bf5d55;--over-ink:#9d4d46;--good:#0b7a55;
   --shadow-panel:0 0 0 1px color-mix(in srgb,var(--accent) 14%,#d3d6e2),0 1px 2px rgb(22 24 29 / .05);
   --well-edge:inset 0 2px 3px -1px rgb(22 24 29 / .12);
@@ -222,6 +224,9 @@ select{height:38px;padding:0 32px 0 12px;font:inherit;font-size:14px;color:var(-
 select[data-set]{border:2px solid var(--accent);padding-left:11px}
 .button{margin-left:auto;display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow-panel);color:var(--ink-strong);font-size:14px;font-weight:500;text-decoration:none}
 .button:hover{background:var(--field)}
+/* The date input behind "Pick a day…": invisible, so the picker opens from the select */
+.period-pick{position:relative}
+.day-pick{position:absolute;left:0;bottom:0;width:100%;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
 noscript button{height:38px;padding:0 16px;font:inherit}
 
 /* Panels: a section heading over a well */
@@ -229,6 +234,8 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .section-band{display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;padding:11px 10px 10px}
 .section-band h2{font-size:13px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--accent-deep)}
 .section-band .aside{margin-left:auto;font-size:13px;color:var(--ink-faint)}
+.section-band .aside b{font-weight:600;color:var(--ink-strong)}
+.panel>.legend{padding:0 10px 8px}
 .well{margin:0;background:var(--well);box-shadow:var(--well-edge);border:1px solid color-mix(in srgb,var(--shade) 7%,transparent);flex:1}
 .pad{padding:18px 16px;display:flex;flex-direction:column;gap:14px}
 .warning{border-color:var(--due)}
@@ -262,6 +269,11 @@ noscript button{height:38px;padding:0 16px;font:inherit}
 .key{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--ink-soft);letter-spacing:0;text-transform:none}
 .key i.dash{width:16px;height:0;border-top:2px dashed var(--ink-strong);border-radius:0;background:none}
 .lines>g{transition:opacity .12s}
+.day-strips rect{fill:transparent;cursor:pointer}
+svg.zoomable{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.brush-area{fill:var(--accent);fill-opacity:.15;stroke:var(--accent);stroke-width:1}
+.brush-label{font-size:12px;fill:var(--ink-strong);font-weight:600}
+.day-strips a:hover rect{fill:var(--ink-strong);fill-opacity:.08;outline:none}
 ${HIGHLIGHT}
 
 /* Tables */

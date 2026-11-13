@@ -5,7 +5,7 @@ import { BOT_FRAMEWORK_ISSUER } from '../../src/activity.js';
  * A Bot Framework that can be reached from inside a unit test: a key pair
  * standing in for the one Microsoft publishes, and calls signed with it.
  *
- * **No network, which is what keeps these at L1** (docs/testing-strategy.md):
+ * **No network, which is what keeps these at L1** (.claude/skills/testing/SKILL.md):
  * the key set is handed to the connector rather than fetched, exactly as the
  * sign-in tests hand one to `claimsFrom`. Whether the real endpoint still
  * publishes what this stands in for is `tests/contract/`'s question.

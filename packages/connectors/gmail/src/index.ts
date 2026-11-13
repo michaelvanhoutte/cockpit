@@ -1,5 +1,7 @@
 import type { Connector } from '@cockpit/connector-sdk';
 import { refreshTokenToRevoke } from './credential.js';
+import { findGmailDraft, makeGmailDraft, readGmailConversationForReply, rewriteGmailDraft } from './drafts.js';
+import { listGmailSent } from './sent.js';
 import { endpointsOf, type GmailConnectorConfig } from './mailbox.js';
 import { gmailAccountFrom, gmailSignIn } from './sign-in.js';
 import { mirrorOpenStates, syncMailbox } from './sync.js';
@@ -47,6 +49,9 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
       // A conversation's labels, but Gmail's own and the one followed, are its
       // Item's names (issue 1148).
       names: { noun: 'label', example: 'a conversation labelled' },
+      // Email… makes a draft whose conversation a check then reads turns for,
+      // which only a connection following the star does (issue 1708).
+      startsConversations: { underChoices: ['star'] },
       auth: gmailSignIn(config.issuer),
     },
 
@@ -55,6 +60,16 @@ export function createGmailConnector(config: GmailConnectorConfig): Connector {
     sync: (host) => syncMailbox(host, config),
 
     mirrorOpenState: (host, wanted) => mirrorOpenStates(host, config, wanted),
+
+    makeDraft: (host, wanted) => makeGmailDraft(host, config, wanted),
+
+    findDraft: (host, draft, read) => findGmailDraft(host, config, draft, read),
+
+    listRecentSent: (host, limit) => listGmailSent(host, config, limit),
+
+    readConversationForReply: (host, conversationId, limits) => readGmailConversationForReply(host, config, conversationId, limits),
+
+    rewriteDraft: (host, draft, rewrite) => rewriteGmailDraft(host, config, draft, rewrite),
 
     /**
      * Cancels the grant at Google: a token that can change mail should not

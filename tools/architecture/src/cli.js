@@ -1,7 +1,7 @@
 /**
- * The wiring: readCheckout(root) -> buildModel(...) -> renderHtml(model) -> files.
+ * The wiring: readCheckout(root) -> buildModel(...) -> the pages -> files.
  *
- * Nothing is written until the model is built and the page rendered: a file
+ * Nothing is written until the model is built and every page rendered: a file
  * that cannot be read fails the run with a non-zero exit and leaves no page and
  * no model, so the previous report stays live rather than being replaced by a
  * drawing with a part missing.
@@ -14,18 +14,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compareWithPrevious } from './compare.js';
 import { buildModel, ReadError } from './model.js';
 import { readCheckout } from './read.js';
-import { renderDiagramPages, renderHtml } from './render/html.js';
+import { renderDesignPages } from './render/design.js';
+import { renderLogicalPage, servicesOf } from './render/logical.js';
+import { renderServicePages, renderWholeAppPages } from './render/services.js';
+import { renderTablePages } from './render/tables.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const USAGE = `Usage: node src/cli.js [options]
 
-  --out <path>     where to write (default ../out/index.html, or model.json with --json); the diagram pages go beside it
-  --json           write the model instead of the page (and the diagram pages)
+  --out <folder>   where to write the pages and model.json (default ../out)
+  --json           write only the model, as model.json in that folder, and no page
   --model <path>   also write the model, as --json would, to this path
   --root <path>    the checkout to draw (default: the repository this tool is in)
-  --monitor <url>  the Harness Monitor's address, which the page links the harness reports at (default: no links)
-  --previous <location>  the previous report's model, a file or an address; What changed compares with the commit it names
+  --monitor <url>  the Harness Monitor's address, which the front page links the harness reports at (default: no links)
+  --previous <location>  the previous report's model, a file or an address; What changed, at the foot of the front page, compares with the commit it names
   --help
 `;
 
@@ -41,6 +44,8 @@ export function parseArgs(argv) {
     else if (arg === '--out' || arg === '--root' || arg === '--model' || arg === '--previous') {
       const next = value();
       if (!next || next.startsWith('--')) args.invalid ??= `${arg} needs a path`;
+      // --out was once the page itself: a file name there would quietly become a folder of that name.
+      else if (arg === '--out' && /\.(html|json)$/i.test(next)) args.invalid ??= `--out is the folder the pages go in, not a file: ${next}`;
       else args[arg.slice(2)] = next;
     } else args.unknown ??= arg;
   }
@@ -64,24 +69,18 @@ export async function main(argv) {
     return 0;
   }
 
-  const out = path.resolve(args.out ?? path.join(here, '../out', args.json ? 'model.json' : 'index.html'));
-  if (args.model && path.resolve(args.model) === out) {
-    process.stderr.write(`--model and --out cannot be the same path\n\n${USAGE}`);
-    return 2;
-  }
+  const out = path.resolve(args.out ?? path.join(here, '../out'));
 
   let model;
-  let page;
-  let diagramPages = {};
+  let pages = {};
   try {
     const root = path.resolve(args.root ?? path.join(here, '../../..'));
     const checkout = readCheckout(root);
     model = buildModel(checkout);
     // Only the page shows the comparison, so only the page pays for the second drawing.
-    const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, previous: args.previous });
+    const comparison = args.json ? null : await compareWithPrevious({ root, model, description: checkout.description, rules: checkout.rules, previous: args.previous });
     if (comparison) process.stderr.write(`what changed: ${comparison.state === 'compared' ? `${comparison.changes.length} changes since ${comparison.from.commit.slice(0, 7)}` : comparison.state === 'first' ? 'first report' : comparison.reason}\n`);
-    page = args.json ? modelJson(model) : renderHtml(model, { monitor: args.monitor, comparison });
-    if (!args.json) diagramPages = renderDiagramPages(model);
+    if (!args.json) pages = { ...renderWholeAppPages(model, { comparison }), ...renderTablePages(model), ...renderServicePages(model), ...renderDesignPages(model, { monitor: args.monitor, comparison }), ...Object.fromEntries(servicesOf(model).map((service) => [service.file, renderLogicalPage(model, service)])) };
   } catch (error) {
     if (error instanceof ReadError) {
       process.stderr.write(`${error.message}\n`);
@@ -90,8 +89,8 @@ export async function main(argv) {
     throw error;
   }
 
-  const written = [[out, page]];
-  for (const [name, content] of Object.entries(diagramPages)) written.push([path.join(path.dirname(out), name), content]);
+  const written = [[path.join(out, 'model.json'), modelJson(model)]];
+  for (const [name, content] of Object.entries(pages)) written.push([path.join(out, name), content]);
   if (args.model) written.push([path.resolve(args.model), modelJson(model)]);
   for (const [file, content] of written) {
     mkdirSync(path.dirname(file), { recursive: true });

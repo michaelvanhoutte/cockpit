@@ -5,7 +5,7 @@ description: Cockpit's ticket template and the gh commands to create and update 
 
 # The ticket
 
-Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per [docs/testing-strategy.md](../../../docs/testing-strategy.md).
+Issues size work for one sitting. They are not the long-term record: once an issue is built, the source — code, tests, the feature's own docs — is what stays true, per the [testing](../testing/SKILL.md) skill.
 
 One ticket carries a piece of work from `scoping` through the two phases of `engineering-plan`, each adding its own sections, so what one skill produces the next finds on the ticket and not in a session that may have ended. [scoping](../scoping/SKILL.md) decides the Problem and What to build, and [engineering-plan](../engineering-plan/SKILL.md) the design, failure modes, units, models and test cases; none is repeated here. This skill covers only the body template and the `gh` commands.
 

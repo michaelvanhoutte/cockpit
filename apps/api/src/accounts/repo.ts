@@ -15,12 +15,14 @@ import {
   type AgentRun,
   type Association,
   type Attachment,
+  type Conversation,
   type Dashboard,
   type Filing,
   type Item,
   type ItemFormPresentation,
   type Layout,
   type LayoutRow,
+  type MostUsedPanel,
   type Panel,
   type PossibleDuplicate,
   type RecurringItem,
@@ -39,7 +41,7 @@ import type { AttachmentForDownload, AttachmentRow } from '../domain/attachments
 import type { LayoutRowRow, PlacementRow } from '../domain/panels.js';
 import type { MasterRow, SeriesRow } from '../domain/series.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
-import type { FilingRow } from '../domain/filings.js';
+import type { FilingRow, HeldFiling } from '../domain/filings.js';
 import { REMEMBERED_SENTENCES_KEPT, type RememberedSentenceView } from '@cockpit/shared';
 import { sentencesThatFit, ITEMS_PROPOSED_AGAIN, type RememberedSentence } from '../domain/remembered-sentences.js';
 import { SENDS_COMPARED, closestSends, type ClaudeSendRecord, type PastSend } from '../domain/claude-send-records.js';
@@ -63,6 +65,7 @@ import {
   decisionHistory,
   duplicateSettlements,
   itemAdditions,
+  itemConversations,
   itemDuplicates,
   itemMeanings,
   items,
@@ -1229,6 +1232,70 @@ export function listAdditionsInWorkspace(
 }
 
 /**
+ * The conversation each Item of one Workspace follows at its source ("A Gmail
+ * starred conversation is one Item whose status follows who wrote last", issue
+ * 1705): the Items `listAdditionsInWorkspace` above reads notes for, joined by
+ * Item - the table's primary key leads with it - so a Workspace with many
+ * finished followed Items reads none of their rows.
+ */
+export function listConversationsInWorkspace(
+  db: AccountDb,
+  tenantId: string,
+  workspaceId: string,
+  of: ItemsOfTheRead = 'every',
+): Conversation[] {
+  // A draft Email… made still unsent is said only where it is so (issue 1708),
+  // so a row without one reads as it did before; while it is, Open goes to the
+  // draft where its link is kept (issue 1720), a row from before it linking the
+  // conversation. A draft with Claude's fingerprint is said to be Claude's (issue 1732).
+  return conversationsInWorkspace(db, tenantId, workspaceId, of)
+    .all()
+    .map(({ statusBeforeDraft, draftLink, claudeDraftDigest, ...conversation }) =>
+      statusBeforeDraft === null
+        ? conversation
+        : {
+            ...conversation,
+            link: draftLink ?? conversation.link,
+            draftStarted: true,
+            ...(claudeDraftDigest !== null ? { claudeDrafted: true } : {}),
+          },
+    );
+}
+
+/** The statement `listConversationsInWorkspace` runs, apart, so its plan can be read (conversations-in-the-workspace-read.test.ts). */
+export function conversationsInWorkspace(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead) {
+  return db
+    .select({
+      itemId: itemConversations.itemId,
+      source: itemConversations.connectorId,
+      conversationId: itemConversations.conversationId,
+      link: itemConversations.link,
+      lastBy: itemConversations.lastBy,
+      lastFrom: itemConversations.lastFrom,
+      lastAt: itemConversations.lastAt,
+      lastExcerpt: itemConversations.lastExcerpt,
+      messageCount: itemConversations.messageCount,
+      startedAt: itemConversations.startedAt,
+      withWhom: itemConversations.withWhom,
+      statusBeforeDraft: itemConversations.statusBeforeDraft,
+      draftLink: itemConversations.draftLink,
+      claudeDraftDigest: itemConversations.claudeDraftDigest,
+    })
+    .from(items)
+    .innerJoin(itemConversations, eq(itemConversations.itemId, items.id))
+    .where(
+      and(
+        eq(items.tenantId, tenantId),
+        eq(itemConversations.tenantId, tenantId),
+        or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
+        isNull(items.deletedAt),
+        itemsOfTheRead(of),
+      ),
+    )
+    .orderBy(asc(itemConversations.itemId), asc(itemConversations.lastAt));
+}
+
+/**
  * What the attachment download route reads (`apps/api/src/http/app.ts`): the
  * one attachment by its id, alongside `r2Key` (never sent to a client) and
  * server-internal enough that this has no wire schema of its own.
@@ -1392,14 +1459,15 @@ export function listFilingsInWorkspace(
  *
  * Deleted panels are not filtered here: the caller has already established
  * which panel this is, and a deleted one has no filings to compare against
- * anyway.
+ * anyway. Each carries when it landed there, which the rewrite keeps.
  */
-export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): Filing[] {
+export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): HeldFiling[] {
   return db
     .select({
       panelId: panelItems.panelId,
       itemId: panelItems.itemId,
       position: panelItems.position,
+      filedAt: panelItems.filedAt,
     })
     .from(panelItems)
     .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
@@ -1427,6 +1495,7 @@ export function listFilingsOnPanelOutOfTheRead(
       itemId: panelItems.itemId,
       position: panelItems.position,
       createdAt: panelItems.createdAt,
+      filedAt: panelItems.filedAt,
     })
     .from(panelItems)
     .innerJoin(items, eq(panelItems.itemId, items.id))
@@ -1440,6 +1509,64 @@ export function listFilingsOnPanelOutOfTheRead(
     )
     .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The filings a person made in the 7 days before `now` whose Item is not dismissed, by the stamp's index: the most-used read's first half. */
+export function filingsLandedThisWeek(db: AccountDb, tenantId: string, now: Date) {
+  const weekAgo = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+  return db
+    .select({ panelId: panelItems.panelId, filedAt: panelItems.filedAt, workspaceId: items.workspaceId })
+    .from(panelItems)
+    .innerJoin(items, eq(panelItems.itemId, items.id))
+    .where(and(eq(panelItems.tenantId, tenantId), gt(panelItems.filedAt, weekAgo), isNull(items.deletedAt)));
+}
+
+/**
+ * The Panels a person filed Items on in the last 7 days, with how many landed
+ * in the last 24 hours and the last 7 days, as of `now` ("Capture: offer
+ * today's and this week's most-used Panels…", issue 1743). Counted from the
+ * rows still there, so an Item moved off a Panel counts there no more; a
+ * dismissed Item does not count, a finished one does. Only live Panels of live
+ * Dashboards and Workspaces come back.
+ *
+ * **Two reads, counted here rather than grouped in SQL**: the week's rows by
+ * `panel_items_tenant_filed`, a range on `filed_at`, then every live Panel's
+ * names. Grouped by Panel in one statement, the planner walks every filing by
+ * `panel_items_tenant_panel` instead, however old.
+ */
+export function listMostUsedPanels(db: AccountDb, tenantId: string, now: Date): MostUsedPanel[] {
+  const dayAgo = new Date(now.getTime() - DAY_MS).toISOString();
+  const landed = filingsLandedThisWeek(db, tenantId, now).all();
+  if (landed.length === 0) return [];
+  const named = new Map(
+    db
+      .select({
+        panelId: panels.id,
+        panelName: panels.name,
+        dashboardName: dashboards.name,
+        workspaceId: dashboards.workspaceId,
+      })
+      .from(panels)
+      .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+      .innerJoin(workspaces, eq(dashboards.workspaceId, workspaces.id))
+      .where(and(eq(panels.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt), live(tenantId)))
+      .all()
+      .map((panel) => [panel.panelId, panel]),
+  );
+  const counted = new Map<string, MostUsedPanel>();
+  for (const row of landed) {
+    const panel = named.get(row.panelId);
+    // An Item of another Workspace is not drawn on the Panel, as the Workspace's read leaves it out.
+    if (!panel || row.filedAt === null || row.workspaceId !== panel.workspaceId) continue;
+    const entry = counted.get(row.panelId) ?? { ...panel, lastDay: 0, lastWeek: 0, lastFiledAt: row.filedAt };
+    entry.lastWeek += 1;
+    if (row.filedAt > dayAgo) entry.lastDay += 1;
+    if (row.filedAt > entry.lastFiledAt) entry.lastFiledAt = row.filedAt;
+    counted.set(row.panelId, entry);
+  }
+  return [...counted.values()];
 }
 
 /**
@@ -3092,6 +3219,20 @@ export function replaceDuplicatesOf(
 }
 
 /**
+ * What a connection was granted, read from its stored `granted` column: the
+ * codes in it, or `null` for a connection made before the column existed (and
+ * for anything that is not a list of codes, which no write makes).
+ */
+export function grantedFrom(stored: string | null): string[] | null {
+  if (stored === null) return null;
+  try {
+    return z.string().array().safeParse(JSON.parse(stored)).data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The source accounts one Workspace has connected, oldest first ("Connect a
  * Microsoft Teams source account", issue 485).
  *
@@ -3116,6 +3257,7 @@ export function sourceAccountsIn(
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
+      granted: connectorAccounts.granted,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -3133,7 +3275,32 @@ export function sourceAccountsIn(
     // What it follows is the choice its connection stored, as the value alone:
     // the label is the connector's own and is put beside it where the registry
     // is known (issue 942).
-    .map(({ choice, ...account }) => (choice === null ? account : { ...account, follows: choice }));
+    .map(({ choice, granted, ...account }) => ({
+      ...account,
+      ...(choice === null ? {} : { follows: choice }),
+      granted: grantedFrom(granted),
+    }));
+}
+
+/**
+ * Every connection of one connector in the account, in every live Workspace,
+ * oldest first, with what each was granted - the ones a pasted link may be
+ * read with ("Read pasted Teams links", issue 1755). Identifiers only, as
+ * `sourceAccountsIn` above: the credential is fetched for the one asked.
+ */
+export function connectionsOfConnector(
+  db: AccountDb,
+  tenantId: string,
+  connectorId: string,
+): { id: string; workspaceId: string; granted: string[] | null }[] {
+  return db
+    .select({ id: connectorAccounts.id, workspaceId: connectorAccounts.workspaceId, granted: connectorAccounts.granted })
+    .from(connectorAccounts)
+    .innerJoin(workspaces, and(eq(workspaces.tenantId, connectorAccounts.tenantId), eq(workspaces.id, connectorAccounts.workspaceId)))
+    .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.connectorId, connectorId), isNull(workspaces.deletedAt)))
+    .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
+    .all()
+    .map((row) => ({ ...row, granted: grantedFrom(row.granted) }));
 }
 
 /**

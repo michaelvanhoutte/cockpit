@@ -114,6 +114,14 @@ export interface Env {
    * key on purpose; compared to the literal 'true' as `EMBEDDINGS_STAND_IN` is.
    */
   REMEMBER_OFFER_STAND_IN?: string;
+  /**
+   * Writes the same reply for any draft asked of Claude, rather than asking a
+   * model (`src/ai/reply-stand-in.ts`, "Mail follow-up: Reply… in Gmail makes an
+   * empty draft…", issue 1730). Set by the two local stacks (scripts/dev.mjs,
+   * scripts/e2e-stack.mjs), which hold a stand-in mailbox and no key to spend, and
+   * by nothing else; compared to the literal 'true' as `EMBEDDINGS_STAND_IN` is.
+   */
+  DRAFT_STAND_IN?: string;
   /** The application Google knows this Cockpit as, and the secret that proves it. */
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;

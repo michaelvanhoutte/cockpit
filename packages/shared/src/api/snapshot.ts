@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { additionSchema } from '../domain/addition.js';
 import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
+import { conversationSchema, mailboxSchema } from '../domain/conversation.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
 import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
@@ -67,6 +68,21 @@ export const workspaceSnapshotSchema = z.object({
    * not send it has no additions to show, and reads as `[]`.
    */
   additions: z.array(additionSchema).optional(),
+  /**
+   * The conversation each Item above follows at its source, where it follows
+   * one ("A Gmail starred conversation is one Item whose status follows who
+   * wrote last", issue 1705): what its row's line is drawn from. The same Items'
+   * as `attachments` above, so a finished one older than a day brings none.
+   * Optional, as `additions` is: a copy saved by a release that did not send it
+   * draws each row's source and sender, as before.
+   */
+  conversations: z.array(conversationSchema).optional(),
+  /**
+   * The Workspace's connections *Email…* can make a draft in, oldest first
+   * ("Email… makes a Gmail draft the Item then follows", issue 1708): none, and
+   * no row offers it. Optional, as `conversations` is.
+   */
+  mailboxes: z.array(mailboxSchema).optional(),
   /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,
@@ -136,6 +152,17 @@ export const workspaceSnapshotSchema = z.object({
    * by a release that did not send it is drawn without names, as itself.
    */
   sourceNames: z.record(z.string(), z.string()).optional(),
+  /**
+   * The addresses of each source's own messages, by connector id: a web host
+   * and the start of a path ("Open Items captured with a pasted Teams message
+   * link in Teams", issue 1738). The app opens an Item with no link of its own
+   * at the first such address in its text, under that source's name, and names
+   * no connector itself. Optional for the reason `sourceNames` is: a copy saved
+   * by a release that did not send it is drawn without them, as before.
+   */
+  messageLinks: z
+    .record(z.string(), z.array(z.object({ host: z.string().max(255), pathStart: z.string().max(255) })).max(20))
+    .optional(),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

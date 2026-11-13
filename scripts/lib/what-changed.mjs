@@ -41,6 +41,9 @@
 /** Directory prefixes whose files no mechanical check reads. */
 const NON_PRODUCT_DIRS = ['docs/', '.claude/'];
 
+/** Files under those directories that CI still reads: the rules file holds the import and paid-call rules. */
+const READ_BY_CI = ['docs/architecture.yml'];
+
 /**
  * A root-level Markdown file - `CLAUDE.md`, `readme.md`. No slash and no
  * control character, so a `.md` anywhere else is matched by its directory or
@@ -67,6 +70,7 @@ export function isNonProduct(path) {
   // character it is legal to carry could otherwise be trimmed into looking
   // like it starts with `docs/` when it does not.
   if (file.trim() === '') return false;
+  if (READ_BY_CI.includes(file)) return false;
   if (NON_PRODUCT_DIRS.some((dir) => file.startsWith(dir))) return true;
   return ROOT_MARKDOWN.test(file);
 }

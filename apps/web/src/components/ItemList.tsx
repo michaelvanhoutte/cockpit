@@ -2,6 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, 
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
+  conversationOf,
   itemLabel,
   recurringOriginOf,
   uuidv7,
@@ -67,6 +68,7 @@ import {
   useShowing,
   type Selection,
 } from '../selection';
+import { askToShow } from '../showItem';
 import { useUndo } from '../undo';
 import { ItemRow } from './ItemRow';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
@@ -287,6 +289,23 @@ export function ItemList({
   const several = useSeveral();
   const setSelection = (update: Selection | ((was: Selection) => Selection)) =>
     updateSelection(scope, typeof update === 'function' ? update : () => update);
+  /** What a Filter panel's heading is going to, as its tooltip says. */
+  const goingTo = (group: FilterGroup) =>
+    group.panelId !== null && group.dashboardName !== null ? `${group.name} · ${group.dashboardName}` : group.name;
+  /**
+   * A grouped Filter panel's heading goes to what it names: a Panel, by the
+   * landing Show asks for with no Items (the board of its Dashboard clears a
+   * hiding filter, scrolls and outlines), or a Dashboard, at its top. Asking
+   * comes before switching, so the board finds the request when it draws.
+   */
+  const goToGroup = (group: FilterGroup) => {
+    if (group.panelId !== null) askToShow({ dashboardId: group.dashboardId, panelId: group.panelId, itemIds: [] });
+    if (group.dashboardId === openDashboardId) return;
+    void navigate({
+      to: '/w/$workspaceId/d/$dashboardId',
+      params: { workspaceId, dashboardId: group.dashboardId },
+    });
+  };
   /** Everything a selection put on screen, gone together. */
   const stopSelecting = () => endSelection(scope);
 
@@ -982,6 +1001,7 @@ export function ItemList({
       inProposalGroup={group !== undefined}
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
+      messageLinks={data?.messageLinks}
       recurring={recurringOriginOf(item, data?.series)?.rule ?? null}
       workspaceId={workspaceId}
       inInbox={panelId === null}
@@ -1008,6 +1028,8 @@ export function ItemList({
           })}
       onOpen={() => openItem(item.id)}
       openRun={runsByItem.get(item.id)}
+      conversation={conversationOf(data?.conversations, item.id)}
+      mailboxes={data?.mailboxes}
       onSendToClaude={(from: HTMLElement | null) => {
         openedFrom.current = from;
         setSendingToClaude(item);
@@ -1236,10 +1258,17 @@ export function ItemList({
                     it, and goes when the next heading arrives: the heading is
                     inside the group it belongs to, so it is bounded by it. */}
                 <h4 className="sticky top-0 z-[1] flex items-baseline justify-between gap-2 border-b border-accent-deep/55 bg-surface px-4 pb-1 pt-2.5 text-xs font-medium tracking-wide text-ink-faint">
-                  <span className="min-w-0 truncate">
+                  {/* The name goes to what it names; the count stays outside. */}
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-left hover:underline"
+                    title={`Go to ${goingTo(group)}`}
+                    aria-label={`Go to ${goingTo(group)}`}
+                    onClick={() => goToGroup(group)}
+                  >
                     <span className="font-semibold uppercase text-accent-deep">{group.name}</span>
                     {group.dashboardName !== null && <span> · {group.dashboardName}</span>}
-                  </span>
+                  </button>
                   <span className="shrink-0 tabular-nums">{group.items.length}</span>
                 </h4>
                 <ul style={columnsStyle(columns)} role="list">

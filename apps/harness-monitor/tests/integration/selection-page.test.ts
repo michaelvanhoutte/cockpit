@@ -99,6 +99,7 @@ describe('Harness Monitor', () => {
       expect(html).toMatch(/<a href="\/selection" title="[^"]*" aria-current="page">Test selection<\/a>/);
       expect([...html.matchAll(/<nav class="pages".*?<\/nav>/gs)][0]![0].match(/>([^<]+)<\/a>/g)).toEqual([
         '>Claude Code costs</a>',
+        '>Harness trend</a>',
         '>Cockpit&rsquo;s Claude calls</a>',
         '>Cycle time</a>',
         '>Test selection</a>',

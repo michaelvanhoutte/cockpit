@@ -275,7 +275,7 @@ describe('User management', () => {
       },
       // What a name derives and what an address has to look like are settled at
       // apps/api/tests/unit/accounts/new-user.test.ts; re-proving them here
-      // would be the upward duplication the testing strategy rejects. What is
+      // would be the upward duplication the testing skill rejects. What is
       // left is the pair only a real register can answer.
     ])('refuses $situation, and writes nothing', async ({ body, says }) => {
       const before = (await env.DB.prepare('SELECT id FROM users').all()).results.length;

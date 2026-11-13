@@ -132,7 +132,156 @@ flag or category off in Outlook when its task is done in Cockpit", issue 1047).
   `400`) is given up on, so one message cannot hold up the rest. A `401` is
   refreshed once. The writes spend the run's `callsPerRun` before the listing does.
 
+## Following a conversation ("Outlook follows the flagged conversation as Gmail does", issue 1707)
+
+A connection following the flag makes one Item per **conversation**, keyed
+`conversation:<conversationId>`, and the Item follows it, as a Gmail starred
+conversation does. An Item made of one message before is keyed by the message's
+id (no prefix), stays as it was, never follows, and is still pushed per message;
+a message flagged again after its old Item closed makes a conversation Item.
+Following the category is per message, as before.
+
+- **The flagged listing reads each message's `conversationId`.** A flagged
+  message the run has not read, in a conversation no open Item follows
+  (`followedConversations`), is read in full and its conversation read whole
+  (`messages?$filter=conversationId eq '…'`, drafts and Deleted Items left out),
+  then emitted with where the conversation stands: the latest message (yours if
+  in Sent Items), the count, the first message's time, who it is with. The
+  flagged message gives the title, text and sender. The host answering
+  `already-known` is reported reopened, which is how flagging again after Done
+  reopens the same Item. A message in a conversation already followed costs no
+  call. The complete listing names `conversation:<id>` for such messages, so an
+  Item closes when no message of its conversation is flagged.
+- **A turn is any message received since the last run**, one read of the whole
+  mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
+  with `$select` of the id, conversation, folder, sender, time and
+  `bodyPreview`, cut where quoted earlier mail starts (an underscore line,
+  `From:`/`Van:` then `Sent:`/`Verzonden:`, `On … wrote:`/`Op … schreef …:`), and
+  its `webLink`, which Open then goes to. Each message in a followed conversation is reported once the
+  host asks (`reportTurn`; it changes nothing for one already reported). **Yours
+  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), not
+  a From comparison, so a send-as alias still counts. Drafts and Deleted Items
+  are not turns. Nothing is read while no Item follows a conversation. A read
+  cut short by the call budget keeps the time of the last message reported and
+  answers that there is more to do; a complete one restarts five minutes
+  before the run began, so a message stamped late is still seen (the host
+  ignores a repeat).
+- **Why `receivedDateTime`, and what is not proved.** Graph lists "the messages
+  in the signed-in user's mailbox (including the Deleted Items and Clutter
+  folders)" in one read (https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0),
+  so Sent Items are included, and `$orderby` must name a property that is also in
+  `$filter`, first. `createdDateTime` is documented as when the message was
+  created (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0),
+  which for a reply is when its draft was started, so a send long after would
+  fall behind the cursor; `receivedDateTime` is when it arrived, and Exchange
+  stamps a sent message with the time it was sent. Graph does not document the
+  last point; the contract test settles it against a real mailbox.
+- **Done completes the flag on every flagged message of the conversation**
+  (`messages?$filter=conversationId eq '…'&$select=id,flag`, then one `PATCH`
+  each, in Deleted Items too), confirmed only when none is left; a conversation
+  with more messages than the run's calls reach continues next run. A `403` or
+  `400` gives it up like any message. Reopened in Cockpit, it is confirmed while
+  a message in it is still flagged and otherwise given up, so the host stops
+  following: flagging every message again would flag mail nobody chose.
+- **Names** of a conversation Item are the union of the categories of its
+  flagged messages, reported when they change.
+
+## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
+
+*Email…* and *Reply…* are `makeDraft`, on demand while a person waits, for a
+connection following the flag only (`startsConversations`), the one whose check
+reads turns. Under the Mail.ReadWrite grant the connection already holds:
+
+- **A new conversation's draft** is `POST /me/messages` with the Item's title
+  as subject (one line, at most 200 characters), an empty plain-text body and no
+  recipient (https://learn.microsoft.com/en-us/graph/api/user-post-messages?view=graph-rest-1.0).
+- **A reply** is `POST /me/messages/{id}/createReply` on the conversation's
+  newest message that is not a draft and not in Deleted Items, so Graph
+  addresses it and puts it in the conversation
+  (https://learn.microsoft.com/en-us/graph/api/message-createreply?view=graph-rest-1.0).
+  Two reads come first: the two folder ids, and the conversation.
+- **The draft's `webLink`** opens it in Outlook on the web; it is the link for
+  the draft and, once sent, for the conversation. Immutable ids are asked for as
+  everywhere, so the draft keeps its id while it is edited and sent.
+- **At most eight calls**, a refresh included. Never retried: a draft made
+  twice is two drafts.
+- **A check** reads each draft the host still waits on once, after the turns of
+  the run (`GET /me/messages/{id}?$select=id,isDraft,parentFolderId`). Still a
+  draft outside Deleted Items, it changes nothing. Otherwise, sent (a message
+  now, or an id Graph no longer knows) or deleted (moved to Deleted Items), the
+  conversation is read: a message in Sent Items after the draft's `after` is
+  your turn, reported here since the read of received mail may never show it
+  (sent while the Item was done, or before the cursor); none, and the draft is
+  reported gone.
+- **Reply… with a draft already waited on** asks first what became of it, the
+  same way (`findDraft`): still a draft outside Deleted Items, its `webLink` is
+  the answer and nothing is made; sent (a message in Sent Items in its
+  conversation after `after`), the host is told so and makes nothing; otherwise
+  a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most seven calls: a refresh, the draft, the two
+  folders and a page or two of the conversation.
+- **A draft Claude writes** ("Mail follow-up: Email… and Reply… in Outlook make
+  an empty draft: have Claude write it", issue 1731) is made with the body the
+  Worker hands over. A new draft carries it as its plain-text `body`. `createReply`
+  takes no request body in Graph's documentation, so a reply is made as above and
+  its `body` is then updated with `PATCH /me/messages/{id}`, which Graph allows
+  only while `isDraft` is true
+  (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0):
+  the words go above the email Outlook quotes in the draft, as HTML
+  (`<div>` a line, escaped) where the draft is HTML, else as text. **A refused
+  update leaves the empty reply draft in the mailbox**, which the Worker does not
+  know of, so the person is told the draft was not made. Still eight calls.
+- **The conversation read for a reply** (`readConversationForReply`): the
+  conversation is listed with the light turn fields as a check lists it, the
+  newest ten kept, and each read once for `uniqueBody`, "the part of the body of
+  the message that is unique to the current message", not returned by default
+  (https://learn.microsoft.com/en-us/graph/api/resources/message?view=graph-rest-1.0),
+  with `Prefer: outlook.body-content-type="text"`. HTML that comes back anyway is
+  turned to text, and a quoted earlier email that is still in it is cut as the
+  excerpt cuts it. The ten reads run together; a message with no `uniqueBody` is
+  told by its preview. At most twenty calls.
+- **Claude's draft written again** ("Mail follow-up: a Claude draft looks like
+  any other and cannot be redone: say Claude drafted it, and redo it while you
+  have not edited it", issue 1732). The look (`findDraft` with `{ text: true }`)
+  reads the draft once with `uniqueBody` and `hasAttachments` added, as text
+  (https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0):
+  its own words above what it quotes, whole, or none where a file is attached.
+  `rewriteDraft` reads its `body` as stored and replaces only the words at its
+  top, compared spacing and markup aside, keeping the gap and the quoted email
+  byte for byte, with a `PATCH` conditional on the version read
+  (https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0).
+  Words not found where they go, an image among them (which `hasAttachments`
+  leaves out), or a save in between (412), is `changed`, and nothing is
+  written. Three calls.
+
+## Sent mail Follow a sent email… lists ("Follow a sent email… in Capture", issue 1710)
+
+`listRecentSent` is on demand while a person waits and changes nothing: one
+`GET /me/mailFolders/sentitems/messages?$top=30&$orderby=sentDateTime desc` with
+`$select=id,conversationId,subject,toRecipients,sentDateTime,bodyPreview,webLink,isDraft`
+(https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0).
+Three times the limit is asked for and the newest message of each conversation kept. A draft or a message with no conversation or time is not listed. The link is the
+message's `webLink`, which opens it in Outlook on the web.
+
+
+
 ## Not yet known
+
+- **Whether a draft made, opened and sent in real Outlook behaves as the
+  stand-in does**: `webLink` opening a draft for writing (rather than a read
+  view), its id staying the same through editing and sending (the check copes
+  with either), `createReply` on a message of your own addressing it to whom it
+  went, and how long the calls take ("Measure Email… and Follow a sent email…
+  on test mailboxes", issue 1704, was skipped). The draft shapes come from
+  Graph's documentation; the contract test has no case for them.
+- **What `uniqueBody` holds for a reply draft, and how Outlook rewraps the
+  words Cockpit put in it.** The documentation says only that it is the part
+  unique to the message; the stand-ins take it as everything above the quoted
+  email. Where real Outlook answers more, every Claude reply draft reads as
+  edited and is opened as yours, never overwritten (issue 1732).
+- **Whether Exchange gives a sent message a `receivedDateTime` of when it was
+  sent**, and whether `conversationId` accepts `eq` in a filter, as written
+  above. The contract test (`reads the mail received since…`) settles both; it
+  did not run when this was written.
 
 - **Whether `tests/contract/` still passes.** It reaches a dedicated Microsoft
   365 mailbox and skips without the three `OUTLOOK_CONTRACT_*` secrets, so it

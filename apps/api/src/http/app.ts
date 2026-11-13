@@ -42,6 +42,7 @@ import {
   userAddedSchema,
   userChangedSchema,
   workspaceListSchema,
+  mostUsedPanelsSchema,
   workspaceSnapshotSchema,
   type ClientCommandName,
   type CommandName,
@@ -141,7 +142,11 @@ import { revokeAppsOf } from '../mcp/revoke.js';
 import { open, seal, sealingKey, type Sealed } from '../connectors/credential-crypto.js';
 import {
   accountSignedIn,
+  adminApprovalNeeded,
   authorizationRequest,
+  firstTier,
+  steppedDown,
+  tierAsked,
   backToConnections,
   choiceOptionsOf,
   clientOf,
@@ -158,8 +163,12 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
+import { connectors, getConnector, messageLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
+import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
+import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
+import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
 import { rememberConnectionAfterStoring } from '../connectors/directory.js';
 import { forgetAddressAfterLettingGo, holdAddress } from '../email/register.js';
 import { confirmTextedCode, sendTextedCode } from '../connectors/texted-code.js';
@@ -678,6 +687,24 @@ const workspacesRoute = createRoute({
   },
 });
 
+/**
+ * The Panels Items landed on this week, across every Workspace, with their
+ * 24-hour and 7-day counts ("Capture: offer today's and this week's most-used
+ * Panels…", issue 1743): its own read rather than a field of each snapshot,
+ * since under *Any workspace* Capture would otherwise read every Workspace whole
+ * for three buttons.
+ */
+const mostUsedPanelsRoute = createRoute({
+  method: 'get',
+  path: '/v1/most-used-panels',
+  responses: {
+    200: {
+      description: 'Each live Panel filed on in the last 7 days, with its counts, names and Workspace',
+      content: { 'application/json': { schema: mostUsedPanelsSchema } },
+    },
+  },
+});
+
 const snapshotRoute = createRoute({
   method: 'get',
   path: '/v1/workspaces/{workspaceId}/snapshot',
@@ -794,6 +821,100 @@ const connectionHistoryRoute = createRoute({
     },
     404: {
       description: 'Unknown workspace or connection',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
+ * *Email…* and *Reply…* on an Item ("Email… makes a Gmail draft the Item then
+ * follows", issue 1708) are this route: a POST to the Item and not a
+ * command, since the source is asked during it and its answer is the draft's
+ * link the tab opened at the click is pointed at. Its changes are logged as
+ * commands on the way (`start_draft`, `follow_conversation`, `drop_draft`).
+ */
+const draftRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/items/{itemId}/draft',
+  request: {
+    params: z.object({ workspaceId: z.string(), itemId: z.string() }),
+    body: { content: { 'application/json': { schema: draftAskedSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The draft made, or the one this click made already: where it opens',
+      content: { 'application/json': { schema: draftMadeSchema } },
+    },
+    400: {
+      description: 'An Item whose conversation no mailbox of this connection reaches',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'Unknown Item, or no connection of this Workspace that makes drafts',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    409: {
+      description: 'This click’s draft was not made before, or the draft started before was sent since the last check, which is asked for',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    502: {
+      description:
+        'The source would not make the draft, or say whether the one started before is still there, and why: `putBack` says whether the Item has its status back',
+      content: { 'application/json': { schema: draftNotMadeSchema } },
+    },
+  },
+});
+
+/**
+ * *Follow a sent email…* in Capture ("Follow a sent email… in Capture", issue
+ * 1710): the newest ten emails sent from the Workspace's mail connections, read
+ * from their sources during the request, and a pick of one - the Item that
+ * follows its conversation, Waiting for reply. The list is a GET with no
+ * change; the pick makes its Item and logs its changes as commands
+ * (`capture_item`, `follow_conversation`).
+ */
+const sentEmailsRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/sent-emails',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: 'The newest sent emails of the Workspace mail connections, newest first, and the connections that could not be read',
+      content: { 'application/json': { schema: sentEmailsSchema } },
+    },
+  },
+});
+
+const sentEmailsAvailableRoute = createRoute({
+  method: 'get',
+  path: '/v1/workspaces/{workspaceId}/sent-emails/available',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: 'Whether the Workspace has a connection to list sent mail from, which is whether Capture offers the entry; no source is asked',
+      content: { 'application/json': { schema: sentEmailsAvailableSchema } },
+    },
+  },
+});
+
+const followSentEmailRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/sent-emails/follow',
+  request: {
+    params: z.object({ workspaceId: z.string() }),
+    body: { content: { 'application/json': { schema: followSentAskedSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The Item following the conversation of the email: made now, or the open one that already did',
+      content: { 'application/json': { schema: followSentAnswerSchema } },
+    },
+    400: {
+      description: 'The Item an earlier pick made for this conversation is finished',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+    404: {
+      description: 'No connection of this Workspace lists sent mail',
       content: { 'application/json': { schema: errorSchema } },
     },
   },
@@ -1346,14 +1467,28 @@ const routes = app
     const account = await openAccount(c.env, c.get('visitor').accountName);
     return c.json({ workspaces: await account.workspaces() }, 200);
   })
+  .openapi(mostUsedPanelsRoute, async (c) => {
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ panels: await account.mostUsedPanels() }, 200);
+  })
   .openapi(snapshotRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
-    const snapshot = await account.snapshot(workspaceId);
+    const { connections = [], ...snapshot } = await account.snapshot(workspaceId);
     // Opening a Workspace is opening its Dashboards: the read the app makes
     // each time one is shown (issue 653).
     await countForGuest(c.env, c.get('sessionId'), 'dashboardsOpened');
-    return c.json({ ...snapshot, sourceNames: sourceNames(c.env), generatedAt: new Date().toISOString() }, 200);
+    return c.json(
+      {
+        ...snapshot,
+        // The connections Email… may use, which only the registry can say (issue 1708).
+        mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
+        sourceNames: sourceNames(c.env),
+        messageLinks: messageLinks(c.env),
+        generatedAt: new Date().toISOString(),
+      },
+      200,
+    );
   })
   .openapi(finishedItemsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
@@ -1406,12 +1541,49 @@ const routes = app
     // `onError` answers with the 404 every connection route gives.
     return c.json(await account.connectionHistory(workspaceId, sourceAccountId), 200);
   })
+  .openapi(draftRoute, async (c) => {
+    const { workspaceId, itemId } = c.req.valid('param');
+    const { clickId, sourceAccountId, withClaude, points } = c.req.valid('json');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    try {
+      const link = await makeTheDraft(
+        c.env,
+        account,
+        accountName,
+        { workspaceId, itemId, sourceAccountId, clickId },
+        withClaude ? { points: points ?? '' } : undefined,
+      );
+      return c.json({ link }, 200);
+    } catch (error) {
+      // The source's refusal, in its words: a 502, the fault being the source's
+      // and not the request's. Everything else is `onError`'s.
+      if (error instanceof DraftNotMadeError) return c.json({ error: error.message, putBack: error.putBack }, 502);
+      throw error;
+    }
+  })
+  .openapi(sentEmailsRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json(await listSentEmails(c.env, account, workspaceId), 200);
+  })
+  .openapi(sentEmailsAvailableRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json({ available: await sentMailCanBeListed(c.env, account, workspaceId) }, 200);
+  })
+  .openapi(followSentEmailRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    return c.json(await followSentEmail(c.env, account, accountName, workspaceId, c.req.valid('json')), 200);
+  })
   .openapi(checkConnectionNowRoute, async (c) => {
     const { workspaceId, sourceAccountId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
     // Throws where it is not a live pulled connection of this Workspace,
     // which `onError` answers with the 404 every connection route gives.
-    return c.json({ status: await account.checkNow(workspaceId, sourceAccountId) }, 200);
+    return c.json(await account.checkNow(workspaceId, sourceAccountId), 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and
@@ -1426,7 +1598,9 @@ const routes = app
             const sign = signInOf(c.env, manifest.id);
             return sealable && sign !== null && clientOf(c.env, sign.auth) !== null;
           })
-          .map(({ manifest }) => ({
+          .map(({ manifest }) => {
+            const auth = signInOf(c.env, manifest.id)?.auth;
+            return {
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
@@ -1436,9 +1610,11 @@ const routes = app
               ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
               : {}),
             ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
-            refusals: signInOf(c.env, manifest.id)?.auth.refusals ?? {},
+            refusals: auth?.refusals ?? {},
+            ...(auth?.permissions?.length ? { permissions: auth.permissions.map((one) => ({ ...one })) } : {}),
             ...(manifest.auth.kind === 'texted-code' ? { textedCode: { textTo: manifest.auth.textTo } } : {}),
-          })),
+            };
+          }),
       },
       200,
     );
@@ -2068,6 +2244,9 @@ const routes = app
         ...(asked && choice ? { choice } : {}),
         ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
         ...(pulled && dueInDays !== undefined && dueInDays !== 'not an answer' ? { dueInDays } : {}),
+        // A source that asks in tiers is asked from the top every time, a
+        // reconnect included (issue 1754).
+        ...firstTier(sign.auth),
       };
       rememberConnectAttempt(c, attempt);
       // `client.clientId`, never the setting again: the two have to be
@@ -2104,6 +2283,29 @@ const routes = app
     const reply = c.req.query();
 
     const wrong = replyBelongsTo(attempt, reply);
+    // **An administrator's approval asked for is the one refusal that is
+    // answered by asking for less** (issue 1754): the next tier the source
+    // describes, as a new attempt of the same account. Checked only once the
+    // state has matched and the account that started it is the one that came
+    // back, and only for a source that asks in tiers - anything else, a
+    // cancelled consent included, is refused below as it always was.
+    if (
+      wrong === 'the issuer refused the sign-in' &&
+      attempt!.accountName === c.get('visitor').accountName &&
+      adminApprovalNeeded(reply)
+    ) {
+      const lower = steppedDown(sign.auth, attempt!, newAttempt());
+      const client = clientOf(c.env, sign.auth);
+      if (lower && client) {
+        try {
+          rememberConnectAttempt(c, lower);
+          return c.redirect(await authorizationRequest(c.env, sign, client, lower), 302);
+        } catch (error) {
+          forgetConnectAttempt(c);
+          return refuseConnection(c, attempt!.workspaceId, 'the issuer could not be reached', error);
+        }
+      }
+    }
     // Including the source's own refusal - somebody who declined the consent
     // screen is told so in the window they started from, unlike a cancelled
     // sign-in, which simply leaves you where you already were.
@@ -2126,6 +2328,13 @@ const routes = app
     const asked = sign.connector.manifest.choice;
     if (asked && !asked.options.some((option) => option.value === attempt!.choice)) {
       return refuseConnection(c, attempt!.workspaceId, 'the choice is not one the source offers');
+    }
+    // The tier the attempt reached has to be one the connector describes; the
+    // codes stored as granted are that tier's and nothing the browser said
+    // (issue 1754).
+    const reached = tierAsked(sign.auth, attempt!);
+    if (!reached) {
+      return refuseConnection(c, attempt!.workspaceId, 'the permissions are not ones the source offers');
     }
     // Whether it files by name rides along as asked: an attempt carrying
     // anything but a yes or no is not read at all, and one carrying none - a
@@ -2171,6 +2380,7 @@ const routes = app
         ...(asked ? { choice: attempt!.choice! } : {}),
         ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
         ...(givesADueDate && attempt!.dueInDays !== undefined ? { dueInDays: attempt!.dueInDays } : {}),
+        ...(reached.grants ? { granted: reached.grants } : {}),
       });
       // The register's index, after the connection is stored and never failing
       // it (`rememberConnectionAfterStoring`, connectors/directory.ts): what

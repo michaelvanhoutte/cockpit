@@ -1,4 +1,5 @@
 import { statusOf } from './api/loadFailure';
+import { keepCaptureForReload } from './keptCapture';
 
 /**
  * Picking up a new version of Cockpit (functional definition, Glossary,
@@ -548,6 +549,8 @@ export async function continueToNewVersion(
 ): Promise<boolean> {
   const active = await workers.activate().catch(() => false);
   if (!active) return false;
+  // Only now that it will reload: a Continue that failed keeps nothing.
+  keepCaptureForReload(memory);
   take(versions, memory, versions.thisBuild(), TRIED_FROM);
   return true;
 }

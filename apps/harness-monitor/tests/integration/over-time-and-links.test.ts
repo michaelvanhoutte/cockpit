@@ -137,10 +137,10 @@ describe('Harness Monitor', () => {
       expect(cells).toHaveLength(3);
     });
 
-    it('a day and an engineer link nowhere', async () => {
+    it('an engineer and a phase link nowhere', async () => {
       await seed();
 
-      for (const group of ['day', 'engineer', 'category']) for (const cell of firstCells(await theBarePage(`?period=all&group=${group}`))) expect(hrefs(cell)).toEqual([]);
+      for (const group of ['engineer', 'category']) for (const cell of firstCells(await theBarePage(`?period=all&group=${group}`))) expect(hrefs(cell)).toEqual([]);
     });
 
     it('with no repository configured, nothing links to GitHub but Sessions still opens the monitor page', async () => {

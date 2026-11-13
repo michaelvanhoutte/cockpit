@@ -27,7 +27,7 @@ export const OPEN_ID_METADATA_URL =
 export const SAVE_COMMAND_ID = 'saveToCockpit';
 
 /** How long an Item's title may be, which the contract also says (`TITLE_LENGTH`). */
-const TITLE_LENGTH = 200;
+export const TITLE_LENGTH = 200;
 
 /**
  * How long a captured message may be, which the contract also says (the
@@ -219,7 +219,7 @@ function noteTyped(data: { note?: unknown; saved?: unknown } | undefined): strin
  * host refuses Teams delivers again forever: it is the Teams message that
  * gives way. A note alone past the limit is cut itself, last.
  */
-function withTheNote(said: string, note: string): string {
+export function withTheNote(said: string, note: string): string {
   if (!note) return cutTo(said, CAPTURE_LENGTH);
   const lead = `${NOTE_MARKER}\n`;
   const kept = cutTo(note, CAPTURE_LENGTH - lead.length);
@@ -283,7 +283,7 @@ function deepLink(
  * interpreted: the five entities XML defines are put back and everything else
  * is left exactly as it was written.
  */
-function plainText(body: MessagePayload['body']): string {
+export function plainText(body: MessagePayload['body']): string {
   const content = text(body?.content);
   if (!content) return '';
   if (text(body?.contentType).toLowerCase() !== 'html') return content;
@@ -316,14 +316,14 @@ function oneLine(said: string): string {
  * character - the rule `cutTo` in packages/shared already keeps, said again
  * here because a connector may not import the application's contract.
  */
-function cutTo(said: string, limit: number): string {
+export function cutTo(said: string, limit: number): string {
   if (said.length <= limit) return said;
   const lead = said.charCodeAt(limit - 1);
   return said.slice(0, lead >= 0xd800 && lead <= 0xdbff ? limit - 1 : limit).trim();
 }
 
 /** When the message was sent, as an instant, or null where Teams said nothing usable. */
-function timestamp(value: unknown): string | null {
+export function timestamp(value: unknown): string | null {
   const said = text(value);
   if (!said) return null;
   const at = new Date(said);

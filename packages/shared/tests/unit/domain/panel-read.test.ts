@@ -160,7 +160,7 @@ describe('Panels', () => {
       aPanel('admin', 'home'),
       aPanel('this-week', 'work', 'filter', {
         groupBy: 'none',
-        rows: [[{ field: 'dueDate', window: 'week', orOverdue: true }]],
+        sets: [[[{ field: 'dueDate', window: 'week', orOverdue: true }]]],
       }),
     ];
     const read = (items: Item[], filings: Filing[], panelId: string, layouts: Layout[] = []) =>

@@ -178,7 +178,7 @@ export function PanelCard({
       : null;
   /** What the funnel reads back on hover, and the whole of what a Filter's state is. */
   const shows = filter
-    ? saysWhatItShows(filter.rows, panelsInWorkspace, filter.groupBy, dashboards)
+    ? saysWhatItShows(filter.sets, panelsInWorkspace, filter.groupBy, dashboards)
     : null;
   /**
    * How a Panel is sorted, read back as a sentence by the mark beside its name
@@ -584,7 +584,7 @@ export function PanelCard({
             sorted={(sortedAs !== null || dashboardFiltered) && filter === null}
             emptyMessage={
               filter
-                ? filter.rows.length === 0
+                ? filter.sets.length === 0
                   ? NOTHING_CHOSEN_TO_SHOW
                   : NOTHING_MATCHES_YET
                 : NOTHING_FILED_HERE

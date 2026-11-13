@@ -255,7 +255,7 @@ describe('Harness Monitor', () => {
         '  https://github.com/o/r/actions/runs/7/job/1 (main, passed on a later attempt)',
         '  https://github.com/o/r/actions/runs/8/job/1 (feature branch, passed on a later attempt)',
         '',
-        "Read the failed runs' logs to find the root cause of each, then fix it. A cause that failed and then passed on the same commit is not the change being wrong: find what makes it nondeterministic. A cause that stayed failed on main is a break: find what broke it. Never retry to green; fix, quarantine with an owner, or delete, per docs/testing-strategy.md. Say which causes you fixed and which need a decision from me.",
+        "Read the failed runs' logs to find the root cause of each, then fix it. A cause that failed and then passed on the same commit is not the change being wrong: find what makes it nondeterministic. A cause that stayed failed on main is a break: find what broke it. Never retry to green; fix, quarantine with an owner, or delete, per the testing skill (.claude/skills/testing/SKILL.md). Say which causes you fixed and which need a decision from me.",
       ]);
     });
   });

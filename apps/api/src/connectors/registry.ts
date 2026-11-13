@@ -79,6 +79,14 @@ export function connectors(env: Env): Connector[] {
             ...(env.BOT_FRAMEWORK_METADATA_URL
               ? { metadataUrl: env.BOT_FRAMEWORK_METADATA_URL }
               : {}),
+            // Reading a pasted link renews the connection's sign-in on the
+            // Microsoft client it was made with, so it is offered only where
+            // that client is set; Graph is the stub's stand-in locally
+            // (`standIn`).
+            ...(env.MS_CLIENT_ID?.trim() && env.MS_CLIENT_SECRET?.trim()
+              ? { client: { id: env.MS_CLIENT_ID.trim(), secret: env.MS_CLIENT_SECRET.trim() } }
+              : {}),
+            ...(graphApi ? { apiOrigin: graphApi } : {}),
           }),
         ]
       : []),
@@ -137,6 +145,7 @@ const KNOWN_CONNECTORS: readonly {
   readonly id: string;
   readonly displayName: string;
   readonly itemSourceName?: string;
+  readonly messageLinks?: readonly { readonly host: string; readonly pathStart: string }[];
 }[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
@@ -161,6 +170,23 @@ export function sourceNames(env: Env): Record<string, string> {
     ),
     ...NAMED_SOURCES,
   };
+}
+
+/**
+ * The addresses of each source's own messages, by connector id ("Open Items
+ * captured with a pasted Teams message link in Teams", issue 1738): gathered
+ * as `sourceNames` gathers names, from every connector package and every
+ * registered connector. A connector with none is absent. The app matches an
+ * Item's text against these and names no connector itself.
+ */
+export function messageLinks(env: Env): Record<string, { host: string; pathStart: string }[]> {
+  const declared: Record<string, { host: string; pathStart: string }[]> = {};
+  const add = (id: string, links: readonly { host: string; pathStart: string }[] | undefined) => {
+    if (links?.length) declared[id] = links.map(({ host, pathStart }) => ({ host, pathStart }));
+  };
+  for (const { id, messageLinks: links } of KNOWN_CONNECTORS) add(id, links);
+  for (const { manifest } of connectors(env)) add(manifest.id, manifest.messageLinks);
+  return declared;
 }
 
 export function getConnector(env: Env, id: string): Connector | undefined {

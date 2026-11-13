@@ -23,6 +23,16 @@
 export const DELETED_ITEMS_ID = 'AAMkADdeleteditemsFolderIdAAA=';
 export const INBOX_ID = 'AAMkADinboxFolderIdAAAA=';
 export const ARCHIVE_ID = 'AAMkADarchiveFolderIdAAA=';
+export const SENT_ITEMS_ID = 'AAMkADsentitemsFolderIdAAA=';
+export const DRAFTS_ID = 'AAMkADdraftsFolderIdAAAAA=';
+
+/** `GET /me/mailFolders/sentitems?$select=id`. */
+export function sentItemsAnswer() {
+  return {
+    '@odata.context': "https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/mailFolders/$entity",
+    id: SENT_ITEMS_ID,
+  };
+}
 
 /** `GET /me/mailFolders/deleteditems?$select=id`. */
 export function deletedItemsAnswer() {
@@ -43,9 +53,19 @@ export interface MessageOptions {
   readonly from?: { name?: string; address: string } | null;
   readonly text?: string;
   readonly html?: string;
+  /** What the message adds to its conversation (uniqueBody), in the format of its body; the whole body unless said. */
+  readonly unique?: string;
   readonly receivedAt?: string;
+  /** Whom it was sent to; this mailbox unless said. */
+  readonly to?: readonly { name?: string; address: string }[];
+  /** The conversation it is in; each message is its own conversation unless this says otherwise. */
+  readonly conversation?: string;
+  /** A draft not yet sent. */
+  readonly draft?: boolean;
   /** The version Graph names the message at (@odata.etag), which changes with every change to it. */
   readonly version?: string;
+  /** Whether it carries a file (`hasAttachments`); left out of the answer unless said. */
+  readonly hasAttachments?: boolean;
 }
 
 /** One message with every field the connector may ask for. */
@@ -56,14 +76,21 @@ export function message(options: MessageOptions) {
   return {
     '@odata.etag': options.version ?? 'W/"CQAAABYAAAB3Gs0yUuqeSKdKbXRSf8D4AAGH0d9d"',
     id: options.id,
+    conversationId: options.conversation ?? `conversation-of-${options.id}`,
+    isDraft: options.draft ?? false,
+    bodyPreview: content.slice(0, 255),
     parentFolderId: options.folder ?? INBOX_ID,
     receivedDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
+    sentDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
+    toRecipients: (options.to ?? [{ name: 'Anna', address: 'anna@example.com' }]).map((one) => ({ emailAddress: { name: one.name ?? '', address: one.address } })),
     subject: options.subject === undefined ? `About ${options.id}` : (options.subject ?? ''),
     categories: [...(options.categories ?? [])],
     flag: { flagStatus: options.flag ?? 'notFlagged' },
     from: from ? { emailAddress: { name: from.name ?? '', address: from.address } } : null,
     body: { contentType: html ? 'html' : 'text', content },
+    uniqueBody: { contentType: html ? 'html' : 'text', content: options.unique ?? content },
     webLink: `https://outlook.office365.com/owa/?ItemID=${encodeURIComponent(options.id)}&exvsurl=1&viewmodel=ReadMessageItem`,
+    ...(options.hasAttachments === undefined ? {} : { hasAttachments: options.hasAttachments }),
   };
 }
 
@@ -86,17 +113,20 @@ export const VERSION_CHANGED = {
   },
 };
 
-/** `GET /me/messages?$select=id,parentFolderId,flag,categories`: one page, and where the next one is. */
-export function messagesPage(messages: readonly ReturnType<typeof message>[], nextLink?: string) {
+/** The fields a listing of marked messages asks for. */
+const LISTED = ['id', 'parentFolderId', 'flag', 'categories', 'conversationId'];
+
+/**
+ * `GET /me/messages?$select=...`: one page of just the fields asked for, and
+ * where the next one is.
+ */
+export function messagesPage(messages: readonly ReturnType<typeof message>[], nextLink?: string, select: readonly string[] = LISTED) {
   return {
-    '@odata.context': "https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/messages(id,parentFolderId,flag,categories)",
+    '@odata.context': `https://graph.microsoft.com/v1.0/$metadata#users('anna%40example.com')/messages(${select.join(',')})`,
     ...(nextLink ? { '@odata.nextLink': nextLink } : {}),
-    value: messages.map(({ id, parentFolderId, flag, categories }) => ({
+    value: messages.map((one) => ({
       '@odata.etag': 'W/"CQAAABYAAAB3Gs0yUuqeSKdKbXRSf8D4AAGH0d9d"',
-      id,
-      parentFolderId,
-      categories,
-      flag,
+      ...Object.fromEntries(select.map((field) => [field, (one as Record<string, unknown>)[field]])),
     })),
   };
 }

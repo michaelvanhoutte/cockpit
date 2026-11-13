@@ -257,17 +257,17 @@ export function inFilterOrder(items: readonly Item[], sort: PanelSort, locale?: 
 }
 
 /**
- * Every open Item filed on a Panel of this Workspace that meets every one of
- * this Filter's rows, meeting a row by meeting any one condition in it ("Store
- * every Filter as rows, and save the All / Any choice as rows", issue 1081) -
- * in the order the Filter draws them.
+ * Every open Item filed on a Panel of this Workspace that meets every row of
+ * any one of this Filter's sets, meeting a row by meeting any one condition in
+ * it ("Let a Filter hold sets of rows joined by or", issue 1737) - in the order
+ * the Filter draws them. An Item meeting several sets is one Item.
  *
  * **Filed, never the Inbox.** An Item nobody has triaged is what the Inbox is
  * for, and a Filter that drew it too would take the point out of triaging at
  * all. An Item filed on two Panels is still one row here, the filings being a
  * question of membership rather than of how many.
  *
- * **No rows gathers nothing**, which is what lets a Filter say it has
+ * **No sets gathers nothing**, which is what lets a Filter say it has
  * nothing chosen instead of quietly showing every filed Item in the Workspace.
  *
  * **The Workspace's Panels, never the drawing dashboard's** - the rule
@@ -289,7 +289,7 @@ export function itemsMatchingFilter(
   /** What titles sort by where the sort names Title: the runtime's own where none is given. */
   locale?: string,
 ): Item[] {
-  if (filter.rows.length === 0) return [];
+  if (filter.sets.length === 0) return [];
   // What a Panel condition's values are read against - every items Panel of
   // the Workspace still there to be chosen.
   const livePanelIds = new Set(panelsInWorkspace.filter(panelTakesItems).map((panel) => panel.id));
@@ -300,7 +300,7 @@ export function itemsMatchingFilter(
   // Only a Filter holding a Dashboard condition reads it, and this runs once per
   // Filter on every draw.
   const filedDashboardIdsByItem = new Map<string, Set<string>>();
-  if (filter.rows.some((row) => row.some((condition) => condition.field === 'dashboard'))) {
+  if (filter.sets.some((set) => set.some((row) => row.some((condition) => condition.field === 'dashboard')))) {
     for (const filing of filed) {
       const dashboardId = dashboardIdOfPanel.get(filing.panelId);
       if (dashboardId !== undefined) addToSetMap(filedDashboardIdsByItem, filing.itemId, dashboardId);
@@ -310,9 +310,11 @@ export function itemsMatchingFilter(
     itemsThatAreFiled(items, filed).filter((item) => {
       const filedPanelIds = filedPanelIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
       const filedDashboardIds = filedDashboardIdsByItem.get(item.id) ?? EMPTY_PANEL_IDS;
-      return filter.rows.every((row) =>
-        meetsRow(row, (condition) =>
-          holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds, withRun),
+      return filter.sets.some((set) =>
+        set.every((row) =>
+          meetsRow(row, (condition) =>
+            holdsFor(condition, item, on, livePanelIds, filedPanelIds, liveDashboardIds, filedDashboardIds, withRun),
+          ),
         ),
       );
     }),

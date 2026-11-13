@@ -1,0 +1,469 @@
+import {
+  SourceError,
+  type DraftFound,
+  type DraftLook,
+  type DraftMade,
+  type DraftRewrite,
+  type DraftWaiting,
+  type DraftWanted,
+  type MessageForReply,
+  type OnDemandHost,
+  type ReplyReadLimits,
+} from '@cockpit/connector-sdk';
+import { credentialIn } from './credential.js';
+import {
+  ChangeRefused,
+  Mailbox,
+  NotAnswering,
+  OutOfCalls,
+  SIGN_IN_UNREADABLE,
+  SignInLost,
+  type GmailConnectorConfig,
+} from './mailbox.js';
+import { DRAFT, SENT, conversationLink, cutTo, headerOf, sentAt, textOf, turnFrom, withoutQuotedText, type GmailMessage } from './messages.js';
+
+/**
+ * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
+ * issue 1708): a draft made in the mailbox while the person waits, with
+ * `users.drafts.create` under the modify grant the connection already holds
+ * (https://developers.google.com/gmail/api/reference/rest/v1/users.drafts/create).
+ *
+ * - **A new conversation's draft** has the Item's title as its subject and no
+ *   recipient.
+ * - **A reply's** is in the followed conversation, as Gmail threads one: its
+ *   thread id, `In-Reply-To` and `References` naming the latest message, and
+ *   that message's subject behind *Re:*. It is addressed as Gmail's own Reply
+ *   addresses it: to whom the latest message was from, or to whom it was sent
+ *   where it was yours.
+ *
+ * **Made once, never retried here**: a draft made twice is two drafts in a real
+ * mailbox, which nothing can take back.
+ */
+
+/**
+ * The calls one draft may spend: a refresh, the mailbox's address where no run
+ * has saved it yet, the conversation read for a reply, and the draft itself.
+ */
+const CALLS_PER_DRAFT = 4;
+
+/** The headers a reply is built from, all a metadata read of the conversation is asked for. */
+const REPLY_HEADERS = ['Subject', 'Message-ID', 'References', 'From', 'To', 'Reply-To'];
+
+export async function makeGmailDraft(host: OnDemandHost, config: GmailConnectorConfig, wanted: DraftWanted): Promise<DraftMade> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_DRAFT });
+    const address = await addressOf(host, mailbox);
+    let reply: ReplyTo | null = null;
+    if (wanted.replyIn !== null) {
+      const query = new URLSearchParams({ format: 'metadata' });
+      for (const name of REPLY_HEADERS) query.append('metadataHeaders', name);
+      reply = replyToLatestIn(await mailbox.get(`threads/${encodeURIComponent(wanted.replyIn)}?${query}`));
+      if (!reply) throw new SourceError('the conversation is no longer in Gmail');
+    }
+    const raw = rawDraft(reply ?? { subject: wanted.subject, to: null, inReplyTo: null, references: null }, wanted.body);
+    const answer = await mailbox.post('drafts', { message: { raw, ...(wanted.replyIn !== null ? { threadId: wanted.replyIn } : {}) } });
+    const made = draftIn(answer);
+    if (!made) throw new SourceError('Gmail answered without the draft it made');
+    return {
+      draftId: made.id,
+      conversationId: made.threadId,
+      draftLink: reply?.latestId ? replyDraftLink(address, made.threadId, reply.latestId) : draftLink(address, made.threadId, made.id),
+      // The message replied to, or the draft itself where it starts the
+      // conversation: never the conversation's id, which is its first message's.
+      conversationLink: conversationLink(reply?.latestId ?? made.messageId, address),
+    };
+  } catch (error) {
+    throw inTheirWords(error);
+  }
+}
+
+/** The calls one read of a conversation for a reply may spend: a refresh, and the conversation. */
+const CALLS_PER_READ = 2;
+
+/**
+ * The newest `limits.messages` messages of a conversation, oldest first, each
+ * as its own words (issue 1730): who sent it, when, and its text without the
+ * earlier emails it quotes, cut to `limits.characters`. A draft or a message in
+ * the bin is not part of what is answered. Changes nothing in the mailbox.
+ */
+export async function readGmailConversationForReply(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  conversationId: string,
+  limits: ReplyReadLimits,
+): Promise<MessageForReply[]> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_READ });
+    const answer = (await mailbox.get(`threads/${encodeURIComponent(conversationId)}?format=full`)) as { messages?: unknown } | null;
+    if (!answer) throw new SourceError('the conversation is no longer in Gmail');
+    const held = Array.isArray(answer.messages) ? (answer.messages as GmailMessage[]) : [];
+    const turns: MessageForReply[] = [];
+    for (const message of held) {
+      const turn = turnFrom(message);
+      if (!turn) continue;
+      turns.push({ by: turn.by, from: turn.from, at: turn.at, text: cutTo(withoutQuotedText(textOf(message.payload)).trim(), limits.characters) });
+    }
+    return turns.sort((a, b) => a.at.localeCompare(b.at)).slice(-limits.messages);
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not be read for the reply');
+  }
+}
+
+/** The mailbox's address, which a link names: as the last run saved it, or asked of Gmail. */
+async function addressOf(host: OnDemandHost, mailbox: Mailbox): Promise<string> {
+  const saved = (await host.getState()) as { address?: unknown } | null;
+  if (typeof saved?.address === 'string' && saved.address) return saved.address;
+  const profile = (await mailbox.get('profile')) as { emailAddress?: unknown } | null;
+  return typeof profile?.emailAddress === 'string' ? profile.emailAddress : '';
+}
+
+/** What a draft says before its body: the subject, and for a reply whom it goes to and which message it answers. */
+interface ReplyTo {
+  subject: string;
+  to: string | null;
+  inReplyTo: string | null;
+  references: string | null;
+  /** Gmail's id of the message replied to, which the conversation's link names until the draft is sent. */
+  latestId?: string;
+}
+
+/**
+ * How a reply to the conversation's latest message is addressed, from a
+ * metadata read of it - or null for one with no message left. A draft or a
+ * message in the bin is not what is replied to.
+ */
+export function replyToLatestIn(answer: unknown): ReplyTo | null {
+  const { messages } = (answer ?? {}) as { messages?: unknown };
+  const held = (Array.isArray(messages) ? (messages as GmailMessage[]) : []).filter(
+    (message) => Array.isArray(message?.labelIds) && !message.labelIds.includes(DRAFT) && !message.labelIds.includes('TRASH'),
+  );
+  if (held.length === 0) return null;
+  const newestFirst = [...held].sort((a, b) => sentAt(b) - sentAt(a));
+  const latest = newestFirst[0]!;
+  // The latest message's subject, or the newest one that has a subject at all.
+  const subject = newestFirst.map((one) => oneHeader(headerOf(one.payload, 'Subject'))).find(Boolean) ?? '';
+  const messageId = oneHeader(headerOf(latest.payload, 'Message-ID'));
+  const references = oneHeader(headerOf(latest.payload, 'References'));
+  const yours = (latest.labelIds as unknown[]).includes(SENT);
+  const to = yours
+    ? oneHeader(headerOf(latest.payload, 'To'))
+    : (oneHeader(headerOf(latest.payload, 'Reply-To')) ?? oneHeader(headerOf(latest.payload, 'From')));
+  return {
+    subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`.trim(),
+    to,
+    inReplyTo: messageId,
+    references: messageId ? [references, messageId].filter(Boolean).join(' ') : references,
+    ...(typeof latest.id === 'string' && latest.id ? { latestId: latest.id } : {}),
+  };
+}
+
+/** A header's value on one line, so nothing it holds can start a header of its own; null where empty. */
+function oneHeader(value: string | null): string | null {
+  const flat = (value ?? '').replace(/[\r\n]+/g, ' ').trim();
+  return flat || null;
+}
+
+/**
+ * The draft as RFC 2822 text in Gmail's URL-safe base64, which `raw` takes:
+ * its headers, a plain-text body (empty unless the host handed one over, then
+ * in base64), and a subject outside ASCII encoded
+ * as RFC 2047 says. Gmail adds the From.
+ */
+export function rawDraft(draft: ReplyTo, body = ''): string {
+  const lines = [
+    ...(draft.to ? [`To: ${draft.to}`] : []),
+    `Subject: ${encodedWord(oneHeader(draft.subject) ?? '')}`,
+    ...(draft.inReplyTo ? [`In-Reply-To: ${draft.inReplyTo}`] : []),
+    // One message id a line, so a long conversation's stays inside RFC 5322's 998.
+    ...(draft.references ? [`References: ${draft.references.split(/\s+/).filter(Boolean).join('\r\n ')}`] : []),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    // Base64 whatever the text holds, so no character or line of it can break the message.
+    ...(body ? ['Content-Transfer-Encoding: base64'] : []),
+    '',
+    body ? inBase64Lines(body) : '',
+  ];
+  return base64url(lines.join('\r\n'));
+}
+
+/** A body as the message carries it: its lines ending CRLF, in base64, 76 characters a line. */
+function inBase64Lines(body: string): string {
+  return base64(body.replace(/\r\n?|\n/g, '\r\n')).replace(/.{1,76}/g, '$&\r\n').trimEnd();
+}
+
+/**
+ * A header value as it may be sent: as it is in ASCII, else UTF-8 encoded
+ * words of at most 45 bytes each, one a line, so none passes RFC 2047's 75
+ * characters and a long title no line's 998. A character is never split.
+ */
+function encodedWord(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return value;
+  const words: string[] = [];
+  let word = '';
+  for (const character of value) {
+    if (word && new TextEncoder().encode(word + character).length > 45) {
+      words.push(word);
+      word = '';
+    }
+    word += character;
+  }
+  if (word) words.push(word);
+  return words.map((one) => `=?UTF-8?B?${base64(one)}?=`).join('\r\n ');
+}
+
+function base64(text: string): string {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64url(text: string): string {
+  return base64(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The draft `users.drafts.create` answers: its id, and its message's id and conversation - or null where it holds none. */
+export function draftIn(answer: unknown): { id: string; messageId: string; threadId: string } | null {
+  const { id, message } = (answer ?? {}) as { id?: unknown; message?: { id?: unknown; threadId?: unknown } };
+  if (typeof id !== 'string' || !id || typeof message?.id !== 'string' || typeof message.threadId !== 'string') return null;
+  return { id, messageId: message.id, threadId: message.threadId };
+}
+
+/**
+ * Where Gmail opens one draft, in the connected mailbox, by the code Gmail's
+ * own address bar shows for it. Gmail does not document the code. Real
+ * mailboxes' decoded to text written in base64 and then in Gmail's alphabet of
+ * consonants, and links built that way from the API's ids opened each draft
+ * ("Conversation follow-up: Open, previews, drafts and Check now misbehave on
+ * real Gmail and Outlook mailboxes", issue 1720):
+ *
+ * - a new email's draft: `#drafts?compose=` over
+ *   `f:<conversation id in decimal>|msg-a:<draft id>+msg-a:<draft id>`;
+ * - a reply's (`replyDraftLink`): `#drafts/` over
+ *   `f:<conversation id in decimal>|msg-f:<latest email's id in decimal>`,
+ *   which opens the conversation with the draft open under that email.
+ *
+ * Should Gmail change the code, the link would open a blank message, as a code
+ * Gmail did not make did before. Ids that are not hexadecimal, as Gmail's always
+ * are, get the Drafts folder, the draft at its top.
+ */
+export function draftLink(mailboxAddress: string, conversationId: string, draftId: string): string {
+  if (!isHex(conversationId)) return drafts(mailboxAddress);
+  const named = `f:${BigInt(`0x${conversationId}`)}|msg-a:${draftId}+msg-a:${draftId}`;
+  return `${drafts(mailboxAddress)}?compose=${inGmailsAlphabet(named)}`;
+}
+
+/** Where Gmail opens a reply's draft: its conversation, at the latest email, the draft open under it. */
+export function replyDraftLink(mailboxAddress: string, conversationId: string, latestId: string): string {
+  if (!isHex(conversationId) || !isHex(latestId)) return drafts(mailboxAddress);
+  const named = `f:${BigInt(`0x${conversationId}`)}|msg-f:${BigInt(`0x${latestId}`)}`;
+  return `${drafts(mailboxAddress)}/${inGmailsAlphabet(named)}`;
+}
+
+/** The Drafts folder: where a draft opens whose ids are not Gmail's. */
+function drafts(mailboxAddress: string): string {
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailboxAddress)}#drafts`;
+}
+
+function isHex(id: string): boolean {
+  return /^[0-9a-f]+$/i.test(id);
+}
+
+const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXZbcdfghjklmnpqrstvwxz';
+
+/** Text in base64 rewritten in Gmail's consonants: the same number, its digits read in base 64 and written in base 40. */
+function inGmailsAlphabet(text: string): string {
+  let number = 0n;
+  for (const digit of btoa(text).replace(/=+$/, '')) number = number * 64n + BigInt(BASE64.indexOf(digit));
+  let out = '';
+  for (; number > 0n; number /= 40n) out = CONSONANTS[Number(number % 40n)] + out;
+  return out;
+}
+
+/**
+ * The calls one look for a draft may spend: a refresh, the draft, the mailbox's
+ * address where no run has saved it yet, and the conversation - for a reply
+ * still there, whose link names its latest email, or for a draft no longer there.
+ */
+const CALLS_PER_LOOK = 4;
+
+/**
+ * What became of a draft *Email…* made (issue 1720), told as the draft watch
+ * tells it (`#checkDrafts`, sync.ts): still there unsent, and where it opens;
+ * sent, its conversation holding a message sent from this mailbox since
+ * `after`; or null for one Gmail no longer has, or has in the bin - which
+ * counts as deleted unsent (`draftStillThere`).
+ */
+export async function findGmailDraft(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  draft: DraftWaiting,
+  read?: DraftLook,
+): Promise<DraftFound | null> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_LOOK });
+    // Its words too where they are asked for, in the same read (issue 1732).
+    const answer = await mailbox.get(`drafts/${encodeURIComponent(draft.draftId)}?format=${read?.text ? 'full' : 'minimal'}`);
+    const messageId = draftStillThere(answer);
+    if (messageId !== null) {
+      const address = await addressOf(host, mailbox);
+      const words = read?.text ? { text: wordsOfDraft(answer) } : {};
+      if (draft.after === null) return { draftLink: draftLink(address, draft.conversationId, draft.draftId), ...words };
+      // A reply: its link names the conversation's latest email, one read of the conversation away.
+      const latest = replyToLatestIn(await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`))?.latestId;
+      return { draftLink: latest ? replyDraftLink(address, draft.conversationId, latest) : drafts(address), ...words };
+    }
+    const thread = await mailbox.get(`threads/${encodeURIComponent(draft.conversationId)}?format=minimal`);
+    return thread !== null && latestSentSince(thread, draft.after) !== null ? { sent: true } : null;
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not look for the draft');
+  }
+}
+
+/**
+ * The words a draft holds, as `users.drafts.get` with `format=full` answers it
+ * (issue 1732): its plain text - the only words a Gmail draft holds, Gmail
+ * quoting nothing into a draft made through the API. Null where it is more
+ * than words (an attachment or an inline image added), which a rewrite would
+ * lose, so it counts as edited.
+ */
+export function wordsOfDraft(answer: unknown): string | null {
+  const payload = (answer as { message?: GmailMessage } | null)?.message?.payload;
+  const type = typeof payload?.mimeType === 'string' ? payload.mimeType.toLowerCase() : '';
+  return type === 'text/plain' || type === 'multipart/alternative' ? textOf(payload) : null;
+}
+
+/** The calls one rewrite may spend: a refresh, the draft as it is, and the draft replaced. */
+const CALLS_PER_REWRITE = 3;
+
+/**
+ * Claude's unsent draft written again in place ("Mail follow-up: a Claude draft
+ * looks like any other and cannot be redone…", issue 1732), with
+ * `users.drafts.update`, which replaces the draft's message and keeps the
+ * draft's id (https://developers.google.com/gmail/api/reference/rest/v1/users.drafts/update).
+ * The draft is read as it stands (`format=raw`), so every header it carries - to
+ * whom, the subject, the message it answers, anyone added since - is kept as it
+ * is and only the body replaced; its conversation is named again, as an update
+ * that names none would take the draft out of it. `changed` where the draft now
+ * holds more than words. The words themselves were compared by the host from
+ * the look just before.
+ */
+export async function rewriteGmailDraft(
+  host: OnDemandHost,
+  config: GmailConnectorConfig,
+  draft: DraftWaiting,
+  rewrite: DraftRewrite,
+): Promise<'rewritten' | 'changed'> {
+  try {
+    const credential = credentialIn(await host.getCredentials());
+    if (!credential) throw new SignInLost(SIGN_IN_UNREADABLE);
+    const mailbox = new Mailbox(host, config, credential, { left: CALLS_PER_REWRITE });
+    const path = `drafts/${encodeURIComponent(draft.draftId)}`;
+    const answer = (await mailbox.get(`${path}?format=raw`)) as { message?: { raw?: unknown; threadId?: unknown } } | null;
+    if (draftStillThere(answer) === null) throw new SourceError('the draft is no longer in Gmail');
+    const raw = typeof answer?.message?.raw === 'string' ? withBody(bytesOf(answer.message.raw), rewrite.body) : null;
+    if (raw === null) return 'changed';
+    const threadId = typeof answer?.message?.threadId === 'string' ? answer.message.threadId : draft.conversationId;
+    const updated = await mailbox.put(path, { id: draft.draftId, message: { raw, threadId } });
+    if (updated === null) throw new SourceError('the draft is no longer in Gmail');
+    return 'rewritten';
+  } catch (error) {
+    throw inTheirWords(error, 'Gmail could not write the draft again');
+  }
+}
+
+/** The MIME headers a body brings, which a rewrite replaces with its own. */
+const BODY_HEADERS = /^(mime-version|content-type|content-transfer-encoding)$/i;
+
+/**
+ * A message, its raw bytes one character each, with its body replaced by
+ * `body` as `rawDraft` writes one - every other header kept byte for byte - in
+ * Gmail's URL-safe base64; or null where the message is more than words (a
+ * part other than text, or no header block at all).
+ */
+export function withBody(raw: string, body: string): string | null {
+  const end = /\r?\n\r?\n/.exec(raw);
+  if (!end) return null;
+  // Each header with the lines that continue it.
+  const fields = raw.slice(0, end.index).split(/\r?\n(?![ \t])/);
+  const type = fields.find((field) => /^content-type:/i.test(field));
+  const mimeType = type ? type.slice('content-type:'.length).split(';')[0]!.trim().toLowerCase() : 'text/plain';
+  if (mimeType !== 'text/plain' && mimeType !== 'multipart/alternative') return null;
+  const kept = fields.filter((field) => !BODY_HEADERS.test(field.split(':')[0]!.trim())).map((field) => field.replace(/\r?\n/g, '\r\n'));
+  const lines = [
+    ...kept,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    inBase64Lines(body),
+  ];
+  return btoa(lines.join('\r\n')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Gmail's URL-safe base64 as raw bytes, one character each: a message's headers kept exactly, whatever their charset. */
+function bytesOf(data: string): string {
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  try {
+    return atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The id of a draft's message as `users.drafts.get` answers it, while it is a
+ * draft outside the bin - or null for one gone (a 404, read as null), or in
+ * the bin, which Gmail keeps until the bin is emptied and which counts as
+ * deleted unsent.
+ */
+export function draftStillThere(answer: unknown): string | null {
+  const message = (answer as { message?: { id?: unknown; labelIds?: unknown } } | null)?.message;
+  if (typeof message?.id !== 'string' || !message.id) return null;
+  const labels = Array.isArray(message.labelIds) ? (message.labelIds as unknown[]) : [];
+  return labels.includes('TRASH') ? null : message.id;
+}
+
+/**
+ * Why the draft was not made, in words for the person: what they can do about a
+ * lost sign-in, and Gmail's status otherwise - never the request's address.
+ */
+function inTheirWords(error: unknown, otherwise = 'Gmail could not make the draft'): Error {
+  if (error instanceof SignInLost) return new SourceError(error.message);
+  if (error instanceof ChangeRefused) return new SourceError(`Gmail refused the draft (${error.status})`, error.status);
+  if (error instanceof NotAnswering) return new SourceError('Gmail did not answer. Try again in a moment.', error.status);
+  if (error instanceof OutOfCalls) return new SourceError('Gmail could not be asked this time. Try again in a moment.');
+  if (error instanceof SourceError) return error;
+  return new SourceError(otherwise);
+}
+
+/**
+ * Whether a conversation, as `threads.get` answers it, holds a message sent
+ * from this mailbox after `after` - every one where `after` is null: what tells
+ * a draft sent, whose turn a check reads, from one deleted unsent.
+ */
+export function sentSince(answer: unknown, after: string | null): boolean {
+  return latestSentSince(answer, after) !== null;
+}
+
+/** The id of the newest message sent from this mailbox after `after` in a conversation as `threads.get` answers it, or null. */
+export function latestSentSince(answer: unknown, after: string | null): string | null {
+  const { messages } = (answer ?? {}) as { messages?: unknown };
+  const since = after === null ? Number.NEGATIVE_INFINITY : Date.parse(after);
+  const sent = (Array.isArray(messages) ? (messages as GmailMessage[]) : []).filter(
+    (message) =>
+      typeof message?.id === 'string' &&
+      Array.isArray(message.labelIds) &&
+      message.labelIds.includes(SENT) &&
+      !message.labelIds.includes(DRAFT) &&
+      sentAt(message) > since,
+  );
+  const latest = sent.sort((a, b) => sentAt(b) - sentAt(a))[0];
+  return typeof latest?.id === 'string' ? latest.id : null;
+}

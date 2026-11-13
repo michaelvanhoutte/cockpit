@@ -14,12 +14,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { SCHEMA_FILE } from './database.js';
+import { MONITOR_SCHEMA_FILE } from './tables.js';
 import { isCodeFile, isTestFile, parseDescription } from './description.js';
 import { ReadError } from './errors.js';
+import { parseRules, RULES_FILE } from './rules.js';
 
 export const WRANGLER_CONFIG = 'apps/api/wrangler.jsonc';
 export const WORKFLOWS_DIR = '.github/workflows';
 export const DESCRIPTION_FILE = 'tools/architecture/description.yml';
+export { RULES_FILE };
 
 function readText(root, relative) {
   try {
@@ -49,7 +52,8 @@ function listDir(root, relative) {
 }
 
 /** Every file under `relative` (or only those directly in it), as a path from the checkout's root; the text only of source files that are not tests. */
-function filesIn(root, scan, relative, { recursive }) {
+function filesIn(root, scan, relative, { recursive, extensions = scan.extensions }) {
+  const codeScan = { ...scan, extensions };
   const files = [];
   const walk = (directory) => {
     for (const entry of listDir(root, directory)) {
@@ -58,7 +62,7 @@ function filesIn(root, scan, relative, { recursive }) {
       if (entry.isDirectory()) {
         if (recursive) walk(file);
       } else if (entry.isFile()) {
-        files.push({ file, text: isCodeFile(scan, file) && !isTestFile(scan, file) ? readText(root, file) : null });
+        files.push({ file, text: isCodeFile(codeScan, file) && !isTestFile(scan, file) ? readText(root, file) : null });
       }
     }
   };
@@ -100,14 +104,93 @@ function discover(root, description) {
 }
 
 /**
- * @param {string} root
- * @param {{ commit?: string, fallbackDescription?: { file: string, text: string } }} [options] `commit` names the commit `root` holds when
- *   it is an earlier one, so the environment's own commit is not claimed for it; `fallbackDescription` is used when `root` has no description file.
+ * The source of each caller the design declares a marker for, by the folder it is looked for in: the files that
+ * are not tests, with their text. A folder this checkout does not have holds no files, which the page says.
  */
-export function readCheckout(root, { commit: named, fallbackDescription } = {}) {
-  const own = existsSync(path.join(root, DESCRIPTION_FILE));
+function callerCodeOf(root, description) {
+  const found = {};
+  for (const caller of [description.design, ...description.otherServices.map((service) => service.design)].flatMap((design) => design?.callers ?? [])) {
+    if (!caller.code || caller.code.folder in found) continue;
+    found[caller.code.folder] = existsSync(path.join(root, caller.code.folder))
+      ? filesIn(root, description.scan, caller.code.folder, { recursive: true, extensions: caller.code.extensions ?? description.scan.extensions }).filter((each) => each.text !== null)
+      : [];
+  }
+  return found;
+}
+
+/**
+ * The source files directly in each folder a design names file-name patterns in (a service that keeps its files
+ * in one folder), tests left out, with their text. A folder this checkout does not have holds none.
+ */
+function designFilesOf(root, description) {
+  const found = {};
+  const designs = [description.design, ...description.otherServices.map((service) => service.design)].filter(Boolean);
+  for (const design of designs) {
+    for (const chip of design.layers.flatMap((layer) => layer.items.flat())) {
+      if (chip.files.length === 0 || chip.in in found) continue;
+      found[chip.in] = existsSync(path.join(root, chip.in)) ? filesIn(root, description.scan, chip.in, { recursive: false, extensions: design.extensions ?? description.scan.extensions }).filter((each) => each.text !== null) : [];
+    }
+  }
+  return found;
+}
+
+/**
+ * The files the schema files say their databases are defined in: each named file, and the SQL and TypeScript directly
+ * inside each named folder (one ending in a slash), with their text, for the line a table is defined at. A schema file
+ * that is not JSON names none, which the model reports; a named file that is gone is left out.
+ */
+function definitionSourcesOf(root, schemas) {
+  const found = new Map();
+  const add = (file) => {
+    if (found.has(file)) return;
+    try {
+      found.set(file, readFileSync(path.join(root, file), 'utf8'));
+    } catch {
+      // gone: the table is drawn without a link to where it is defined
+    }
+  };
+  for (const schema of schemas) {
+    let databases;
+    try {
+      databases = JSON.parse(schema.text)?.databases;
+    } catch {
+      continue;
+    }
+    for (const database of Array.isArray(databases) ? databases : []) {
+      for (const where of Array.isArray(database?.definedIn) ? database.definedIn.filter((each) => typeof each === 'string') : []) {
+        if (!where.endsWith('/')) {
+          add(where);
+          continue;
+        }
+        try {
+          for (const entry of readdirSync(path.join(root, where), { withFileTypes: true })) if (entry.isFile() && /\.(sql|ts)$/.test(entry.name)) add(posix(where.replace(/\/$/, ''), entry.name));
+        } catch {
+          // gone
+        }
+      }
+    }
+  }
+  return [...found].map(([file, text]) => ({ file, text }));
+}
+
+/**
+ * @param {string} root
+ * @param {{ commit?: string, fallbackDescription?: { file: string, text: string }, fallbackRules?: { file: string, text: string }|null }} [options] `commit` names the commit `root` holds when
+ *   it is an earlier one, so the environment's own commit is not claimed for it; the fallbacks are used when `root` has no description file, or has one
+ *   that is drawn from a rules file it does not have yet (an earlier commit's own description holds the rules itself).
+ */
+export function readCheckout(root, { commit: named, fallbackDescription, fallbackRules = null } = {}) {
+  const ownDescription = existsSync(path.join(root, DESCRIPTION_FILE));
+  const ownRules = existsSync(path.join(root, RULES_FILE));
+  const predatesRules = ownDescription && !ownRules && /^(design|otherServices):/m.test(readText(root, DESCRIPTION_FILE));
+  const own = ownDescription && !predatesRules;
   const description = !own && fallbackDescription ? fallbackDescription : { file: DESCRIPTION_FILE, text: readText(root, DESCRIPTION_FILE) };
-  const candidates = discover(root, parseDescription(description.file, description.text));
+  // The rules file goes with the description it completes: a fallback description brings the fallback rules.
+  const rules = !own && fallbackDescription ? fallbackRules : ownRules ? { file: RULES_FILE, text: readText(root, RULES_FILE) } : null;
+  const parsed = parseDescription(description.file, description.text, rules ? parseRules(rules.file, rules.text) : null);
+  const candidates = discover(root, parsed);
+  const callerCode = callerCodeOf(root, parsed);
+  const designFiles = designFilesOf(root, parsed);
 
   let names;
   try {
@@ -117,14 +200,28 @@ export function readCheckout(root, { commit: named, fallbackDescription } = {}) 
   }
   if (names.length === 0) throw new ReadError(WORKFLOWS_DIR, 'holds no workflows');
 
+  // The config and the bindings file of every Worker the description names: an earlier commit may predate one, this checkout's own must have it.
+  const deploymentFiles = {};
+  for (const file of parsed.deployments.flatMap((each) => [each.config, each.bindings]).filter(Boolean)) {
+    deploymentFiles[file] = named && !existsSync(path.join(root, file)) ? null : readText(root, file);
+  }
+
   const commit = named ?? (process.env.GITHUB_SHA || git(root, ['rev-parse', 'HEAD']));
   // An earlier commit drawn for What changed may predate the file; this checkout's own must have it.
   const schema = named && !existsSync(path.join(root, SCHEMA_FILE)) ? null : { file: SCHEMA_FILE, text: readText(root, SCHEMA_FILE) };
+  // The Monitor's, as the API's: an earlier commit may predate it, this checkout's own must have it.
+  const monitorSchema = named && !existsSync(path.join(root, MONITOR_SCHEMA_FILE)) ? null : { file: MONITOR_SCHEMA_FILE, text: readText(root, MONITOR_SCHEMA_FILE) };
   return {
     schema,
+    monitorSchema,
+    definitionFiles: definitionSourcesOf(root, [schema, monitorSchema].filter(Boolean)),
     wrangler: { file: WRANGLER_CONFIG, text: readText(root, WRANGLER_CONFIG) },
     description,
+    rules,
     candidates,
+    callerCode,
+    designFiles,
+    deploymentFiles,
     workflows: names.map((name) => ({ file: name, text: readText(root, `${WORKFLOWS_DIR}/${name}`) })),
     commit,
     date: commit ? git(root, ['show', '-s', '--format=%cI', '--end-of-options', commit]) : null,

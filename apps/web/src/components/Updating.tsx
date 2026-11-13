@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   RECONNECTED,
@@ -9,8 +9,12 @@ import {
   realWorkers,
   type Update,
   type Versions,
+  tabMemory,
   type Workers,
 } from '../updating';
+import { captureHoldsFiles, discardKeptCapture, keepCaptureForReload, watchCapture } from '../keptCapture';
+import { useScreenWidth } from '../panels/useScreenWidth';
+import { ROOM_FOR_THE_INBOX_PX } from '../roomForTheInbox';
 
 interface Props {
   children: React.ReactNode;
@@ -42,6 +46,7 @@ interface Props {
 export function Updating({ children, versions, memory, workers = realWorkers }: Props) {
   const queryClient = useQueryClient();
   const [gated, setGated] = useState(false);
+  const gating = useRef(false);
   const { opening, message } = useNewVersionKnown(workers);
 
   useEffect(() => {
@@ -57,7 +62,13 @@ export function Updating({ children, versions, memory, workers = realWorkers }: 
       const behind =
         reads.getAll().some((read) => outOfDate(read.state.error)) ||
         changes.getAll().some((change) => outOfDate(change.state.error));
-      if (behind) setGated(true);
+      if (behind && !gating.current) {
+        gating.current = true;
+        // Taken as the gate decides to close, while Capture is still mounted:
+        // once the gate is up the app and what it held are gone.
+        keepCaptureForReload(memory ?? tabMemory());
+        setGated(true);
+      }
     };
     look();
     const stopWatchingReads = reads.subscribe(look);
@@ -103,6 +114,8 @@ function Gate({
       // set anyway rather than left null, so the words on screen are never a
       // question that has in fact been answered.
       if (current) setOutcome(what);
+      // No reload came of it, so nothing may be left for a reload of your own to find.
+      if (what !== 'taken') discardKeptCapture(memory ?? tabMemory());
     });
     return () => {
       current = false;
@@ -219,6 +232,55 @@ function NewVersion({
 }) {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Phone width is where Capture is a page (`ROOM_FOR_THE_INBOX_PX`), as ItemForm asks it.
+  const onAPhone = useScreenWidth() < ROOM_FOR_THE_INBOX_PX;
+  // Files are the one thing of Capture that does not come back after the reload.
+  const filesHeld = useSyncExternalStore(watchCapture, captureHoldsFiles, () => false);
+  const continueTo = () => {
+    // One click, one reload: a second press while the first is in flight
+    // is ignored rather than started again.
+    if (loading) return;
+    setLoading(true);
+    setFailed(false);
+    void continueToNewVersion(workers, versions, memory).then((loaded) => {
+      if (loaded) return;
+      setLoading(false);
+      setFailed(true);
+    });
+  };
+  if (onAPhone && !covering) {
+    // A bar rather than a card: the keyboard covers the foot of a phone, and a
+    // dimmed page that still takes typing looks disabled and is not. Only the
+    // bar takes pointer events, so the field being typed in keeps its focus.
+    return (
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-50">
+        <div
+          role="alertdialog"
+          aria-labelledby="new-version-title"
+          className="pointer-events-auto bg-surface pb-2 pl-[calc(1rem_+_var(--edge-left))] pr-[calc(1rem_+_var(--edge-right))] pt-[max(0.5rem,var(--edge-top))] shadow-panel"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="new-version-title" className="text-sm font-semibold text-ink">
+              {filesHeld ? "Capture first: attached files aren't kept" : 'New version of Cockpit'}
+            </h2>
+            <button
+              type="button"
+              disabled={loading}
+              className="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent disabled:opacity-60"
+              onClick={continueTo}
+            >
+              Continue
+            </button>
+          </div>
+          {failed && (
+            <p role="alert" className="mt-1 text-sm text-over-ink">
+              Could not load the new version. Try again.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
   const card = (
     <div role="alertdialog" aria-labelledby="new-version-title" className="pointer-events-auto max-w-sm rounded-lg bg-surface p-4 shadow-panel">
       <h2 id="new-version-title" className="text-base font-semibold text-ink">
@@ -238,18 +300,7 @@ function NewVersion({
         type="button"
         disabled={loading}
         className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-60"
-        onClick={() => {
-          // One click, one reload: a second press while the first is in flight
-          // is ignored rather than started again.
-          if (loading) return;
-          setLoading(true);
-          setFailed(false);
-          void continueToNewVersion(workers, versions, memory).then((loaded) => {
-            if (loaded) return;
-            setLoading(false);
-            setFailed(true);
-          });
-        }}
+        onClick={continueTo}
       >
         Continue
       </button>

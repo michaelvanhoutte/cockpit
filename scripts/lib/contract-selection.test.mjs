@@ -65,7 +65,7 @@ describe('Contract runs', () => {
     });
 
     it('a run naming one behaviour suite takes that suite only', () => {
-      for (const name of ['clean-up-a-note', 'choose-a-panel', 'propose-for-claude', 'remember-a-sentence', 'resolve-a-place']) {
+      for (const name of ['clean-up-a-note', 'choose-a-panel', 'draft-a-reply', 'propose-for-claude', 'remember-a-sentence', 'resolve-a-place']) {
         const named = suitesNamed(commandLine(name));
         assert.deepEqual(named, [name]);
         assert.deepEqual(

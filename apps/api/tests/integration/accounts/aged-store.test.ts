@@ -595,6 +595,13 @@ const rowsFor: {
     sql: "INSERT INTO item_additions (id, tenant_id, item_id, message, created_at) VALUES ('ad-before', ?, 'it-before', 'and the boiler', ?)",
     params: (name) => [name, AT],
   },
+  {
+    // The table `0100-item-conversations` creates ("A Gmail starred conversation is one Item whose status follows who wrote last", issue 1705): a conversation an Item follows, for the next update to meet.
+    table: 'item_conversations',
+    sql: `INSERT INTO item_conversations (tenant_id, item_id, connector_id, external_account_key, conversation_id, link, last_by, last_from, last_at, last_excerpt, message_count, started_at, with_whom)
+          VALUES (?, 'it-before', 'gmail', 'google-somebody', 'thread-before', 'https://mail.google.com/mail/#all/thread-before', 'them', 'Steven', ?, 'Friday?', 2, ?, 'Steven')`,
+    params: (name) => [name, AT, AT],
+  },
 ];
 
 /**
@@ -2003,8 +2010,8 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: { lines: [], olderRemain: false } });
       expect(await rowsIn()).toEqual({
-        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, and `due_in_days` none, which `0091-due-in-days` does.
-        connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null })),
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, `due_in_days` none, which `0091-due-in-days` does, and `granted` none, which `0106-connector-accounts-granted` does.
+        connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null, granted: null })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
     });
@@ -2027,8 +2034,8 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      // With `status` and `listed` NULL, which `0082-connection-history-status` and `0088-connection-history-listed` add on the same open.
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null, listed: null })));
+      // With `status`, `listed` and `started_at` NULL, which `0082-connection-history-status`, `0088-connection-history-listed` and `0103-connection-history-started-at` add on the same open.
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, did: null, status: null, listed: null, started_at: null })));
       const nothing = { count: 0, items: [] };
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([
         expect.objectContaining({
@@ -2062,7 +2069,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, status: null, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, status: null })]);
     });
   });
@@ -2084,7 +2091,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2 })]);
     });
   });
@@ -2106,7 +2113,7 @@ describe('Connector management', () => {
 
       const read = await storeNamed(name).connectionHistory(name, 'ws-before', 'cn-before');
 
-      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null })));
+      expect(await linesIn()).toEqual(before.map((row) => ({ ...row, listed: null, started_at: null })));
       expect(read.status === 'ok' ? read.value.lines : []).toEqual([expect.objectContaining({ count: 2, listed: null })]);
     });
   });
@@ -2182,11 +2189,11 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name` and `due_in_days`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
+    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
@@ -2276,11 +2283,11 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name` and `due_in_days`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
+    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     // Without `names` and `given_due_date`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
@@ -3395,7 +3402,7 @@ describe('Panels', () => {
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(
         snapshot.status === 'ok' ? snapshot.value.panels.find((panel) => panel.id === 'pn-flat')?.filter : 'unread',
-      ).toEqual({ rows, groupBy });
+      ).toEqual({ sets: rows.length === 0 ? [] : [rows], groupBy });
     });
   });
 
@@ -3737,6 +3744,22 @@ describe('Triage', () => {
  * account from before it gains an empty table, every row it already held stays
  * as it was, and it waits 3 days until it chooses.
  */
+/**
+ * The rows of an account kept before `0103-connection-history-started-at`, as the same open leaves them: each line with no start, and (with
+ * `0106-connector-accounts-granted`) each connection granting none.
+ */
+const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
+  ...withFilingsUnstamped(kept),
+  connector_accounts: (kept.connector_accounts ?? []).map((row) => ({ ...(row as object), granted: null })),
+  connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
+});
+
+/** Every filing as it was, with `0105-panel-items-filed-at`'s column null: when it landed is unknown for every filing made before it. */
+const withFilingsUnstamped = <T extends Record<string, unknown[]>>(kept: T): T => ({
+  ...kept,
+  panel_items: (kept.panel_items ?? []).map((row) => ({ ...(row as object), filed_at: null })),
+});
+
 describe('Triage', () => {
   describe('an account already in use waits 3 days for a reply until it chooses, and keeps everything it held', () => {
     const FOLLOW_UPS = '0097-account-follow-ups';
@@ -3765,18 +3788,20 @@ describe('Triage', () => {
       // Left out: the change ledger, the Agent that every open converts to a
       // remembered sentence whatever change it applies (`retire-agents.ts`), and
       // the tables later changes add empty on the same open
-      // (`0098-account-email-address`, `0099-item-additions`).
+      // (`0098-account-email-address`, `0099-item-additions`,
+      // `0100-item-conversations`).
       const {
         account_follow_ups: _added,
         account_email_address: _later,
         item_additions: _laterStill,
+        item_conversations: _laterYet,
         account_changes: changesAfter,
         agents: _a,
         remembered_sentences: _r,
         ...keptAfter
       } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
@@ -3820,11 +3845,20 @@ describe('Capture', () => {
 
       const after = await everyRowIn(name);
       expect(after.item_additions).toEqual([]);
-      // Left out: the change ledger, and the Agent every open converts to a
-      // remembered sentence whatever change it applies (`retire-agents.ts`).
-      const { item_additions: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      // Left out: the change ledger, the Agent every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`),
+      // and the table a later change adds empty on the same open
+      // (`0100-item-conversations`).
+      const {
+        item_additions: _added,
+        item_conversations: _later,
+        account_changes: changesAfter,
+        agents: _a,
+        remembered_sentences: _r,
+        ...keptAfter
+      } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(keptBefore);
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { additions: [] } });
@@ -3834,6 +3868,159 @@ describe('Capture', () => {
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await timesApplied(name)).toBe(1);
       expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "A Gmail starred conversation is one Item whose status follows who wrote
+ * last" (issue 1705): an account from before it gains an empty table, every
+ * row it already held stays as it was - an Item a star brought in one email at
+ * a time among them - and its Items read following no conversation.
+ */
+describe('Capture', () => {
+  describe('an account already in use reads its Items following no conversation, and keeps everything it held', () => {
+    const CONVERSATIONS = '0100-item-conversations';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', CONVERSATIONS).one().n);
+
+    it('adds the table empty, reads no conversation in its Workspace, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-conversations';
+      await agedTo(name, justBefore(CONVERSATIONS));
+      await fillWithWhatIsAlreadyThere(name);
+      const before = await everyRowIn(name);
+      expect(before).not.toHaveProperty('item_conversations');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      expect(after.item_conversations).toEqual([]);
+      // Left out: the change ledger, and the Agent every open converts to a
+      // remembered sentence whatever change it applies (`retire-agents.ts`).
+      const { item_conversations: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [] } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+
+/**
+ * "Mail follow-up: a Claude draft looks like any other and cannot be redone…"
+ * (issue 1732): an account from before it gains the fingerprint column on every
+ * followed conversation, every row it held unchanged, and every draft it waits
+ * on reading as yours - so none made before it is ever rewritten.
+ */
+describe('Triage', () => {
+  describe('an account already in use reads every draft it waits on as yours, and keeps everything it held', () => {
+    const DIGEST = '0104-item-conversations-claude-draft-digest';
+    const everyRowIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => {
+        const tables = sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+          .toArray()
+          .map((row) => row.name);
+        return Object.fromEntries(tables.map((table) => [table, sql.exec(`SELECT * FROM \`${table}\` ORDER BY rowid`).toArray()]));
+      });
+    const timesApplied = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', DIGEST).one().n);
+
+    it('adds the column empty to every conversation, reads no draft as Claude’s, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-claude-draft-digest';
+      await agedTo(name, justBefore(DIGEST));
+      await fillWithWhatIsAlreadyThere(name);
+      // A draft Reply… made before it, still waited on.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          "UPDATE item_conversations SET draft_id = 'r-before', draft_link = 'https://mail.google.com/mail/#drafts', status_before_draft = ?",
+          JSON.stringify({ startedAt: null, waitingSince: null, opened: false }),
+        ),
+      );
+      const before = await everyRowIn(name);
+      expect(before.item_conversations).toHaveLength(1);
+      expect(before.item_conversations![0]).not.toHaveProperty('claude_draft_digest');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await everyRowIn(name);
+      // Every row as it was, with the new column null; the change ledger and the
+      // Agent every open converts to a remembered sentence (`retire-agents.ts`) aside.
+      const { account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
+      const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
+      expect(keptAfter).toEqual({
+        ...withFilingsUnstamped(keptBefore),
+        item_conversations: keptBefore.item_conversations!.map((row) => ({ ...(row as object), claude_draft_digest: null })),
+        connector_accounts: keptBefore.connector_accounts!.map((row) => ({ ...(row as object), granted: null })),
+      });
+      expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
+      const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
+      expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [expect.objectContaining({ conversationId: 'thread-before', draftStarted: true })] } });
+      expect(snapshot).toMatchObject({ value: { conversations: [expect.not.objectContaining({ claudeDrafted: expect.anything() })] } });
+
+      // Opened again, it is not applied a second time and nothing moves.
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await timesApplied(name)).toBe(1);
+      expect(await everyRowIn(name)).toEqual(after);
+    });
+  });
+});
+describe('Panels', () => {
+  describe('an account already in use gains when each filing landed, every existing filing left without one', () => {
+    const FILED_AT = '0105-panel-items-filed-at';
+    const filingsAndIndexesIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        filings: sql.exec('SELECT * FROM panel_items ORDER BY panel_id, item_id').toArray(),
+        indexes: sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'panel_items' ORDER BY name")
+          .toArray()
+          .map((row) => row.name),
+        applied: sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', FILED_AT).one().n,
+      }));
+
+    it('adds the column and its index, leaves every filing unstamped, and changes nothing the second time it is opened', async () => {
+      const name = 'aged-store-before-panel-items-filed-at';
+      await agedTo(name, justBefore(FILED_AT));
+      await fillWithWhatIsAlreadyThere(name);
+      // A filing from before it: nothing in `rowsFor` makes one.
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at)
+           VALUES (?, 'pn-before', 'it-before', 0, ?)`,
+          name,
+          AT,
+        ),
+      );
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const once = await filingsAndIndexesIn(name);
+      expect(once.indexes).toContain('panel_items_tenant_filed');
+      expect(once.filings).toContainEqual(
+        expect.objectContaining({ panel_id: 'pn-before', item_id: 'it-before', created_at: AT, filed_at: null }),
+      );
+      expect(once.filings.filter((row) => row.filed_at !== null)).toEqual([]);
+      expect(once.applied).toBe(1);
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await filingsAndIndexesIn(name)).toEqual(once);
     });
   });
 });

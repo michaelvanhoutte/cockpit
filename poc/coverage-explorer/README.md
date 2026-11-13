@@ -2,7 +2,7 @@
 
 Derives a per-node test coverage model from the repository and renders it as a
 clickable explorer: a tree of nodes crossed with the seven test levels of
-[docs/testing-strategy.md](../../docs/testing-strategy.md), where each cell says
+the [testing skill](../../.claude/skills/testing/SKILL.md), where each cell says
 whether that node **owes** a test at that level and whether it **has** one.
 
 The reasoning behind the shape, and the options that were rejected, are in

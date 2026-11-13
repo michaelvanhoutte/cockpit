@@ -276,6 +276,140 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     );
   });
 
+  // What a conversation's later messages look like to a check following it
+  // ("A Gmail starred conversation is one Item whose status follows who wrote
+  // last", issue 1705).
+  it('adds a reply from whom it is told, or sent from the mailbox, and reads each one by its id', async () => {
+    const token = await accessTokenFor('replies@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=replies%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread } = await act('star', 'subject=Dinner');
+
+    const theirs = await act('reply', `thread=${thread}&from=${encodeURIComponent('Steven Noels <steven@example.com>')}&text=Friday%3F`);
+    const mine = await act('reply', `thread=${thread}&sent`);
+
+    const header = (message, name) => message.payload.headers.find((one) => one.name === name).value;
+    const theirMessage = await (await read(token, `messages/${theirs.message}?format=full`)).json();
+    const myMessage = await (await read(token, `messages/${mine.message}?format=full`)).json();
+    assert.deepEqual([header(theirMessage, 'From'), theirMessage.labelIds], ['Steven Noels <steven@example.com>', ['INBOX', 'UNREAD']]);
+    assert.equal(Buffer.from(theirMessage.payload.body.data, 'base64url').toString(), 'Friday?');
+    assert.deepEqual([header(myMessage, 'From'), myMessage.labelIds], ['replies@example.com', ['SENT']]);
+    assert.equal((await read(token, 'messages/no-such-message?format=full')).status, 404);
+  });
+
+  // What Email… makes, and what a person then does with it ("Email… makes a
+  // Gmail draft the Item then follows", issue 1708).
+  it('makes a draft from its raw message, then sends one where it stands and deletes another unsent, as a walk asks', async () => {
+    const token = await accessTokenFor('drafts@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=drafts%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const draftOf = (subject) =>
+      fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ message: { raw: Buffer.from(`Subject: ${subject}\r\n\r\n`).toString('base64url') } }),
+      }).then((answer) => answer.json());
+
+    const sending = await draftOf('Plan a dinner');
+    const deleting = await draftOf('Never mind');
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=drafts%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'Never mind']);
+    assert.equal((await read(token, `drafts/${sending.id}?format=minimal`)).status, 200);
+
+    await act('send-draft', `draft=${sending.id}`);
+    await act('delete-draft', `draft=${deleting.id}`);
+
+    assert.equal((await read(token, `drafts/${sending.id}?format=minimal`)).status, 404);
+    assert.deepEqual((await (await read(token, `messages/${sending.message.id}?format=full`)).json()).labelIds, ['SENT']);
+    assert.equal((await read(token, `threads/${deleting.message.threadId}?format=minimal`)).status, 404);
+  });
+
+  // What Claude wrote into a draft, which a walk reads back (issue 1730).
+  it('lists a draft with the body it was made with, decoded from the encoding it was sent in', async () => {
+    const token = await accessTokenFor('drafts-with-a-body@example.com');
+    const body = 'Dag Steven,\r\n\r\nDonderdag past ✓ [hoe laat?]';
+    const raw = ['Subject: Plan', 'Content-Transfer-Encoding: base64', '', Buffer.from(body).toString('base64')].join('\r\n');
+
+    await fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: { raw: Buffer.from(raw).toString('base64url') } }),
+    });
+
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=drafts-with-a-body%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => one.body), [body]);
+  });
+
+  // Claude's draft read back and written again in place, and a person editing it (issue 1732).
+  it('reads a draft back whole or raw, replaces its message under the same id, and lets a walk edit it', async () => {
+    const token = await accessTokenFor('rewriting@example.com');
+    const make = (text) => ['Subject: Plan', 'Content-Transfer-Encoding: base64', '', Buffer.from(text).toString('base64')].join('\r\n');
+    const made = await fetch(`${issuer.origin}/gmail/v1/users/me/drafts`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: { raw: Buffer.from(make('Thursday?')).toString('base64url') } }),
+    }).then((answer) => answer.json());
+    const words = async () => {
+      const full = await (await read(token, `drafts/${made.id}?format=full`)).json();
+      return Buffer.from(full.message.payload.body.data, 'base64url').toString();
+    };
+    assert.equal(await words(), 'Thursday?');
+    const raw = (await (await read(token, `drafts/${made.id}?format=raw`)).json()).message.raw;
+    assert.equal(Buffer.from(raw, 'base64url').toString(), make('Thursday?'));
+
+    const updated = await fetch(`${issuer.origin}/gmail/v1/users/me/drafts/${made.id}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: made.id, message: { raw: Buffer.from(make('Friday!')).toString('base64url'), threadId: made.message.threadId } }),
+    }).then((answer) => answer.json());
+
+    assert.equal(updated.id, made.id);
+    assert.equal(await words(), 'Friday!');
+    const listed = await (await fetch(`${issuer.origin}/gmail-stub/drafts?email=rewriting%40example.com`)).json();
+    assert.deepEqual(listed.map((one) => [one.id, one.body, one.rewritten]), [[made.id, 'Friday!', 1]]);
+
+    await fetch(`${issuer.origin}/gmail-stub/edit-draft?email=rewriting%40example.com&draft=${made.id}&text=Saturday`, { method: 'POST' });
+    assert.equal(await words(), 'Saturday');
+  });
+
+  // The mail sent from the mailbox, which Follow a sent email… lists (issue 1710).
+  it('lists the mail sent from the mailbox, newest first, with each email carrying its recipients and snippet', async () => {
+    const token = await accessTokenFor('sending@example.com');
+    const act = (what, query) =>
+      fetch(`${issuer.origin}/gmail-stub/${what}?email=sending%40example.com&${query}`, { method: 'POST' }).then((answer) => answer.json());
+    const { thread } = await act('star', 'subject=Dinner');
+    const reply = await act('reply', `thread=${thread}&sent&text=Friday`);
+
+    const listed = await (await read(token, 'messages?labelIds=SENT&maxResults=2')).json();
+
+    assert.equal(listed.messages.length, 2);
+    assert.equal(listed.messages[1] === undefined, false);
+    const email = await (await read(token, `messages/${listed.messages[1].id}?format=metadata`)).json();
+    assert.deepEqual(email.labelIds, ['SENT']);
+    assert.match(email.snippet, /quote|offer|dinner/i);
+    assert.equal(email.payload.headers.find((one) => one.name === 'To').value.includes('@'), true);
+    const all = (await (await read(token, 'messages?labelIds=SENT')).json()).messages.map((one) => one.id);
+    assert.equal(all.includes(reply.message), true);
+  });
+
+  it('sends an email a walk asks for, which the Sent listing then names first, with its recipient and snippet', async () => {
+    const token = await accessTokenFor('sending-now@example.com');
+    const sent = await fetch(
+      `${issuer.origin}/gmail-stub/send?email=sending-now%40example.com&subject=Just%20sent&to=${encodeURIComponent('Steven Noels <steven@example.com>')}&text=Friday%3F`,
+      { method: 'POST' },
+    ).then((answer) => answer.json());
+
+    const listed = (await (await read(token, 'messages?labelIds=SENT&maxResults=10')).json()).messages;
+
+    assert.equal(listed[0].id, sent.message);
+    const email = await (await read(token, `messages/${sent.message}?format=metadata`)).json();
+    assert.equal(email.snippet, 'Friday?');
+    assert.deepEqual(
+      email.payload.headers.filter((one) => ['Subject', 'To'].includes(one.name)).map((one) => one.value),
+      ['Just sent', 'Steven Noels <steven@example.com>'],
+    );
+  });
+
   it('takes the label off, moves to the bin and labels again, each leaving the listing as Gmail would', async () => {
     const token = await accessTokenFor('closing@example.com');
     const act = (what, query) =>
@@ -382,6 +516,23 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     );
     const listed = await (await read(token, 'messages?labelIds=STARRED')).json();
     assert.deepEqual(listed.messages, [{ id: second, threadId: thread }]);
+  });
+
+  // A LinkedIn message notification, for a walk to deliver ("Follow the
+  // LinkedIn conversation instead of the notification", issue 1711).
+  it('delivers a LinkedIn message notification in a conversation of its own, found by its sender', async () => {
+    const email = 'linkedin@example.com';
+    const token = await accessTokenFor(email);
+    const { thread, message } = await fetch(
+      `${issuer.origin}/gmail-stub/linkedin?email=${encodeURIComponent(email)}&text=Friday%20works&conversation=2-abc`,
+      { method: 'POST' },
+    ).then((answer) => answer.json());
+
+    const listed = await (await read(token, 'messages?q=from%3Amessages-noreply%40linkedin.com')).json();
+    assert.deepEqual(listed.messages, [{ id: message, threadId: thread }]);
+    const sent = await (await read(token, `messages/${message}`)).json();
+    assert.equal(sent.payload.headers.find((header) => header.name === 'From').value, 'Steven Noels via LinkedIn <messages-noreply@linkedin.com>');
+    assert.match(Buffer.from(sent.payload.body.data, 'base64url').toString(), /Friday works[\s\S]*thread\/2-abc\//);
   });
 
   it('takes the star off one email alone, leaving the history record Gmail leaves and the other starred email listed', async () => {
@@ -533,6 +684,97 @@ describe('the stub issuer stands in for an Outlook mailbox the way Microsoft Gra
     assert.deepEqual(asked, [`GET ${flagged.split('?')[0]}`]);
   });
 
+  // What a followed conversation's later messages look like to a check ("Outlook
+  // follows the flagged conversation as Gmail does", issue 1707).
+  it('adds a reply to a conversation, sent from the mailbox or not, and lists a conversation and the mail received since', async () => {
+    const token = await accessTokenFor('graph-replying@example.com');
+    const at = (path) => `${issuer.origin}/graph-stub/${path}`;
+    const act = (path) => fetch(at(path), { method: 'POST' }).then((answer) => answer.json());
+    const { conversation } = await act('flag?email=graph-replying%40example.com&subject=Dinner');
+    const theirs = await act(`reply?email=graph-replying%40example.com&conversation=${encodeURIComponent(conversation)}&text=Friday%3F`);
+    const mine = await act(`reply?email=graph-replying%40example.com&conversation=${encodeURIComponent(conversation)}&sent`);
+    const sentItems = (await (await graph(token, 'mailFolders/sentitems?$select=id')).json()).id;
+
+    const whole = await (
+      await graph(token, `messages?$filter=${encodeURIComponent(`conversationId eq '${conversation}'`)}&$select=id,parentFolderId,bodyPreview`)
+    ).json();
+    assert.equal(whole.value.length, 3);
+    assert.ok([theirs.id, mine.id].every((id) => whole.value.some((one) => one.id === id)));
+    assert.equal(whole.value.find((one) => one.id === mine.id).parentFolderId, sentItems);
+    assert.equal(whole.value.find((one) => one.id === theirs.id).bodyPreview, 'Friday?');
+
+    const since = new Date(Date.now() - 60_000).toISOString(); // clock-ok: the stub stamps what a walk adds on the real clock
+    const recent = await (
+      await graph(token, `messages?$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}&$orderby=receivedDateTime&$select=id,conversationId`)
+    ).json();
+    assert.deepEqual(recent.value.map((one) => one.conversationId), [conversation, conversation, conversation]);
+  });
+
+  // What Email… makes, and what a person then does with it ("Email… makes an
+  // Outlook draft the Item then follows", issue 1709).
+  it('makes a draft, new or a reply, then sends one where it stands and deletes another unsent, as a walk asks', async () => {
+    const token = await accessTokenFor('graph-drafting@example.com');
+    const at = (path) => `${issuer.origin}/graph-stub/${path}`;
+    const act = (path) => fetch(at(path), { method: 'POST' });
+    const { id: original, conversation } = await act('flag?email=graph-drafting%40example.com&subject=Dinner').then((answer) => answer.json());
+    const post = (path, body) =>
+      graph(token, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((answer) => answer.json());
+
+    const sending = await post('messages', { subject: 'Plan a dinner', body: { contentType: 'text', content: '' } });
+    const replying = await post(`messages/${original}/createReply`, {});
+    assert.equal(sending.isDraft, true);
+    assert.equal(replying.conversationId, conversation);
+    assert.equal(replying.subject, 'RE: Dinner');
+    assert.match(sending.webLink, /ItemID=/);
+    assert.equal((await graph(token, 'messages/no-such-message/createReply', { method: 'POST', body: '{}' })).status, 404);
+    // A draft takes a body: a new one as it is made, a reply's by an update that leaves the email it quotes.
+    const withBody = await post('messages', { subject: 'With words', body: { contentType: 'text', content: 'Hi Steven' } });
+    assert.equal(withBody.body.content, 'Hi Steven');
+    assert.match(replying.body.content, /divRplyFwdMsg/);
+    const updated = await graph(token, `messages/${replying.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: { contentType: 'html', content: '<div>Words</div>' + replying.body.content } }),
+    }).then((answer) => answer.json());
+    assert.match(updated.body.content, /^<div>Words<\/div>/);
+    const unique = (await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json())).uniqueBody;
+    assert.equal(unique.contentType, 'html');
+    // What it adds to the conversation leaves out the email it quotes (issue 1732).
+    assert.match(unique.content, /Words/);
+    assert.doesNotMatch(unique.content, /divRplyFwdMsg/);
+    await act(`edit-draft?email=graph-drafting%40example.com&id=${replying.id}&text=${encodeURIComponent('And the wine.')}`);
+    const edited = await graph(token, `messages/${replying.id}?$select=id,uniqueBody`).then((answer) => answer.json());
+    assert.match(edited.uniqueBody.content, /And the wine\./);
+    const listed = await (await fetch(at('drafts?email=graph-drafting%40example.com'))).json();
+    assert.deepEqual(listed.map((one) => one.subject), ['Plan a dinner', 'RE: Dinner', 'With words']);
+
+    await act(`send-draft?email=graph-drafting%40example.com&id=${sending.id}`);
+    await act(`delete-draft?email=graph-drafting%40example.com&id=${replying.id}`);
+
+    const sentItems = (await (await graph(token, 'mailFolders/sentitems?$select=id')).json()).id;
+    const deletedItems = (await (await graph(token, 'mailFolders/deleteditems?$select=id')).json()).id;
+    const sent = await (await graph(token, `messages/${sending.id}`)).json();
+    assert.deepEqual([sent.isDraft, sent.parentFolderId], [false, sentItems]);
+    const deleted = await (await graph(token, `messages/${replying.id}`)).json();
+    assert.deepEqual([deleted.isDraft, deleted.parentFolderId], [true, deletedItems]);
+  });
+
+  it('lists Sent Items newest first, a draft sent joining them and a draft unsent staying out', async () => {
+    const token = await accessTokenFor('graph-sent@example.com');
+    const post = (path, body) =>
+      graph(token, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((answer) => answer.json());
+    const sending = await post('messages', { subject: 'Just sent', body: { contentType: 'text', content: '' } });
+    await post('messages', { subject: 'Never sent', body: { contentType: 'text', content: '' } });
+    await fetch(`${issuer.origin}/graph-stub/send-draft?email=graph-sent%40example.com&id=${sending.id}`, { method: 'POST' });
+
+    const listed = await (
+      await graph(token, 'mailFolders/sentitems/messages?$top=2&$orderby=sentDateTime%20desc&$select=id,subject,toRecipients,sentDateTime,conversationId')
+    ).json();
+
+    assert.deepEqual(listed.value.map((one) => one.subject), ['Just sent', 'Quote for the kitchen renovation']);
+    assert.deepEqual(listed.value[1].toRecipients, [{ emailAddress: { name: 'Marc Lambrecht', address: 'marc@example.com' } }]);
+  });
+
   it('flags a new message with the categories a walk names, and adds one to it later', async () => {
     const at = (path) => `${issuer.origin}/graph-stub/${path}`;
     const { id } = await fetch(at('flag?email=graph-tagging%40example.com&category=Customer%20Atlas'), {
@@ -583,5 +825,44 @@ describe('the stand-in Twilio Verify', () => {
   it('answers 404 to a number nothing was sent to, and 401 to a call without credentials', async () => {
     assert.equal((await verify('VerificationCheck', { To: '+32470000003', Code: '123456' })).status, 404);
     assert.equal((await verify('Verifications', { To: '+32470000003' }, { credentials: false })).status, 401);
+  });
+});
+
+describe('the stub issuer refuses a sign-in asking what an administrator has to approve, as Microsoft does', () => {
+  const asking = async (email, scope) => {
+    const ask = new URLSearchParams({
+      client_id: 'cockpit-test',
+      redirect_uri: REDIRECT,
+      state: 'the-state',
+      nonce: 'the-nonce',
+      code_challenge: 'c',
+      code_challenge_method: 'S256',
+      as: email,
+      scope,
+    });
+    const picked = await fetch(`${issuer.origin}/authorize/pick?${ask}`, { redirect: 'manual' });
+    return new URL(picked.headers.get('location')).searchParams;
+  };
+  const needing = (email, needs) => fetch(`${issuer.origin}/admin-approval?email=${encodeURIComponent(email)}&needs=${needs}`);
+
+  it('refuses the whole sign-in with access_denied and AADSTS65001, keeping the state, where one scope in it needs an administrator', async () => {
+    await needing('admin-needed@example.com', 'ChannelMessage.Read.All');
+
+    const reply = await asking('admin-needed@example.com', 'openid Chat.Read ChannelMessage.Read.All offline_access');
+
+    assert.equal(reply.get('error'), 'access_denied');
+    assert.match(reply.get('error_description'), /^AADSTS65001/);
+    assert.equal(reply.get('state'), 'the-state');
+    assert.equal(reply.get('code'), null);
+  });
+
+  it('gives a code to the sign-in that asks for less, and to everyone else, and stops refusing once cleared', async () => {
+    await needing('admin-needed@example.com', 'ChannelMessage.Read.All');
+
+    assert.ok((await asking('admin-needed@example.com', 'openid Chat.Read offline_access')).get('code'));
+    assert.ok((await asking('somebody-else@example.com', 'openid ChannelMessage.Read.All')).get('code'));
+
+    await needing('admin-needed@example.com', '');
+    assert.ok((await asking('admin-needed@example.com', 'openid ChannelMessage.Read.All')).get('code'));
   });
 });

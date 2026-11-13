@@ -1,4 +1,6 @@
 import type { Connector } from '@cockpit/connector-sdk';
+import { findOutlookDraft, makeOutlookDraft, readOutlookConversationForReply, rewriteOutlookDraft } from './drafts.js';
+import { listOutlookSent } from './sent.js';
 import type { OutlookConnectorConfig } from './graph.js';
 import { outlookAccountFrom, outlookSignIn } from './sign-in.js';
 import { mirrorOpenStates } from './mirroring.js';
@@ -42,6 +44,9 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
       // A message's categories, the followed Cockpit one left out, are its
       // Item's names (issue 1146).
       names: { noun: 'category', example: 'a message with the category', byDashboard: true },
+      // Email… makes a draft whose conversation a check then reads turns for,
+      // which only a connection following the flag does (issue 1709).
+      startsConversations: { underChoices: ['flag'] },
       auth: outlookSignIn(config.issuer),
     },
 
@@ -50,6 +55,16 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
     sync: (host) => syncMailbox(host, config),
 
     mirrorOpenState: (host, wanted) => mirrorOpenStates(host, config, wanted),
+
+    makeDraft: (host, wanted) => makeOutlookDraft(host, config, wanted),
+
+    findDraft: (host, draft, look) => findOutlookDraft(host, config, draft, look),
+
+    listRecentSent: (host, limit) => listOutlookSent(host, config, limit),
+
+    readConversationForReply: (host, conversationId, limits) => readOutlookConversationForReply(host, config, conversationId, limits),
+
+    rewriteDraft: (host, draft, rewrite) => rewriteOutlookDraft(host, config, draft, rewrite),
 
     // No `revoke`: Microsoft offers no revoke of one application's grant, and
     // the only call that ends a person's tokens signs them out everywhere.

@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
-import { SourceError, type Connector, type PushHost } from '@cockpit/connector-sdk';
+import { SourceError, type Connector, type OnDemandHost, type PushHost } from '@cockpit/connector-sdk';
+import { grantToRead, readMessageAtLink, type ReadingConfig } from './reading.js';
 import {
   bearerToken,
   OPEN_ID_METADATA_URL,
@@ -29,7 +30,16 @@ import { teamsAccountFrom, teamsSignIn } from './sign-in.js';
  * to Teams or receive its saves ("Take source names out of the shared
  * contract", issue 927).
  */
-export const TEAMS_IDENTITY = { id: 'teams', displayName: 'Microsoft Teams' } as const;
+export const TEAMS_IDENTITY = {
+  id: 'teams',
+  displayName: 'Microsoft Teams',
+  // A copied message link ("Copy link" on a message), on each host Teams has used.
+  messageLinks: [
+    { host: 'teams.microsoft.com', pathStart: '/l/message/' },
+    { host: 'teams.live.com', pathStart: '/l/message/' },
+    { host: 'teams.cloud.microsoft', pathStart: '/l/message/' },
+  ],
+} as const;
 
 /** What this connector needs to have been told about itself. */
 export interface TeamsConnectorConfig {
@@ -43,7 +53,7 @@ export interface TeamsConnectorConfig {
   /**
    * Where the signing keys come from. Defaults to the Bot Framework's own
    * published set; handed in by the tests, which mint their own tokens and
-   * must reach no network (docs/testing-strategy.md, "Third parties").
+   * must reach no network (.claude/skills/testing/references/third-parties.md).
    */
   readonly keys?: JWTVerifyGetKey;
   /**
@@ -61,21 +71,55 @@ export interface TeamsConnectorConfig {
   readonly issuer?: string;
   /** Read once per call, so a token is judged against the time it arrived. */
   readonly now?: () => Date;
+  /**
+   * The Microsoft client a connection's sign-in is renewed with
+   * (`MS_CLIENT_ID`), which reading a pasted link needs ("Read pasted Teams
+   * links", issue 1755). Absent: no link is read.
+   */
+  readonly client?: { readonly id: string; readonly secret: string };
+  /**
+   * Where Graph is reached. Defaults to Microsoft's, and is pointed at the
+   * local stub by `pnpm dev`; never set in a deployment, which would send its
+   * access tokens wherever it pointed.
+   */
+  readonly apiOrigin?: string;
+  /** Handed in by the tests, which must reach no network. */
+  readonly fetch?: typeof fetch;
 }
 
 export function createTeamsConnector(config: TeamsConnectorConfig): Connector {
   const keys = config.keys ?? botFrameworkKeys(config.metadataUrl ?? OPEN_ID_METADATA_URL);
   const now = config.now ?? (() => new Date());
+  const client = config.client;
+  const reading: ReadingConfig | null = client
+    ? {
+        clientId: client.id,
+        clientSecret: client.secret,
+        ...(config.issuer ? { issuer: config.issuer } : {}),
+        ...(config.apiOrigin ? { apiOrigin: config.apiOrigin } : {}),
+        ...(config.fetch ? { fetch: config.fetch } : {}),
+        now,
+      }
+    : null;
 
   return {
     manifest: {
       ...TEAMS_IDENTITY,
-      cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+      cardText: 'Sign in with Microsoft. Cockpit asks to read the chats and channel posts you paste a link to; where your organisation does not allow that, it reads who you are and nothing else.',
       supportsPush: true,
       auth: teamsSignIn(config.issuer),
     },
 
     accountFrom: teamsAccountFrom,
+
+    // A pasted message link, read with the connection's grant ("Read pasted
+    // Teams links", issue 1755); only where a sign-in can be renewed here.
+    ...(reading
+      ? {
+          grantToRead,
+          readMessageAtLink: (host: OnDemandHost, link: string, note: string) => readMessageAtLink(host, reading, link, note),
+        }
+      : {}),
 
     async sync() {
       // Nothing to pull: a save is pushed here, and nothing else is subscribed

@@ -7,7 +7,7 @@
 //
 // The mapping is the area registry already in tools/test-explorer/concepts.json:
 // each area's `sourcePatterns` place a source file, and its key is the outer
-// `describe` title testing-strategy.md requires, so nothing new is kept.
+// `describe` title the testing skill requires, so nothing new is kept.
 //
 // A changed file is placed in this order ("Place a changed file by its
 // importers in the E2E (F3) selection", issue 1282, of "Make the E2E (F3)

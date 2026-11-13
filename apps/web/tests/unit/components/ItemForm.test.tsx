@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   Addition,
   Attachment,
+  Conversation,
+  Mailbox,
   Filing,
   Item,
   Panel,
@@ -54,6 +56,10 @@ const held = vi.hoisted(() => ({
   duplicates: [] as PossibleDuplicate[],
   attachments: [] as Attachment[],
   additions: [] as Addition[],
+  conversations: [] as Conversation[],
+  mailboxes: [] as Mailbox[],
+  /** Sources the Workspace names beyond the usual three, where a case needs one. */
+  alsoNamed: {} as Record<string, string>,
   series: [] as Series[],
   agentRuns: [] as { id: string; itemId: string }[],
   itemFormPresentation: 'centered' as 'centered' | 'docked',
@@ -218,6 +224,8 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.duplicates,
       held.attachments,
       held.additions,
+      held.conversations,
+      held.mailboxes,
       held.series,
       held.itemFormPresentation,
     ],
@@ -232,12 +240,17 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         duplicates: held.duplicates,
         attachments: held.attachments,
         additions: held.additions,
+        conversations: held.conversations,
+        mailboxes: held.mailboxes,
         series: held.series,
         agentRuns: held.agentRuns,
         itemFormPresentation: held.itemFormPresentation,
         followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
-        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message' },
+        sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
+        messageLinks: {
+          teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
+        },
       } as unknown as WorkspaceSnapshot;
     },
   }),
@@ -429,6 +442,9 @@ beforeEach(() => {
   held.duplicates = [];
   held.attachments = [];
   held.additions = [];
+  held.conversations = [];
+  held.mailboxes = [];
+  held.alsoNamed = {};
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
@@ -2796,6 +2812,18 @@ describe('Item editing', () => {
       );
     });
 
+    it('uploads a Markdown file the device reports no type for, as Markdown', async () => {
+      const user = await theForm(anItem({ id: 'item-1' }));
+      const notes = new File(['# Notes'], 'notes.md', { type: '' });
+
+      await user.upload(screen.getByLabelText('Files to attach'), notes);
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(1));
+      const sent = vi.mocked(uploadAttachment).mock.calls[0]![0].file;
+      expect([sent.name, sent.type, await sent.text()]).toEqual(['notes.md', 'text/markdown', '# Notes']);
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     /**
      * A bug caught in review: an earlier version cleared the refusal the
      * moment the *next* file in the same drop succeeded, which a case
@@ -2804,7 +2832,7 @@ describe('Item editing', () => {
     it('keeps the refusal visible when another file in the same drop succeeds', async () => {
       const user = await theForm(anItem({ id: 'item-1' }));
       const input = screen.getByLabelText('Files to attach');
-      const rejected = new File(['just words'], 'notes.txt', { type: 'text/plain' });
+      const rejected = new File(['just words'], 'notes.zip', { type: 'application/zip' });
       const accepted = new File(['bytes'], 'receipt.png', { type: 'image/png' });
 
       await user.upload(input, [rejected, accepted]);
@@ -2813,7 +2841,7 @@ describe('Item editing', () => {
         expect(uploadAttachment).toHaveBeenCalledWith(expect.objectContaining({ file: accepted })),
       );
       expect(screen.getByRole('alert')).toHaveTextContent(
-        '"notes.txt" is not a kind of file Cockpit accepts.',
+        '"notes.zip" is not a kind of file Cockpit accepts.',
       );
       expect(uploadAttachment).toHaveBeenCalledTimes(1);
     });
@@ -2923,7 +2951,7 @@ describe('Item editing', () => {
 
   describe('a file attaches the same way from any tab, and a refusal names why where the person is looking', () => {
     const carrying = (file: File) => ({ dataTransfer: { types: ['Files'], files: [file] } });
-    const aNote = () => new File(['just words'], 'notes.txt', { type: 'text/plain' });
+    const aNote = () => new File(['just words'], 'notes.zip', { type: 'application/zip' });
 
     it('+ Attach on the desk line opens the file picker', async () => {
       const user = await theForm();
@@ -2972,7 +3000,7 @@ describe('Item editing', () => {
 
     it('a kind of file Cockpit does not accept is refused under the Item tab’s line and under the tab’s list', async () => {
       const user = await theForm(anItem({ id: 'item-1' }));
-      const reason = '"notes.txt" is not a kind of file Cockpit accepts.';
+      const reason = '"notes.zip" is not a kind of file Cockpit accepts.';
 
       fireEvent.drop(screen.getByRole('dialog'), carrying(aNote()));
 
@@ -3083,6 +3111,24 @@ describe('Item editing', () => {
       expect(screen.queryByRole('link')).toBeNull();
     });
 
+    /** "Open Items captured with a pasted Teams message link in Teams", issue 1738. */
+    it('shows an item of your own that holds a Teams message link the way back alone, with no From line', async () => {
+      const teams = 'https://teams.live.com/l/message/48:notes/1789899944174';
+      await theForm(anItem({ description: `call Mieke back ${teams}` }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      const opener = screen.getByRole('link', { name: 'Open in Microsoft Teams' });
+      expect(opener).toHaveAttribute('href', teams);
+      expect(opener).toHaveAttribute('target', '_blank');
+    });
+
+    it('shows no line for an item of your own with no link', async () => {
+      await theForm(anItem({ description: 'call Mieke back', capturedMessage: null }));
+
+      expect(screen.queryByText(/^From /)).toBeNull();
+      expect(screen.queryByRole('link', { name: /^Open in / })).toBeNull();
+    });
+
     it.each([
       { situation: 'a source that never gave a link', sourceLink: null },
       { situation: 'a link that is not a web address', sourceLink: 'javascript:alert(1)' },
@@ -3134,6 +3180,88 @@ describe('Item editing', () => {
       await user.keyboard('{ArrowRight}{ArrowRight}');
 
       expect(screen.getByRole('tab', { name: 'Details', selected: true })).toHaveFocus();
+    });
+  });
+
+  /**
+   * "Show the conversation an Item follows in its form" (issue 1706): the
+   * section reads the conversation row the Workspace read already carries. What
+   * it says of a row is tests/unit/conversationLine.test.ts's.
+   */
+  describe('the conversation an Item follows is shown under its description', () => {
+    const aConversation = (over: Partial<Conversation> = {}): Conversation => ({
+      itemId: 'item-1',
+      source: 'gmail',
+      conversationId: 't-1',
+      link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1',
+      lastBy: 'them',
+      lastFrom: 'Steven Noels',
+      lastAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      lastExcerpt: 'Thursday is tricky, how about Friday?',
+      messageCount: 4,
+      startedAt: '2026-11-04T09:00:00.000Z',
+      withWhom: 'steven@noels.be',
+      ...over,
+    });
+
+    it('draws who wrote last, Open naming the conversation, the first lines and who it is with', async () => {
+      held.conversations = [aConversation()];
+      await theForm();
+
+      const section = within(screen.getByRole('region', { name: 'Conversation' }));
+      expect(section.getByText(/Steven replied/)).toBeVisible();
+      expect(section.getByRole('link', { name: 'Open the latest email in Gmail' })).toHaveAttribute(
+        'href',
+        'https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1',
+      );
+      expect(section.getByText('“Thursday is tricky, how about Friday?”')).toBeVisible();
+      expect(section.getByText(/^With steven@noels\.be · 4 emails since /)).toBeVisible();
+      expect(section.queryByRole('button', { name: /Reply/ })).toBeNull();
+    });
+
+    it('says You wrote where your message came last', async () => {
+      held.conversations = [aConversation({ lastBy: 'you', lastFrom: 'Anna Peeters' })];
+      await theForm();
+
+      expect(within(screen.getByRole('region', { name: 'Conversation' })).getByText(/You wrote/)).toBeVisible();
+    });
+
+    it('draws no section for an Item that follows no conversation, nor for one that another Item follows', async () => {
+      held.conversations = [aConversation({ itemId: 'item-2' })];
+      await theForm();
+
+      expect(screen.queryByRole('region', { name: 'Conversation' })).toBeNull();
+    });
+
+    it('draws no Open where the conversation has no web address to open', async () => {
+      held.conversations = [aConversation({ link: 'javascript:alert(1)' })];
+      await theForm();
+
+      expect(screen.getByRole('region', { name: 'Conversation' })).toBeVisible();
+      expect(screen.queryByRole('link', { name: /Open the latest email/ })).toBeNull();
+    });
+  });
+
+  /**
+   * "Email…'s mailbox menu says it is the From" (issue 1723): the form's own
+   * Email… asks which of several mailboxes as the row's menu does; what the
+   * menu reads like is EmailButton's, drawn here through the form.
+   */
+  describe('Email… on the form asks which of several mailboxes under a From heading, each with its source', () => {
+    it('opens with From, then each mailbox its name over its source', async () => {
+      held.alsoNamed = { outlook: 'Outlook' };
+      held.mailboxes = [
+        { sourceAccountId: 'sa-gmail', connectorId: 'gmail', name: 'vanhoutte.michael@gmail.com' },
+        { sourceAccountId: 'sa-outlook', connectorId: 'outlook', name: 'michael@work.example' },
+      ];
+      const user = userEvent.setup();
+      await theForm();
+
+      await user.click(await screen.findByRole('button', { name: 'Email…' }));
+
+      const asked = await screen.findAllByRole('menuitem');
+      expect(screen.getByText('From')).toBeInTheDocument();
+      expect(asked.map((one) => one.textContent)).toEqual(['vanhoutte.michael@gmail.comGmail', 'michael@work.exampleOutlook']);
     });
   });
 

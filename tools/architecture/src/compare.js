@@ -16,10 +16,10 @@ import { diffModels } from './diff.js';
 
 /**
  * @param {{ root: string, model: object, description: { file: string, text: string }, previous: string|null, fetchImpl?: typeof fetch }} input
- *   `model` is the model of the checkout being drawn; `description` its description file, for a commit that has none.
+ *   `model` is the model of the checkout being drawn; `description` and `rules` its description and rules files, for a commit that has none or predates the rules file.
  * @returns {Promise<{ state: 'compared', from: object, to: object, changes: object[], descriptionFromElsewhere: boolean } | { state: 'first' } | { state: 'unavailable', reason: string }>}
  */
-export async function compareWithPrevious({ root, model, description, previous, fetchImpl }) {
+export async function compareWithPrevious({ root, model, description, rules = null, previous, fetchImpl }) {
   if (!previous) return { state: 'unavailable', reason: 'no earlier report was given to compare against' };
   const read = await readPreviousModel(previous, { fetchImpl });
   if (read.first) return { state: 'first' };
@@ -31,7 +31,7 @@ export async function compareWithPrevious({ root, model, description, previous, 
   let drawn;
   try {
     drawn = await atCommit(root, commit, (folder) => {
-      const checkout = readCheckout(folder, { commit, fallbackDescription: description });
+      const checkout = readCheckout(folder, { commit, fallbackDescription: description, fallbackRules: rules });
       return { model: buildModel(checkout), descriptionFromElsewhere: checkout.descriptionFromElsewhere };
     });
   } catch (error) {

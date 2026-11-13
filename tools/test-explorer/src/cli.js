@@ -93,7 +93,7 @@ async function send(file, pullRequest) {
  *
  * This replaced the original "every source file matches exactly one area"
  * check: once a file could legitimately back more than one feature area
- * (testing-strategy.md §9.1's undotted-area convention), there was nothing
+ * (the testing skill's undotted-area convention), there was nothing
  * left for a file-overlap check to reject.
  */
 function checkConcepts(model) {

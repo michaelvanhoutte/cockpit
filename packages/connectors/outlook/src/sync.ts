@@ -1,9 +1,12 @@
 import type { ConnectorHost, SyncAnswer } from '@cockpit/connector-sdk';
 import { NotAnswering, OutOfCalls, mailboxOf, type Mailbox, type OutlookConnectorConfig } from './graph.js';
+import { checkDrafts } from './drafts.js';
+import { OVERLAP_MS, conversationMessages, foldersOf, reportTurnsSince, standingOf, type Folders } from './conversations.js';
 import {
   COCKPIT_CATEGORY,
   LIST_FIELDS,
   READ_FIELDS,
+  conversationKey,
   deletedItemsIn,
   markFilter,
   markOf,
@@ -32,6 +35,17 @@ import {
  *
  * A run that reaches its call budget keeps what it emitted and answers that
  * there is more to do.
+ *
+ * **Following the flag brings in a conversation, not a message** ("Outlook
+ * follows the flagged conversation as Gmail does", issue 1707): a flagged
+ * message the run has not read, in a conversation no open Item follows, is
+ * read in full and its conversation read whole, and is emitted under
+ * `conversation:` and the conversation's id, following it. Between the listing
+ * and that, one read of the mail received since the last run (every folder,
+ * `conversations.ts`) reports each message in a followed conversation as a
+ * turn, and each draft *Email…* made that is still waited on is read once
+ * (`drafts.ts`, issue 1709). An Item made of one message before stays as it was
+ * (`seen`), and never follows.
  */
 
 /** How many messages Graph is asked for at a time: a listing reads only ids, so a page costs one call whatever its size. */
@@ -65,6 +79,14 @@ export interface OutlookState {
    * from before names were reported - is reported at its next re-read.
    */
   readonly names?: Record<string, string[]>;
+  /**
+   * Following the flag: the flagged messages whose conversation was brought in
+   * (or was followed already), so a run does not read them again. Like `seen`,
+   * only what the last listing still held.
+   */
+  readonly read?: string[];
+  /** Following the flag: where the next read of received mail starts. */
+  readonly turnsSince?: string;
 }
 
 /** The saved state, read - or a fresh one where there is none, it is unreadable, or it was kept under another choice. */
@@ -77,7 +99,14 @@ export function stateIn(saved: unknown, choice: Mark): OutlookState {
       if (Array.isArray(set) && set.every((one) => typeof one === 'string')) names[id] = set;
     }
   }
-  return { choice, seen: held.seen.filter((id): id is string => typeof id === 'string' && id.length > 0), names };
+  const ids = (list: unknown) => (Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && id.length > 0) : []);
+  return {
+    choice,
+    seen: ids(held.seen),
+    names,
+    read: ids(held.read),
+    ...(typeof held.turnsSince === 'string' && Number.isFinite(Date.parse(held.turnsSince)) ? { turnsSince: held.turnsSince } : {}),
+  };
 }
 
 /** Whether two name sets hold the same names, in whatever order. */
@@ -110,6 +139,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
   }
 
   const known = new Set(state.seen);
+  const readBefore = new Set(state.read ?? []);
+  const byConversation = mark === 'flag';
+  const runStart = now();
   const done = new Set<string>();
   // What each message's names were last reported as, this run's reports added.
   const reported: Record<string, string[]> = { ...state.names };
@@ -117,25 +149,81 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
   // A message already in whose categories changed since the last report:
   // the listing reads them every run, so this costs no call (issue 1146).
   let reports = 0;
+  // Each Item's names: a message's own, or - following the flag - the union of
+  // the names of the flagged messages of the conversation its Item follows.
+  const keyOf = (messageId: string) => (byConversation && !known.has(messageId) ? conversationKey(listing.conversations[messageId]!) : messageId);
+  const namesByItem = new Map<string, Set<string>>();
   for (const messageId of listing.messageIds) {
-    if (!known.has(messageId)) continue;
-    const names = namesOf(listing.categories[messageId] ?? [], mark);
-    const before = reported[messageId];
+    if (!known.has(messageId) && !readBefore.has(messageId)) continue;
+    const set = namesByItem.get(keyOf(messageId)) ?? new Set<string>();
+    for (const name of namesOf(listing.categories[messageId] ?? [], mark)) set.add(name);
+    namesByItem.set(keyOf(messageId), set);
+  }
+  for (const [sourceId, set] of namesByItem) {
+    const names = [...set];
+    const before = reported[sourceId];
     if (before && sameNames(before, names)) continue;
     if (reports === NAMES_REPORTED_PER_RUN) {
       moreToDo = true;
       break;
     }
     reports += 1;
-    await host.reportNames({ sourceId: messageId, names, ...(mark === 'category' ? { followed: COCKPIT_CATEGORY } : {}) });
-    reported[messageId] = names;
+    await host.reportNames({ sourceId, names, ...(mark === 'category' ? { followed: COCKPIT_CATEGORY } : {}) });
+    reported[sourceId] = names;
   }
+  let turnsSince = state.turnsSince;
+  let turnsOutOfCalls = false;
   try {
-    for (const messageId of listing.messageIds) {
-      if (known.has(messageId)) continue;
-      const names = await bringIn(host, mailbox, mark, listing.deletedItems, messageId, now);
-      if (names) reported[messageId] = names;
-      done.add(messageId);
+    let followed: Set<string> | null = null;
+    let folders: Folders | null = null;
+    const foldersNow = async () => (folders ??= await foldersOf(mailbox, listing.deletedItems));
+    if (byConversation) {
+      followed = new Set(await host.followedConversations());
+      // Turns first, so a reply that arrives with a flag moves the status
+      // before the conversation is read as where things stand.
+      if (followed.size > 0) {
+        const since = state.turnsSince ?? new Date(runStart.getTime() - OVERLAP_MS).toISOString();
+        const turns = await reportTurnsSince(host, mailbox, await foldersNow(), followed, since, runStart);
+        turnsSince = turns.next;
+        if (turns.moreToDo) {
+          moreToDo = true;
+          turnsOutOfCalls = true;
+        } else {
+          // Once the turns are reported, so a draft sent and read as a turn this run is no longer waited on.
+          // A draft that could not be read this time is read next run, and must not stop the flagged mail being brought in.
+          try {
+            await checkDrafts(host, mailbox, listing.deletedItems, foldersNow);
+          } catch (error) {
+            if (error instanceof OutOfCalls) moreToDo = true;
+            else if (error instanceof NotAnswering) {
+              host.log('warn', 'an Outlook connection could not check its drafts this time', { cause: error.message });
+            } else throw error;
+          }
+        }
+      } else {
+        turnsSince = new Date(runStart.getTime() - OVERLAP_MS).toISOString();
+      }
+    }
+    // A run out of calls reading turns leaves the bringing in to the next.
+    if (!turnsOutOfCalls || !byConversation) {
+      for (const messageId of listing.messageIds) {
+        if (known.has(messageId) || readBefore.has(messageId)) continue;
+        if (byConversation) {
+          const conversationId = listing.conversations[messageId]!;
+          if (!followed!.has(conversationId)) {
+            const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now);
+            // Only once it was brought in: another flagged message of it must not be skipped for one that was gone.
+            if (brought) {
+              reported[conversationKey(conversationId)] = brought;
+              followed!.add(conversationId);
+            }
+          }
+        } else {
+          const names = await bringIn(host, mailbox, mark, listing.deletedItems, messageId, now);
+          if (names) reported[messageId] = names;
+        }
+        done.add(messageId);
+      }
     }
   } catch (error) {
     // What was emitted stands and is kept; a failed emit is not caught here,
@@ -146,14 +234,26 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
     } else throw error;
   }
 
-  await host.reportCompleteListing({ choice: mark, sourceIds: listing.messageIds });
+  // Following the flag, a message with no Item of its own is listed as its
+  // conversation, which closes when no message in it is flagged any more.
+  const sourceIds = [...new Set(listing.messageIds.map(keyOf))];
+  await host.reportCompleteListing({
+    choice: mark,
+    sourceIds,
+    // What the check's line says it listed: the messages flagged, however many conversations they are in.
+    ...(sourceIds.length === listing.messageIds.length ? {} : { count: listing.messageIds.length }),
+  });
   // Only what was read joins what was known: a message the run did not get to
   // stays unseen, and is read first thing next run.
-  const seen = listing.messageIds.filter((messageId) => known.has(messageId) || done.has(messageId));
+  const seen = listing.messageIds.filter((messageId) => known.has(messageId) || (!byConversation && done.has(messageId)));
+  const read = byConversation ? listing.messageIds.filter((id) => readBefore.has(id) || done.has(id)) : [];
   await host.setState({
     choice: mark,
     seen,
-    names: Object.fromEntries(seen.flatMap((messageId) => (reported[messageId] ? [[messageId, reported[messageId]]] : []))),
+    names: Object.fromEntries(
+      [...new Set([...seen, ...(byConversation ? read : [])].map(keyOf))].flatMap((key) => (reported[key] ? [[key, reported[key]]] : [])),
+    ),
+    ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
   } satisfies OutlookState);
   return moreToDo ? { moreToDo: true } : undefined;
 }
@@ -163,6 +263,8 @@ interface Listing {
   readonly messageIds: string[];
   /** Each listed message's categories, as the listing read them. */
   readonly categories: Record<string, string[]>;
+  /** Each listed message's conversation. */
+  readonly conversations: Record<string, string>;
 }
 
 /** Every message carrying the mark outside Deleted Items, or an error where the listing could not be finished. */
@@ -172,14 +274,16 @@ async function list(mailbox: Mailbox, mark: Mark): Promise<Listing> {
 
   const messageIds = new Set<string>();
   const categories: Record<string, string[]> = {};
+  const conversations: Record<string, string> = {};
   let next: string | null = `messages?$filter=${encodeURIComponent(markFilter(mark))}&$select=${LIST_FIELDS}&$top=${PAGE_SIZE}`;
   while (next) {
     const page = messagePage(await mailbox.get(next), mark, deletedItems);
     for (const messageId of page.messageIds) messageIds.add(messageId);
     Object.assign(categories, page.categories);
+    Object.assign(conversations, page.conversations);
     next = page.nextLink;
   }
-  return { deletedItems, messageIds: [...messageIds], categories };
+  return { deletedItems, messageIds: [...messageIds], categories, conversations };
 }
 
 /**
@@ -216,4 +320,44 @@ async function bringIn(
     await host.emitSourceStateChange({ sourceId: message.messageId, change: 'reopened', observedAt: now().toISOString() });
   }
   return names;
+}
+
+/**
+ * Reads one flagged message and its conversation whole, and offers the
+ * conversation as one titled Task that follows it - the message's subject,
+ * sender, text and link, and where the conversation stands. The host's
+ * `already-known` means the conversation was an Item before (done, or no longer
+ * followed), which is reported reopened. A message gone, unflagged or binned
+ * since the listing is left alone, as in `bringIn`.
+ */
+async function bringInConversation(
+  host: ConnectorHost,
+  mailbox: Mailbox,
+  mark: Mark,
+  deletedItems: string,
+  messageId: string,
+  foldersNow: () => Promise<Folders>,
+  now: () => Date,
+): Promise<string[] | null> {
+  const answer = await mailbox.get(`messages/${encodeURIComponent(messageId)}?$select=${READ_FIELDS}`, { bodyAsText: true });
+  const message = messageFrom(answer, mark, deletedItems);
+  if (!message) return null;
+  const whole = await conversationMessages(mailbox, message.conversationId, await foldersNow());
+  const conversation = standingOf(whole, message.conversationId);
+  const sourceId = conversationKey(message.conversationId);
+  const filing = await host.emitItem({
+    sourceId,
+    sourceLink: message.link,
+    sender: message.sender,
+    sourceTimestamp: message.receivedAt,
+    capturedMessage: message.text,
+    title: message.title,
+    choice: mark,
+    names: namesOf(message.categories, mark),
+    ...(conversation ? { conversation } : {}),
+  });
+  if (filing === 'already-known') {
+    await host.emitSourceStateChange({ sourceId, change: 'reopened', observedAt: now().toISOString() });
+  }
+  return namesOf(message.categories, mark);
 }

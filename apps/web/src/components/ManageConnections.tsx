@@ -10,13 +10,14 @@ import {
 import { api, refusal } from '../api/client';
 import { snapshotQuery, useCheckConnectionNow, whyNotDone } from '../api/queries';
 import { useChangeConnection, useSourceAccounts } from '../api/sourceAccounts';
+import { checkWaitingNote, type CheckAsked } from '../connectionHistory';
 import type { ConnectOutcome, RefusedBecause } from '../connections';
 import { dateTimeLabel } from '../dateFormat';
 import { whenCaptured } from '../duplicates';
 import { sourceNamed, type SourceNames } from '../itemSource';
 import { useUndo } from '../undo';
 import { ChangeConnectionChoice, ConnectWithChoice, type ConnectAnswer, type ConnectorChoice, type ConnectorNames } from './ConnectionChoice';
-import { ConnectionHistory } from './ConnectionHistory';
+import { ConnectionHistory, useCheckEnding } from './ConnectionHistory';
 import { ConnectPhone, type PhoneConnector } from './ConnectPhone';
 import { DeleteQuestion } from './DeleteQuestion';
 import { EmailToCockpit } from './EmailToCockpit';
@@ -315,6 +316,18 @@ export default function ManageConnections({
   const checkNow = useCheckConnectionNow(workspaceId);
   /** What pressing *Check now* last came to, said where the person is looking (issue 1143). */
   const [checkNowNote, setCheckNowNote] = useState<{ ok: boolean; text: string } | null>(null);
+  /** The check *Check now* asked for, until its history line says it ended, and the note says so (issue 1720). */
+  const [checking, setChecking] = useState<CheckAsked | null>(null);
+  useCheckEnding(
+    workspaceId,
+    checking,
+    (note) => {
+      setCheckNowNote(note);
+      setChecking(null);
+    },
+    // Still awaited: said, so a slow or stopped check reads apart from one at work.
+    setCheckNowNote,
+  );
 
   const registered = (registry.data?.connectors ?? []).map((connector): Card => ({
       id: connector.id,
@@ -356,13 +369,22 @@ export default function ManageConnections({
   };
 
   /**
-   * Asks for the connection's check at once, and says so at the click; the line it
-   * writes arrives over the stream, so nothing here waits for it. A request that
-   * did not reach the server takes the note back and says so in its place.
+   * Asks for the connection's check at once, and says so at the click. A request
+   * that did not reach the server takes the note back and says so in its place;
+   * one that did says what it found - a check started, or one already waiting
+   * or running - until the check ends, or says it is taking long
+   * (`useCheckEnding`).
    */
   const pressCheckNow = (account: SourceAccount) => {
     setCheckNowNote({ ok: true, text: `Checking ${account.displayName} now.` });
+    setChecking(null);
     checkNow.mutate(account.id, {
+      onSuccess: (answer) => {
+        if (!answer.at) return;
+        const asked = { sourceAccountId: account.id, name: account.displayName, since: answer.at, status: answer.status };
+        setCheckNowNote(checkWaitingNote(asked, 0));
+        setChecking(asked);
+      },
       onError: () => setCheckNowNote({ ok: false, text: 'That did not reach the server. Try again.' }),
     });
   };
@@ -380,6 +402,7 @@ export default function ManageConnections({
     setConnectingPhone(null);
     setHistoryOf(null);
     setCheckNowNote(null);
+    setChecking(null);
     onClose();
   };
 
@@ -403,6 +426,21 @@ export default function ManageConnections({
   /** How a connected row's connector speaks of names, where it reports any - which also offers *Change…* (issue 1146). */
   const namesOf = (connectorId: string): ConnectorNames | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
+  /**
+   * What a connected row says it was granted, in its connector's words
+   * ("Read pasted Teams links: connecting Teams asks for no read permission",
+   * issue 1754): what it holds, then what it was refused where it holds
+   * something. Nothing for a connection holding nothing, or made before this.
+   */
+  const grantedSentences = (account: { connectorId: string; granted: readonly string[] | null }): string[] => {
+    const held = account.granted ?? [];
+    if (held.length === 0) return [];
+    const permissions = registry.data?.connectors.find((connector) => connector.id === account.connectorId)?.permissions ?? [];
+    return permissions.flatMap((one) => {
+      const said = held.includes(one.code) ? one.granted : one.withheld;
+      return said ? [said] : [];
+    });
+  };
   /**
    * What picking a source does from Add connection, or Connect on a card that
    * asks something: a phone asks for its number, every other source opens its
@@ -562,6 +600,9 @@ export default function ManageConnections({
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {account.follows && <Chip>{account.followsLabel ?? account.follows}</Chip>}
                           {account.filesByName && noun && <Chip>Files by {noun}</Chip>}
+                          {grantedSentences(account).map((said) => (
+                            <Chip key={said}>{said}</Chip>
+                          ))}
                           {account.dueInDays != null && (
                             <Chip>{`Due ${account.dueInDays} ${account.dueInDays === 1 ? 'day' : 'days'} after`}</Chip>
                           )}

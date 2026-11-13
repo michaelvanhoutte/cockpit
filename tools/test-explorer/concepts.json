@@ -1,5 +1,5 @@
 {
-  "$comment": "The area registry (docs/test-explorer-spec.md, \"The area registry\"). Rows are feature areas in product language, matching the outer `describe` convention in testing-strategy.md's \"Tests are named in the product's language, not the implementation's\" - undotted, not an entity ('Triage', not 'item.setStatus'). Labels are in the product's language, and docs/functional-definition.md's Glossary is where the words come from: a behaviour the Glossary has no word for gains one in the same change, as Menus, Deleting, Ordering, Selection, Live updates and Updating did. Not every label is itself a Glossary entry - some name an activity around one ('Workspace management'), and 'Across the app' and 'Infrastructure' name where a row sits rather than something the product does. A source file can match more than one area's sourcePatterns (apps/api/src/domain/items.ts backs Capture, Triage and Offline) - expected, not an overlap error; a file matching none falls into 'infrastructure' automatically. `pnpm --filter @cockpit/test-explorer check-concepts` fails when a test declares an area missing from this file, and tests/integration/concepts-registry.test.js fails when a non-glob pattern here names a file the analyzer does not walk - so renaming a source file is a change to this file too. An empty sourcePatterns list declares an area ahead of the code that will own it, and holds the row at zero until then - the only thing that puts a row on the page with no test behind it. `parent` nests one entry under another, which is what makes the rows read as the product's own containment (Workspace > Inbox/Dashboards > Panels, per the functional definition's \"Container hierarchy\"). Workspaces, Inbox and Across the app hold other rows and own no code themselves; a row that holds others shows its own count and its subtree's, so collapsing one never reads as untested. `browserWalks` is that area's ceiling on F3 walks, held by `scripts/e2e-ceilings.mjs` rather than by anything this tool does (\"Bring the browser tier back inside a budget\", issue 509); docs/test-explorer-spec.md's \"The area registry\" is where it is written down.",
+  "$comment": "The area registry (docs/test-explorer-spec.md, \"The area registry\"). Rows are feature areas in product language, matching the outer `describe` convention in the testing skill's \"Name it after the product, not the mechanism\" (.claude/skills/testing/SKILL.md) - undotted, not an entity ('Triage', not 'item.setStatus'). Labels are in the product's language, and docs/functional-definition.md's Glossary is where the words come from: a behaviour the Glossary has no word for gains one in the same change, as Menus, Deleting, Ordering, Selection, Live updates and Updating did. Not every label is itself a Glossary entry - some name an activity around one ('Workspace management'), and 'Across the app' and 'Infrastructure' name where a row sits rather than something the product does. A source file can match more than one area's sourcePatterns (apps/api/src/domain/items.ts backs Capture, Triage and Offline) - expected, not an overlap error; a file matching none falls into 'infrastructure' automatically. `pnpm --filter @cockpit/test-explorer check-concepts` fails when a test declares an area missing from this file, and tests/integration/concepts-registry.test.js fails when a non-glob pattern here names a file the analyzer does not walk - so renaming a source file is a change to this file too. An empty sourcePatterns list declares an area ahead of the code that will own it, and holds the row at zero until then - the only thing that puts a row on the page with no test behind it. `parent` nests one entry under another, which is what makes the rows read as the product's own containment (Workspace > Inbox/Dashboards > Panels, per the functional definition's \"Container hierarchy\"). Workspaces, Inbox and Across the app hold other rows and own no code themselves; a row that holds others shows its own count and its subtree's, so collapsing one never reads as untested. `browserWalks` is that area's ceiling on F3 walks, held by `scripts/e2e-ceilings.mjs` rather than by anything this tool does (\"Bring the browser tier back inside a budget\", issue 509); docs/test-explorer-spec.md's \"The area registry\" is where it is written down.",
   "e2eShardBudget": {
     "seconds": 720,
     "typicalSeconds": 420,
@@ -123,7 +123,7 @@
     {
       "key": "Capture",
       "label": "Capture",
-      "browserWalks": 20,
+      "browserWalks": 22,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -132,6 +132,9 @@
         "apps/api/src/connectors/push-host.ts",
         "packages/connectors/teams/src/index.ts",
         "packages/connectors/teams/src/activity.ts",
+        "packages/connectors/teams/src/reading.ts",
+        "apps/api/src/connectors/pasted-link.ts",
+        "packages/shared/src/domain/message-link.ts",
         "packages/connectors/gmail/src/index.ts",
         "packages/connectors/gmail/src/sync.ts",
         "packages/connectors/gmail/src/messages.ts",
@@ -141,6 +144,10 @@
         "packages/shared/src/commands.ts",
         "packages/shared/src/domain/item.ts",
         "apps/web/src/components/CaptureNote.tsx",
+        "apps/web/src/mostUsedPanels.ts",
+        "apps/web/src/components/FileOnLine.tsx",
+        "apps/web/src/api/mostUsedPanels.ts",
+        "packages/shared/src/api/most-used-panels.ts",
         "apps/web/src/components/CaptureWindow.tsx",
         "apps/web/src/captureForm.ts",
         "apps/web/src/dictation.ts",
@@ -174,7 +181,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 16,
+      "browserWalks": 23,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -197,7 +204,16 @@
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/components/MoveToPicker.tsx",
         "apps/web/src/undo.tsx",
-        "apps/web/src/swipe.ts"
+        "apps/web/src/swipe.ts",
+        "apps/api/src/domain/conversations.ts",
+        "packages/shared/src/domain/conversation.ts",
+        "apps/web/src/conversationLine.ts",
+        "apps/web/src/emailDraft.ts",
+        "apps/web/src/components/EmailButton.tsx",
+        "apps/api/src/accounts/drafts.ts",
+        "apps/api/src/connectors/drafts.ts",
+        "packages/connectors/gmail/src/drafts.ts",
+        "packages/connectors/outlook/src/drafts.ts"
       ]
     },
     {
@@ -242,7 +258,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 27,
+      "browserWalks": 28,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -668,7 +684,7 @@
     {
       "key": "Harness Monitor",
       "label": "Harness Monitor",
-      "browserWalks": 22,
+      "browserWalks": 24,
       "sourcePatterns": [
         "apps/harness-monitor/src/worker.ts",
         "apps/harness-monitor/src/validate.ts",

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callLike, giveTheWorkerTheReadToken, importTheCalls, theCallsPage, withoutExplanations } from './cockpit-support';
 import { linked, pullRequest } from './github-support';
 import { panelOf } from './series-colours';
-import { emptyTheDatabase, send, spend, theBarePage, thePullRequest, usage, withPrices } from './support';
+import { emptyTheDatabase, send, spend, theBarePage, thePullRequest, theTrendPage, usage, withPrices } from './support';
 
 const text = (html: string) => html.replace(/<style>.*?<\/style>/s, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ');
 /** The explanation an (i) opens, by its id; '' where the page draws none. */
@@ -74,15 +74,38 @@ describe('Harness Monitor', () => {
       { panel: 'Where the period’s cost went', id: 'where' },
       { panel: 'Cost per day', id: 'perday' },
       { panel: 'Tokens per day', id: 'tokensperday' },
-      { panel: 'Is the harness getting more expensive?', id: 'trends' },
-      { panel: 'Starting context', id: 'starting-context' },
-      { panel: 'Pull request size', id: 'pull-request-size' },
-      { panel: 'Cost per 1,000 lines changed', id: 'cost-per-line' },
     ])('for each day, $panel carries its own (i), whose explanation says what it shows, how to read it and what to look for', async ({ id }) => {
       const html = await theBarePage();
 
       expect(firstInfo(panelOf(html, id))).toBe(id);
       expect(partsOf(html, id)).toEqual(THREE_PARTS);
+    });
+
+    it.each([
+      { panel: 'Starting context', id: 'starting-context' },
+      { panel: 'Pull request size', id: 'pull-request-size' },
+      { panel: 'Cost per 1,000 lines changed', id: 'cost-per-line' },
+    ])('on Harness trend, $panel carries its own (i), whose explanation says what it shows, how to read it and what to look for', async ({ id }) => {
+      const html = await theTrendPage();
+
+      expect(firstInfo(panelOf(html, id))).toBe(id);
+      expect(partsOf(html, id)).toEqual(THREE_PARTS);
+    });
+
+    it('on Harness trend, draws each (i) once, each to an explanation of its own on the page', async () => {
+      const { buttons, panels } = infosOf(await theTrendPage());
+
+      // The three charts.
+      expect(buttons).toHaveLength(3);
+      expect(new Set(buttons).size).toBe(3);
+      expect(panels.sort()).toEqual([...buttons].sort());
+    });
+
+    it('for each day, Share per day carries its own (i), whose explanation says what it shows, how to read it and what to look for', async () => {
+      const html = await theBarePage('?split=model');
+
+      expect(firstInfo(panelOf(html, 'share-band'))).toBe('share');
+      expect(partsOf(html, 'share')).toEqual(THREE_PARTS);
     });
 
     it.each([
@@ -98,9 +121,9 @@ describe('Harness Monitor', () => {
     it('draws each (i) once, each to an explanation of its own on the page', async () => {
       const { buttons, panels } = infosOf(await theBarePage());
 
-      // Where it went, the two per-day charts, the table, the trends panel and its three charts.
-      expect(buttons).toHaveLength(8);
-      expect(new Set(buttons).size).toBe(8);
+      // Where it went, the two per-day charts, the share chart and the table.
+      expect(buttons).toHaveLength(5);
+      expect(new Set(buttons).size).toBe(5);
       expect(panels.sort()).toEqual([...buttons].sort());
     });
 
@@ -112,7 +135,14 @@ describe('Harness Monitor', () => {
       expect(html).toContain('Nothing in this period');
       expect(firstInfo(panelOf(html, 'where'))).toBe('where');
       expect(firstInfo(/<section class="panel">.*?<\/section>/s.exec(html)![0])).toBe('t-day');
-      for (const id of ['trends', 'starting-context', 'pull-request-size', 'cost-per-line']) expect(firstInfo(panelOf(html, id))).toBe(id);
+    });
+
+    it('on Harness trend, a period with nothing in it keeps the (i) on every panel it still draws', async () => {
+      await emptyTheDatabase();
+
+      const html = await theTrendPage();
+
+      for (const id of ['starting-context', 'pull-request-size', 'cost-per-line']) expect(firstInfo(panelOf(html, id))).toBe(id);
     });
   });
 
@@ -220,7 +250,7 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('a fixed note on a cost page is said once, in its explanation; a note read from the figures stays', () => {
+  describe('a fixed note on a cost or trend page is said once, in its explanation; a note read from the figures stays', () => {
     it.each([
       { panel: 'Where the period’s cost went', id: 'where', gone: 'Claude Code Review runs on Anthropic', said: 'Claude Code Review runs on Anthropic' },
       { panel: 'Tokens per day', id: 'tokensperday', gone: 'tokens summed, priced or not', said: 'cache write and cache read tokens' },
@@ -228,10 +258,10 @@ describe('Harness Monitor', () => {
       { panel: 'Pull request size', id: 'pull-request-size', gone: 'Median lines changed per merged pull request', said: 'lines added plus removed' },
       { panel: 'Cost per 1,000 lines changed', id: 'cost-per-line', gone: 'divided by thousands of lines', said: 'divided by thousands of lines' },
       { panel: 'Cost per 1,000 lines changed, its phase cut-off', id: 'cost-per-line', gone: 'A phase is not drawn before it was recorded', said: 'Phases were first recorded on 21 Sep 2026' },
-    ])('Claude Code costs: $panel no longer says it under its heading, and its explanation does', async ({ id, gone, said }) => {
+    ])('$panel no longer says it under its heading, and its explanation does', async ({ id, gone, said }) => {
       await costs([spend('a', 2)]);
 
-      const html = await theBarePage();
+      const html = await (['where', 'tokensperday'].includes(id) ? theBarePage() : theTrendPage());
 
       expect(text(withoutExplanations(panelOf(html, id)))).not.toContain(gone);
       expect(text(explanationOf(html, id))).toContain(said);

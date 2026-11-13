@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useContext, useEffect, useRef, useState } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { RecurringMark } from './RecurringMark';
@@ -13,13 +13,17 @@ import {
   uuidv7,
   workspaceIsDecided,
   type AgentRun,
+  type Conversation,
   type Item,
+  type Mailbox,
   type ItemStatus,
   type PanelFit,
   type Priority,
   type RepeatRule,
 } from '@cockpit/shared';
+import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
@@ -30,7 +34,9 @@ import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTh
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
-import { capturingApp, openableAtSource, sourceOnARow, type SourceNames } from '../itemSource';
+import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
+import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
+import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -89,6 +95,7 @@ const EMPTY_ALSO_IN: readonly string[] = [];
 export function ItemRow({
   item,
   sourceNames,
+  messageLinks,
   workspaceId,
   inInbox = false,
   liftedFrom,
@@ -111,10 +118,14 @@ export function ItemRow({
   openRun,
   onSendToClaude,
   recurring,
+  conversation,
+  mailboxes,
 }: {
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
   sourceNames?: SourceNames;
+  /** The addresses of each source's own messages, from the same snapshot, for opening an Item at one in its text. */
+  messageLinks?: MessageLinks;
   workspaceId: string;
   /**
    * That this row is drawn in the Inbox rather than on a Panel or a Filter
@@ -286,8 +297,23 @@ export function ItemRow({
   onSendToClaude?: (from: HTMLElement | null) => void;
   /** The rule of the recurring item this Item is a copy of, which the row marks with ↻; none for an Item that is no copy ("Point a copy at its master, and retire the Repeats chip", issue 1450). */
   recurring?: RepeatRule | null;
+  /**
+   * The conversation this Item follows at its source, where it follows one ("A
+   * Gmail starred conversation is one Item whose status follows who wrote
+   * last", issue 1705): the row's line then says who wrote last and when, in
+   * place of the source and sender, and *Open ↗* goes to the conversation.
+   * Resolved by the list, as `openRun` is.
+   */
+  conversation?: Conversation | undefined;
+  /**
+   * The Workspace's connections *Email…* can make a draft in ("Email… makes a
+   * Gmail draft the Item then follows", issue 1708): none, and the row offers
+   * no *Email…*. Handed in by the list, from the Workspace read.
+   */
+  mailboxes?: readonly Mailbox[] | undefined;
 }) {
   const command = useCommand();
+  const queryClient = useContext(QueryClientContext);
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const waited = waitedSince(item.createdAt, Date.now());
@@ -326,8 +352,20 @@ export function ItemRow({
     itemId: item.id,
   });
 
-  /** To do, In progress, Waiting for reply or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`. */
-  const status = itemStatus(item);
+  /** The connector a draft is being made at for this Item, while *Email…* waits on it (issue 1708), or null. */
+  const draftingAt = useDraftStarting(item.id);
+  /**
+   * To do, In progress, Waiting for reply or Done ("Mark an item In progress, and see since when", issue 568). Done never reaches this row - `stillOpen`, `packages/shared/src/domain/filing.ts`.
+   * In progress from the click on *Email…*, before the server has answered (issue 1708).
+   */
+  const status = draftingAt ? 'in_progress' : itemStatus(item);
+  /** The conversation the row's line draws, *Draft started* from that click on (issue 1708). */
+  const shownConversation = draftingAt && !conversation?.draftStarted ? draftBeingStarted(item.id, draftingAt, conversation) : conversation;
+  /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
+  const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
+  const emailWith = (mailbox: Mailbox) => {
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation }, offerToUndo);
+  };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
 
@@ -480,7 +518,9 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
-  const atSource = openableAtSource(item, sourceNames);
+  const atSource = openableAtSource(item, sourceNames, messageLinks);
+  /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
+  const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -827,6 +867,34 @@ export function ItemRow({
       // Waiting for reply", issue 1463). Choosing the state it is already in
       // changes nothing; Waiting for reply asks how long, as the entry does.
       [
+        // Email… or Reply… (issue 1708): one mailbox is used as it is; several
+        // are asked between, the last used first. The draft opens in a tab the
+        // choice itself opens, so no pop-up blocker refuses it.
+        emailEntry &&
+          (emailEntry.mailboxes.length === 1 ? (
+            <M.Item key="email" className={menuItemClass} onSelect={() => emailWith(emailEntry.mailboxes[0]!)}>
+              {emailEntry.label}
+            </M.Item>
+          ) : (
+            <M.Sub key="email">
+              <M.SubTrigger className={subTriggerClass}>
+                <span>{emailEntry.label}</span>
+                <span aria-hidden="true" className="text-xs text-ink-faint">
+                  ▸
+                </span>
+              </M.SubTrigger>
+              <M.Portal>
+                <M.SubContent sideOffset={roomBesideTheMenu ? 0 : -320} className={mailboxMenuClass}>
+                  <div className={fromHeadingClass}>From</div>
+                  {emailEntry.mailboxes.map((mailbox) => (
+                    <M.Item key={mailbox.sourceAccountId} className={menuItemClass} onSelect={() => emailWith(mailbox)}>
+                      <MailboxChoice mailbox={mailbox} names={sourceNames} />
+                    </M.Item>
+                  ))}
+                </M.SubContent>
+              </M.Portal>
+            </M.Sub>
+          )),
         <M.Item key="wait" className={menuItemClass} onSelect={askToWait}>
           {status === 'waiting' ? 'Wait again…' : 'Wait for reply…'}
         </M.Item>,
@@ -1359,19 +1427,46 @@ export function ItemRow({
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </span>
               ))}
-            <span className="truncate">
-              {/* The source by the name its connector gives it - "Gmail",
-                  never the id `gmail` ("Take source names out of the shared
-                  contract", issue 927). */}
-              {sourceOnARow(item, sourceNames)}
-              {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
-            </span>
+            {shownConversation ? (
+              <>
+                {/* Who wrote last in the conversation this Item follows, in
+                    place of the source and sender, its latest lines on hover
+                    ("A Gmail starred conversation is one Item whose status
+                    follows who wrote last", issue 1705) - or *Draft started*
+                    while a draft Email… made is unsent (issue 1708). */}
+                <span className="truncate" title={latestText(shownConversation)}>
+                  {conversationLine(shownConversation, conversationSourceName(shownConversation, sourceNames), Date.now())}
+                </span>
+                {conversationAt && (
+                  <a
+                    href={conversationAt}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onContextMenu={(event) => event.stopPropagation()}
+                    title={openLabel(shownConversation, conversationSourceName(shownConversation, sourceNames))}
+                    aria-label={openLabel(shownConversation, conversationSourceName(shownConversation, sourceNames))}
+                    className="shrink-0 underline"
+                  >
+                    Open ↗
+                  </a>
+                )}
+              </>
+            ) : (
+              <span className="truncate">
+                {/* The source by the name its connector gives it - "Gmail",
+                    never the id `gmail` ("Take source names out of the shared
+                    contract", issue 927). */}
+                {sourceOnARow(item, sourceNames)}
+                {item.sender && !capturingApp(item) ? ` · ${item.sender}` : ''}
+              </span>
+            )}
             {/* The way back to the original, where the source gave one ("Open an
                 Item at its source", issue 487). A real link in a new tab, and
                 one of the controls the row's own handlers step aside for -
                 `closest('a, …')` above - so following it neither picks the row
-                nor opens its form. */}
-            {atSource && (
+                nor opens its form. A followed conversation's own *Open ↗* above
+                takes its place where it can open. */}
+            {atSource && !conversationAt && (
               <a
                 href={atSource.link}
                 target="_blank"

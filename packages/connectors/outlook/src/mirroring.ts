@@ -1,6 +1,7 @@
 import type { ConnectorHost, MirroredOpenStates, OpenStateWanted } from '@cockpit/connector-sdk';
 import { Changed, NotAnswering, OutOfCalls, Refused, mailboxOf, type Mailbox, type OutlookConnectorConfig } from './graph.js';
-import { categoriesIn, categoryChange, flagChange, markOf, type Mark } from './messages.js';
+import { flaggedIn } from './conversations.js';
+import { categoriesIn, categoryChange, conversationIdIn, flagChange, markOf, type Mark } from './messages.js';
 
 /**
  * Puts the followed mark back on, or takes it off, each message whose Item a
@@ -39,6 +40,23 @@ export async function mirrorOpenStates(
   const gaveUp: string[] = [];
   try {
     for (const one of wanted) {
+      const conversationId = mark === 'flag' ? conversationIdIn(one.sourceId) : null;
+      if (conversationId !== null) {
+        let outcome: Awaited<ReturnType<typeof pushedToConversation>>;
+        try {
+          outcome = await pushedToConversation(mailbox, conversationId, one.open);
+        } catch (error) {
+          if (!(error instanceof Refused)) throw error;
+          host.log('warn', 'Microsoft refused to change the flag on a message, which is no longer asked of it', { status: error.status });
+          gaveUp.push(one.sourceId);
+          continue;
+        }
+        if (outcome === 'gave up') {
+          host.log('info', 'a flagged conversation reopened in Cockpit is not flagged again in Outlook', {});
+          gaveUp.push(one.sourceId);
+        } else if (outcome === 'confirmed') confirmed.push(one.sourceId);
+        continue;
+      }
       try {
         if (await pushed(mailbox, mark, one)) confirmed.push(one.sourceId);
       } catch (error) {
@@ -55,6 +73,34 @@ export async function mirrorOpenStates(
     } else if (!(error instanceof OutOfCalls)) throw error;
   }
   return { confirmed, gaveUp };
+}
+
+/**
+ * A conversation Item's wanted state. **Done completes the flag on every
+ * message of the conversation that carries one**, one call each from the run's
+ * budget; the Item is confirmed only once none is left, so a conversation with
+ * more flagged messages than the run can reach continues next run (the read
+ * then finds fewer). Opened in Cockpit, it is confirmed while a message is
+ * still flagged and otherwise given up on - flagging every message again would
+ * flag mail nobody chose - and the host has the Item stop following.
+ */
+async function pushedToConversation(
+  mailbox: Mailbox,
+  conversationId: string,
+  open: boolean,
+): Promise<'confirmed' | 'waiting' | 'gave up'> {
+  const flagged = await flaggedIn(mailbox, conversationId);
+  if (open) return flagged.length > 0 ? 'confirmed' : 'gave up';
+  for (const id of flagged) {
+    try {
+      await mailbox.patch(`messages/${encodeURIComponent(id)}`, flagChange(false));
+    } catch (error) {
+      // A save made at the same moment leaves it for the next run.
+      if (error instanceof Changed) return 'waiting';
+      throw error;
+    }
+  }
+  return 'confirmed';
 }
 
 /** Whether the message now holds what is wanted: false for a write that met a changed message (every attempt, for a category), or a category write that could not be made conditional. */

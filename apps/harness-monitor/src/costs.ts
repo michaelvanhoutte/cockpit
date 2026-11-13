@@ -1,4 +1,4 @@
-import { addDays, belgianDay, formatDate, formatDay, startOfDay, weekStart } from './belgium';
+import { addDays, belgianDay, formatDate, formatDay, isDay, startOfDay, weekStart } from './belgium';
 import { jobReads, jobStatuses, type JobStatus } from './jobs';
 import { CATEGORIES, PHASES_BEGIN, totalsPhaseSql, WHERE, type Category } from './validate';
 
@@ -32,7 +32,12 @@ export const UNATTRIBUTED = '~unattributed';
 export const PAGE_SIZE = 25;
 
 export interface CostQuery {
+  /** The period shown, or, on a day, the one the day was opened from: choosing "each day" returns to it. */
   period: Period;
+  /** One Belgian day, `YYYY-MM-DD`, narrowing the page beside the period; null for the period alone. Never set with the rows "each day". */
+  day: string | null;
+  /** A run of two or more days zoomed into from a chart, both ends included, beside the period it was opened from; null for the period alone. Kept beside a day, so "each day" on that day returns to it. */
+  range: DayWindow | null;
   /** A GitHub login, UNATTRIBUTED, or null for everyone. */
   engineer: string | null;
   category: Category | null;
@@ -61,9 +66,19 @@ export function parseQuery(params: URLSearchParams): CostQuery {
   const page = Number(params.get('page'));
   const group_ = (GROUPS as readonly string[]).includes(group) ? group : DEFAULT_GROUP;
   const asked: Split = (SPLITS as readonly string[]).includes(split) ? split : 'phase';
+  // A day that is no real date is ignored, and "each day" has no day to narrow to: both show the period.
+  const dayParam = params.get('day');
+  const day = dayParam !== null && group_ !== 'day' && isDay(dayParam) ? dayParam : null;
+  // A range needs two real days, the first before the last and at most MAX_RANGE_DAYS apart, so an address cannot ask the public page to draw centuries; anything else shows the period.
+  const from = params.get('from') ?? '';
+  const to = params.get('to') ?? '';
+  const range = isDay(from) && isDay(to) && from < to && daysIn({ from, to }) <= MAX_RANGE_DAYS ? { from, to } : null;
+  const sortParam = params.get('sort');
   return {
     // Own keys only: `in` would accept `toString` and the page would throw.
     period: period !== null && Object.hasOwn(PERIODS, period) ? period : '30d',
+    day,
+    range,
     // A filter that repeats the rows is dropped, as its control is not offered.
     engineer: group_ === 'engineer' ? null : params.get('engineer') || null,
     category: group_ !== 'category' && (CATEGORIES as readonly string[]).includes(category) ? category : null,
@@ -71,7 +86,8 @@ export function parseQuery(params: URLSearchParams): CostQuery {
     who: (WHOS as readonly string[]).includes(who) ? who : 'all',
     group: group_,
     split: SAME_AS_ROWS[group_] === asked ? INSTEAD[asked] : asked,
-    sort: params.get('sort') === 'total' && group_ !== 'engineer' ? 'total' : 'default',
+    // A day opens dearest first; asking for the rows' own order on it is kept.
+    sort: group_ !== 'engineer' && (sortParam === 'total' || (day !== null && sortParam !== 'default')) ? 'total' : 'default',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
 }
@@ -79,8 +95,15 @@ export function parseQuery(params: URLSearchParams): CostQuery {
 /** The address of a query, canonical, so the edge cache keys one page one way. */
 export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string {
   const all = { ...q, ...over };
+  // "Each day" has no day to narrow to, so choosing it returns to the period.
+  const day = all.group === 'day' ? null : all.day;
   const params = new URLSearchParams();
   if (all.period !== '30d') params.set('period', all.period);
+  if (day !== null) params.set('day', day);
+  if (all.range !== null) {
+    params.set('from', all.range.from);
+    params.set('to', all.range.to);
+  }
   if (all.engineer) params.set('engineer', all.engineer);
   if (all.category) params.set('category', all.category);
   if (all.model) params.set('model', all.model);
@@ -88,7 +111,9 @@ export function queryString(q: CostQuery, over: Partial<CostQuery> = {}): string
   if (all.group !== DEFAULT_GROUP) params.set('group', all.group);
   if (all.split !== 'phase') params.set('split', all.split);
   // An engineer grouping is always by total, so it never carries a sort; a new grouping starts in its own order.
-  if (all.sort === 'total' && all.group !== 'engineer') params.set('sort', 'total');
+  // A day starts dearest first, so on one it is the rows' own order that is carried.
+  const carried: Sort = day === null ? 'total' : 'default';
+  if (all.sort === carried && all.group !== 'engineer') params.set('sort', carried);
   if (all.page > 1) params.set('page', String(all.page));
   const text = params.toString();
   return text === '' ? '' : `?${text}`;
@@ -105,6 +130,15 @@ export interface DayWindow {
   from: string;
   to: string;
 }
+
+/** How many days a window spans, both ends included. */
+export const daysIn = (w: DayWindow) => Math.round((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000) + 1;
+
+/** The longest range an address may ask for: ten years, far past the days on record, yet bounded. */
+export const MAX_RANGE_DAYS = 3660;
+
+/** The last day a chart over a range draws: its own last day, or today where that is still to come. */
+export const rangeEnd = (range: DayWindow, now: number) => (range.to < belgianDay(now) ? range.to : belgianDay(now));
 
 /** The period's window and the one before it, of the same length; null for all time, which has no before. The Claude calls page compares them. */
 export function windowsOf(period: Period, now: number): { current: DayWindow; previous: DayWindow } | null {
@@ -412,11 +446,12 @@ export type DayGroup = Pick<CostGroup, 'key' | 'bySeries' | 'totalMicros'> & Par
 
 /**
  * Cost or tokens per day as lines: one per series of the split that has any,
- * and the total. The range runs from the period's first day (the earliest day
- * with any request, priced or not, for all time) to today, so a day with none
- * is a zero, not a gap.
+ * and the total. The days run from the period's first day (the earliest day
+ * with any request, priced or not, for all time) to today, or from a range's
+ * first day to `last`, its last, ending today where that is still to come; a
+ * day with none is a zero, not a gap.
  */
-export function dayChart(groups: DayGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost'): DayChart {
+export function dayChart(groups: DayGroup[], series: Series[], first: string | null, now: number, measure: Measure = 'cost', last: string | null = null): DayChart {
   if (groups.length === 0) return { days: [], lines: [], total: [] };
   const of = (g: DayGroup | undefined, key: string) => (measure === 'cost' ? g?.bySeries[key] : g?.tokensBySeries?.[key]) ?? 0;
   const totalOf = (g: DayGroup | undefined) => (measure === 'cost' ? g?.totalMicros : g?.totalTokens) ?? 0;
@@ -424,13 +459,43 @@ export function dayChart(groups: DayGroup[], series: Series[], first: string | n
   const keys = groups.map((g) => g.key).sort();
   const start = first ?? keys[0]!;
   const today = belgianDay(now);
-  const end = today > keys.at(-1)! ? today : keys.at(-1)!;
+  const end = last !== null ? rangeEnd({ from: start, to: last }, now) : today > keys.at(-1)! ? today : keys.at(-1)!;
   const days: string[] = [];
   for (let day = start; day <= end; day = addDays(day, 1)) days.push(day);
   const lines = series
     .filter((s) => groups.some((g) => of(g, s.key) > 0))
     .map((s) => ({ key: s.key, label: s.label, values: days.map((d) => of(byDay.get(d), s.key)) }));
   return { days, lines, total: days.map((d) => totalOf(byDay.get(d))) };
+}
+
+/** One colour of the sentence over time: its share of each bucket's dollars, 0 to 100, null where the bucket has no dollars. */
+export interface ShareLine {
+  key: string;
+  label: string;
+  values: (number | null)[];
+}
+
+/**
+ * Each series as its share of a bucket's dollars. The buckets are the trend
+ * charts': the days of Cost per day for 7 and 30 days, weeks from Monday
+ * otherwise (a range by its own length), from the period's first day (the
+ * earliest day for all time) to today, or over a range's days. A week's share is of the week's summed dollars, not an average of its
+ * days' shares, and a bucket with no dollars is null for every series, a break
+ * in the line rather than a zero. A series with no dollars in the period has no line.
+ */
+export function shareChart(groups: DayGroup[], series: Series[], period: Period, now: number, range: DayWindow | null = null): { buckets: string[]; weekly: boolean; lines: ShareLine[] } {
+  const weekly = isWeekly(period, range);
+  const chart = dayChart(groups, series, range?.from ?? firstDay(period, now), now, 'cost', range?.to ?? null);
+  const buckets = weekly ? [...new Set(chart.days.map(weekStart))] : chart.days;
+  const index = new Map(buckets.map((b, i) => [b, i]));
+  const sum = (values: number[]) => {
+    const out = buckets.map(() => 0);
+    values.forEach((v, i) => (out[index.get(weekly ? weekStart(chart.days[i]!) : chart.days[i]!)!]! += v));
+    return out;
+  };
+  const total = sum(chart.total);
+  const lines = chart.lines.map((l) => ({ key: l.key, label: l.label, values: sum(l.values).map((v, i) => (total[i] === 0 ? null : (v / total[i]!) * 100)) }));
+  return { buckets, weekly, lines };
 }
 
 export function median(values: number[]): number {
@@ -474,6 +539,9 @@ export interface Trends {
   costPerThousandLines: TrendLine[];
 }
 
+/** Whether a chart over the period counts in weeks from Monday rather than days: over 90 days and all time, or a range of more than 30 days. */
+export const isWeekly = (period: Period, range: DayWindow | null = null) => (range !== null ? daysIn(range) > 30 : period !== '7d' && period !== '30d');
+
 /**
  * The charts' values per bucket: days for 7 and 30 days, weeks (starting
  * Monday) otherwise. A bucket with nothing to show holds null, not zero.
@@ -484,7 +552,7 @@ export interface Trends {
  * bucket that holds some, since a hook on an older checkout still sends it.
  */
 export function trends(sessions: SessionStart[], pullRequests: MergedPullRequest[], period: Period, now: number): Trends {
-  const weekly = period !== '7d' && period !== '30d';
+  const weekly = isWeekly(period);
   const bucketOf = (day: string) => (weekly ? weekStart(day) : day);
   const span = weekly ? 7 : 1;
   const today = belgianDay(now);
@@ -547,8 +615,6 @@ export interface CostsPage {
   creditedThrough: number | null;
   /** What each job last did: read in the same batch as the figures. */
   jobs: JobStatus[];
-  /** The Over time page's trend charts; null for every other grouping. */
-  trends: Trends | null;
 }
 
 /**
@@ -575,19 +641,8 @@ const TOKEN_SUMS = `SUM(t.input_tokens) AS inputTokens, SUM(t.output_tokens) AS 
  * read allowance on the table that grows with every request.
  */
 export async function costsPage(db: D1Database, query: CostQuery, now = Date.now()): Promise<CostsPage> {
-  const first = firstDay(query.period, now);
-  // What narrows a request: its phase, model and agent, then the engineer its pull request (or the one it is credited to) names.
-  const narrowing: string[] = [];
-  const narrowBinds: (string | number)[] = [];
-  if (query.category !== null) {
-    narrowing.push(`${PHASE} = ?`);
-    narrowBinds.push(query.category);
-  }
-  if (query.model !== null) {
-    narrowing.push('t.model = ?');
-    narrowBinds.push(query.model);
-  }
-  if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
+  const first = query.range?.from ?? firstDay(query.period, now);
+  const { narrowing, narrowBinds } = narrowingOf(query);
   const byEngineer: string[] = [];
   const engineerBinds: string[] = [];
   if (query.engineer === UNATTRIBUTED) byEngineer.push(`${counted('branch')} IS NULL`);
@@ -595,8 +650,10 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     byEngineer.push(`${counted('engineer')} = ?`);
     engineerBinds.push(query.engineer);
   }
-  const where = [...(first === null ? [] : ['t.day >= ?']), ...narrowing, ...byEngineer];
-  const binds = [...(first === null ? [] : [first]), ...narrowBinds, ...engineerBinds];
+  // A day is that one day's totals; a range is its days; a period is every day from its first on.
+  const since = query.day !== null ? ['t.day = ?'] : query.range !== null ? ['t.day >= ?', 't.day <= ?'] : first === null ? [] : ['t.day >= ?'];
+  const where = [...since, ...narrowing, ...byEngineer];
+  const binds = [...(query.day !== null ? [query.day] : query.range !== null ? [query.range.from, query.range.to] : first === null ? [] : [first]), ...narrowBinds, ...engineerBinds];
   const needsLinks = query.group !== 'day' || query.engineer !== null || query.split === 'outcome' || query.split === 'engineer';
   const conditions = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
   // The phase is read only for a by-category question; the split's own column is read always.
@@ -627,15 +684,12 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
          LEFT JOIN pull_request_stats s ON s.pr_number = ${link('pr_number')}
          ${conditions} GROUP BY t.branch, e.branch${phaseKey}, ${series}`;
 
-  // Only the Over time page draws the trend charts, so only it reads their sessions and merged pull requests.
-  const reads = query.group === 'day' ? trendReads(db, query, first, { narrowing, narrowBinds }) : [];
-  const [rows, engineers, models, state, runs, list, sessionRows, pullRequestRows] = await db.batch([
+  const [rows, engineers, models, state, runs, list] = await db.batch([
     db.prepare(select).bind(...binds),
     db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
     db.prepare('SELECT DISTINCT model FROM daily_credited_totals ORDER BY model'),
     db.prepare('SELECT last_success_at AS lastSuccessAt, credited_through AS creditedThrough FROM link_state WHERE id = 1'),
     ...jobReads(db),
-    ...reads,
   ]);
   const linkState = state!.results[0] as { lastSuccessAt: number | null; creditedThrough: number | null } | undefined;
   const lastLinkSuccessAt = linkState?.lastSuccessAt ?? null;
@@ -657,21 +711,78 @@ export async function costsPage(db: D1Database, query: CostQuery, now = Date.now
     lastLinkSuccessAt,
     creditedThrough,
     jobs: jobStatuses(runs!, list!, lastLinkSuccessAt),
-    trends:
-      sessionRows === undefined || query.group !== 'day'
-        ? null
-        : trends(
-            sessionRows.results as unknown as SessionStart[],
-            mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]),
-            query.period,
-            now,
-          ),
   };
 }
 
 interface Narrowing {
   narrowing: string[];
   narrowBinds: (string | number)[];
+}
+
+/** What narrows a request: its phase, model and agent. The engineer is narrowed through the pull request's link, read where it is needed. */
+function narrowingOf(query: CostQuery): Narrowing {
+  const narrowing: string[] = [];
+  const narrowBinds: (string | number)[] = [];
+  if (query.category !== null) {
+    narrowing.push(`${PHASE} = ?`);
+    narrowBinds.push(query.category);
+  }
+  if (query.model !== null) {
+    narrowing.push('t.model = ?');
+    narrowBinds.push(query.model);
+  }
+  if (query.who !== 'all') narrowing.push(`t.subagent = ${query.who === 'subagents' ? 1 : 0}`);
+  return { narrowing, narrowBinds };
+}
+
+/** The addresses the Harness trend page reads: its period and the "Only" filters; anything else in an address is ignored. */
+const TREND_PARAMETERS = ['period', 'engineer', 'category', 'model', 'who'];
+
+/** The Harness trend page's query: the costs page's period and filters, with the rows, colouring, day, sort and page left at their defaults. */
+export function parseTrendQuery(params: URLSearchParams): CostQuery {
+  const own = new URLSearchParams();
+  for (const name of TREND_PARAMETERS) {
+    const value = params.get(name);
+    if (value !== null) own.set(name, value);
+  }
+  return parseQuery(own);
+}
+
+/** The Harness trend page's canonical address, so the edge cache keys one page one way. */
+export function trendQueryString(q: CostQuery, lines: TrendLines = 'phase'): string {
+  const base = queryString(q, { group: DEFAULT_GROUP, split: 'phase', day: null, sort: 'default', page: 1 });
+  if (lines !== 'total') return base;
+  return base === '' ? '?lines=total' : `${base}&lines=total`;
+}
+
+/** What "Cost per 1,000 lines changed" draws: a line per phase beside the total, or the total alone. Anything but `total` in an address is by phase. */
+export type TrendLines = 'phase' | 'total';
+
+export const parseTrendLines = (params: URLSearchParams): TrendLines => (params.get('lines') === 'total' ? 'total' : 'phase');
+
+export interface TrendPage {
+  query: CostQuery;
+  lines: TrendLines;
+  engineers: string[];
+  /** Every model with dollars on record, for the Model filter. */
+  models: string[];
+  trends: Trends;
+}
+
+/** Reads the trend charts' figures and the two lists the "Only" filters offer in one batch: no cost rows, link state or job status. */
+export async function trendPage(db: D1Database, query: CostQuery, now = Date.now(), lines: TrendLines = 'phase'): Promise<TrendPage> {
+  const [sessionRows, pullRequestRows, engineers, models] = await db.batch([
+    ...trendReads(db, query, firstDay(query.period, now), narrowingOf(query)),
+    db.prepare('SELECT DISTINCT engineer FROM branch_links WHERE engineer IS NOT NULL ORDER BY engineer'),
+    db.prepare('SELECT DISTINCT model FROM daily_credited_totals ORDER BY model'),
+  ]);
+  return {
+    query,
+    lines,
+    engineers: (engineers!.results as { engineer: string }[]).map((e) => e.engineer),
+    models: (models!.results as { model: string }[]).map((m) => m.model),
+    trends: trends(sessionRows!.results as unknown as SessionStart[], mergedPullRequests(pullRequestRows!.results as unknown as MergedRow[]), query.period, now),
+  };
 }
 
 /**

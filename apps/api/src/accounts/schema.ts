@@ -1163,7 +1163,17 @@ export const panelItems = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: 'restrict' }),
     position: integer('position').notNull(),
+    /** When this row was last rewritten, which every rewrite of the Panel's order resets for all its rows. */
     createdAt: text('created_at').notNull(),
+    /**
+     * When a person's filing landed the Item on this Panel ("Capture: offer
+     * today's and this week's most-used Panels…", issue 1743), the command's own
+     * time like `created_at`, and carried unchanged through every later rewrite
+     * of the Panel's order. Null for a filing a source or a recurring item made
+     * on its own, and for every row filed before the column existed: never
+     * counted as used.
+     */
+    filedAt: text('filed_at'),
   },
   (t) => [
     primaryKey({ columns: [t.panelId, t.itemId] }),
@@ -1172,8 +1182,11 @@ export const panelItems = sqliteTable(
     // lookup by item alone cannot use a key that leads with the panel.
     index('panel_items_tenant_panel').on(t.tenantId, t.panelId),
     index('panel_items_tenant_item').on(t.tenantId, t.itemId),
+    // The most-used read's "filed in the last 7 days", a range on the stamp.
+    index('panel_items_tenant_filed').on(t.tenantId, t.filedAt),
     check('panel_items_position_is_an_order', sql.raw('position >= 0')),
     check('panel_items_created_at_is_timestamp', isTimestamp('created_at')),
+    check('panel_items_filed_at_is_timestamp', isTimestamp('filed_at')),
   ],
 );
 
@@ -1687,6 +1700,85 @@ export const itemAdditions = sqliteTable(
 );
 
 /**
+ * A conversation an Item follows at its source ("A Gmail starred conversation
+ * is one Item whose status follows who wrote last", issue 1705): one row per
+ * Item, connection and conversation, so a second conversation on one Item fits
+ * later without a redesign. What the row's line is drawn from; the status a
+ * turn sets is the Item's own.
+ *
+ * - **Keyed by Item first**, which is how the Workspace read joins it; the
+ *   index by conversation is how a check finds the Item a turn belongs to.
+ * - **`last_by` is `you` or `them`** as the source sees it (Gmail's Sent label),
+ *   and `last_*` are the latest message's, replaced only by a newer one.
+ * - **`message_count`** counts the messages the source reported, one per turn.
+ * - **`draft_id` and `status_before_draft`** are *Email…*'s ("Email… makes a
+ *   Gmail draft the Item then follows", issue 1708): the source's id of the
+ *   draft waited on, null until it is recorded, and the Item's status before
+ *   the click as `StatusBeforeDraft` JSON (domain/conversations.ts), whose
+ *   `opened` says the draft started the conversation. Both null once a turn
+ *   arrives or the draft is dropped. A conversation still starting is keyed
+ *   `draft:<click id>` until the draft names it.
+ * - **No CHECK on the texts' lengths**: the caps are product numbers, held by
+ *   the commands' schemas on the way in.
+ */
+export const itemConversations = sqliteTable(
+  'item_conversations',
+  {
+    tenantId: text('tenant_id').notNull(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    connectorId: text('connector_id').notNull(),
+    externalAccountKey: text('external_account_key').notNull(),
+    conversationId: text('conversation_id').notNull(),
+    link: text('link').notNull(),
+    lastBy: text('last_by', { enum: ['you', 'them'] }).notNull(),
+    lastFrom: text('last_from'),
+    lastAt: text('last_at').notNull(),
+    lastExcerpt: text('last_excerpt').notNull(),
+    messageCount: integer('message_count').notNull(),
+    startedAt: text('started_at').notNull(),
+    withWhom: text('with_whom'),
+    draftId: text('draft_id'),
+    statusBeforeDraft: text('status_before_draft'),
+    /**
+     * Where the draft waited on opens, set with `draft_id` and cleared with it
+     * ("Conversation follow-up: Open, previews, drafts and Check now misbehave
+     * on real Gmail and Outlook mailboxes", issue 1720): what Open goes to
+     * while the draft is unsent. Null on a row recorded before it, which links
+     * the conversation.
+     */
+    draftLink: text('draft_link'),
+    /**
+     * The fingerprint of the text Claude wrote into the draft waited on ("Mail
+     * follow-up: a Claude draft looks like any other and cannot be redone…",
+     * issue 1732): SHA-256, in hex, of that text with its spacing normalised.
+     * Set while the draft is Claude's and unchanged as far as Cockpit knows,
+     * replaced when Claude writes it again, and cleared with `draft_id`, or once
+     * the draft is found edited. Null is a draft of yours, and every row from
+     * before it.
+     */
+    claudeDraftDigest: text('claude_draft_digest'),
+    /**
+     * When the Item stopped following it, or null while it follows: reopened in
+     * Cockpit while no message in the conversation carried the mark, which the
+     * source was not asked to put back. Cleared by the conversation followed again.
+     */
+    stoppedAt: text('stopped_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.itemId, t.connectorId, t.externalAccountKey, t.conversationId] }),
+    // What a check finds the Item a turn belongs to by (`recordPulledTurn`, pulled.ts).
+    index('item_conversations_by_conversation').on(t.connectorId, t.externalAccountKey, t.conversationId),
+    check('item_conversations_last_by_is_known', sql.raw("last_by IN ('you', 'them')")),
+    check('item_conversations_message_count_is_positive', sql.raw('message_count > 0')),
+    check('item_conversations_last_at_is_timestamp', isTimestamp('last_at')),
+    check('item_conversations_started_at_is_timestamp', isTimestamp('started_at')),
+    check('item_conversations_stopped_at_is_timestamp', isTimestamp('stopped_at')),
+  ],
+);
+
+/**
  * A recurring item ("Repeat an Item on a schedule, so it comes back every
  * Monday or every quarter", issue 1405): one row per series, its rule and the
  * content each copy is made from, named by every Item that is one of its
@@ -1962,6 +2054,19 @@ export const connectorAccounts = sqliteTable(
      * the connector, and counted from when it is saved.
      */
     dueInDays: integer('due_in_days'),
+    /**
+     * What the source granted this connection, as a JSON array of the codes its
+     * connector's sign-in names for each permission ("Read pasted Teams links:
+     * connecting Teams asks for no read permission", issue 1754): the highest
+     * tier the person's organisation let through. An empty array is a
+     * connection granting nothing beyond who the person is; null is a
+     * connection made before this existed (`0106-connector-accounts-granted`,
+     * changes.ts) or one whose connector asks in no tiers, and reads as
+     * granting nothing. No CHECK, for the reason `connector_id` has none:
+     * which codes exist is the connector's to say. Read with the account's
+     * connections by the Connections card.
+     */
+    granted: text('granted'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.
@@ -2290,6 +2395,8 @@ export const connectionHistory = sqliteTable(
     status: integer('status'),
     /** How many messages the check's complete listing returned (issue 1196); NULL where it listed nothing completely - a failed or stopped check - and on every line from before it. */
     listed: integer('listed'),
+    /** When the check's run took its hold (issue 1725): the hold's end less its fixed length, read as the run ends. NULL for a delivery, where no check ran, and on every line from before it. A line folded across checks keeps its first check's. */
+    startedAt: text('started_at'),
   },
   (t) => [
     index('connection_history_newest').on(t.tenantId, t.sourceAccountId, t.lastAt),

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SourceAccount } from '@cockpit/shared';
 import ManageConnections from '../../../src/components/ManageConnections';
 import type { ConnectOutcome, RefusedBecause } from '../../../src/connections';
+import { timeOfDayLabel } from '../../../src/dateFormat';
 import { useCheckConnectionNow } from '../../../src/api/queries';
 import { changes } from '../../../src/api/changes';
 
@@ -30,6 +31,7 @@ const held = vi.hoisted(() => ({
     choice?: { question: string; options: { value: string; label: string }[] };
     pulled?: boolean;
     textedCode?: { textTo: string };
+    permissions?: { code: string; granted?: string; withheld?: string }[];
   }[],
   /** What the Workspace's snapshot calls each source (issue 927). */
   sourceNames: {} as Record<string, string> | undefined,
@@ -140,6 +142,7 @@ const ADA: SourceAccount = {
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 
 const MICHAEL: SourceAccount = {
@@ -151,12 +154,18 @@ const MICHAEL: SourceAccount = {
   failingBecause: null,
   filesByName: false,
   dueInDays: null,
+  granted: null,
 };
 
 let sent: ReturnType<typeof vi.fn>;
 /** The connections a press on Check now asked for (issue 1143), and whether the request reaches the server. */
 let checkedNow: string[] = [];
 let checkNowReaches = true;
+/** When the server says the press was taken, on its own clock (issue 1720). */
+let pressedAt = '2026-10-16T12:00:00.000Z';
+/** What the server answers a press: a check started, one already waiting to run, or one already running. */
+let pressFinds: 'queued' | 'already queued' | 'running' = 'queued';
+let client: QueryClient;
 
 function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode) {
   sent = vi.fn();
@@ -166,14 +175,14 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
     return Promise.resolve({ ok: true, applied: true });
   });
   vi.mocked(useCheckConnectionNow).mockReturnValue({
-    mutate: (id: string, opts: { onSuccess?: () => void; onError?: () => void }) => {
+    mutate: (id: string, opts: { onSuccess?: (answer: { status: string; at: string }) => void; onError?: () => void }) => {
       checkedNow.push(id);
-      if (checkNowReaches) opts.onSuccess?.();
+      if (checkNowReaches) opts.onSuccess?.({ status: pressFinds, at: pressedAt });
       else opts.onError?.();
     },
     isPending: false,
   } as unknown as ReturnType<typeof useCheckConnectionNow>);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <ManageConnections
@@ -193,7 +202,7 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
 const TEAMS_CARD = {
   id: 'teams',
   displayName: 'Microsoft Teams',
-  cardText: 'Sign in with Microsoft. Cockpit reads who you are and nothing else.',
+  cardText: 'Sign in with Microsoft. Cockpit asks to read the chats and channel posts you paste a link to; where your organisation does not allow that, it reads who you are and nothing else.',
   asksFirst: false,
 };
 
@@ -207,6 +216,7 @@ beforeEach(() => {
   held.opened = [];
   checkedNow = [];
   checkNowReaches = true;
+  pressFinds = 'queued';
   held.phone.code = { status: 200, body: { number: '+32470123456' } };
   held.phone.confirm = { status: 200, body: { number: '+32470123456' }, connects: null };
   held.phone.sent = [];
@@ -1205,6 +1215,7 @@ describe('Connector management', () => {
     failingBecause: null,
     filesByName: false,
     dueInDays: null,
+    granted: null,
   };
 
   beforeEach(() => {
@@ -1362,6 +1373,7 @@ describe('Connector management', () => {
     lastTestedAt: '2026-10-16T12:20:00.000Z',
     filesByName: false,
     dueInDays: null,
+    granted: null,
     failingBecause: null,
     keepsHistory: true,
     pulled: true,
@@ -1383,6 +1395,7 @@ describe('Connector management', () => {
     firstAt: at(16, 9, 5),
     lastAt: at(16, 9, 5),
     did: didNothing,
+    startedAt: null,
     ...over,
   });
 
@@ -1492,6 +1505,107 @@ describe('Connector management', () => {
     });
   });
 
+  describe('the note at Check now ends when the check it asked for ends, on the list and on the history', () => {
+    /** The check's line arriving: written by its end, and announced over the stream, which reads the history again. */
+    async function theCheckEnds(over: Record<string, unknown>) {
+      held.history = [line({ reason: 'check-now', firstAt: '2026-10-16T12:00:05.000Z', lastAt: '2026-10-16T12:00:05.000Z', ...over }), ...held.history];
+      await client.invalidateQueries({ queryKey: ['connectionHistory', 'ws-work', 'account-anna'] });
+    }
+
+    const places = [
+      {
+        where: 'the list',
+        press: async () => {
+          await userEvent.click(await screen.findByRole('button', { name: 'Actions for anna@example.com' }));
+          await userEvent.click(await screen.findByRole('menuitem', { name: 'Check now' }));
+          return document.body;
+        },
+      },
+      {
+        where: 'the history',
+        press: async () => {
+          const history = await openHistory();
+          await userEvent.click(within(history).getByRole('button', { name: 'Check now' }));
+          return history;
+        },
+      },
+    ];
+
+    it.each(places)('says Checked just now on $where once the check worked', async ({ press }) => {
+      held.sourceAccounts = [ANNA];
+      // A check that ended before the press says nothing of this one.
+      held.history = [line({ lastAt: '2026-10-16T11:55:00.000Z', firstAt: '2026-10-16T11:55:00.000Z' })];
+      showWindow();
+      const place = await press();
+      expect(await within(place).findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+
+      await theCheckEnds({});
+
+      await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+    });
+
+    it.each(places)('says why on $where once the check failed', async ({ press }) => {
+      held.sourceAccounts = [ANNA];
+      showWindow();
+      const place = await press();
+
+      await theCheckEnds({ outcome: 'failed', message: 'Gmail did not answer.' });
+
+      expect(await within(place).findByRole('alert')).toHaveTextContent('Checking anna@example.com failed: Gmail did not answer.');
+    });
+
+    it.each([
+      { finds: 'running' as const, says: 'A check of anna@example.com was already running. Waiting for it to end.' },
+      { finds: 'already queued' as const, says: 'A check of anna@example.com was already waiting to run. Waiting for it to end.' },
+    ])('says on the list when the press found a check $finds, and still ends with it', async ({ finds, says }) => {
+      held.sourceAccounts = [ANNA];
+      pressFinds = finds;
+      showWindow();
+      const place = await places[0]!.press();
+      expect(await within(place).findByRole('status')).toHaveTextContent(says);
+
+      await theCheckEnds({});
+
+      await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+    });
+
+    describe('a check with nothing back after a minute', () => {
+      beforeEach(() => {
+        // The clock runs on its own, so the reads and the clicks still settle; the minute is skipped.
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it.each(places)('says on $where that it is taking long, and by when a stopped check starts again', async ({ press }) => {
+        held.sourceAccounts = [ANNA];
+        showWindow();
+        const place = await press();
+        expect(await within(place).findByRole('status')).toHaveTextContent('Checking anna@example.com now.');
+
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        const retried = timeOfDayLabel(Date.parse(pressedAt) + 10 * 60_000);
+        expect(await within(place).findByRole('alert')).toHaveTextContent(
+          `Still checking anna@example.com: nothing back after a minute. If the check has stopped, Cockpit starts another by ${retried}.`,
+        );
+      });
+
+      it('still says Checked just now once the slow check ends', async () => {
+        held.sourceAccounts = [ANNA];
+        showWindow();
+        const place = await places[0]!.press();
+        await vi.advanceTimersByTimeAsync(60_000);
+        await within(place).findByRole('alert');
+
+        await theCheckEnds({});
+
+        await waitFor(() => expect(within(place).getByRole('status')).toHaveTextContent('Checked anna@example.com just now.'));
+      });
+    });
+  });
+
   describe('a connection’s history is grouped by day, newest first, and says each outcome in words', () => {
     beforeEach(() => {
       // Only the clock, so the reads still settle on their own.
@@ -1509,7 +1623,7 @@ describe('Connector management', () => {
       const history = await openHistory();
 
       expect(within(history).getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual(['Today', 'Yesterday']);
-      expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Worked')).toBeInTheDocument();
+      expect(within(within(history).getByRole('region', { name: 'Yesterday' })).getByText('Scheduled check · finished · worked')).toBeInTheDocument();
     });
 
     it('names the year of a day from another year, and keeps the same date a year apart as two days', async () => {
@@ -1532,14 +1646,20 @@ describe('Connector management', () => {
       {
         situation: 'a single check that worked, with why it ran',
         held: line({ reason: 'follow-up' }),
-        says: 'Worked',
-        detail: ' · Follow-up',
+        says: 'Follow-up check · finished · worked',
+        detail: null,
       },
       {
         situation: 'a single check a person asked for',
         held: line({ reason: 'check-now' }),
-        says: 'Worked',
-        detail: ' · Check now',
+        says: 'Manual check · finished · worked',
+        detail: null,
+      },
+      {
+        situation: 'a single check with its start, ending when it finished and how long it took (issue 1725)',
+        held: line({ reason: 'check-now', startedAt: new Date(new Date(at(16, 9, 5)).getTime() - 3000).toISOString() }),
+        says: 'Manual check · finished in 3 s · worked',
+        detail: null,
       },
       {
         situation: 'a folded quiet line, with its span',
@@ -1551,8 +1671,8 @@ describe('Connector management', () => {
       {
         situation: 'a single failure, with why it ran and its message',
         held: line({ outcome: 'failed', message: 'unavailable' }),
-        says: 'Failed',
-        detail: ' · Scheduled · unavailable',
+        says: 'Scheduled check · failed',
+        detail: ' · unavailable',
       },
       {
         situation: 'a folded failure, with its span and message',
@@ -1564,25 +1684,25 @@ describe('Connector management', () => {
       {
         situation: 'a failure whose message was cut, marked so',
         held: line({ outcome: 'failed', message: 'a long story', messageCut: true }),
-        says: 'Failed',
-        detail: ' · Scheduled · a long story…',
+        says: 'Scheduled check · failed',
+        detail: ' · a long story…',
       },
       {
         situation: 'a failure with a status and a message, the status first',
         held: line({ outcome: 'failed', message: 'unavailable', status: 503 }),
-        says: 'Failed',
-        detail: ' · Scheduled · HTTP 503 · unavailable',
+        says: 'Scheduled check · failed',
+        detail: ' · HTTP 503 · unavailable',
       },
       {
         situation: 'a failure with a status and no message, the status alone',
         held: line({ outcome: 'failed', status: 403 }),
-        says: 'Failed',
-        detail: ' · Scheduled · HTTP 403',
+        says: 'Scheduled check · failed',
+        detail: ' · HTTP 403',
       },
       {
         situation: 'a failure that said nothing',
         held: line({ outcome: 'failed', reason: 'a reason from a later release' }),
-        says: 'Failed',
+        says: 'failed',
         detail: null,
       },
     ])('$situation', async ({ held: one, says, detail, span }) => {
@@ -1610,8 +1730,8 @@ describe('Connector management', () => {
       showWindow();
       const history = await openHistory();
 
-      const row = within(history).getByText('Worked').closest('li')!;
-      expect(row.textContent).toContain('Worked · Scheduled · Brought in 2, Sent back 1, Refused 1');
+      const row = within(history).getByText('Scheduled check · finished · worked').closest('li')!;
+      expect(row.textContent).toContain('Scheduled check · finished · worked · Brought in 2, Sent back 1, Refused 1');
       expect(row.textContent).toContain('New: Invoice 2026-118 from Acme, Re: Q4 planning');
       expect(row.textContent).toContain('Sent back: Lunch on Thursday? (dismissed)');
       expect(row.textContent).toContain('Refused: an Item no longer in Cockpit');
@@ -1628,7 +1748,7 @@ describe('Connector management', () => {
       showWindow();
       const history = await openHistory();
 
-      expect(within(history).getByText('Worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
+      expect(within(history).getByText('Scheduled check · finished · worked').closest('li')!.textContent).toContain('Closed: One and 59 more');
     });
 
     it('says No checks yet where there are none', async () => {
@@ -1647,21 +1767,21 @@ describe('Connector management', () => {
       held.history = [line({})];
       await userEvent.click(retry);
 
-      expect(await within(history).findByText('Worked')).toBeInTheDocument();
+      expect(await within(history).findByText('Scheduled check · finished · worked')).toBeInTheDocument();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
 
     it('reads it again on opening it again, never drawing the read before', async () => {
       held.history = [line({})];
       showWindow();
-      expect(await within(await openHistory()).findByText('Worked')).toBeInTheDocument();
+      expect(await within(await openHistory()).findByText('Scheduled check · finished · worked')).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: '‹ Connections' }));
 
       held.history = 'fails';
       const again = await openHistory();
 
       expect(await within(again).findByRole('button', { name: 'Try again' })).toBeInTheDocument();
-      expect(within(again).queryByText('Worked')).toBeNull();
+      expect(within(again).queryByText('Scheduled check · finished · worked')).toBeNull();
       expect(held.historyAskedFor).toEqual(['account-anna', 'account-anna']);
     });
   });
@@ -1768,7 +1888,7 @@ describe('Connector management', () => {
       held.olderRemain = olderRemain;
       showWindow();
       const history = await openHistory();
-      await within(history).findByText('Worked');
+      await within(history).findByText('Scheduled check · finished · worked');
 
       expect(within(history).queryByText(/^Older days follow/)?.textContent ?? null).toBe(says);
     });
@@ -1810,6 +1930,7 @@ describe('Connector management', () => {
     lastTestedAt: minutesAgo(2),
     filesByName: false,
     dueInDays: null,
+    granted: null,
     failingBecause: null,
     follows: 'star',
     followsLabel: 'Starred (flagged in Outlook)',
@@ -2208,6 +2329,48 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'History of anna@example.com' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Check anna@example.com now' })).toBeNull();
       expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
+    });
+  });
+});
+
+/** "Read pasted Teams links: connecting Teams asks for no read permission", issue 1754. */
+describe('Connector management', () => {
+  describe('a connection says what it may read, in its connector’s words', () => {
+    const TEAMS_ASKING = {
+      ...TEAMS_CARD,
+      permissions: [
+        { code: 'chats', granted: 'Reads pasted chat links' },
+        { code: 'channels', withheld: "Channel posts need your IT's approval" },
+      ],
+    };
+    const CHATS = 'Reads pasted chat links';
+    const CHANNELS_WITHHELD = "Channel posts need your IT's approval";
+
+    it.each([
+      { situation: 'chats and channel posts', granted: ['chats', 'channels'], says: [CHATS] },
+      { situation: 'chats only', granted: ['chats'], says: [CHATS, CHANNELS_WITHHELD] },
+      { situation: 'nothing', granted: [], says: [] },
+      { situation: 'a connection made before the grant was kept', granted: null, says: [] },
+    ])('says $says for a connection granting $situation', async ({ granted, says }) => {
+      held.registry = [TEAMS_ASKING];
+      held.sourceAccounts = [{ ...ADA, granted }];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      for (const sentence of [CHATS, CHANNELS_WITHHELD]) {
+        await waitFor(() => expect(screen.queryByText(sentence) !== null).toBe((says as string[]).includes(sentence)));
+      }
+    });
+
+    it('says nothing of what it may read for a connector that describes no permissions', async () => {
+      held.sourceAccounts = [{ ...ADA, granted: ['chats'] }];
+
+      showWindow();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      expect(screen.queryByText(CHATS)).toBeNull();
+      expect(screen.queryByText(CHANNELS_WITHHELD)).toBeNull();
     });
   });
 });

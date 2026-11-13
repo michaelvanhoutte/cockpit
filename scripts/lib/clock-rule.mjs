@@ -1,5 +1,5 @@
 //
-// The clock rule at every tier ("inject time", docs/testing-strategy.md): a
+// The clock rule at every tier ("Every tier injects time", .claude/skills/testing/SKILL.md): a
 // test that reads the real clock fails on a Wednesday, or under load, for no
 // defect of the product's.
 //

@@ -3,7 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { workspaceListSchema } from '@cockpit/shared';
+import { useEffect, useRef } from 'react';
 import { Updating } from '../../../src/components/Updating';
+import { offerCapture } from '../../../src/keptCapture';
 import {
   RECONNECTED,
   checkOnOpening,
@@ -507,6 +509,83 @@ describe('a new version is announced, and loaded on a click', () => {
     });
   });
 
+  describe('on a phone, a new version found after opening is a bar at the top', () => {
+    const wide = window.innerWidth;
+    const atWidth = (width: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    afterEach(() => atWidth(wide));
+
+    const bar = () => screen.findByRole('alertdialog', { name: 'New version of Cockpit' });
+
+    it('is a slim bar with Continue and no dimmed backdrop at phone width', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      const { container } = opened(worker);
+      await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      expect(await bar()).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+      expect(screen.queryByText(/Save what you are writing/)).not.toBeInTheDocument();
+      expect(container.ownerDocument.querySelector('.bg-ground\\/60')).toBeNull();
+    });
+
+    it('is the card at the foot over a dimmed backdrop at desk width', async () => {
+      atWidth(1280);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      opened(worker);
+      await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      expect(await screen.findByRole('alertdialog', { name: 'A new version of Cockpit is out' })).toBeVisible();
+      expect(screen.getByText(/Save what you are writing/)).toBeVisible();
+      expect(document.querySelector('.bg-ground\\/60')).not.toBeNull();
+    });
+
+    it('lets the field being typed in keep focus and take the keystrokes', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      opened(worker);
+      const field = await screen.findByLabelText('Description');
+      await userEvent.click(field);
+      worker.takenOverByAnotherTab();
+      await bar();
+
+      await userEvent.keyboard('still typing');
+
+      expect(field).toHaveFocus();
+      expect(field).toHaveValue('still typing');
+      // Only the bar takes pointer events; what holds it is let through.
+      expect(document.querySelector('.fixed.pointer-events-none')).not.toBeNull();
+    });
+
+    it('says it could not load the new version in the bar, and the app still works', async () => {
+      atWidth(480);
+      const worker = aWorker({ check: () => Promise.resolve(false) });
+      worker.activate.mockResolvedValueOnce(false);
+      opened(worker);
+      const field = await screen.findByLabelText('Description');
+      worker.takenOverByAnotherTab();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      const failure = await screen.findByText('Could not load the new version. Try again.');
+      expect(failure).toBeVisible();
+      expect(await bar()).toContainElement(failure);
+      await userEvent.type(field, 'ok');
+      expect(field).toHaveValue('ok');
+    });
+
+    it('keeps the full-screen card, not the bar, when opening with a version waiting', async () => {
+      atWidth(480);
+      opened(aWorker({ waiting: true }));
+
+      expect(await screen.findByRole('alertdialog', { name: 'A new version of Cockpit is out' })).toBeVisible();
+      expect(screen.queryByRole('alertdialog', { name: 'New version of Cockpit' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Description')).not.toBeInTheDocument();
+    });
+  });
+
   describe('the opening check is bounded', () => {
     // The decision is a function of the worker's answer and the clock, so the
     // clock is faked rather than waited for.
@@ -708,6 +787,191 @@ describe('a new version is announced, and loaded on a click', () => {
       // Back on the same build and still out of date: the gate has no second attempt.
       await expect(pickUpTheNewVersion(versions, memory)).resolves.toBe('nothing-new');
       expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
+  /**
+   * "Carry Capture's note across the update's reload" (issue 1746): what the
+   * update asks of a mounted Capture, with a stand-in that offers a draft the
+   * way the form does. That the form answers and restores for real is
+   * tests/unit/components/CaptureNote.test.tsx.
+   */
+  describe('the note in Capture is kept for the reload both ways of updating take', () => {
+    const KEPT = 'cockpit.updating.kept-capture';
+    const wide = window.innerWidth;
+    const atWidth = (width: number) =>
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    afterEach(() => atWidth(wide));
+
+    function ACapture({ note, files = false, shownAs = 'page' }: { note: string; files?: boolean; shownAs?: 'page' | 'window' }) {
+      const held = useRef({ note, files, shownAs });
+      held.current = { note, files, shownAs };
+      useEffect(
+        () =>
+          offerCapture({
+            draft: () => ({ note: held.current.note, priority: 'high', due: null, where: 'ws-work', panels: [], shownAs: held.current.shownAs }),
+            hasFiles: () => held.current.files,
+          }),
+        [],
+      );
+      return <p>Capture is open</p>;
+    }
+    const keptIn = (memory: Storage) => JSON.parse(memory.getItem(KEPT) ?? 'null') as Record<string, unknown> | null;
+
+    /** The app open with Capture on screen and the message over it, as it is when a deploy lands mid-note. */
+    async function announced(capture: React.ReactNode, versions: Versions, memory: Storage, over = {}) {
+      const worker = aWorker(over);
+      const page = openedWith(capture, worker, versions, memory);
+      await screen.findByText('Capture is open');
+      worker.takenOverByAnotherTab();
+      await screen.findByRole('button', { name: 'Continue' });
+      return { worker, page };
+    }
+
+    function openedWith(capture: React.ReactNode, worker: Workers, versions: Versions, memory: Storage, client = newClient()) {
+      return render(
+        <QueryClientProvider client={client}>
+          <Updating workers={worker} versions={versions} memory={memory}>
+            {capture}
+          </Updating>
+        </QueryClientProvider>,
+      );
+    }
+
+    it('keeps the draft before the reload on Continue, and says which window it was', async () => {
+      const memory = scratchMemory();
+      let keptAtReload: unknown = 'not reloaded';
+      const reload = vi.fn(() => {
+        keptAtReload = keptIn(memory);
+      });
+      await announced(<ACapture note="Call Jan" shownAs="window" />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(keptAtReload).toMatchObject({ note: 'Call Jan', priority: 'high', where: 'ws-work', shownAs: 'window' });
+    });
+
+    it('keeps the draft on the automatic reload too, taken before the app is taken down', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const client = newClient();
+      openedWith(
+        <ACapture note="Call Jan" />,
+        aWorker(),
+        { ...here(reload), newVersionWaiting: () => Promise.resolve(true) },
+        memory,
+        client,
+      );
+      await screen.findByText('Capture is open');
+
+      await anOlderVersion(client);
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText('Capture is open')).toBeNull();
+      expect(keptIn(memory)).toMatchObject({ note: 'Call Jan' });
+    });
+
+    it('keeps nothing from an empty box', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      await announced(<ACapture note="  " />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('keeps nothing, and does not reload, when Continue cannot load the latest', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const { worker } = await announced(<ACapture note="Call Jan" />, here(reload), memory);
+      worker.activate.mockResolvedValueOnce(false);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      expect(await screen.findByText('Could not load the new version. Try again.')).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('leaves nothing for a reload of your own when the automatic update finds nothing newer', async () => {
+      const memory = scratchMemory();
+      const reload = vi.fn();
+      const client = newClient();
+      openedWith(<ACapture note="Call Jan" />, aWorker(), here(reload), memory, client);
+      await screen.findByText('Capture is open');
+
+      await anOlderVersion(client);
+
+      expect(await screen.findByRole('heading', { name: "Cockpit couldn't update" })).toBeVisible();
+      expect(reload).not.toHaveBeenCalled();
+      expect(keptIn(memory)).toBeNull();
+    });
+
+    it('reloads anyway when storage refuses, losing the note as before', async () => {
+      const memory = scratchMemory();
+      memory.setItem = () => {
+        throw new Error('refused');
+      };
+      const reload = vi.fn();
+      await announced(<ACapture note="Call Jan" />, here(reload), memory);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    });
+
+    it('keeps each tab its own note', async () => {
+      const [first, second] = [scratchMemory(), scratchMemory()];
+      const { page: one } = await announced(<ACapture note="First tab" />, here(), first);
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+      await waitFor(() => expect(keptIn(first)).not.toBeNull());
+      one.unmount();
+
+      const { page: two } = await announced(<ACapture note="Second tab" />, here(), second);
+      expect(keptIn(second)).toBeNull();
+      await userEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+
+      await waitFor(() => expect(keptIn(second)).not.toBeNull());
+      expect(keptIn(first)).toMatchObject({ note: 'First tab' });
+      expect(keptIn(second)).toMatchObject({ note: 'Second tab' });
+      two.unmount();
+    });
+
+    describe('the bar says attached files are not kept, on Capture only', () => {
+      const bar = (name: string) => screen.findByRole('alertdialog', { name });
+
+      it('reads "Capture first" with Continue while Capture holds a file, on a phone', async () => {
+        atWidth(480);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" files />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar("Capture first: attached files aren't kept")).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+      });
+
+      it('reads "New version of Cockpit" with no file attached, or with no Capture on screen', async () => {
+        atWidth(480);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar('New version of Cockpit')).toBeVisible();
+      });
+
+      it('leaves the desk card as it is', async () => {
+        atWidth(1280);
+        const worker = aWorker();
+        openedWith(<ACapture note="Call Jan" files />, worker, here(), scratchMemory());
+        await screen.findByText('Capture is open');
+        worker.takenOverByAnotherTab();
+
+        expect(await bar('A new version of Cockpit is out')).toBeVisible();
+      });
     });
   });
 });

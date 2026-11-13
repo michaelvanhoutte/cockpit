@@ -101,7 +101,11 @@ function leaving(box, tx, ty) {
 const countOf = (n) => n.toLocaleString('en-GB');
 const strokeFor = (n) => (1 + Math.log2(Math.max(n, 1)) * 0.55).toFixed(2);
 
-export function renderModules(model) {
+/**
+ * @param {object} model
+ * @param {{ links?: { known: boolean, url: Function } }} [options] with `links`, each area's box opens its folder on GitHub, marked ↗: the pages that draw a layer's folders alone
+ */
+export function renderModules(model, { links = null } = {}) {
   const { layers, connectors = [], releasedOnItsOwn: parts = [], workers = [] } = model.modules;
   const lineCounts = new Map(model.dependencies.areas.map((each) => [each.path, each.lines]));
   const areaAt = new Map(layers.flatMap((layer) => layer.areas).map((each) => [each.path, each]));
@@ -287,6 +291,10 @@ export function renderModules(model) {
     const { x: bx, y: by, width: bw, height: bh } = box;
     const attribute = box.kind === 'connector' ? `data-connector="${esc(box.connector.id)}"` : `data-area="${esc(box.area.path)}"`;
     const klass = box.kind === 'connector' ? box.outline : outlineOf(box.area);
+    // With links, the whole box is one link to its folder, marked ↗ in its corner.
+    const folder = links?.known && box.kind === 'area' ? box.area.path.replace(/\/\*$/, '') : null;
+    const href = folder ? links.url(folder, { folder: true }) : null;
+    if (href) svg.push(`<a class="code" href="${esc(href)}" target="_blank" rel="noopener">`);
     svg.push(`<rect class="${klass}" ${attribute} x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="5">${box.area.description ? `<title>${esc(box.area.description)}</title>` : ''}</rect>`);
     box.nameLines.forEach((line, index) => svg.push(`<text class="t-h" x="${bx + 14}" y="${by + 26 + index * LINE}">${esc(line)}</text>`));
     const bodyTop = by + 16 + box.nameLines.length * LINE + 6 + 12;
@@ -295,6 +303,7 @@ export function renderModules(model) {
       if (line.dot) svg.push(`<circle class="${line.dot}" cx="${bx + 18}" cy="${baseline - 4}" r="4"/>`);
       svg.push(`<text class="${line.kind}" x="${bx + (line.dot ? 30 : 14) + (line.indent ?? 0)}" y="${baseline}">${esc(line.text)}</text>`);
     });
+    if (href) svg.push(`<text class="nc-gh" x="${bx + bw - 9}" y="${by + 18}" text-anchor="end">↗</text><title>${esc(`Open ${folder} on GitHub`)}</title></a>`);
   }
   for (const box of partBoxes) {
     svg.push(`<rect class="${box.gone ? 'ghost' : 'part'}" data-part="${esc(box.part.path)}" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="5"><title>${esc(box.part.path)}</title></rect>`);

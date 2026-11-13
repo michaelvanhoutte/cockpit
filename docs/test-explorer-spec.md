@@ -43,8 +43,8 @@ not depend on the suite being green.
 ## 2a. A convention change that landed mid-build, and what it broke
 
 §4–§5 were written against a dotted `concept.subaction` describe convention. By the
-time the test-alignment branch merged, that had been replaced: testing-strategy's
-"Tests are named in the product's language" is explicit that the outer `describe` is an
+time the test-alignment branch merged, that had been replaced: the testing skill's
+"Name it after the product, not the mechanism" is explicit that the outer `describe` is an
 **undotted feature area**, because `item.setStatus` and `command.idempotency` name an
 object or a function rather than a part of the product.
 
@@ -231,9 +231,9 @@ naming a feature area, so a rule's area is read from that text directly.
 
 A checked-in **area registry** (§5) lists every feature area: a key equal to its display
 label, the source-file glob patterns it owns, and an optional `parent` nesting it under
-another entry. The areas were seeded from testing-strategy's example list and have grown
+another entry. The areas were seeded from the testing skill's example list and have grown
 since, each on the day the product grew a behaviour the earlier ones had no word for;
-testing-strategy's "Tests are named in the product's language" holds the current list, so
+the testing skill's "Name it after the product, not the mechanism" holds the current list, so
 it is written down once. The rows nest the way the product does — the functional
 definition's "Container hierarchy", a Workspace holding an Inbox and Dashboards, a
 Dashboard holding Panels — which is derived from the product rather than invented for the
@@ -255,7 +255,7 @@ as a clean one.
 
 ### 4.2 Columns
 
-The seven columns are `model.js`'s `LEVELS`, in testing-strategy's own order:
+The seven columns are `model.js`'s `LEVELS`, in the testing skill's own order:
 
 | Column | Source | Meaning |
 |---|---|---|
@@ -282,7 +282,7 @@ so it is read for where it is low and never as a target. Every other column stay
 
 No "reason for the level" is computed. The level is read mechanically from the folder,
 and *why* a rule sits there is a call the author made when placing the file; capturing
-that reason is a testing-strategy concern, not something the explorer blocks on.
+that reason is the testing skill's concern, not something the explorer blocks on.
 
 ## 5. The area registry
 
@@ -312,12 +312,12 @@ patterns of their own.
 
 An entry also carries `"browserWalks": <n>` where the area has F3 walks: its ceiling on
 them, held by `pnpm test:e2e:ceilings` rather than by anything the explorer does
-(`docs/testing-strategy.md`, "Run-time budget"). Here rather than in a list of its own so
+(`.claude/skills/testing/references/browser-tests.md`, "Time and size limits"). Here rather than in a list of its own so
 there is one list of areas rather than two that drift. An area with no F3 walk carries no
 ceiling at all — 0 is a number nothing can satisfy, since the check fails both on a
 ceiling no walk declares and on a walk under an area with no ceiling.
 
-The file also holds one number outside the entries, `e2eShardBudget`: the most one CI shard's walks may take, with the slowest shard's typical it was set above and the reason in words. `pnpm test:e2e:budget` holds it (`docs/testing-strategy.md`, "Run-time budget"); the explorer reads only `concepts`.
+The file also holds one number outside the entries, `e2eShardBudget`: the most one CI shard's walks may take, with the slowest shard's typical it was set above and the reason in words. `pnpm test:e2e:budget` holds it (`.claude/skills/testing/references/browser-tests.md`, "Time and size limits"); the explorer reads only `concepts`.
 
 A describe's outer text resolves to an area by exact match on `key`. A source file
 resolves to **every** area whose patterns it matches, which is expected rather than an
@@ -533,11 +533,11 @@ Rounds 11–12 and the later feedback and review rounds are summarised in "How t
   this tool reads, but it is its own lint or CI rule rather than a rendering concern.
   Worth building next; not blocking this.
 - **Mutation testing**, explicitly postponed in the settled design.
-- **The Android-versus-web split of the frontend levels**, flagged as an open gap in
-  ideas.md. The home-screen widget is the first Android target, and it is not split
+- **The Android-versus-web split of the frontend levels**, still an open gap.
+  The home-screen widget is the first Android target, and it is not split
   here: the explorer reads TypeScript only, so the area *Home-screen widget* is
-  registered with no source patterns and its Kotlin tests (testing-strategy.md, "The
-  Android widget") are run by Gradle and counted nowhere on the page.
+  registered with no source patterns and its Kotlin tests
+  (`.claude/skills/testing/references/android-widget.md`) are run by Gradle and counted nowhere on the page.
 
 ## 11. Housekeeping once this lands
 

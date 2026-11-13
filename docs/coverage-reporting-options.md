@@ -8,7 +8,7 @@ Answer, without reading the code, two questions about any part of Cockpit: which
 
 The audit that prompted this produced a single pyramid for the whole repository. That showed the shape of today's suite — one populated level out of six — but it does not survive the next phase: once `packages/connectors/*` exists, every connector is its own testable unit with its own unit tests, fixtures and scheduled contract test, and a single pyramid averages all of that into one picture.
 
-So the question is three decisions, taken in order: what shape the report takes, where its nodes come from, and how we decide a node owes tests at a given level. [testing-strategy.md](testing-strategy.md) defines the levels and obligations; this is only about making them visible.
+So the question is three decisions, taken in order: what shape the report takes, where its nodes come from, and how we decide a node owes tests at a given level. The [testing skill](../.claude/skills/testing/SKILL.md) defines the levels and obligations; this is only about making them visible.
 
 ## Finding that constrains all three decisions
 
@@ -91,7 +91,7 @@ This determines whether a cell is red or grey, so it carries most of the report'
 
 **3.1 Reviewer judgment** (the status quo).
 *Pros:* no tooling, infinite flexibility, already the stated policy.
-*Cons:* judgment cannot be rendered, is inconsistent between reviewers, and the testing strategy itself says to prefer making violations impossible over catching them in review.
+*Cons:* judgment cannot be rendered, is inconsistent between reviewers, and the testing skill itself says to prefer making violations impossible over catching them in review.
 
 **3.2 A coverage threshold per node kind.**
 *Pros:* mechanical, familiar, and differentiating by kind beats one global number.
@@ -137,7 +137,7 @@ Suggested order: build the generator, publish the page, live with it for a few w
 | Nodes | Read `pnpm-workspace.yaml`, walk `src/`, map layer folders to node kinds | Half a day |
 | Signals | One TypeScript compiler API pass gives branch counts and the import graph, so purity and fan-in fall out together | One to two days |
 | Actuals | Map test file to node and count; no instrumentation needed | Half a day |
-| Obligations | A table of node kind to required levels, transcribed from testing-strategy | ~30 lines, human-reviewed |
+| Obligations | A table of node kind to required levels, transcribed from the testing skill | ~30 lines, human-reviewed |
 | Render | The matrix plus detail panel | One day |
 
 The obligations table is the only piece encoding policy, and should stay small enough to read in one sitting.

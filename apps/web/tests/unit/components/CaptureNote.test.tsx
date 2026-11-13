@@ -30,7 +30,9 @@ import {
   type RecordingStore,
 } from '../../../src/keptRecordings';
 import { forgetEverything } from '../../../src/session/forget';
-import { WorkingOffline } from '../../../src/offline';
+import { WorkingOffline, stand } from '../../../src/offline';
+import { restoreSavedReads, saveRead } from '../../../src/persistence';
+import { fetchSentEmails, followSentEmail, sentEmailsAvailable } from '../../../src/api/sentEmails';
 import { DICTATION_BLOCKED, DICTATION_NO_MICROPHONE } from '../../../src/dictation';
 import {
   DICTATION_COULD_NOT_TRANSCRIBE,
@@ -43,6 +45,7 @@ import { aRecorder, aTranscriber } from '../support/recording';
 import { whatArrived, type Arrived } from '../../../src/shares';
 import { aShare, aSharedPhoto } from '../support/shares';
 import { deviceIsIn } from '../support/timeZone';
+import { captureHoldsFiles, keepCaptureForReload, peekKeptCapture } from '../../../src/keptCapture';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/api/client')>()),
@@ -85,6 +88,19 @@ const held = vi.hoisted(() => ({
    */
   pending: false,
   settle: () => {},
+}));
+
+vi.mock('../../../src/api/sentEmails', () => ({
+  fetchSentEmails: vi.fn(),
+  followSentEmail: vi.fn(),
+  /** Whether the Workspace has a mailbox to list sent mail from; none unless a case says so. */
+  sentEmailsAvailable: vi.fn(() => Promise.resolve(false)),
+}));
+
+/** The account's most-used answer, as the server gives it when Capture opens (`thePage`'s `mostUsed`). */
+const mostUsedAsked = vi.hoisted(() => ({ answer: () => Promise.resolve({ panels: [] as unknown[] }) as Promise<unknown> }));
+vi.mock('../../../src/api/mostUsedPanels', () => ({
+  mostUsedPanelsQuery: { queryKey: ['mostUsedPanels'], queryFn: () => mostUsedAsked.answer(), staleTime: 0, retry: false },
 }));
 
 vi.mock('../../../src/itemForm', async (importOriginal) => ({
@@ -177,7 +193,16 @@ async function thePage({
   recordingLock = inTabLock(),
   waitingRecordings = [],
   signedInAs = 'user-michael',
+  mostUsed = () => Promise.resolve({ panels: [] }),
+  beforeDrawing,
+  shownAs,
 }: {
+  /** What the server answers the most-used read with when Capture opens: none used, unless a case says. */
+  mostUsed?: () => Promise<unknown>;
+  /** Run against the page's client before it is drawn: what the open restores from this device, for one. */
+  beforeDrawing?: ((client: QueryClient) => Promise<void>) | undefined;
+  /** The desk window rather than the page. */
+  shownAs?: 'page' | 'window';
   /** Where recordings not yet transcribed are kept: the fake IndexedDB, unless a case says storage is unavailable. */
   recordingStore?: RecordingStore;
   /** The lock every tab takes, shared by two pages drawn as two tabs. */
@@ -238,6 +263,8 @@ async function thePage({
     },
   );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mostUsedAsked.answer = mostUsed;
+  await beforeDrawing?.(client);
   const outbox = new CaptureOutbox({
     store,
     sender: serverSender,
@@ -254,7 +281,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
+          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -1446,13 +1473,31 @@ describe('Capture', () => {
       expect(screen.getByText('doc.pdf')).toBeVisible();
     });
 
+    it('queues a Markdown file the device reports no type for, as a chip', async () => {
+      const user = await thePage();
+      const notes = aFile('notes.md', '');
+
+      await user.upload(screen.getByLabelText('Files to attach'), notes);
+
+      expect(await screen.findByText('notes.md')).toBeVisible();
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('queues a plain text file dropped on the form', async () => {
+      await thePage();
+
+      fireEvent.drop(box(), carrying(aFile('log.txt', 'text/plain')));
+
+      expect(await screen.findByText('log.txt')).toBeVisible();
+    });
+
     it('refuses a disallowed file chosen through the picker, the same as a dropped one', async () => {
       const user = await thePage();
 
-      await user.upload(screen.getByLabelText('Files to attach'), aFile('notes.txt', 'text/plain'));
+      await user.upload(screen.getByLabelText('Files to attach'), aFile('notes.zip', 'application/zip'));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
   });
 
@@ -1469,19 +1514,19 @@ describe('Capture', () => {
     it('refuses a disallowed type by name, and does not queue it', async () => {
       await thePage();
 
-      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain')));
+      fireEvent.drop(box(), carrying(aFile('notes.zip', 'application/zip')));
 
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
 
     it('queues the valid files in a multi-file drop even where one is refused', async () => {
       await thePage();
 
-      fireEvent.drop(box(), carrying(aFile('notes.txt', 'text/plain'), aPhoto()));
+      fireEvent.drop(box(), carrying(aFile('notes.zip', 'application/zip'), aPhoto()));
 
       expect(await screen.findByText('photo.png')).toBeVisible();
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
     });
   });
 
@@ -1799,6 +1844,151 @@ describe('Capture', () => {
       await user.click(chip('Capture'));
 
       expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+  });
+
+  /** The account's most-used Panels as the server counts them: Falcon most today, Reading list most this week, Garden at Home. */
+  const USED = {
+    panels: [
+      { panelId: 'p-reading', panelName: 'Reading list', dashboardName: 'Later', workspaceId: 'ws-work', lastDay: 0, lastWeek: 6, lastFiledAt: '2026-11-11T09:00:00.000Z' },
+      { panelId: 'p-falcon', panelName: 'Falcon', dashboardName: 'Today', workspaceId: 'ws-work', lastDay: 2, lastWeek: 3, lastFiledAt: '2026-11-13T08:00:00.000Z' },
+      { panelId: 'p-garden', panelName: 'Garden', dashboardName: 'House', workspaceId: 'ws-home', lastDay: 5, lastWeek: 9, lastFiledAt: '2026-11-13T07:00:00.000Z' },
+    ],
+  };
+  /** The buttons under File on, as each names its Dashboard and Panel, and whether it is lit. */
+  const mostUsedButtons = () => {
+    const row = screen.queryByRole('group', { name: 'Most used Panels' });
+    return row
+      ? within(row)
+          .getAllByRole('button')
+          .map((button) => `${button.getAttribute('title')}${button.getAttribute('aria-pressed') === 'true' ? ' (lit)' : ''}`)
+      : [];
+  };
+  const mostUsedButton = (path: string) => within(screen.getByRole('group', { name: 'Most used Panels' })).getByRole('button', { name: path });
+
+  describe('a most-used Panel’s button puts it on File on, and takes it off again', () => {
+    it('adds the Panel as a chip and lights the button, files the note on it, and a second click takes it off', async () => {
+      const user = await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve(USED) });
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']));
+
+      await user.click(mostUsedButton('Later ▸ Reading list'));
+
+      expect(screen.getByRole('button', { name: 'Do not file on Reading list' })).toBeVisible();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list (lit)']);
+
+      await user.click(mostUsedButton('Later ▸ Reading list'));
+
+      expect(screen.queryByRole('button', { name: 'Do not file on Reading list' })).toBeNull();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+
+      await user.click(mostUsedButton('Today ▸ Falcon'));
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      expect((await captured()).payload).toMatchObject({ workspaceId: 'ws-work', panelIds: ['p-falcon'] });
+    });
+
+    it('unlights the button when its chip is removed from the field', async () => {
+      const user = await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve(USED) });
+      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+
+      await user.click(screen.getByRole('button', { name: 'Do not file on Falcon' }));
+
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+    });
+
+    it('asks for the most-used Panels again once a note filed with a button is undone', async () => {
+      const mostUsed = vi.fn(() => Promise.resolve(USED));
+      const user = await thePage({ startsIn: 'ws-work', mostUsed });
+      await user.click(await screen.findByRole('button', { name: 'Today ▸ Falcon' }));
+      await user.type(box(), 'Reply to Bart');
+      await user.click(chip('Capture'));
+      await captured();
+      await settled();
+      const asked = mostUsed.mock.calls.length;
+
+      await user.click(undoButton());
+
+      await waitFor(() => expect(box()).toHaveValue('Reply to Bart'));
+      await waitFor(() => expect(mostUsed.mock.calls.length).toBeGreaterThan(asked));
+    });
+
+    it('starts lit for the Panel whose + opened Capture', async () => {
+      await thePage({ startsOn: { panelId: 'p-falcon', name: 'Falcon', workspaceId: 'ws-work' }, mostUsed: () => Promise.resolve(USED) });
+
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon (lit)', 'Later ▸ Reading list']));
+    });
+
+    it('draws no row when no Panel of the Workspace was used this week', async () => {
+      await thePage({ startsIn: 'ws-work', mostUsed: () => Promise.resolve({ panels: USED.panels.slice(2) }) });
+      await settled();
+
+      expect(screen.queryByRole('group', { name: 'Most used Panels' })).toBeNull();
+    });
+  });
+
+  describe('under Any workspace the buttons span Workspaces, each with a dot in its Workspace’s colour, and a click settles Where', () => {
+    /** The colour of the dot before each button's Dashboard, or none. */
+    const dots = () =>
+      within(screen.getByRole('group', { name: 'Most used Panels' }))
+        .getAllByRole('button')
+        .map((button) => (button.querySelector('[aria-hidden="true"]') as HTMLElement | null)?.style.backgroundColor ?? null);
+
+    it('offers the top three of every Workspace with dots, and none once Where is a Workspace', async () => {
+      const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Home ▸ House ▸ Garden', 'Work ▸ Later ▸ Reading list', 'Work ▸ Today ▸ Falcon']));
+      expect(dots()).toEqual(['rgb(63, 143, 120)', 'rgb(111, 98, 181)', 'rgb(111, 98, 181)']);
+
+      await user.click(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' }));
+
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+      expect(dots()).toEqual([null, null]);
+    });
+
+    it('settles Where on the Panel’s Workspace and narrows the row, and a second click takes the chip off and leaves Where', async () => {
+      const user = await thePage({ startsIn: null, mostUsed: () => Promise.resolve(USED) });
+
+      await user.click(await screen.findByRole('button', { name: 'Work ▸ Today ▸ Falcon' }));
+
+      expect(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon (lit)', 'Later ▸ Reading list']);
+      expect(dots()).toEqual([null, null]);
+
+      await user.click(mostUsedButton('Today ▸ Falcon'));
+
+      expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
+      expect(within(screen.getByRole('group', { name: 'Where' })).getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+      expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']);
+    });
+  });
+
+  describe('the most-used buttons draw the last answer kept on this device at once, and offline', () => {
+    const NOW = Date.UTC(2026, 10, 13, 12);
+    /** What the open restores into the page's client from this device: the answer saved an hour ago. */
+    const savedAnHourAgo = async (client: QueryClient) => {
+      await saveRead({ queryKey: ['mostUsedPanels'], data: { panels: USED.panels.slice(0, 1) }, savedAt: NOW - 60 * 60 * 1000 });
+      await restoreSavedReads(client, NOW);
+    };
+
+    it('draws the saved answer while the server is slow, and the server’s once it answers', async () => {
+      let answer: (value: unknown) => void = () => {};
+      await thePage({ startsIn: 'ws-work', beforeDrawing: savedAnHourAgo, mostUsed: () => new Promise((resolve) => (answer = resolve)) });
+
+      expect(mostUsedButtons()).toEqual(['Later ▸ Reading list']);
+
+      await act(async () => answer(USED));
+      await waitFor(() => expect(mostUsedButtons()).toEqual(['Today ▸ Falcon', 'Later ▸ Reading list']));
+    });
+
+    it.each([
+      { situation: 'with an answer saved', beforeDrawing: savedAnHourAgo, drawn: ['Later ▸ Reading list'] },
+      { situation: 'with none saved', beforeDrawing: undefined, drawn: [] },
+    ])('offline, draws what was saved $situation', async ({ beforeDrawing, drawn }) => {
+      // Offline is a read that never reaches the server.
+      await thePage({ startsIn: 'ws-work', beforeDrawing, mostUsed: () => Promise.reject(new WorkingOffline()) });
+      await settled();
+
+      expect(mostUsedButtons()).toEqual(drawn);
     });
   });
 
@@ -2151,6 +2341,130 @@ describe('Capture', () => {
    * contract tier; that a browser really records is the walk in
    * tests/e2e/capture.test.ts.
    */
+  describe('Follow a sent email… is offered where a mailbox can be read, and lists what was sent', () => {
+    const SENT = {
+      sourceAccountId: 'src-gmail',
+      connectorId: 'gmail',
+      mailbox: 'anna@example.com',
+      conversationId: 'thread-1',
+      subject: 'Quote for the kitchen renovation',
+      to: 'Marc Lambrecht',
+      sentAt: '2026-10-08T09:15:00.000Z',
+      link: 'https://mail.google.com/mail/?authuser=anna%40example.com#all/thread-1',
+      excerpt: 'Attached is the quote.',
+    };
+    const entry = () => screen.queryByRole('button', { name: 'Follow a sent email…' });
+
+    beforeEach(() => {
+      vi.mocked(fetchSentEmails).mockReset();
+      vi.mocked(followSentEmail).mockReset();
+      vi.mocked(sentEmailsAvailable).mockReset();
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(true);
+      vi.mocked(fetchSentEmails).mockResolvedValue({ emails: [SENT], failing: [] });
+    });
+    afterEach(() => stand({ connecting: true, found: false, chosen: false }));
+
+    it('is not shown with no mailbox in the Workspace, and shown with one', async () => {
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(false);
+      const without = await thePage();
+      await settled();
+      expect(entry()).toBeNull();
+      without.unmount();
+      vi.mocked(sentEmailsAvailable).mockResolvedValue(true);
+
+      await thePage();
+
+      expect(await screen.findByRole('button', { name: 'Follow a sent email…' })).toBeEnabled();
+      expect(vi.mocked(sentEmailsAvailable)).toHaveBeenLastCalledWith('ws-home');
+    });
+
+    it('is shown unavailable offline, saying it needs a connection', async () => {
+      await thePage();
+      await screen.findByRole('button', { name: 'Follow a sent email…' });
+
+      act(() => stand({ connecting: false, found: true, chosen: false }));
+
+      expect(screen.getByRole('button', { name: 'Follow a sent email…' })).toBeDisabled();
+      expect(screen.getByText('Needs a connection.')).toBeVisible();
+    });
+
+    it('lists the sent emails in place of the note, and Back returns to the note as it was', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada');
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+
+      const row = await screen.findByRole('button', { name: /Quote for the kitchen renovation/ });
+      expect(row).toHaveTextContent('To Marc Lambrecht');
+      expect(vi.mocked(fetchSentEmails)).toHaveBeenCalledWith('ws-home');
+      expect(screen.queryByLabelText('What is on your mind?')).toBeNull();
+      await user.click(screen.getByRole('button', { name: '← Back to the note' }));
+      expect(box()).toHaveValue('Ask Ada');
+    });
+
+    it('follows the pick as Where and File on chose it, and says what it followed', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await user.click(await screen.findByRole('textbox', { name: 'Find a Panel to file on' }));
+      const search = await screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+      await user.type(search, 'Falcon');
+      await user.click(await within(await screen.findByRole('list', { name: 'Panels to file on' })).findByRole('button', { name: 'FalconToday' }));
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+
+      await waitFor(() =>
+        expect(vi.mocked(followSentEmail)).toHaveBeenCalledWith('ws-work', {
+          sourceAccountId: 'src-gmail',
+          conversationId: 'thread-1',
+          subject: 'Quote for the kitchen renovation',
+          to: 'Marc Lambrecht',
+          sentAt: '2026-10-08T09:15:00.000Z',
+          link: SENT.link,
+          excerpt: 'Attached is the quote.',
+          decided: true,
+          panelIds: ['p-falcon'],
+        }),
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent('Following “Quote for the kitchen renovation” → Falcon');
+      await user.click(screen.getByRole('button', { name: 'Open it' }));
+      expect(held.open).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
+    });
+
+    it('says the Item was already followed, not made, where an open one follows the conversation', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '22222222-2222-4222-8222-222222222222', made: false });
+      const user = await thePage();
+
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Already following “Quote for the kitchen renovation”');
+      expect(screen.getByRole('status')).not.toHaveTextContent('→');
+    });
+
+    it('closes the form once followed only where no note was typed, so a half-written one is not lost', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const typed = vi.fn();
+      const user = await thePage({ onKept: typed });
+      await user.type(box(), 'Ask Ada');
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+      await screen.findByRole('status');
+      expect(typed).not.toHaveBeenCalled();
+      expect(box()).toHaveValue('Ask Ada');
+    });
+
+    it('closes the form once followed where nothing was typed', async () => {
+      vi.mocked(followSentEmail).mockResolvedValue({ itemId: '11111111-1111-4111-8111-111111111111', made: true });
+      const bare = vi.fn();
+      const user = await thePage({ onKept: bare });
+      await user.click(await screen.findByRole('button', { name: 'Follow a sent email…' }));
+      await user.click(await screen.findByRole('button', { name: /Quote for the kitchen renovation/ }));
+      await waitFor(() => expect(bare).toHaveBeenCalledTimes(1));
+    });
+  });
+
   describe('dictation is offered only where the browser can record and the page has a transcriber', () => {
     afterEach(() => vi.useRealTimers());
 
@@ -2921,12 +3235,125 @@ describe('Capture', () => {
     });
 
     it('refuses a shared file the Attachment rules refuse as it refuses a dropped one, and queues the rest', async () => {
-      const notes = { ...aSharedPhoto('notes.txt'), type: 'text/plain' };
+      const notes = { ...aSharedPhoto('notes.zip'), type: 'application/zip' };
       await thePage({ arrived: whatArrived([aShare({ files: [notes, aSharedPhoto()] })]) });
 
       expect(await screen.findByText('photo.png')).toBeVisible();
-      expect(screen.getByRole('alert')).toHaveTextContent('"notes.txt" is not a kind of file Cockpit accepts.');
-      expect(screen.queryByText('notes.txt')).toBeNull();
+      expect(screen.getByRole('alert')).toHaveTextContent('"notes.zip" is not a kind of file Cockpit accepts.');
+      expect(screen.queryByText('notes.zip')).toBeNull();
     });
   });
+});
+
+/**
+ * "Carry Capture's note across the update's reload" (issue 1746): the update
+ * asks the mounted form for its draft (`keepCaptureForReload`), and the first
+ * form of the next load takes it back once. The two update paths that call the
+ * hand-over are in tests/unit/components/Updating.test.tsx.
+ */
+describe('Capture', () => {
+describe('a note kept for the update reload', () => {
+  afterEach(() => sessionStorage.clear());
+  const keepNow = () => keepCaptureForReload(sessionStorage);
+
+  it('comes back with the priority, due date, Where and Panels, and the cursor at the end of the note', async () => {
+    const user = await thePage({ cameFrom: 'ws-work' });
+    await user.type(box(), 'Call Jan re audit');
+    await user.click(chip('High priority'));
+    fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-10-02' } });
+    await user.click(chip('Work'));
+    const search = screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+    await user.click(search);
+    await within(await screen.findByRole('list', { name: 'Panels to file on' })).findByRole('button', { name: /Falcon/ });
+    await user.type(search, 'la{Enter}');
+    await user.type(search, 'falc{Enter}');
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+
+    keepNow();
+    await reloaded(user, { cameFrom: 'ws-work' });
+
+    await waitFor(() => expect(box()).toHaveValue('Call Jan re audit'));
+    expect(chip('High priority')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip(`Due ${dueDateLabel('2026-10-02')}`)).toBeVisible();
+    expect(chip('Work')).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Do not file on Reading list' })).toBeVisible();
+    expect((box() as HTMLTextAreaElement).selectionStart).toBe('Call Jan re audit'.length);
+    expect(box()).toHaveFocus();
+    expect(capturedCalls()).toEqual([]);
+  });
+
+  it('comes back once: a second reload finds an empty box', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    keepNow();
+    const again = await reloaded(user);
+    await waitFor(() => expect(box()).toHaveValue('Ask Ada'));
+
+    await reloaded(again);
+
+    expect(box()).toHaveValue('');
+  });
+
+  it('is not kept by a reload you do yourself, which asks nothing of the form', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+
+    await reloaded(user);
+
+    expect(box()).toHaveValue('');
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+
+  it('keeps nothing from an empty box', async () => {
+    await thePage();
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+
+  it('says it was the desk window when it was, for the screen to reopen it', async () => {
+    const user = await thePage({ shownAs: 'window' });
+    await user.type(box(), 'Ask Ada');
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toMatchObject({ note: 'Ask Ada', shownAs: 'window' });
+  });
+
+  it('never keeps a file', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    fireEvent.drop(box(), carrying(aPhoto()));
+    await screen.findByText('photo.png');
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toMatchObject({ note: 'Ask Ada', shownAs: 'page' });
+    expect(JSON.stringify(sessionStorage.getItem('cockpit.updating.kept-capture'))).not.toContain('photo');
+  });
+
+  it('tells the update whether an uncaptured file is attached, and stops once it is gone', async () => {
+    const user = await thePage();
+    expect(captureHoldsFiles()).toBe(false);
+
+    fireEvent.drop(box(), carrying(aPhoto()));
+    await screen.findByText('photo.png');
+    expect(captureHoldsFiles()).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Remove photo.png' }));
+    expect(captureHoldsFiles()).toBe(false);
+  });
+
+  it('offers nothing once the form has gone', async () => {
+    const user = await thePage();
+    await user.type(box(), 'Ask Ada');
+    (await reloaded(user)).unmount();
+
+    keepNow();
+
+    expect(peekKeptCapture(sessionStorage)).toBeNull();
+  });
+});
 });

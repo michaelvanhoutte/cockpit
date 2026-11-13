@@ -13,8 +13,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { main } from '../../src/cli.js';
-import { descriptionFile } from '../support/description.js';
-import { schemaFile } from '../support/schema.js';
+import { descriptionFile, rulesFile } from '../support/description.js';
+import { monitorSchemaFile, schemaFile } from '../support/schema.js';
 
 const WORKFLOW = 'name: Tests\non:\n  pull_request:\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n';
 const CONFIG = '{ "name": "w", "kv_namespaces": [{ "binding": "CACHE", "id": "abc" }] }\n';
@@ -60,7 +60,7 @@ function repository(commits) {
 }
 
 const SCHEMA = 'apps/api/database-schema.json';
-const base = { 'apps/api/wrangler.jsonc': CONFIG, '.github/workflows/tests.yml': WORKFLOW, 'tools/architecture/description.yml': DESCRIPTION, [SCHEMA]: schemaFile().text, 'apps/api/src/http/app.ts': 'export const a = 1;\n' };
+const base = { 'apps/api/wrangler.jsonc': CONFIG, '.github/workflows/tests.yml': WORKFLOW, 'tools/architecture/description.yml': DESCRIPTION, [SCHEMA]: schemaFile().text, 'apps/harness-monitor/database-schema.json': monitorSchemaFile().text, 'apps/api/src/http/app.ts': 'export const a = 1;\n' };
 
 /** The model file the live report would have published for a commit: only its commit matters, so the rest is deliberately as an older generator drew it. */
 const published = (commit) => {
@@ -69,12 +69,15 @@ const published = (commit) => {
   return file;
 };
 
-/** Runs the CLI over `root` and gives back the What changed section of its page, as text. */
+/**
+ * Runs the CLI over `root` and gives back the What changed section of its front page, as text. A fixture whose
+ * description has no services map has no front page, so the section is on its Modules page.
+ */
 async function whatChanged(root, previous) {
-  const out = path.join(tmp(), 'index.html');
+  const out = tmp();
   const code = await main(['--root', root, '--out', out, ...(previous ? ['--previous', previous] : [])]);
   expect(code).toBe(0);
-  return readFileSync(out, 'utf8')
+  return readFileSync(path.join(out, 'modules.html'), 'utf8')
     .match(/<section id="changes">([\s\S]*?)<\/section>/)[1]
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ');
@@ -120,6 +123,18 @@ describe('What changed', () => {
 
     it('draws a commit that has no description file with the current one, and says so', async () => {
       const { ids, root } = repository([{ ...base, 'tools/architecture/description.yml': null }, { 'tools/architecture/description.yml': DESCRIPTION }]);
+      const text = await whatChanged(root, published(ids[0]));
+      expect(text).toContain('has no description file');
+      expect(text).toContain('Nothing changed.');
+    });
+
+    it('draws a commit whose description holds the rules itself, from before the rules file, with the current pair, and says so', async () => {
+      const design = { layers: [{ id: 'api', title: 'API layer', row: 0, items: [[{ id: 'http', name: 'http', folders: ['apps/api/src/http'] }]] }], mayCall: {}, noLine: [] };
+      const before = { ...base, 'tools/architecture/description.yml': `${DESCRIPTION}design:
+  layers: []
+  mayCall: {}
+` };
+      const { ids, root } = repository([before, { 'tools/architecture/description.yml': descriptionFile({ design }).text, 'docs/architecture.yml': rulesFile({ design }).text }]);
       const text = await whatChanged(root, published(ids[0]));
       expect(text).toContain('has no description file');
       expect(text).toContain('Nothing changed.');

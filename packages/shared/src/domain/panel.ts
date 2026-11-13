@@ -312,6 +312,13 @@ export type FilterCondition = z.infer<typeof filterConditionSchema>;
 export type FilterRow = FilterCondition[];
 
 /**
+ * One set of a Filter: rows an Item has to meet every one of. An Item shows when
+ * it meets every row of any one set ("Let a Filter hold sets of rows joined by
+ * or", issue 1737).
+ */
+export type FilterSet = FilterRow[];
+
+/**
  * What a Filter's rows are grouped under ("Group a Filter panel's items by the
  * Dashboard or Panel they are filed on", issue 805): nothing, which is the one
  * flat list a Filter always drew, a heading per Dashboard, or a heading per
@@ -326,59 +333,70 @@ export const filterGroupingSchema = z.enum(FILTER_GROUPINGS);
 export type FilterGrouping = z.infer<typeof filterGroupingSchema>;
 
 /**
- * What a Filter shows: its rows, every one of which an Item has to meet, each
- * met by meeting any one of its conditions ("Store every Filter as rows, and
- * save the All / Any choice as rows", issue 1081) - and what its Items are
- * grouped under (`FilterGrouping`).
+ * What a Filter shows: its sets, an Item meeting every row of any one of them,
+ * each row met by meeting any one of its conditions ("Let a Filter hold sets of
+ * rows joined by or", issue 1737) - and what its Items are grouped under
+ * (`FilterGrouping`).
  *
  * An object rather than a bare array, so a Filter can grow a setting of its own
  * without every stored one having to be re-read as something else.
  *
  * **A `groupBy` nobody wrote reads as `none`, never as an empty Filter**: the
  * catch is on the field, so a value this release cannot read costs the setting
- * alone and leaves the rows intact. **A Filter stored in the flat shape before
- * rows - `conditions` and `match` - reads as no rows**: every one was rewritten
- * by `0071-filter-rows` (changes.ts), so one met here was written by an older
- * release after a rollback, and a repair change carrying that change's
- * statements is what brings it back.
+ * alone and leaves the sets intact. **A Filter stored with `rows` and no `sets`
+ * is read as one set** (`panelFilterFrom`); a tab on the previous release reads
+ * one stored as `sets` as having no rows.
  */
 export const panelFilterSchema = z.object({
-  rows: z.array(z.array(filterConditionSchema)).default([]),
+  sets: z.array(z.array(z.array(filterConditionSchema))).default([]),
   groupBy: filterGroupingSchema.catch('none'),
 });
 export type PanelFilter = z.infer<typeof panelFilterSchema>;
 
 /** A Filter with nothing chosen yet — what a new one is, and what an unreadable one reads as. */
-export const NO_CONDITIONS: PanelFilter = { rows: [], groupBy: 'none' };
+export const NO_CONDITIONS: PanelFilter = { sets: [], groupBy: 'none' };
 
 /**
  * What a stored Filter says, from the text the column holds.
  *
- * **Anything it cannot read is no rows, never a failure.** The column is
+ * **Anything it cannot read is no sets, never a failure.** The column is
  * free-form text written by whichever release stored it, and a Workspace that
  * will not open because one Panel holds a shape this release does not
  * understand is a far worse answer than a Panel saying it has nothing chosen —
  * which is a state the product already draws and already explains.
  *
- * **A field repeated within a row is dropped, keeping the first, and an empty
- * row is dropped.** Neither can be saved (`setPanelFilterSchema`), but a Filter
- * saved with a field twice before that refusal shipped ("Filter a Filter panel
- * by priority and type", issue 464) is real data, carried into rows as it was;
- * reading it back deduplicated keeps a later, unrelated save of that Panel from
- * being refused for a duplicate the person saving never chose.
+ * **A Filter stored as `rows` alone is one set of those rows**, so nothing
+ * stored before sets is rewritten.
+ *
+ * **A field repeated within a row is dropped, keeping the first, an empty row
+ * is dropped, and a set left empty is dropped.** None can be saved
+ * (`setPanelFilterSchema`), but a Filter saved with a field twice before that
+ * refusal shipped ("Filter a Filter panel by priority and type", issue 464) is
+ * real data; reading it back deduplicated keeps a later, unrelated save of
+ * that Panel from being refused for a duplicate the person saving never chose.
  */
 export function panelFilterFrom(stored: string | null): PanelFilter | null {
   if (stored === null) return null;
   try {
-    const read = panelFilterSchema.safeParse(withoutType(JSON.parse(stored)));
+    const read = panelFilterSchema.safeParse(asSets(withoutType(JSON.parse(stored))));
     if (!read.success) return NO_CONDITIONS;
     return {
-      rows: read.data.rows.map(uniqueByField).filter((row) => row.length > 0),
+      sets: read.data.sets
+        .map((set) => set.map(uniqueByField).filter((row) => row.length > 0))
+        .filter((set) => set.length > 0),
       groupBy: read.data.groupBy,
     };
   } catch {
     return NO_CONDITIONS;
   }
+}
+
+/** A Filter stored with `rows` and no `sets`, as the one set those rows are; anything else as it came. */
+function asSets(stored: unknown): unknown {
+  if (typeof stored !== 'object' || stored === null) return stored;
+  const { rows, sets, ...rest } = stored as { rows?: unknown; sets?: unknown };
+  if (sets !== undefined) return { ...rest, sets };
+  return Array.isArray(rows) ? { ...rest, sets: [rows] } : rest;
 }
 
 /**
@@ -390,15 +408,21 @@ export function panelFilterFrom(stored: string | null): PanelFilter | null {
  */
 function withoutType(stored: unknown): unknown {
   if (typeof stored !== 'object' || stored === null) return stored;
-  const { rows } = stored as { rows?: unknown };
-  if (!Array.isArray(rows)) return stored;
+  const { rows, sets } = stored as { rows?: unknown; sets?: unknown };
+  const withoutTypes = (listOfRows: unknown): unknown =>
+    Array.isArray(listOfRows)
+      ? listOfRows.map((row) =>
+          Array.isArray(row)
+            ? row.filter(
+                (one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'),
+              )
+            : row,
+        )
+      : listOfRows;
   return {
     ...stored,
-    rows: rows.map((row) =>
-      Array.isArray(row)
-        ? row.filter((one) => !(typeof one === 'object' && one !== null && (one as { field?: unknown }).field === 'type'))
-        : row,
-    ),
+    ...(Array.isArray(rows) ? { rows: withoutTypes(rows) } : {}),
+    ...(Array.isArray(sets) ? { sets: sets.map(withoutTypes) } : {}),
   };
 }
 
@@ -412,12 +436,12 @@ function uniqueByField(row: readonly FilterCondition[]): FilterRow {
   });
 }
 
-/** What a Filter's rows are stored as — the one writer, so nothing else has to know the format. */
+/** What a Filter's sets are stored as — the one writer, so nothing else has to know the format. */
 export function panelFilterAsStored(
-  rows: readonly (readonly FilterCondition[])[],
+  sets: readonly (readonly (readonly FilterCondition[])[])[],
   groupBy: FilterGrouping = 'none',
 ): string {
-  return JSON.stringify({ rows, groupBy });
+  return JSON.stringify({ sets, groupBy });
 }
 
 /**

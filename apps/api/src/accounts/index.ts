@@ -4,6 +4,7 @@ import type {
   CommandResult,
   ConnectionHistory,
   FinishedItems,
+  MostUsedPanel,
   Item,
   Panel,
   ReadableSnapshot,
@@ -39,12 +40,17 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
+  ConversationTurn,
+  DraftMade,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
+import type { DraftClick, DraftWantedAnswer } from './drafts.js';
+import type { ListingAsk, SentPick } from './sent.js';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
@@ -123,6 +129,8 @@ export interface Account {
   snapshot(workspaceId: string): Promise<AccountSnapshot>;
   /** One Workspace's finished Items with their filings and files ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
   finishedItems(workspaceId: string): Promise<FinishedItems>;
+  /** The Panels Items landed on this week, with their 24-hour and 7-day counts ("Capture: offer today's and this week's most-used Panels…", issue 1743). */
+  mostUsedPanels(): Promise<MostUsedPanel[]>;
   /** Every live Workspace with its Dashboards, Panels and Layouts - the list of Panels an app allowed to read is shown (issue 1445). */
   panelCatalogue(): Promise<ReadableWorkspace[]>;
   /** What one Panel is read from; throws `NotFoundInAccountError` for a Panel that is deleted or was never this account's (issue 1445). */
@@ -366,9 +374,29 @@ export interface Account {
    */
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
   /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
-  checkNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow>;
+  checkNow(workspaceId: string, sourceAccountId: string): Promise<{ status: CheckedNow; at: string }>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
+  /**
+   * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows", issue
+   * 1708): the Item In progress under the click's id and what the source needs
+   * to make the draft, then the draft recorded or dropped, and a credential the
+   * source rotated meanwhile saved while the stored one is still the one opened.
+   */
+  wantDraft(ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick): Promise<DraftWantedAnswer>;
+  recordDraft(record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick): Promise<null>;
+  dropDraft(drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick): Promise<null>;
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(workspaceId: string, sourceAccountId: string): Promise<ListingAsk>;
+  /** Every connection of one connector in the account, oldest first, with what each was granted: the ones a pasted link may be read with ("Read pasted Teams links", issue 1755). */
+  connectionsOfConnector(connectorId: string): Promise<{ id: string; workspaceId: string; granted: string[] | null }[]>;
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(pick: SentPick): Promise<{ itemId: string; made: boolean }>;
+  resealCredential(
+    sourceAccountId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Promise<'saved' | 'not saved'>;
 }
 
 /**
@@ -387,9 +415,17 @@ export interface PulledRun {
   ): Promise<'saved' | 'not saved'>;
   fileItem(
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Promise<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>;
+  /** The conversations the connection's open Items follow, whose turns its connector reads (issue 1705). */
+  followedConversations(): Promise<string[]>;
+  /** Records a turn in a followed conversation under the caller's derived id, which sets the Item's status (issue 1705). */
+  recordTurn(turn: ConversationTurn, commandId: string): Promise<'recorded' | 'not followed' | 'disconnected'>;
+  /** The drafts Email… made that the connection's open Items still wait on (issue 1708). */
+  draftsWaiting(): Promise<DraftWaiting[]>;
+  /** A draft found gone unsent, under the caller's derived id: the Item's status put back (issue 1708). */
+  draftGone(draft: { conversationId: string; draftId: string }, commandId: string): Promise<'dropped' | 'not waited on' | 'disconnected'>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
   reportNames(report: NamesReport, forms: NameForms): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
@@ -397,9 +433,13 @@ export interface PulledRun {
   closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;
   /** Every open state a person set that the source has not confirmed (issue 893). */
   openStatesWaiting(): Promise<OpenStateWanted[]>;
-  /** Clears the ones the source confirmed, each only where still what was handed over, answering the Item of each cleared (issues 893, 1141). */
+  /**
+   * Clears the ones the source confirmed or the connector gave up on, each only where still what was handed over,
+   * answering the Item of each cleared (issues 893, 1141); a reopen given up on stops the Item following its conversation.
+   */
   confirmOpenStates(
     confirmed: readonly OpenStateWanted[],
+    gaveUp?: readonly OpenStateWanted[],
   ): Promise<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>;
   /**
    * `moreToDo` asks for the next check soon, and is ignored where the run failed (issue 957).
@@ -435,6 +475,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     workspaces: async () => unwrap(await store.workspaces(accountName)),
     snapshot: async (workspaceId) => unwrap(await store.snapshot(accountName, workspaceId)),
     finishedItems: async (workspaceId) => unwrap(await store.finishedItems(accountName, workspaceId)),
+    mostUsedPanels: async () => unwrap(await store.mostUsedPanels(accountName)),
     panelCatalogue: async () => unwrap(await store.panelCatalogue(accountName)),
     panelReadInputs: async (panelId) => unwrap(await store.panelReadInputs(accountName, panelId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
@@ -515,16 +556,31 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids, forms)),
       reportNames: async (report, forms) =>
         unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report, forms)),
+      followedConversations: async () =>
+        unwrap(await store.followedPulledConversations(accountName, sourceAccountId, runId)),
+      recordTurn: async (turn, commandId) =>
+        unwrap(await store.recordPulledTurn(accountName, sourceAccountId, runId, turn, commandId)),
+      draftsWaiting: async () => unwrap(await store.pulledDraftsWaiting(accountName, sourceAccountId, runId)),
+      draftGone: async (draft, commandId) =>
+        unwrap(await store.reportPulledDraftGone(accountName, sourceAccountId, runId, draft, commandId)),
       applySourceChange: async (change) =>
         unwrap(await store.applyPulledSourceChange(accountName, sourceAccountId, runId, change)),
       closeItemsNotListed: async (listing) =>
         unwrap(await store.closePulledItemsNotListed(accountName, sourceAccountId, runId, listing)),
       openStatesWaiting: async () => unwrap(await store.pulledOpenStatesWaiting(accountName, sourceAccountId, runId)),
-      confirmOpenStates: async (confirmed) =>
-        unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed)),
+      confirmOpenStates: async (confirmed, gaveUp = []) =>
+        unwrap(await store.confirmPulledOpenStates(accountName, sourceAccountId, runId, confirmed, gaveUp)),
       end: async (failing, moreToDo, did, status) =>
         unwrap(await store.endPulledRun(accountName, sourceAccountId, runId, failing, moreToDo, did, status)),
     }),
+    wantDraft: async (ask) => unwrap(await store.wantDraft(accountName, ask)),
+    recordDraft: async (record) => unwrap(await store.recordDraft(accountName, record)),
+    dropDraft: async (drop) => unwrap(await store.dropDraft(accountName, drop)),
+    listingAsk: async (workspaceId, sourceAccountId) => unwrap(await store.listingAsk(accountName, workspaceId, sourceAccountId)),
+    connectionsOfConnector: async (connectorId) => unwrap(await store.connectionsOfConnector(accountName, connectorId)),
+    followSentEmail: async (pick) => unwrap(await store.followSentEmail(accountName, pick)),
+    resealCredential: async (sourceAccountId, was, sealed) =>
+      unwrap(await store.resealCredential(accountName, sourceAccountId, was, sealed)),
   };
 }
 
@@ -797,7 +853,11 @@ export async function serveAttachment(env: Env, attachment: AttachmentForDownloa
       // The stored, allowlisted type - never a passthrough of whatever the
       // upload claimed (issue 441's own download test case), even though
       // `add_attachment`'s own write already made the two agree.
-      'Content-Type': attachment.contentType,
+      // A text file is served as plain text whatever it was stored as: a browser
+      // downloads `text/markdown` rather than showing it ("Attachments refuse
+      // Markdown and plain text files", issue 1659). Never sniffed.
+      'Content-Type': attachment.contentType.startsWith('text/') ? 'text/plain; charset=utf-8' : attachment.contentType,
+      'X-Content-Type-Options': 'nosniff',
       'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
     },
   });

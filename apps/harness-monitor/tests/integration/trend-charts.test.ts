@@ -1,7 +1,7 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import worker from '../../src/worker';
-import { emptyTheDatabase, merged, send, spend, theBarePage, usage, withPrices } from './support';
+import { emptyTheDatabase, merged, send, spend, theTrendPage, usage, withPrices } from './support';
 
 beforeEach(async () => {
   await emptyTheDatabase();
@@ -33,7 +33,7 @@ async function sessionStarts(): Promise<Start[]> {
 
 /** Each line of a chart as its points read ("2026-10-05 · $2.00"), keyed by the line; 'empty' where the chart has nothing to draw. */
 function chart(html: string, id: string): Record<string, string[]> | 'empty' {
-  const section = new RegExp(`<section class="trend" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
+  const section = new RegExp(`<section class="panel" aria-labelledby="${id}">(.*?)</section>`, 's').exec(html)?.[1];
   if (section === undefined) throw new Error(`no chart ${id}`);
   if (section.includes(`data-empty="${id}"`)) return 'empty';
   return Object.fromEntries(
@@ -108,21 +108,16 @@ describe('Harness Monitor', () => {
     });
   });
 
-  describe('the Over time page charts starting context, pull request size and cost per 1,000 lines', () => {
+  describe('the Harness trend page charts starting context, pull request size and cost per 1,000 lines', () => {
     it('shows all three charts, with their values for the bucket', async () => {
       await send([usage('r1', { time: '2026-10-06T10:00:00Z', branch: 'b/1' }), spend('p1', 2, { time: '2026-10-06T11:00:00Z', branch: 'b/1' })]);
       await merged(1, '2026-10-07T10:00:00Z', 1_000);
 
-      const html = await theBarePage('?period=all');
+      const html = await theTrendPage('?period=all');
 
-      expect(html).toContain('<h2 id="trends">Is the harness getting more expensive?</h2>');
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 80 tokens`] });
       expect(chart(html, 'pull-request-size')).toEqual({ 'pull-request-size': [`${WEEK} · 1,000 lines`] });
       expect(chart(html, 'cost-per-line')).toMatchObject({ total: [`${WEEK} · $2.00`], building: [`${WEEK} · $2.00`] });
-    });
-
-    it('other groupings do not carry the charts', async () => {
-      expect(await theBarePage('?period=all&group=pr')).not.toContain('Is the harness getting more expensive?');
     });
 
     it('a period of 30 days has a point per day, and 90 days one per week', async () => {
@@ -132,15 +127,15 @@ describe('Harness Monitor', () => {
       await send([spend('p1', 1, { time: `${day}T10:00:00Z`, branch: 'b/1' })]);
       await merged(1, `${day}T12:00:00Z`, 500);
 
-      const thirty = chart(await theBarePage('?period=30d'), 'pull-request-size');
-      const ninety = chart(await theBarePage('?period=90d'), 'pull-request-size');
+      const thirty = chart(await theTrendPage('?period=30d'), 'pull-request-size');
+      const ninety = chart(await theTrendPage('?period=90d'), 'pull-request-size');
 
       expect(thirty).toEqual({ 'pull-request-size': ['13 Oct 2026 · 500 lines'] });
       expect(ninety).toEqual({ 'pull-request-size': ['12 Oct 2026 · 500 lines'] });
     });
 
     it('with nothing merged in the period the charts say so rather than drawing zero', async () => {
-      const html = await theBarePage('?period=all');
+      const html = await theTrendPage('?period=all');
 
       expect(['starting-context', 'pull-request-size', 'cost-per-line'].map((id) => chart(html, id))).toEqual(['empty', 'empty', 'empty']);
     });
@@ -158,7 +153,7 @@ describe('Harness Monitor', () => {
     });
 
     it('Engineer narrows all three charts to that engineer', async () => {
-      const html = await theBarePage('?period=all&engineer=bob');
+      const html = await theTrendPage('?period=all&engineer=bob');
 
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 800,000 tokens`] });
       expect(chart(html, 'pull-request-size')).toEqual({ 'pull-request-size': [`${WEEK} · 3,000 lines`] });
@@ -166,7 +161,7 @@ describe('Harness Monitor', () => {
     });
 
     it('Model narrows starting context to sessions whose first request used it, and cost to that model', async () => {
-      const html = await theBarePage('?period=all&model=claude-opus-4-8');
+      const html = await theTrendPage('?period=all&model=claude-opus-4-8');
 
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 800,000 tokens`] });
       expect(chart(html, 'pull-request-size')).toEqual({ 'pull-request-size': [`${WEEK} · 3,000 lines`] });
@@ -174,7 +169,7 @@ describe('Harness Monitor', () => {
     });
 
     it('Category narrows cost per line to that phase and leaves starting context alone', async () => {
-      const html = await theBarePage('?period=all&category=after-push');
+      const html = await theTrendPage('?period=all&category=after-push');
 
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 900,000 tokens`] });
       expect(chart(html, 'pull-request-size')).toEqual({ 'pull-request-size': [`${WEEK} · 1,000 lines`] });
@@ -182,7 +177,7 @@ describe('Harness Monitor', () => {
     });
 
     it('Requests: Subagents narrows cost per line to subagent cost and leaves starting context alone', async () => {
-      const html = await theBarePage('?period=all&who=subagents');
+      const html = await theTrendPage('?period=all&who=subagents');
 
       expect(chart(html, 'starting-context')).toEqual({ 'starting-context': [`${WEEK} · 900,000 tokens`] });
       expect(chart(html, 'cost-per-line')).toMatchObject({ total: [`${WEEK} · $1.00`] });

@@ -74,6 +74,15 @@ export async function startStubIssuer({ port, seedPath }) {
   const issued = new Map();
   /** Every token handed back at `/revoke`, newest last. */
   const revoked = [];
+  /**
+   * The scopes an administrator has to approve for each account, as a tenant
+   * holds them back from its people ("Read pasted Teams links: connecting Teams
+   * asks for no read permission", issue 1754): a sign-in asking any of them is
+   * refused as Microsoft refuses it, whole, and the one asking for the rest goes
+   * through. Set at `/admin-approval?email=&needs=Chat.Read,ChannelMessage.Read.All`,
+   * and cleared by `needs=` left empty.
+   */
+  const adminNeeds = new Map();
   /** Every `threads.modify` and `messages.modify` Gmail was asked for, newest last - what `/gmail-stub/modified` lists, `?email=` keeping one mailbox's. */
   const modifications = [];
 
@@ -107,7 +116,18 @@ export async function startStubIssuer({ port, seedPath }) {
    * email, so `/gmail-stub/star?email=&message=` and `/gmail-stub/unstar` with a
    * `message` change that email alone, as starring one email in Gmail does
    * ("Bring in each email you star in Gmail as its own Item", issue 1398);
-   * `/gmail-stub/reply` answers the id of the email it adds, to star it.
+   * `/gmail-stub/reply` answers the id of the email it adds, to star it, and
+   * takes `from=` for who sent it, `text=` for what it says, or `sent` for a
+   * reply sent from this mailbox ("A Gmail starred conversation is one Item
+   * whose status follows who wrote last", issue 1705).
+   * `POST /gmail-stub/send?email=&subject=&to=&text=` sends an email from the
+   * mailbox in a conversation of its own, which `users.messages.list` with the
+   * Sent label then lists first ("Follow a sent email… in Capture", issue 1710).
+   * `POST /gmail-stub/linkedin?email=` delivers a LinkedIn message notification
+   * in a conversation of its own, as LinkedIn sends one: `name=` for who wrote,
+   * `text=` for what, `subject=`, `conversation=` for LinkedIn's thread id, and `starred`
+   * for one that arrives starred ("Follow the LinkedIn conversation instead of
+   * the notification", issue 1711). Reconstructed, not captured.
    */
   function actInMailbox(action, url, response) {
     const email = url.searchParams.get('email') ?? '';
@@ -115,7 +135,7 @@ export async function startStubIssuer({ port, seedPath }) {
     const cockpit = mailbox.labels.find((label) => label.name === 'Cockpit');
     const starring = action === 'star' || action === 'unstar';
     // Starring needs no label, as a mailbox followed by star needs none.
-    if (!cockpit && !starring) return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
+    if (!cockpit && !starring && action !== 'linkedin' && action !== 'send') return json(response, { error: 'that mailbox has no label called Cockpit' }, 409);
     mailbox.historyId += 1;
     const at = String(mailbox.historyId);
     const messageOf = (id, threadId, labelIds, subject, from, words) => ({
@@ -133,6 +153,44 @@ export async function startStubIssuer({ port, seedPath }) {
         body: { size: words.length, data: base64url(words) },
       },
     });
+    if (action === 'send') {
+      // An email sent from this mailbox, in a conversation of its own, as Gmail files one: the Sent label and no Inbox.
+      const id = `sent-${at}`;
+      const words = url.searchParams.get('text') ?? 'Sent a moment ago.';
+      const sent = messageOf(id, id, ['SENT'], url.searchParams.get('subject') ?? 'Sent just now', `Michael <${email}>`, words);
+      sent.snippet = words;
+      sent.payload.headers.push({ name: 'To', value: url.searchParams.get('to') ?? 'Steven Noels <steven@example.com>' });
+      mailbox.threads.push({ id, historyId: at, messages: [sent] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId: id }], messagesAdded: [{ message: { id, threadId: id, labelIds: sent.labelIds } }] });
+      return json(response, { thread: id, message: id, historyId: at });
+    }
+    if (action === 'linkedin') {
+      const id = `linkedin-${at}`;
+      const name = url.searchParams.get('name') ?? 'Steven Noels';
+      const thread = url.searchParams.get('conversation') ?? '2-c3R1Yi10aHJlYWQtMQ==';
+      const text = url.searchParams.get('text') ?? 'Shall we have dinner on Thursday?';
+      const labelIds = ['INBOX', 'UNREAD', ...(url.searchParams.has('starred') ? ['STARRED'] : [])];
+      const notification = messageOf(
+        id,
+        id,
+        labelIds,
+        url.searchParams.get('subject') ?? `${name} sent you a message`,
+        `${name} via LinkedIn <messages-noreply@linkedin.com>`,
+        [
+          name,
+          '',
+          text,
+          '',
+          `View message: https://www.linkedin.com/comm/messaging/thread/${thread}/?trk=eml`,
+          '',
+          '---',
+          'You are receiving LinkedIn notification emails.',
+        ].join('\n'),
+      );
+      mailbox.threads.push({ id, historyId: at, messages: [notification] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId: id }], messagesAdded: [{ message: { id, threadId: id, labelIds } }] });
+      return json(response, { thread: id, message: id, historyId: at });
+    }
     const named = url.searchParams.get('thread');
     const emailId = url.searchParams.get('message');
     const removing = action === 'unlabel' || action === 'unstar';
@@ -189,7 +247,18 @@ export async function startStubIssuer({ port, seedPath }) {
     const thread = mailbox.threads.find((one) => one.id === url.searchParams.get('thread'));
     if (!thread) return json(response, { error: 'no such thread' }, 404);
     const id = `reply-${at}`;
-    const reply = messageOf(id, thread.id, ['INBOX', 'UNREAD'], 'Re:', 'pieter@example.com', 'A reply, arriving without the label.');
+    // `sent` is a reply sent from this mailbox, which Gmail labels Sent; `from`
+    // names who else sent it ("A Gmail starred conversation is one Item whose
+    // status follows who wrote last", issue 1705).
+    const sent = url.searchParams.has('sent');
+    const reply = messageOf(
+      id,
+      thread.id,
+      sent ? ['SENT'] : ['INBOX', 'UNREAD'],
+      'Re:',
+      sent ? email : (url.searchParams.get('from') ?? 'pieter@example.com'),
+      url.searchParams.get('text') ?? 'A reply, arriving without the label.',
+    );
     thread.messages.push(reply);
     mailbox.history.push({
       id: at,
@@ -231,6 +300,13 @@ export async function startStubIssuer({ port, seedPath }) {
       return;
     }
     if (url.pathname === '/revoked') return json(response, revoked);
+    if (url.pathname === '/admin-approval') {
+      const email = url.searchParams.get('email') ?? '';
+      const needs = (url.searchParams.get('needs') ?? '').split(',').map((scope) => scope.trim().toLowerCase()).filter(Boolean);
+      if (needs.length > 0) adminNeeds.set(email, new Set(needs));
+      else adminNeeds.delete(email);
+      return json(response, { email, needs });
+    }
 
     if (url.pathname === '/jwks') {
       // Exported off the key itself: `createPublicKey` takes key *material* or a
@@ -278,8 +354,13 @@ export async function startStubIssuer({ port, seedPath }) {
     if (graph.handle(url, request, response, issuer)) return;
     if (verify.handle(url, request, response)) return;
     if (url.pathname.startsWith('/gmail/v1/users/me/')) return gmail(url, request, response);
-    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar)$/);
+    const acting = url.pathname.match(/^\/gmail-stub\/(label|unlabel|trash|reply|star|unstar|linkedin|send)$/);
     if (acting && request.method === 'POST') return actInMailbox(acting[1], url, response);
+    const onDraft = url.pathname.match(/^\/gmail-stub\/(send-draft|delete-draft)$/);
+    if (onDraft && request.method === 'POST') return actOnDraft(onDraft[1], url, response);
+    if (url.pathname === '/gmail-stub/edit-draft' && request.method === 'POST') return editDraft(url, response);
+    // Every draft Cockpit had the mailbox make, oldest first, for a walk to send or delete one (issue 1708).
+    if (url.pathname === '/gmail-stub/drafts') return json(response, heldMailbox(url.searchParams.get('email') ?? '').drafts);
     // What a walk reads back of a conversation Cockpit changed (issue 728):
     // whether it is labelled Cockpit now, or starred (issue 823), and every
     // change Cockpit asked for.
@@ -362,6 +443,19 @@ export async function startStubIssuer({ port, seedPath }) {
   /** Picking somebody: a code, and back to where the sign-in came from. */
   function pick(url, response) {
     const ask = whatWasAsked(url);
+    // A scope this account's tenant keeps for an administrator: refused whole, as
+    // Microsoft does, with the code it names for it.
+    const heldBack = adminNeeds.get(ask.as);
+    if (heldBack && (ask.scope ?? '').split(' ').some((scope) => heldBack.has(scope.toLowerCase()))) {
+      const refused = new URL(ask.redirect_uri);
+      refused.searchParams.set('error', 'access_denied');
+      refused.searchParams.set(
+        'error_description',
+        'AADSTS65001: The user or administrator has not consented to use the application. Send an interactive authorization request for this user and resource.',
+      );
+      refused.searchParams.set('state', ask.state);
+      return response.writeHead(302, { location: refused.toString() }).end();
+    }
     const code = randomUUID();
     issued.set(code, {
       email: ask.as,
@@ -464,6 +558,28 @@ export async function startStubIssuer({ port, seedPath }) {
         historyId: String(mailbox.historyId),
       });
     }
+    if (path === 'messages' && /^from:\S+$/.test(url.searchParams.get('q') ?? '')) {
+      // `users.messages.list` by sender, which finds a LinkedIn notification among the mail a page of history added.
+      const sender = url.searchParams.get('q').slice('from:'.length).toLowerCase();
+      const sentBy = mailbox.threads.flatMap((thread) =>
+        thread.messages
+          .filter((message) => JSON.stringify(message.payload.headers).toLowerCase().includes(`<${sender}>`) && !message.labelIds.includes('TRASH'))
+          .map((message) => ({ id: message.id, threadId: thread.id })),
+      );
+      return json(response, { messages: sentBy, resultSizeEstimate: sentBy.length });
+    }
+    if (path === 'messages' && url.searchParams.get('labelIds') === 'SENT') {
+      // `users.messages.list` of the mail sent from the mailbox, newest first as Gmail lists it ("Follow a sent email… in Capture", issue 1710).
+      const sent = mailbox.threads
+        .flatMap((thread) =>
+          thread.messages
+            .filter((message) => message.labelIds.includes('SENT') && !message.labelIds.includes('TRASH'))
+            .map((message) => ({ id: message.id, threadId: thread.id, at: Number(message.internalDate) })),
+        )
+        .sort((a, b) => b.at - a.at)
+        .slice(0, Number(url.searchParams.get('maxResults') ?? 100));
+      return json(response, { messages: sent.map(({ id, threadId }) => ({ id, threadId })), resultSizeEstimate: sent.length });
+    }
     if (path === 'messages') {
       // `users.messages.list`: the emails carrying a label, the bin left out as
       // Gmail leaves it, each with its conversation's id (issue 1398).
@@ -497,6 +613,24 @@ export async function startStubIssuer({ port, seedPath }) {
         resultSizeEstimate: labelled.length,
       });
     }
+    if (path === 'drafts' && request.method === 'POST') return makeDraft(mailbox, request, response);
+    const readDraft = path.match(/^drafts\/([^/]+)$/);
+    if (readDraft) {
+      // `users.drafts.get`: the draft while its message is still a draft, else gone - sent or deleted.
+      const draft = mailbox.drafts.find((one) => one.id === decodeURIComponent(readDraft[1]));
+      const held = draft && findMessage(mailbox, draft.message);
+      if (!held || !held.message.labelIds.includes('DRAFT')) {
+        return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+      }
+      // `users.drafts.update`: the draft's message replaced, the draft keeping its id (issue 1732).
+      if (request.method === 'PUT') return updateDraft(mailbox, draft, held.message, request, response);
+      const message = { id: draft.message, threadId: draft.thread, labelIds: held.message.labelIds };
+      // With `format=full` its payload, with `format=raw` the message itself, as Gmail reads a draft back (issue 1732).
+      const format = url.searchParams.get('format');
+      if (format === 'full') return json(response, { id: draft.id, message: { ...message, payload: held.message.payload } });
+      if (format === 'raw') return json(response, { id: draft.id, message: { ...message, raw: draft.raw } });
+      return json(response, { id: draft.id, message });
+    }
     const modified = mailbox.threads.find((one) => path === `threads/${one.id}/modify`);
     if (modified && request.method === 'POST') return modifyThread(mailbox, modified, request, response);
     const modifiedEmail = path.match(/^messages\/([^/]+)\/modify$/);
@@ -504,7 +638,150 @@ export async function startStubIssuer({ port, seedPath }) {
     if (foundEmail && request.method === 'POST') return modifyThread(mailbox, foundEmail.thread, request, response, foundEmail.message);
     const thread = mailbox.threads.find((one) => path === `threads/${one.id}`);
     if (thread) return json(response, thread);
+    // `users.messages.get`: one email, read for the turn it is in a followed conversation (issue 1705).
+    const readEmail = path.match(/^messages\/([^/]+)$/);
+    const foundRead = readEmail && findMessage(mailbox, decodeURIComponent(readEmail[1]));
+    if (foundRead) return json(response, foundRead.message);
     json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+  }
+
+  /**
+   * `users.drafts.create` ("Email… makes a Gmail draft the Item then follows",
+   * issue 1708): the message `raw` holds, labelled Draft, in the conversation
+   * named - a new one where none is - leaving the history record Gmail does for
+   * a message added.
+   */
+  function makeDraft(mailbox, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let asked;
+      try {
+        asked = JSON.parse(body || '{}');
+      } catch {
+        return json(response, { error: { code: 400, message: 'Invalid JSON payload received.' } }, 400);
+      }
+      const raw = Buffer.from(asked.message?.raw ?? '', 'base64url').toString('utf8');
+      const headers = raw
+        .split('\r\n\r\n')[0]
+        .split('\r\n')
+        .map((line) => /^([^:]+): (.*)$/.exec(line))
+        .filter(Boolean)
+        .map(([, name, value]) => ({ name, value }));
+      mailbox.historyId += 1;
+      const at = String(mailbox.historyId);
+      // Hexadecimal, as Gmail's ids are, so a draft's link is the one real Gmail gets.
+      const id = `dd${at}`;
+      const threadId = asked.message?.threadId ?? id;
+      const thread = mailbox.threads.find((one) => one.id === threadId);
+      if (asked.message?.threadId && !thread) return json(response, { error: { code: 404, message: 'Requested entity was not found.' } }, 404);
+      // What the draft says, as a walk reads it back: the body after the headers, decoded as its encoding says (issue 1730).
+      const draftText = bodyOfRaw(raw);
+      const message = {
+        id,
+        threadId,
+        labelIds: ['DRAFT'],
+        snippet: '',
+        internalDate: String(Date.now()),
+        payload: { mimeType: 'text/plain', headers: [...headers, { name: 'From', value: mailbox.email }], body: { size: draftText.length, data: base64url(draftText) } },
+      };
+      if (thread) thread.messages.push(message);
+      else mailbox.threads.push({ id: threadId, historyId: at, messages: [message] });
+      mailbox.history.push({ id: at, messages: [{ id, threadId }], messagesAdded: [{ message: { id, threadId, labelIds: message.labelIds } }] });
+      const draft = {
+        id: `r-${at}`,
+        message: id,
+        thread: threadId,
+        subject: headers.find((one) => one.name === 'Subject')?.value ?? '',
+        body: draftText,
+        raw: asked.message?.raw ?? '',
+        // How many times Cockpit wrote it again in place (issue 1732).
+        rewritten: 0,
+      };
+      mailbox.drafts.push(draft);
+      json(response, { id: draft.id, message: { id, threadId, labelIds: message.labelIds } });
+    });
+  }
+
+  /**
+   * `users.drafts.update` ("Mail follow-up: a Claude draft looks like any other
+   * and cannot be redone…", issue 1732): the draft's message replaced by the one
+   * `raw` holds, in the same conversation and under the same draft id, leaving
+   * the history record Gmail does for a message changed.
+   */
+  function updateDraft(mailbox, draft, message, request, response) {
+    let body = '';
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      let asked;
+      try {
+        asked = JSON.parse(body || '{}');
+      } catch {
+        return json(response, { error: { code: 400, message: 'Invalid JSON payload received.' } }, 400);
+      }
+      const raw = Buffer.from(asked.message?.raw ?? '', 'base64url').toString('utf8');
+      const text = bodyOfRaw(raw);
+      message.payload = { ...message.payload, body: { size: text.length, data: base64url(text) } };
+      draft.body = text;
+      draft.raw = asked.message?.raw ?? '';
+      draft.rewritten += 1;
+      mailbox.historyId += 1;
+      json(response, { id: draft.id, message: { id: message.id, threadId: draft.thread, labelIds: message.labelIds } });
+    });
+  }
+
+  /**
+   * A person editing a draft in Gmail (issue 1732): `POST
+   * /gmail-stub/edit-draft?email=&draft=&text=` writes its body anew, so
+   * Cockpit finds it changed and leaves it as theirs.
+   */
+  function editDraft(url, response) {
+    const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+    const draft = mailbox.drafts.find((one) => one.id === url.searchParams.get('draft'));
+    const found = draft && findMessage(mailbox, draft.message);
+    if (!found || !found.message.labelIds.includes('DRAFT')) return json(response, { error: 'no such draft' }, 404);
+    const text = url.searchParams.get('text') ?? '';
+    const raw = Buffer.from(draft.raw, 'base64url').toString('utf8');
+    const head = raw.split('\r\n\r\n')[0].replace(/\r\nContent-Transfer-Encoding: base64/i, '');
+    draft.raw = base64url(`${head}\r\n\r\n${text}`);
+    draft.body = text;
+    found.message.payload = { ...found.message.payload, body: { size: text.length, data: base64url(text) } };
+    json(response, { draft: draft.id, body: text });
+  }
+
+  /**
+   * What a person does to a draft in Gmail (issue 1708): `POST
+   * /gmail-stub/send-draft?email=&draft=` sends it where it stands - Draft off,
+   * Sent on, the same message, as the history Gmail leaves for a draft sent -
+   * and `/gmail-stub/delete-draft` deletes it unsent, with its conversation
+   * where that held nothing else.
+   */
+  function actOnDraft(action, url, response) {
+    const mailbox = heldMailbox(url.searchParams.get('email') ?? '');
+    const draft = mailbox.drafts.find((one) => one.id === url.searchParams.get('draft'));
+    const found = draft && findMessage(mailbox, draft.message);
+    if (!found || !found.message.labelIds.includes('DRAFT')) return json(response, { error: 'no such draft' }, 404);
+    const { thread, message } = found;
+    mailbox.historyId += 1;
+    if (action === 'send-draft') {
+      message.labelIds = ['SENT'];
+      message.internalDate = String(Date.now());
+      mailbox.history.push({
+        id: String(mailbox.historyId),
+        messages: [{ id: message.id, threadId: thread.id }],
+        labelsRemoved: [{ message: { id: message.id, threadId: thread.id, labelIds: message.labelIds }, labelIds: ['DRAFT'] }],
+        labelsAdded: [{ message: { id: message.id, threadId: thread.id, labelIds: message.labelIds }, labelIds: ['SENT'] }],
+      });
+    } else {
+      thread.messages = thread.messages.filter((one) => one !== message);
+      if (thread.messages.length === 0) mailbox.threads = mailbox.threads.filter((one) => one !== thread);
+      mailbox.history.push({
+        id: String(mailbox.historyId),
+        messages: [{ id: message.id, threadId: thread.id }],
+        messagesDeleted: [{ message: { id: message.id, threadId: thread.id } }],
+      });
+    }
+    json(response, { draft: draft.id, message: message.id, thread: thread.id, historyId: String(mailbox.historyId) });
   }
 
   /**
@@ -690,6 +967,8 @@ export function stubMailbox(email) {
     history: [],
     // Every path Gmail was asked for, oldest first (`/gmail-stub/asked`).
     asked: [],
+    // Every draft `users.drafts.create` made, oldest first: its id, its message's and its conversation's (`/gmail-stub/drafts`).
+    drafts: [],
     threads: [
       {
         id: '18f0a1b2c3d4e5f1',
@@ -745,8 +1024,32 @@ export function stubMailbox(email) {
           ),
         ],
       },
+      ...sentThreads(message, text),
     ],
   };
+}
+
+/**
+ * The mail every stand-in mailbox has sent, which `users.messages.list` with the
+ * Sent label lists ("Follow a sent email… in Capture", issue 1710): one email
+ * each in three conversations, none labelled Cockpit or starred.
+ */
+function sentThreads(message, text) {
+  const sent = (id, at, to, subject, words) => ({
+    id,
+    historyId: '1000',
+    messages: [
+      {
+        ...message(id, id, at, ['SENT'], { Subject: subject, From: 'Michael <michael@example.com>', To: to }, text('text/plain', words)),
+        snippet: words,
+      },
+    ],
+  });
+  return [
+    sent('18f0a1b2c3d4e6a1', '2026-10-08T09:15:00Z', 'Marc Lambrecht <marc@example.com>', 'Quote for the kitchen renovation', 'Hi Marc, attached is the quote we spoke about on Monday. Let me know what you think.'),
+    sent('18f0a1b2c3d4e6a2', '2026-10-06T14:40:00Z', 'Sofie Maes <sofie@example.com>, legal@example.com', 'Offer for the new office lease', 'Sofie, our offer for the lease is below. We can sign before the end of the month.'),
+    sent('18f0a1b2c3d4e6a3', '2026-10-05T18:05:00Z', 'Steven Noels <steven@example.com>', 'Dinner with Steven Noels', 'Steven, are you free one evening next week for dinner?'),
+  ];
 }
 
 /** Text going into an attribute or a body, with what would end either taken out. */
@@ -768,4 +1071,11 @@ function challengeFor(verifier) {
 
 function base64url(value) {
   return Buffer.from(value).toString('base64url');
+}
+
+/** A message's body from its raw text, decoded as its encoding says. */
+function bodyOfRaw(raw) {
+  const [head = '', ...rest] = raw.split('\r\n\r\n');
+  const afterHeaders = rest.join('\r\n\r\n');
+  return /^Content-Transfer-Encoding: base64$/im.test(head) ? Buffer.from(afterHeaders, 'base64').toString('utf8') : afterHeaders;
 }

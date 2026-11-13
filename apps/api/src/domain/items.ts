@@ -12,6 +12,7 @@ import {
   type ProposeItemForClaudeCommand,
   type ProposeItemPanelCommand,
   type ProposeItemTextsCommand,
+  type ReadPastedLinkCommand,
   type SetDescriptionCommand,
   type SetDismissedCommand,
   type SetDoneCommand,
@@ -482,6 +483,45 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
 }
 
 /**
+ * An Own note made what its pasted link's source would have saved ("Read pasted
+ * Teams links", issue 1755): where it came from, and the captured message
+ * written again as the message read plus the person's words as its note.
+ *
+ * **The one rewrite of a captured message** (architecture, "Schema
+ * conventions"): allowed once, and only while the Item is still an Own note -
+ * captured in Cockpit and carrying no source of its own - so null for anything
+ * else, which is what makes a second delivery of the same job change nothing.
+ *
+ * The texts follow the rule any reading does: the ones read where they were
+ * given, else the ones a capture makes of the new captured message, and
+ * neither where a person has made the texts their own. `updatedAt` is left
+ * where it is, for the reason `applyProposedTexts` gives.
+ */
+export function applyPastedLinkRead(item: Item, cmd: ReadPastedLinkCommand): Item | null {
+  if (item.source !== CAPTURED_HERE || item.sourceId !== null || item.sourceLink !== null) return null;
+  const read: Item = {
+    ...item,
+    source: cmd.capturedFrom.source,
+    sourceId: cmd.capturedFrom.sourceId,
+    sourceLink: cmd.capturedFrom.sourceLink,
+    sender: cmd.capturedFrom.sender ?? null,
+    sourceTimestamp: cmd.capturedFrom.sourceTimestamp ?? null,
+    capturedMessage: cmd.capturedMessage,
+  };
+  if (item.textsSettledAt !== null) return read;
+  if (cmd.texts) {
+    return {
+      ...read,
+      title: cmd.texts.title,
+      description: cmd.texts.description,
+      readings: cmd.texts.readings.length > 0 ? cmd.texts.readings : null,
+      textsProposedAt: cmd.issuedAt,
+    };
+  }
+  return { ...read, ...textsFromCapture(cmd.capturedMessage), readings: null };
+}
+
+/**
  * Where Cockpit proposes this Item belongs, offered rather than filed
  * ("Propose where a captured note belongs, without filing it there", issue
  * 298).
@@ -542,10 +582,10 @@ export function applyClaudeProposals(item: Item, cmd: ProposeItemForClaudeComman
 }
 
 /**
- * The captured message is untouched here, and there is no handler that touches
- * it: it is written by `captureItem` and never again (architecture, "Schema
- * conventions"). That is the whole of its immutability - no trigger, because a
- * column with no writer needs none.
+ * The captured message is untouched here: it is written by `captureItem` and
+ * never again but once, by `applyPastedLinkRead` on an Own note (architecture,
+ * "Schema conventions"). That is the whole of its immutability - no trigger,
+ * because a column with no other writer needs none.
  */
 export function applySetDescription(item: Item, cmd: SetDescriptionCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;

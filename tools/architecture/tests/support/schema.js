@@ -55,6 +55,28 @@ export const schema = (overrides = {}) => ({
 /** The file as the generator is handed it. */
 export const schemaFile = (overrides) => ({ file: 'apps/api/database-schema.json', text: JSON.stringify(schema(overrides)) });
 
+/** The Harness Monitor's schema file in the real one's shape: no pointer declared, one column named like another table's key in its family, and one named like it in another family. */
+export const monitorSchema = (overrides = {}) => ({
+  databases: [
+    {
+      key: 'harness-monitor',
+      name: 'Harness Monitor',
+      kind: 'D1',
+      oneFor: 'the Harness Monitor',
+      definedIn: ['apps/harness-monitor/migrations/'],
+      tables: [
+        { name: 'stability_runs', strict: false, columns: [column('run_id', { required: true, primaryKey: 1, type: 'INTEGER' }), column('branch')], indexes: [] },
+        { name: 'stability_jobs', strict: false, columns: [column('run_id', { required: true, primaryKey: 1, type: 'INTEGER' }), column('job_index', { required: true, primaryKey: 2, type: 'INTEGER' })], indexes: [] },
+        { name: 'usage_requests', strict: false, columns: [column('request_id', { required: true, primaryKey: 1 }), column('run_id', { type: 'INTEGER' })], indexes: [] },
+      ],
+    },
+  ],
+  ...overrides,
+});
+
+/** The Monitor's file as the generator is handed it. */
+export const monitorSchemaFile = (overrides) => ({ file: 'apps/harness-monitor/database-schema.json', text: JSON.stringify(monitorSchema(overrides)) });
+
 /**
  * Source files naming what the schema above uses: every table and column but
  * `forgotten_at` and `hidden_things`, which no code names, and what is written down as no longer used.

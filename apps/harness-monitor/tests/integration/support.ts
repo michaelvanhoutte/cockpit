@@ -579,6 +579,11 @@ export async function theBarePage(query = ''): Promise<string> {
   return (await SELF.fetch(`https://monitor.test/${query}`)).text();
 }
 
+/** The Harness trend page exactly as the address asks for it. */
+export async function theTrendPage(query = ''): Promise<string> {
+  return (await SELF.fetch(`https://monitor.test/harness-trend${query}`)).text();
+}
+
 /** The public page as a visitor opens it, with the filters in the address (`?group=issue&period=all`); by pull request unless the address names a grouping. */
 export async function thePage(query = ''): Promise<string> {
   if (/[?&]group=/.test(query)) return theBarePage(query);

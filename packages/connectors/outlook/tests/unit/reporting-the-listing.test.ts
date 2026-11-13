@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DELETED_ITEMS_ID, GraphWorld, signedInHost } from './outlook-world.js';
+import { DELETED_ITEMS_ID, GraphWorld, itemOf, signedInHost } from './outlook-world.js';
 
 /**
  * L1: a listing of the marked messages is reported complete under the choice,
@@ -22,7 +22,7 @@ describe('Capture', () => {
       expect(world.listPages()).toBe(3);
       expect(host.listings).toHaveLength(1);
       expect(host.listings[0]!.choice).toBe('flag');
-      expect([...host.listings[0]!.sourceIds].sort()).toEqual(['m-1', 'm-2', 'm-3', 'm-4', 'm-5']);
+      expect([...host.listings[0]!.sourceIds].sort()).toEqual(['m-1', 'm-2', 'm-3', 'm-4', 'm-5'].map(itemOf));
     });
 
     it('reports nothing and keeps nothing when a page fails part-way through the listing', async () => {
@@ -75,7 +75,7 @@ describe('Capture', () => {
       const second = first.next();
       await world.connector().sync(second);
 
-      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: ['m-2'] }]);
+      expect(second.listings).toEqual([{ choice: 'flag', sourceIds: [itemOf('m-2')] }]);
     });
   });
 

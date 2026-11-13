@@ -677,14 +677,14 @@ test.describe('Item editing', () => {
       await openItem(page, thought, isMobile);
 
       await attachmentInput(page).setInputFiles({
-        name: 'notes.txt',
-        mimeType: 'text/plain',
+        name: 'notes.zip',
+        mimeType: 'application/zip',
         buffer: Buffer.from('just words'),
       });
       await expect(form(page).getByRole('alert')).toHaveText(/not a kind of file Cockpit accepts/);
       // A chip, not any text on the form: the refusal itself names the file,
       // which `getByText` would otherwise also match.
-      await expect(form(page).getByRole('link', { name: 'notes.txt' })).toHaveCount(0);
+      await expect(form(page).getByRole('link', { name: 'notes.zip' })).toHaveCount(0);
 
       await attachmentInput(page).setInputFiles({
         name: 'huge.png',

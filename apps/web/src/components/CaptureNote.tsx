@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   itemLabel,
@@ -10,6 +10,8 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { FileOnLine, type FiledOn } from './FileOnLine';
+import { announce, offerCapture, takeKeptCapture } from '../keptCapture';
+import { tabMemory } from '../updating';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
@@ -29,6 +31,13 @@ import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
+import { useIsOffline } from '../offline';
+import { mostUsedPanelsQuery } from '../api/mostUsedPanels';
+import { panelsToOffer } from '../mostUsedPanels';
+import { sentEmailsAvailable } from '../api/sentEmails';
+
+/** *Follow a sent email…* is a chunk of its own, fetched when its entry is first pressed ("Follow a sent email… in Capture", issue 1710). */
+const FollowSentEmail = lazy(() => import('./FollowSentEmail').then((one) => ({ default: one.FollowSentEmail })));
 
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
@@ -65,8 +74,11 @@ export function CaptureNote({
   onCaptured,
   onKept,
   dictating,
+  shownAs = 'page',
 }: {
   startsIn: string | null;
+  /** Whether this is the Capture page or the desk window over a screen, which an update's reload reopens as it was. */
+  shownAs?: 'page' | 'window' | undefined;
   /** A Panel *File on* starts holding, and so its Workspace for Where: what a Panel's + opens (issue 1105). */
   startsOn?: FiledOn | null | undefined;
   /** What the share sheet handed over, claimed by the page: put on the note once, as if typed and dropped here. */
@@ -294,8 +306,12 @@ export function CaptureNote({
         if (kind === 'note' && madeHere.current.has(entry.id) && dockNow.current.openId !== null) {
           dockNow.current.show(entry.id, { keepFocus: true });
         }
+        // A note filed from here counts towards the buttons under File on once it has landed.
+        if (kind === 'note' && madeHere.current.has(entry.id) && entry.panelIds?.length) {
+          void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
+        }
       }),
-    [outbox],
+    [outbox, queryClient],
   );
 
   /**
@@ -313,6 +329,9 @@ export function CaptureNote({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
+  // Said to whoever offers Capture's draft away that a file came or went, so the
+  // new-version bar can say files are not kept (keptCapture.ts).
+  useEffect(() => announce(), [queued.length]);
   // Revokes whatever object URLs are still outstanding on the way out - a
   // queued file's own thumbnail is the one thing here that leaks if nobody
   // frees it.
@@ -322,6 +341,52 @@ export function CaptureNote({
     },
     [],
   );
+
+  /**
+   * What an update's reload takes of this form (keptCapture.ts): offered only
+   * while mounted, read at the moment of asking so nothing is written while
+   * typing, and never the files.
+   */
+  const draftNow = useRef({ message, priority, due, where, filed, shownAs });
+  draftNow.current = { message: noteNow.current, priority, due, where, filed, shownAs };
+  useEffect(
+    () =>
+      offerCapture({
+        draft: () => {
+          const now = draftNow.current;
+          return {
+            note: now.message,
+            priority: now.priority,
+            due: now.due,
+            where: now.where,
+            panels: now.filed,
+            shownAs: now.shownAs,
+          };
+        },
+        hasFiles: () => queuedRef.current.length > 0,
+      }),
+    [],
+  );
+  /** The note an update's reload kept comes back once, with the cursor after it. */
+  const cursorAtEnd = useRef(false);
+  useEffect(() => {
+    const kept = takeKeptCapture(tabMemory());
+    if (!kept) return;
+    changeNote(kept.note);
+    setWhere(kept.where);
+    setPriority(kept.priority);
+    setDue(kept.due);
+    setFiled(kept.panels);
+    cursorAtEnd.current = true;
+  }, []);
+  useEffect(() => {
+    if (!cursorAtEnd.current || message === '') return;
+    const box = theNote();
+    if (!(box instanceof HTMLTextAreaElement)) return;
+    cursorAtEnd.current = false;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [message]);
 
   const queueFiles = (files: Iterable<File>) => {
     const { accepted, rejections } = checkAttachmentFiles(files);
@@ -451,6 +516,8 @@ export function CaptureNote({
               dismissed: true,
             },
           });
+          // A dismissed Item no longer counts towards the buttons under File on.
+          if (back.filed.length > 0) void queryClient.invalidateQueries({ queryKey: mostUsedPanelsQuery.queryKey });
         } catch (failure) {
           // A send that got no answer may never have landed, so there may be nothing to dismiss.
           if (took === 'sent') throw failure;
@@ -527,6 +594,33 @@ export function CaptureNote({
    * The screen and the capture agree either way.
    */
   const belongsTo = workspaces.some((one) => one.id === where) ? where : null;
+
+  /**
+   * The Panels most used this week, offered as buttons under *File on*
+   * ("Capture: offer today's and this week's most-used Panels…", issue 1743):
+   * read each time Capture opens, and again once a note filed here lands or is
+   * undone, drawn at once from the last answer kept, and never waited on. Under *Any workspace* they span every Workspace.
+   */
+  const { data: used } = useQuery(mostUsedPanelsQuery);
+  const offered = panelsToOffer(used?.panels ?? [], belongsTo);
+
+  /**
+   * *Follow a sent email…* ("Follow a sent email… in Capture", issue 1710) reads
+   * the mailboxes of the Workspace this is captured against; with none, the entry
+   * is not shown. It takes the place of the note
+   * while its list is open, and leaves a line saying what was followed.
+   */
+  const target = belongsTo ?? from ?? null;
+  const { data: canFollow } = useQuery({
+    queryKey: ['sent-emails-available', target],
+    queryFn: () => sentEmailsAvailable(target!),
+    enabled: target !== null,
+    staleTime: 15_000,
+    retry: false,
+  });
+  const offline = useIsOffline();
+  const [following, setFollowing] = useState(false);
+  const [followed, setFollowed] = useState<{ itemId: string; subject: string; made: boolean; filedOn: string } | null>(null);
 
   /** Capture was pressed and is waiting on words still being recorded or transcribed. */
   const waitingOnWords = useRef(false);
@@ -790,6 +884,38 @@ export function CaptureNote({
     />
   );
 
+  if (following && target) {
+    const filedHere = filed.filter((one) => one.workspaceId === target);
+    return (
+      <Suspense
+        fallback={
+          <p role="status" className="mt-3 text-sm text-ink-soft">
+            Reading your sent emails…
+          </p>
+        }
+      >
+        <FollowSentEmail
+          workspaceId={target}
+          decided={belongsTo !== null}
+          panelIds={filedHere.map((one) => one.panelId)}
+          onBack={() => setFollowing(false)}
+          onFollowed={(result) => {
+            setFollowed({ ...result, filedOn: result.made ? filedHere.map((one) => one.name).join(', ') : '' });
+            setFollowing(false);
+            if (!result.made) return;
+            void queryClient.invalidateQueries({ queryKey: ['snapshot', target] });
+            // Only where nothing was typed here: whoever closes this on hearing it would take a half-written note with it,
+            // and the note keeps the Panels chosen for it.
+            if (noteNow.current.trim() === '' && queuedRef.current.length === 0) {
+              setFiled((was) => (was === filed ? [] : was));
+              saidNow.current.onKept?.();
+            }
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   return (
     <form
       ref={form}
@@ -809,9 +935,8 @@ export function CaptureNote({
         }
       }}
       // A file dropped anywhere on the form queues it as an attachment,
-      // never as text - the box holds a thought, not an image (docs/ideas.md,
-      // "Capture and the task creator"). Never left to the browser, which
-      // would otherwise open the file in Cockpit's place.
+      // never as text - the box holds a thought, not an image. Never left
+      // to the browser, which would otherwise open the file in Cockpit's place.
       onDragOver={(event) => {
         if (!takesFiles(event)) return;
         event.preventDefault();
@@ -1022,6 +1147,7 @@ export function CaptureNote({
           );
         }}
         onRemove={(panelId) => setFiled((was) => was.filter((one) => one.panelId !== panelId))}
+        offered={offered}
       />
 
       <Choice label="Where" optional>
@@ -1053,6 +1179,38 @@ export function CaptureNote({
           Leave it on Any workspace and it waits in every Inbox.
         </span>
       </Choice>
+
+      {/* Not shown with no mailbox to read; unavailable offline, since the list is read from the mailboxes. */}
+      {canFollow && (
+        <Choice label="Follow up">
+          <button
+            type="button"
+            disabled={busy || offline}
+            onClick={() => {
+              setFollowed(null);
+              setFollowing(true);
+            }}
+            className="inline-flex min-h-9 shrink-0 items-center rounded-full border border-shade/10 bg-field px-3 text-sm text-ink hover:border-accent hover:bg-accent-tint disabled:opacity-50 sm:min-h-0 sm:px-2.5 sm:py-[3px] sm:text-[13px]"
+          >
+            Follow a sent email…
+          </button>
+          {offline && <span className="text-xs text-ink-faint">Needs a connection.</span>}
+          {followed && (
+            <span role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
+              <span className="min-w-0 truncate">
+                {followed.made ? `Following “${followed.subject}” → ${followed.filedOn || 'Inbox'}` : `Already following “${followed.subject}”`}
+              </span>
+              <button
+                type="button"
+                onClick={() => openItem(followed.itemId)}
+                className="shrink-0 rounded-md border border-shade/10 px-2 py-0.5 text-sm text-ink-soft hover:border-accent hover:bg-accent-tint hover:text-accent-deep"
+              >
+                Open it
+              </button>
+            </span>
+          )}
+        </Choice>
+      )}
 
       {/* Directly under the note on a phone, so it stays above the on-screen
           keyboard and the browser's toolbars; below the Where row, beside the

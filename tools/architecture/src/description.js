@@ -10,7 +10,10 @@
 
 import { parseDocument } from 'yaml';
 
+import { composeDescription } from './compose.js';
+import { parseDesign, parseServices } from './design.js';
 import { ReadError } from './errors.js';
+import { parseDeployments, parseServiceMap } from './services.js';
 
 export const ROLES = ['core', 'connector', 'other'];
 const DISCOVERIES = ['one', 'folders', 'packages'];
@@ -21,21 +24,27 @@ export const isTestFile = (scan, file) => scan.testFile.test(file);
 /** Whether `file` is source code the views read, by the file's own extension list. */
 export const isCodeFile = (scan, file) => scan.extensions.some((extension) => file.endsWith(extension));
 
-/** @returns the description file's contents, checked and normalised */
-export function parseDescription(file, text) {
+/**
+ * @param {string} file
+ * @param {string} text the drawing file
+ * @param {object|null} [rules] the rules file, read by `parseRules`: the design, the other services and the services page are completed from it
+ * @returns the description file's contents, checked and normalised
+ */
+export function parseDescription(file, text, rules = null) {
   const fail = (reason) => {
     throw new ReadError(file, reason);
   };
   const document = parseDocument(text);
   if (document.errors.length > 0) fail(`not valid YAML (${document.errors[0].message.split('\n')[0]})`);
-  const value = document.toJS();
+  const drawn = document.toJS();
   const object = (each, where) => (each !== null && typeof each === 'object' && !Array.isArray(each) ? each : fail(`${where} must be a mapping`));
   const array = (each, where) => (Array.isArray(each) ? each : fail(`${where} must be a list`));
   const string = (each, where) => (typeof each === 'string' && each.trim() !== '' ? each.trim() : fail(`${where} must be a non-empty string`));
   const role = (each, where) => (ROLES.includes(each) ? each : fail(`${where} must be one of ${ROLES.join(', ')}`));
   const named = (list, where) => array(list, where).map((each, index) => ({ name: string(object(each, `${where}[${index}]`).name, `${where}[${index}].name`), detail: each.detail === undefined ? '' : string(each.detail, `${where}[${index}].detail`) }));
 
-  object(value, 'the file');
+  object(drawn, 'the file');
+  const value = composeDescription(drawn, rules, fail, rules?.file ?? 'docs/architecture.yml');
 
   const scan = object(value.scan, 'scan');
   let testFile;
@@ -110,6 +119,15 @@ export function parseDescription(file, text) {
   const reaches = (from, target, visited = new Set()) => (below.get(from) ?? []).some((next) => next === target || (!visited.has(next) && visited.add(next) && reaches(next, target, visited)));
   for (const pin of pins) if (reaches(pin.below, pin.above)) fail(`pins put ${pin.above} above ${pin.below} and ${pin.below} above ${pin.above}, in a chain`);
 
+  const helpers = { fail, object, array, string };
+  const design = parseDesign(value.design, helpers);
+  const otherServices = parseServices(value.otherServices, helpers);
+  const known = ['cockpit', ...otherServices.map((each) => each.id)];
+  const serviceMap = parseServiceMap(value.serviceMap, helpers, known);
+  for (const [index, call] of (serviceMap?.calls ?? []).entries()) {
+    if (call.foundBy !== null && !(design?.callers ?? []).some((each) => each.from === call.foundBy)) fail(`serviceMap.calls[${index}].foundBy names ${call.foundBy}, which is no caller of the design`);
+  }
+
   return {
     pins,
     scan: { testFile, extensions: array(scan.extensions, 'scan.extensions').map((each, index) => string(each, `scan.extensions[${index}]`)), ignore: array(scan.ignore, 'scan.ignore').map((each, index) => string(each, `scan.ignore[${index}]`)) },
@@ -125,5 +143,9 @@ export function parseDescription(file, text) {
       services: named(context.services, 'context.services'),
     },
     layers,
+    design,
+    otherServices,
+    deployments: parseDeployments(value.deployments, helpers, known),
+    serviceMap,
   };
 }

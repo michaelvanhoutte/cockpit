@@ -1,4 +1,4 @@
-import { demoPageOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import { demoPageOf, firstMessageLink, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 
 /**
  * What each source is called, by its connector id, as the Workspace's snapshot
@@ -6,6 +6,12 @@ import { demoPageOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
  * is restored without it.
  */
 export type SourceNames = WorkspaceSnapshot['sourceNames'];
+
+/**
+ * The addresses of each source's own messages, by connector id, as the
+ * snapshot carries them; possibly absent, as `SourceNames` is.
+ */
+export type MessageLinks = WorkspaceSnapshot['messageLinks'];
 
 /**
  * What a source is called on screen ("Take source names out of the shared
@@ -60,9 +66,16 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * Where an Item can be opened at its source ("Open an Item at its source",
  * issue 487): the source's own name and the link back to the original.
  *
- * Null for an Item with no way back - an internal one, or one whose source
- * never gave a link - so every surface asks this one place rather than each
- * deciding for itself what "has a source link" means.
+ * Null for an Item with no way back - one whose source never gave a link - so
+ * every surface asks this one place rather than each deciding for itself what
+ * "has a source link" means.
+ *
+ * **An Item with no stored link of its own, and no connector behind it** (one
+ * captured in Cockpit, or by an app) is opened at the first link in its
+ * description, then in its captured message, that a connector declared as one
+ * of its message links ("Open Items captured with a pasted Teams message link
+ * in Teams", issue 1738), under that connector's name; found here each time
+ * and never stored. A Gmail, Outlook or Teams Item keeps what its source gave.
  *
  * **Only a web address is ever a link.** The stored field is any URL the schema
  * parses, `javascript:` and `data:` included, and this is the first place it is
@@ -75,10 +88,19 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * opens nothing. Any other link - a named person's real one included - passes
  * through as it was.
  */
-export function openableAtSource(item: Item, names: SourceNames): { name: string; link: string } | null {
+export function openableAtSource(
+  item: Item,
+  names: SourceNames,
+  messageLinks?: MessageLinks,
+): { name: string; link: string } | null {
+  if (!item.sourceLink && (item.source === 'internal' || item.source === 'mcp')) {
+    const found = firstMessageLink(item.description, messageLinks) ?? firstMessageLink(item.capturedMessage, messageLinks);
+    return found === null ? null : { name: sourceNamed(names, found.source), link: found.link };
+  }
   if (item.source === 'internal' || !item.sourceLink) return null;
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
   const name = capturingApp(item) ?? sourceNamed(names, item.source);
   const link = whereALinkOpens(item.sourceLink);
   return link === null ? null : { name, link };
 }
+

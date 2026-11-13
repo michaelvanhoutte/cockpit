@@ -18,7 +18,7 @@
  * **tree**, not a flat list — they nest the way the product does, a Workspace
  * holding an Inbox and Dashboards and a Dashboard holding Panels, and a row's
  * own rule counts are not the whole subtree's (it carries both). Columns are the actual six
- * testing-strategy levels plus Contract, not the coarser backend/frontend/
+ * levels of the testing skill plus Contract, not the coarser backend/frontend/
  * browser grouping the first version collapsed them into.
  *
  * Amended again after second use (same section): a rule
@@ -33,7 +33,8 @@
  */
 
 /**
- * The seven columns, in testing-strategy.md's own order (§2, §3.3). Each
+ * The seven columns, in the testing skill's own order (its level table, then
+ * Contract from references/third-parties.md). Each
  * `id` is also the level code `analyze/rules.js` assigns to a rule.
  */
 export const LEVELS = [
@@ -82,7 +83,7 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  *   todoCases: CaseRef[],
  * }} Rule
  *   `concept` is the outer describe's text verbatim — a feature area in product language
- *   ("Capture", "Triage", "Offline"), per testing-strategy.md §9.1. Not dotted, not an entity
+ *   ("Capture", "Triage", "Offline"), per the testing skill. Not dotted, not an entity
  *   name; see docs/test-explorer-spec.md §2a. `statement` is the inner describe (the rule, in
  *   product language); falls back to the feature-area text itself when a describe has no
  *   children. `level` is one of LEVEL_IDS. `line` is the rule's own describe line.
@@ -143,7 +144,7 @@ export const INFRASTRUCTURE_LABEL = 'Infrastructure';
  * @property {Record<string, boolean>} availableLevels  Keyed by LEVEL_IDS — false means that level is
  *                                                        structurally absent from the whole repo today
  *                                                        (only L3 uses this: it needs a second backend
- *                                                        service to mean anything, per testing-strategy §2),
+ *                                                        service to mean anything, per the testing skill),
  *                                                        so every node's count for it renders n/a, not zero.
  * @property {string[]} unregisteredAreas  Feature-area names used by some describe but absent from
  *                                          concepts.json. What `--check-concepts` fails the build on (§7).

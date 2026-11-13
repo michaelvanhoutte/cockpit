@@ -3,12 +3,6 @@
     "apps/api/src",
     "packages"
   ],
-  "holders": [
-    "apps/api/src/gateway/",
-    "apps/api/src/ai/index.ts",
-    "apps/api/src/embeddings/index.ts",
-    "apps/api/src/transcription/index.ts"
-  ],
   "sdks": [
     "@anthropic-ai/",
     "@ai-sdk/",

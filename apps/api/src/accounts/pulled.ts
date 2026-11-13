@@ -1,6 +1,10 @@
-import { and, asc, eq, inArray, isNull, lte, min } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, like, lte, min, not, notExists, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
+import { CONVERSATION_EXCERPT_LENGTH, DRAFT_STARTING_PREFIX, TITLE_LENGTH, cutTo } from '@cockpit/shared';
 import type {
   CompleteListing,
+  ConversationTurn,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -18,7 +22,7 @@ import {
   listPanels,
   recentCapturedTimeZones,
 } from './repo.js';
-import { connectionFailures, connectorAccounts, items, pulledConnections, pulledLinks } from './schema.js';
+import { connectionFailures, connectorAccounts, itemConversations, items, pulledConnections, pulledLinks } from './schema.js';
 import { confirmOpenStates, openStatesWaiting } from './pulled-open-state.js';
 import { applySourceStateChange } from './source-state.js';
 import {
@@ -31,7 +35,8 @@ import {
   type NamedTarget,
 } from '../domain/filing-by-name.js';
 import { dueDateOnArrival } from '../domain/due-in-days.js';
-import { leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
+import { statusBeforeDraftIn } from '../domain/conversations.js';
+import { PULLED_CHECK_LEASE_MS, leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
 import { recordCheck } from './connection-history.js';
 
@@ -337,22 +342,31 @@ export function filePulledItem(
   sourceAccountId: string,
   runId: string,
   item: SourceItem & { sourceId: string },
-  ids: { itemId: string; commandId: string },
+  ids: { itemId: string; commandId: string; followCommandId?: string },
   at: string,
   forms: NameForms = NO_FORMS,
 ): { answer: EmittedItem | 'disconnected'; named: NamedOn | null } {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return { answer: 'disconnected', named: null };
-  // One transaction for the Item, its filings and its link, so a check that
-  // fails partway leaves no Item and the next one makes and files it once
-  // (issue 1146). What each name did is decided in it, and answered with it
-  // (issue 1197).
+  // One transaction for the Item, its filings, its link and the conversation it
+  // follows, so a check that fails partway leaves no Item and the next one makes
+  // and files it once (issue 1146). What each name did is decided in it, and
+  // answered with it (issue 1197).
   return db.transaction((): { answer: EmittedItem; named: NamedOn | null } => {
     const link = linkOf(db, accountName, holds, item.sourceId);
     if (link) {
-      // An Item emitted again still says what its names are now.
+      // An Item emitted again still says what its names are now, and follows
+      // the conversation it says it follows: a label's Item for the same thread
+      // is the same Item, which starts following it here (issue 1705).
       const outcomes = item.names ? recordNames(db, accountName, holds, link, item.names, item.followed, at, forms) : [];
+      followTheConversation(db, accountName, holds, link.itemId, item, ids.followCommandId, at);
       return { answer: 'already-known', named: namedOn(link.itemId, outcomes) };
+    }
+    // A mark on a conversation an open Item follows already - one Email… made
+    // follow it, which no link names (issue 1708) - adds to that Item rather
+    // than making another.
+    if (item.conversation && followedBy(db, accountName, holds, item.conversation.id).get()) {
+      return { answer: 'already-known', named: null };
     }
     const message = item.capturedMessage ?? item.title;
     if (!message) throw new Error('a pulled item carries neither a message nor a title');
@@ -426,8 +440,275 @@ export function filePulledItem(
       })
       .onConflictDoNothing()
       .run();
+    followTheConversation(db, accountName, holds, ids.itemId, item, ids.followCommandId, at);
     return { answer: 'filed', named: namedOn(ids.itemId, outcomesWithMark(decided.outcomes, item.followed)) };
   });
+}
+
+/** How much of a message a conversation keeps (`CONVERSATION_EXCERPT_LENGTH`), and of a name. */
+const EXCERPT_LENGTH = CONVERSATION_EXCERPT_LENGTH;
+const NAME_LENGTH = TITLE_LENGTH;
+/** The longest link a conversation keeps, as `record_conversation_turn` takes it. */
+const LINK_LENGTH = 2_000;
+
+/**
+ * Has the Item follow the conversation the connector says it does, through
+ * `follow_conversation`, the one change every way an Item comes to follow one
+ * takes ("A Gmail starred conversation is one Item whose status follows who
+ * wrote last", issue 1705). Nothing where the connector names none. Inside the
+ * caller's transaction.
+ */
+function followTheConversation(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string; dueInDays: number | null },
+  itemId: string,
+  item: SourceItem,
+  commandId: string | undefined,
+  at: string,
+): void {
+  const read = item.conversation;
+  if (!read || !commandId) return;
+  runCommand(
+    db,
+    accountName,
+    'follow_conversation',
+    {
+      commandId,
+      issuedAt: at,
+      workspaceId: holds.workspaceId,
+      itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: read.id,
+      link: read.link,
+      latest: {
+        by: read.latest.by,
+        from: cut(read.latest.from, NAME_LENGTH),
+        at: read.latest.at,
+        excerpt: cut(read.latest.excerpt, EXCERPT_LENGTH) ?? '',
+      },
+      messageCount: Math.max(1, Math.trunc(read.messageCount)),
+      startedAt: read.startedAt,
+      withWhom: cut(read.withWhom, NAME_LENGTH),
+      connectionDays: holds.dueInDays,
+    },
+    { fromTheSource: true },
+  );
+}
+
+/** `cutTo`, which never splits a character in two, passing a missing text through. */
+function cut<T extends string | null>(text: T, limit: number): T {
+  return (text === null ? null : cutTo(text, limit)) as T;
+}
+
+/**
+ * The conversations this connection's open Items follow, by the source's id -
+ * what a run hands its connector to read turns for (issue 1705). Of the Items
+ * a connection brought in, only those this one filed in its own Workspace, so
+ * another Workspace's Item following the same mailbox's conversation is never
+ * this run's; an Item Email… made follow one (issue 1708) is every run's at
+ * that mailbox, a turn read twice being applied once.
+ */
+export function followedPulledConversations(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+): string[] {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return [];
+  return [
+    ...new Set(
+      followedBy(db, accountName, holds)
+        .all()
+        .map((row) => row.conversationId),
+    ),
+  ];
+}
+
+/**
+ * Records a turn the connector reported in a conversation an open Item of
+ * this connection follows, through `record_conversation_turn`, which decides
+ * what it does to the Item (issue 1705). Its id is the caller's, derived from
+ * the message, so a turn reported twice is applied once. Answers `not followed`
+ * for a conversation no open Item of this connection's Workspace follows.
+ */
+export function recordPulledTurn(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  turn: ConversationTurn,
+  commandId: string,
+  at: string,
+): 'recorded' | 'not followed' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  const followed = followedBy(db, accountName, holds, turn.conversationId).get();
+  if (!followed) return 'not followed';
+  runCommand(
+    db,
+    accountName,
+    'record_conversation_turn',
+    {
+      commandId,
+      issuedAt: at,
+      // The Item's own Workspace, whose open tabs read it again: an Item Email…
+      // made follow a conversation may be read by another Workspace's connection.
+      workspaceId: followed.itemWorkspaceId,
+      itemId: followed.itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: turn.conversationId,
+      by: turn.by,
+      from: cut(turn.from, NAME_LENGTH),
+      at: turn.at,
+      excerpt: cut(turn.excerpt, EXCERPT_LENGTH),
+      connectionDays: holds.dueInDays,
+      // Where the source shows the message, which Open goes to once it is the latest (issue 1720);
+      // one too long to keep leaves the link as it was rather than refusing the turn.
+      ...(turn.link && turn.link.length <= LINK_LENGTH ? { link: turn.link } : {}),
+    },
+    { fromTheSource: true },
+  );
+  return 'recorded';
+}
+
+/**
+ * The drafts Email… made that this connection's open Items still wait on
+ * ("Email… makes a Gmail draft the Item then follows", issue 1708): what a run
+ * hands its connector to look for once it has read the turns.
+ */
+export function pulledDraftsWaiting(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+): DraftWaiting[] {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return [];
+  return followedBy(db, accountName, holds)
+    .all()
+    .flatMap((row) => {
+      const before = statusBeforeDraftIn(row.statusBeforeDraft);
+      if (row.draftId === null || !before) return [];
+      return [{ conversationId: row.conversationId, draftId: row.draftId, after: before.opened ? null : row.lastAt }];
+    });
+}
+
+/**
+ * A draft the connector found gone unsent, through `drop_draft`, which puts
+ * the Item's status back (issue 1708). Its id is the caller's, derived from
+ * the draft, so a draft reported twice changes things once; a draft no open
+ * Item of this connection waits on changes nothing.
+ */
+export function reportPulledDraftGone(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  draft: { conversationId: string; draftId: string },
+  commandId: string,
+  at: string,
+): 'dropped' | 'not waited on' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  const waiting = followedBy(db, accountName, holds, draft.conversationId)
+    .all()
+    .find((row) => row.draftId === draft.draftId);
+  if (!waiting) return 'not waited on';
+  runCommand(
+    db,
+    accountName,
+    'drop_draft',
+    {
+      commandId,
+      issuedAt: at,
+      workspaceId: waiting.itemWorkspaceId,
+      itemId: waiting.itemId,
+      connectorId: holds.connectorId,
+      externalAccountKey: holds.externalAccountKey,
+      conversationId: draft.conversationId,
+      draftId: draft.draftId,
+    },
+    { fromTheSource: true },
+  );
+  return 'dropped';
+}
+
+/** The links checked for an Item no connection to a mailbox brought in (`followedBy`). */
+const broughtIn = alias(pulledLinks, 'brought_in');
+
+/**
+ * The open Items that follow a conversation at this connection's account -
+ * one, or all of them where no conversation is named: those it brought in,
+ * by their links to it, and those no connection to this mailbox brought in,
+ * whose Email… started or replied in one there.
+ */
+export function followedBy(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  conversationId?: string,
+) {
+  return db
+    .select({
+      itemId: itemConversations.itemId,
+      itemWorkspaceId: items.workspaceId,
+      conversationId: itemConversations.conversationId,
+      lastAt: itemConversations.lastAt,
+      draftId: itemConversations.draftId,
+      statusBeforeDraft: itemConversations.statusBeforeDraft,
+    })
+    .from(itemConversations)
+    .leftJoin(
+      pulledLinks,
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.itemId, itemConversations.itemId),
+        eq(pulledLinks.workspaceId, holds.workspaceId),
+        eq(pulledLinks.connectorId, holds.connectorId),
+        eq(pulledLinks.externalAccountKey, holds.externalAccountKey),
+      ),
+    )
+    .innerJoin(items, and(eq(items.tenantId, accountName), eq(items.id, itemConversations.itemId)))
+    .where(
+      and(
+        eq(itemConversations.tenantId, accountName),
+        eq(itemConversations.connectorId, holds.connectorId),
+        eq(itemConversations.externalAccountKey, holds.externalAccountKey),
+        // Brought in by this connection, or an Item no connection to this
+        // mailbox brought in, whose Email… started or replied in the
+        // conversation here (issue 1708): whatever Workspace it is in now, an
+        // undecided Inbox Item or one moved since included.
+        or(
+          isNotNull(pulledLinks.itemId),
+          notExists(
+            db
+              .select({ itemId: broughtIn.itemId })
+              .from(broughtIn)
+              .where(
+                and(
+                  eq(broughtIn.tenantId, accountName),
+                  eq(broughtIn.itemId, itemConversations.itemId),
+                  eq(broughtIn.connectorId, holds.connectorId),
+                  eq(broughtIn.externalAccountKey, holds.externalAccountKey),
+                ),
+              ),
+          ),
+        ),
+        // Not a conversation Email… is still starting, which the source has not named.
+        not(like(itemConversations.conversationId, `${DRAFT_STARTING_PREFIX}%`)),
+        ...(conversationId === undefined ? [] : [eq(itemConversations.conversationId, conversationId)]),
+        // Not stopped: reopened in Cockpit while unmarked at the source.
+        isNull(itemConversations.stoppedAt),
+        // Open, as `isOpen` has it: neither done nor dismissed.
+        isNull(items.completedAt),
+        isNull(items.deletedAt),
+      ),
+    )
+    .orderBy(asc(itemConversations.itemId));
 }
 
 /** An Item's outcomes for a check's line, or null where it has none to say. */
@@ -647,6 +928,12 @@ export function pulledOpenStatesWaiting(
  * Clears the open states the connector confirmed, while the run still holds its
  * connection (issue 893), and answers the Item of each it cleared - not one a
  * person changed again meanwhile, which stays waiting (issue 1141).
+ *
+ * **An Item the connector gave up reopening stops following** its conversation
+ * at this connection: reopened in Cockpit while unmarked at the source, which is
+ * not asked to mark it again, so the source's changes to it are no longer the
+ * Item's. It stays open with its last line; marking the conversation again
+ * follows it again (`follow_conversation`).
  */
 export function confirmPulledOpenStates(
   db: AccountDb,
@@ -654,10 +941,30 @@ export function confirmPulledOpenStates(
   sourceAccountId: string,
   runId: string,
   confirmed: readonly OpenStateWanted[],
+  gaveUp: readonly OpenStateWanted[] = [],
+  at = new Date().toISOString(),
 ): { cleared: { sourceId: string; itemId: string }[] } | 'not this run' {
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'not this run';
-  return { cleared: confirmOpenStates(db, accountName, holds, confirmed) };
+  return db.transaction(() => {
+    const cleared = confirmOpenStates(db, accountName, holds, [...confirmed, ...gaveUp]);
+    const reopenedUnmarked = new Set(gaveUp.filter((one) => one.open).map((one) => one.sourceId));
+    const stopping = cleared.filter((one) => reopenedUnmarked.has(one.sourceId)).map((one) => one.itemId);
+    if (stopping.length > 0) {
+      db.update(itemConversations)
+        .set({ stoppedAt: at })
+        .where(
+          and(
+            eq(itemConversations.tenantId, accountName),
+            inArray(itemConversations.itemId, stopping),
+            eq(itemConversations.connectorId, holds.connectorId),
+            eq(itemConversations.externalAccountKey, holds.externalAccountKey),
+          ),
+        )
+        .run();
+    }
+    return { cleared };
+  });
 }
 
 /**
@@ -686,7 +993,7 @@ export function endPulledRun(
   const followUp = failing === null && moreToDo;
   db.transaction((tx) => {
     const ran = tx
-      .select({ checkReason: pulledConnections.checkReason })
+      .select({ checkReason: pulledConnections.checkReason, leaseUntil: pulledConnections.leaseUntil })
       .from(pulledConnections)
       .where(and(eq(pulledConnections.tenantId, accountName), eq(pulledConnections.sourceAccountId, sourceAccountId)))
       .get();
@@ -707,6 +1014,8 @@ export function endPulledRun(
       failing === null ? { outcome: 'worked' } : { outcome: 'failed', ...keptMessage(failing), status: status ?? null },
       did,
       at,
+      // The run took its hold for a fixed length when it began (issue 1725).
+      ran?.leaseUntil ? new Date(Date.parse(ran.leaseUntil) - PULLED_CHECK_LEASE_MS).toISOString() : null,
     );
     if (failing === null) {
       tx.update(connectorAccounts)

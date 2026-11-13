@@ -162,6 +162,36 @@ describe('Item editing', () => {
     });
   });
 
+  describe('Markdown and plain text files are attached like a PDF', () => {
+    it.each([
+      { situation: 'Markdown', filename: 'notes.md', contentType: 'text/markdown' },
+      { situation: 'plain text', filename: 'log.txt', contentType: 'text/plain' },
+    ])('an upload declared as $situation is kept, and read back with its name, size and type', async ({ filename, contentType }) => {
+      const itemId = await captureAnItem();
+      const bytes = new TextEncoder().encode('# Notes');
+
+      const res = await upload(itemId, bytes, { filename, contentType });
+
+      expect(res.status).toBe(201);
+      const snapshot = await readSnapshot();
+      expect(snapshot.attachments.find((a) => a.itemId === itemId)).toMatchObject({
+        filename,
+        size: bytes.byteLength,
+        contentType,
+      });
+    });
+
+    it('an upload declared as a web page is refused, and nothing is written', async () => {
+      const itemId = await captureAnItem();
+
+      const res = await upload(itemId, new TextEncoder().encode('<p>hi</p>'), { filename: 'page.md', contentType: 'text/html' });
+
+      expect(res.status).toBe(400);
+      const snapshot = await readSnapshot();
+      expect(snapshot.attachments.filter((a) => a.itemId === itemId)).toHaveLength(0);
+    });
+  });
+
   describe('a filename header that is not validly encoded is refused, not a broken attempt', () => {
     it('is a 400, not a 500', async () => {
       const itemId = await captureAnItem();
@@ -278,6 +308,38 @@ describe('Item editing', () => {
       expect(res.headers.get('content-type')).toBe('image/png');
       expect(res.headers.get('content-disposition')).toContain('a%20chart.png');
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+    });
+
+    async function attachmentIdOf(itemId: string) {
+      const { attachments } = await readSnapshot();
+      return attachments.find((a) => a.itemId === itemId)!.id;
+    }
+
+    it.each([
+      { situation: 'Markdown', filename: 'notes.md', contentType: 'text/markdown' },
+      { situation: 'plain text', filename: 'log.txt', contentType: 'text/plain' },
+    ])('serves a stored $situation file as UTF-8 plain text, inline, and never sniffed', async ({ filename, contentType }) => {
+      const itemId = await captureAnItem();
+      const bytes = new TextEncoder().encode('# café — 東京');
+      expect((await upload(itemId, bytes, { filename, contentType })).status).toBe(201);
+
+      const res = await asUser(`http://cockpit.test/v1/attachments/${await attachmentIdOf(itemId)}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('content-disposition')).toMatch(/^inline/);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+      expect(await (await asUser(`http://cockpit.test/v1/attachments/${await attachmentIdOf(itemId)}`)).text()).toBe('# café — 東京');
+    });
+
+    it('still serves a stored PNG as image/png', async () => {
+      const itemId = await captureAnItem();
+      await upload(itemId, new Uint8Array([1, 2]), { filename: 'a.png' });
+
+      const res = await asUser(`http://cockpit.test/v1/attachments/${await attachmentIdOf(itemId)}`);
+
+      expect(res.headers.get('content-type')).toBe('image/png');
     });
 
     it('is refused to someone signed into a different account', async () => {

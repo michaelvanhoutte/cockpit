@@ -177,6 +177,11 @@ describe('productChanged', () => {
     }
   });
 
+  it('runs them on the rules file, since the import and paid-call checks read it from docs/', () => {
+    assert.equal(productChanged(['docs/architecture.yml']), true);
+    assert.equal(productChanged(['docs/architecture.md']), false);
+  });
+
   it('answers the same question the run log answers, so the two cannot disagree', () => {
     for (const paths of [['docs/a.md'], ['docs/a.md', 'apps/web/src/main.tsx'], ['apps/web/src/main.tsx'], [], ['  ']]) {
       // Mirrors productChanged's own definition exactly - no trim-based
@@ -357,7 +362,7 @@ describe('localChangeAnswer', () => {
   const mustNotBeCalled = () => assert.fail('localChangeAnswer asked for the workspace on a diff that never needed it');
 
   it("never asks for the workspace on a documentation-only diff - the pnpm -r list a docs-only push has no reason to pay for", () => {
-    const paths = ['docs/deployment.md', 'docs/testing-strategy.md'];
+    const paths = ['docs/deployment.md', 'docs/design-system.md'];
     assert.equal(localChangeAnswer(paths, mustNotBeCalled), 'documentation only');
   });
 

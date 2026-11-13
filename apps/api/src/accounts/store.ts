@@ -5,6 +5,7 @@ import type {
   CommandResult,
   ConnectionHistory,
   FinishedItems,
+  MostUsedPanel,
   Item,
   Panel,
   ReadableSnapshot,
@@ -67,6 +68,10 @@ import {
   confirmPulledOpenStates,
   endPulledRun,
   filePulledItem,
+  followedPulledConversations,
+  pulledDraftsWaiting,
+  recordPulledTurn,
+  reportPulledDraftGone,
   reportPulledNames,
   pulledSealedCredential,
   pulledState,
@@ -81,12 +86,17 @@ import {
 } from './pulled.js';
 import type {
   CompleteListing,
+  ConversationTurn,
+  DraftMade,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
   SourceItem,
   SourceStateChange,
 } from '@cockpit/connector-sdk';
+import { dropDraft, recordDraft, resealCredential, wantDraft, type DraftClick, type DraftWantedAnswer } from './drafts.js';
+import { followSentEmail, listingAsk, type ListingAsk, type SentPick } from './sent.js';
 import {
   deleteAllRows,
   dropAccountTables,
@@ -107,6 +117,7 @@ import {
   LastDashboardError,
   RepeatRefusedError,
   WaitRefusedError,
+  DraftRefusedError,
   SentenceRefusedError,
   SentenceNotFoundError,
   LayoutNotFoundError,
@@ -152,6 +163,7 @@ import {
   attachmentsOfItems,
   listAttachmentsInWorkspace,
   listAdditionsInWorkspace,
+  listConversationsInWorkspace,
   listSeriesInWorkspace,
   listRunningSeries,
   listDuplicatesInWorkspace,
@@ -164,6 +176,7 @@ import {
   listPanelsInWorkspace,
   listRecurringItems,
   listFinishedItems,
+  listMostUsedPanels,
   listWorkspaces,
   meaningsToCompareWith,
   placesOfItems,
@@ -177,6 +190,7 @@ import {
   rewriteHistoryForWorkspace,
   sealedCredentialOf,
   sourceAccountsIn,
+  connectionsOfConnector,
   textCorrectionsForAccount,
   unfiledItemsInWorkspace,
   type UnfiledCandidate,
@@ -297,6 +311,15 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         associations: listAssociationsForWorkspace(db, accountName, workspaceId, ofTheRead),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, ofTheRead),
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        conversations: listConversationsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        // Which of them *Email…* may use is the Worker's to say, knowing the
+        // connectors (issue 1708); the store names its connections and no more.
+        connections: sourceAccountsIn(db, accountName, workspaceId).map(({ id, connectorId, displayName, follows }) => ({
+          id,
+          connectorId,
+          displayName,
+          follows: follows ?? null,
+        })),
         series: listSeriesInWorkspace(db, accountName, workspaceId),
         itemFormPresentation: getItemFormPresentation(db, accountName),
         followUpDays: getFollowUpDays(db, accountName),
@@ -329,6 +352,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
+  }
+
+  /**
+   * The Panels Items landed on this week, by the store's clock, with their
+   * counts for the last 24 hours and 7 days: what Capture ranks its buttons
+   * under *File on* from ("Capture: offer today's and this week's most-used
+   * Panels…", issue 1743).
+   */
+  mostUsedPanels(accountName: string): Answer<MostUsedPanel[]> {
+    return this.#answer(accountName, (db) => listMostUsedPanels(db, accountName, new Date()));
   }
 
   /**
@@ -1173,12 +1206,95 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Promise<Answer<CheckedNow>> {
-    const answer = this.#answer(accountName, (db) =>
-      checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), new Date()),
-    );
-    if (answer.status === 'ok' && answer.value === 'queued') await this.#arm(accountName);
+  ): Promise<Answer<{ status: CheckedNow; at: string }>> {
+    const now = new Date();
+    const answer = this.#answer(accountName, (db) => ({
+      status: checkPulledConnectionNow(db, accountName, workspaceId, sourceAccountId, this.pulledConnectorIds(), now),
+      // On the clock the check's history line is stamped by, which is how the press knows the check ended (issue 1720).
+      at: now.toISOString(),
+    }));
+    if (answer.status === 'ok' && answer.value.status === 'queued') await this.#arm(accountName);
     return answer;
+  }
+
+  /**
+   * *Email…* or *Reply…* pressed (issue 1708): the Item In progress under the
+   * click's id and what the Worker needs to ask the source for the draft - or
+   * the draft that click already made, or the news that it failed.
+   */
+  wantDraft(
+    accountName: string,
+    ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick,
+  ): Answer<DraftWantedAnswer> {
+    return this.#answer(accountName, (db) => wantDraft(db, accountName, ask, new Date().toISOString()));
+  }
+
+  /** The draft the source made, recorded: the Item follows its conversation, waiting on it (issue 1708). */
+  recordDraft(
+    accountName: string,
+    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick,
+  ): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      recordDraft(db, accountName, record, new Date().toISOString());
+      return null;
+    });
+  }
+
+  /** A draft the source would not make: the Item's status put back (issue 1708). */
+  dropDraft(
+    accountName: string,
+    drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick,
+  ): Answer<null> {
+    return this.#answer(accountName, (db) => {
+      dropDraft(db, accountName, drop, new Date().toISOString());
+      return null;
+    });
+  }
+
+  /** Saves a credential the source rotated while a draft was made, while the stored one is still the one opened (issue 1708). */
+  resealCredential(
+    accountName: string,
+    sourceAccountId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Answer<'saved' | 'not saved'> {
+    return this.#answer(accountName, (db) => resealCredential(db, accountName, sourceAccountId, was, sealed));
+  }
+
+  /** Every connection of one connector in the account, with what each was granted: the ones a pasted link may be read with ("Read pasted Teams links", issue 1755). */
+  connectionsOfConnector(
+    accountName: string,
+    connectorId: string,
+  ): Answer<{ id: string; workspaceId: string; granted: string[] | null }[]> {
+    return this.#answer(accountName, (db) => connectionsOfConnector(db, accountName, connectorId));
+  }
+
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Answer<ListingAsk> {
+    return this.#answer(accountName, (db) => listingAsk(db, accountName, workspaceId, sourceAccountId));
+  }
+
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(accountName: string, pick: SentPick): Answer<{ itemId: string; made: boolean }> {
+    return this.#answer(accountName, (db) => followSentEmail(db, accountName, pick, new Date().toISOString()));
+  }
+
+  /** The drafts this connection's open Items still wait on, for the run holding it (issue 1708). */
+  pulledDraftsWaiting(accountName: string, sourceAccountId: string, runId: string): Answer<DraftWaiting[]> {
+    return this.#answer(accountName, (db) => pulledDraftsWaiting(db, accountName, sourceAccountId, runId));
+  }
+
+  /** A draft the run's connector found gone unsent, which puts the Item's status back (issue 1708). */
+  reportPulledDraftGone(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    draft: { conversationId: string; draftId: string },
+    commandId: string,
+  ): Answer<'dropped' | 'not waited on' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      reportPulledDraftGone(db, accountName, sourceAccountId, runId, draft, commandId, new Date().toISOString()),
+    );
   }
 
   /**
@@ -1237,7 +1353,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     sourceAccountId: string,
     runId: string,
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
@@ -1255,6 +1371,24 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
       reportPulledNames(db, accountName, sourceAccountId, runId, report, new Date().toISOString(), forms),
+    );
+  }
+
+  /** The conversations a pulled connection's open Items follow, whose turns its connector reads (issue 1705). */
+  followedPulledConversations(accountName: string, sourceAccountId: string, runId: string): Answer<string[]> {
+    return this.#answer(accountName, (db) => followedPulledConversations(db, accountName, sourceAccountId, runId));
+  }
+
+  /** Records a turn a pulled connector reported in a followed conversation, which sets the Item's status (issue 1705). */
+  recordPulledTurn(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    turn: ConversationTurn,
+    commandId: string,
+  ): Answer<'recorded' | 'not followed' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      recordPulledTurn(db, accountName, sourceAccountId, runId, turn, commandId, new Date().toISOString()),
     );
   }
 
@@ -1287,15 +1421,16 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => pulledOpenStatesWaiting(db, accountName, sourceAccountId, runId));
   }
 
-  /** Clears the open states the connector confirmed (issue 893). */
+  /** Clears the open states the connector confirmed or gave up on (issue 893); a reopen given up on stops the Item following its conversation. */
   confirmPulledOpenStates(
     accountName: string,
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
+    gaveUp: readonly OpenStateWanted[] = [],
   ): Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'> {
     return this.#answer(accountName, (db) =>
-      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed),
+      confirmPulledOpenStates(db, accountName, sourceAccountId, runId, confirmed, gaveUp),
     );
   }
 
@@ -1822,6 +1957,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // A 400 as well: the Item is there, and the rule asked for is one it cannot take.
         error instanceof RepeatRefusedError ||
         error instanceof WaitRefusedError ||
+        error instanceof DraftRefusedError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.
         error instanceof PanelHoldsSomethingElseError ||

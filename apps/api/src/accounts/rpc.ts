@@ -5,6 +5,7 @@ import type {
   CommandResult,
   ConnectionHistory,
   FinishedItems,
+  MostUsedPanel,
   Item,
   Panel,
   ReadableSnapshot,
@@ -29,6 +30,9 @@ import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.
 import type { RefreshAsk } from './debounce.js';
 import type {
   CompleteListing,
+  ConversationTurn,
+  DraftMade,
+  DraftWaiting,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -36,6 +40,8 @@ import type {
   SourceStateChange,
 } from '@cockpit/connector-sdk';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
+import type { DraftClick, DraftWantedAnswer } from './drafts.js';
+import type { ListingAsk, SentPick } from './sent.js';
 import type { CheckDid } from '../domain/connection-history.js';
 
 /**
@@ -63,6 +69,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
   snapshot(accountName: string, workspaceId: string): Awaitable<Answer<AccountSnapshot>>;
   /** One Workspace's finished Items with their filings and files, `missing` for no such Workspace ("Fetch a Workspace's finished Items the first time All items opens", issue 1434). */
   finishedItems(accountName: string, workspaceId: string): Awaitable<Answer<FinishedItems>>;
+  /** The Panels Items landed on this week, with their 24-hour and 7-day counts ("Capture: offer today's and this week's most-used Panels…", issue 1743). */
+  mostUsedPanels(accountName: string): Awaitable<Answer<MostUsedPanel[]>>;
   /** Every live Workspace with its Dashboards, Panels and Layouts, for the list of Panels an app allowed to read is shown (issue 1445). */
   panelCatalogue(accountName: string): Awaitable<Answer<ReadableWorkspace[]>>;
   /** What one Panel is read from, `missing` for one deleted or never held (issue 1445). */
@@ -437,7 +445,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     accountName: string,
     workspaceId: string,
     sourceAccountId: string,
-  ): Awaitable<Answer<CheckedNow>>;
+  ): Awaitable<Answer<{ status: CheckedNow; at: string }>>;
   /**
    * The calls a run of one pulled connection's check makes, each naming the
    * run so the store can refuse one that no longer holds its connection
@@ -469,9 +477,58 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     item: SourceItem & { sourceId: string },
-    ids: { itemId: string; commandId: string },
+    ids: { itemId: string; commandId: string; followCommandId?: string },
     forms: NameForms,
   ): Awaitable<Answer<{ answer: EmittedItem | 'disconnected'; named: NamedOn | null }>>;
+  followedPulledConversations(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<string[]>>;
+  pulledDraftsWaiting(accountName: string, sourceAccountId: string, runId: string): Awaitable<Answer<DraftWaiting[]>>;
+  reportPulledDraftGone(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    draft: { conversationId: string; draftId: string },
+    commandId: string,
+  ): Awaitable<Answer<'dropped' | 'not waited on' | 'disconnected'>>;
+  /**
+   * *Email…* and *Reply…* (issue 1708): the Item In progress under the click's
+   * id, then the draft the Worker had the source make recorded, or dropped
+   * where it could not; and a credential rotated meanwhile saved while the
+   * stored one is still the one opened.
+   */
+  wantDraft(
+    accountName: string,
+    ask: { workspaceId: string; itemId: string; sourceAccountId: string; replacing?: string } & DraftClick,
+  ): Awaitable<Answer<DraftWantedAnswer>>;
+  recordDraft(
+    accountName: string,
+    record: { workspaceId: string; itemId: string; sourceAccountId: string; draft: DraftMade; claudeDigest?: string | null } & DraftClick,
+  ): Awaitable<Answer<null>>;
+  dropDraft(
+    accountName: string,
+    drop: { workspaceId: string; itemId: string; sourceAccountId: string; replyIn: string | null } & DraftClick,
+  ): Awaitable<Answer<null>>;
+  /** What the Worker needs to list one connection's recent sent mail (issue 1710). */
+  listingAsk(accountName: string, workspaceId: string, sourceAccountId: string): Awaitable<Answer<ListingAsk>>;
+  /** Every connection of one connector in the account, with what each was granted ("Read pasted Teams links", issue 1755). */
+  connectionsOfConnector(
+    accountName: string,
+    connectorId: string,
+  ): Awaitable<Answer<{ id: string; workspaceId: string; granted: string[] | null }[]>>;
+  /** A sent email picked: the Item that follows its conversation, Waiting for reply (issue 1710). */
+  followSentEmail(accountName: string, pick: SentPick): Awaitable<Answer<{ itemId: string; made: boolean }>>;
+  resealCredential(
+    accountName: string,
+    sourceAccountId: string,
+    was: { sealedCredential: string; credentialNonce: string },
+    sealed: { sealedCredential: string; credentialNonce: string },
+  ): Awaitable<Answer<'saved' | 'not saved'>>;
+  recordPulledTurn(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    turn: ConversationTurn,
+    commandId: string,
+  ): Awaitable<Answer<'recorded' | 'not followed' | 'disconnected'>>;
   reportPulledNames(
     accountName: string,
     sourceAccountId: string,
@@ -501,6 +558,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     runId: string,
     confirmed: readonly OpenStateWanted[],
+    gaveUp?: readonly OpenStateWanted[],
   ): Awaitable<Answer<{ cleared: { sourceId: string; itemId: string }[] } | 'not this run'>>;
   endPulledRun(
     accountName: string,

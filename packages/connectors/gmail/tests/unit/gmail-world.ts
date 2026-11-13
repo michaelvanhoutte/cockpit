@@ -19,7 +19,7 @@ import { FakeHost } from './fake-host.js';
 /**
  * Gmail and Google's token endpoint as a connector meets them over the network,
  * kept in memory and answering in the shapes `gmail-payloads.ts` records
- * (docs/testing-strategy.md, "Third parties": faked at the network boundary, by
+ * (.claude/skills/testing/references/third-parties.md: faked at the network boundary, by
  * replacing `fetch`, so the connector does its own requests).
  *
  * A mailbox is changed the way a person changes one - `mark`, `unmark`, `bin`,
@@ -101,6 +101,29 @@ export class GmailWorld {
     if (modify) return this.#modify(decodeURIComponent(modify[1]!), JSON.parse(String(init?.body)));
     const modifyEmail = /^messages\/([^/]+)\/modify$/.exec(path);
     if (modifyEmail) return this.#modifyEmail(decodeURIComponent(modifyEmail[1]!), JSON.parse(String(init?.body)));
+    if (path === 'drafts' && method === 'POST') return this.#makeDraft(JSON.parse(String(init?.body)));
+    const readDraft = /^drafts\/([^/]+)$/.exec(path);
+    if (readDraft) {
+      const id = decodeURIComponent(readDraft[1]!);
+      const draft = this.#drafts.get(id);
+      const held =
+        draft && this.#threads.flatMap((thread) => thread.messages).find((one) => one.id === draft.messageId && one.labelIds.includes('DRAFT'));
+      if (!held) return json({ error: { code: 404 } }, 404);
+      // `users.drafts.update` replaces its message, the draft keeping its id (issue 1732).
+      if (method === 'PUT') return this.#updateDraft(id, JSON.parse(String(init?.body)));
+      // As Gmail answers it, a draft in the bin keeps the Bin's label on its message; `full` adds its payload, `raw` the message itself.
+      const answered = { id: draft.messageId, threadId: draft.threadId, labelIds: held.labelIds };
+      const format = url.searchParams.get('format');
+      if (format === 'full') return json({ id, message: { ...answered, payload: held.payload } });
+      if (format === 'raw') return json({ id, message: { ...answered, raw: draft.raw } });
+      return json({ id, message: answered });
+    }
+    const readEmail = /^messages\/([^/]+)$/.exec(path);
+    if (readEmail) {
+      const id = decodeURIComponent(readEmail[1]!);
+      const found = this.#threads.flatMap((thread) => thread.messages).find((one) => one.id === id);
+      return found ? json(found) : json({ error: { code: 404 } }, 404);
+    }
     const read = /^threads\/([^/]+)$/.exec(path);
     if (read) {
       const thread = this.#threads.find((one) => one.id === decodeURIComponent(read[1]!));
@@ -139,13 +162,126 @@ export class GmailWorld {
     for (const [id, name] of this.#userLabels) if (name === from) this.#userLabels.set(id, to);
   }
 
-  /** A reply in a conversation, carrying the labels given by name and not the mark. */
-  replies(threadId: string, labels: readonly string[] = []): void {
+  /**
+   * A reply in a conversation, carrying the labels given by name and not the
+   * mark - from Pieter unless said, or `sent` from this mailbox, which Gmail
+   * labels Sent and not Inbox. Answers the reply's id.
+   */
+  replies(
+    threadId: string,
+    labels: readonly string[] = [],
+    { from, sent = false, text = 'A reply.', sentAt = '2026-10-02T08:30:00Z' }: { from?: string; sent?: boolean; text?: string; sentAt?: string } = {},
+  ): string {
     const thread = this.#thread(threadId);
-    const reply = message(threadId, { id: `${threadId}-r${thread.messages.length}`, sentAt: '2026-10-02T08:30:00Z', plain: 'A reply.', labelled: false });
-    reply.labelIds = [...reply.labelIds, ...labels.map((name) => this.#idOfLabel(name))];
+    const reply = message(threadId, {
+      id: `${threadId}-r${thread.messages.length}`,
+      sentAt,
+      plain: text,
+      labelled: false,
+      ...(sent ? { from: `Anna Peeters <${ADDRESS}>` } : from ? { from } : {}),
+    });
+    reply.labelIds = [
+      ...(sent ? ['SENT'] : reply.labelIds),
+      ...labels.map((name) => this.#idOfLabel(name)),
+    ];
     thread.messages.push(reply);
     this.#record({ added: reply.id, threadId, labelIds: reply.labelIds });
+    return reply.id;
+  }
+
+  /**
+   * An email sent from this mailbox in a conversation of its own, as Gmail files
+   * one: the Sent label and no Inbox. `text` is what Gmail shows of it as a snippet.
+   */
+  sends(threadId: string, subject: string, to: string, sentAt: string, text = `The text of ${threadId}.`): void {
+    const sent = message(threadId, { id: threadId, sentAt, subject, to, from: `Anna Peeters <${ADDRESS}>`, plain: text, labelled: false });
+    sent.labelIds = ['SENT'];
+    this.#threads.unshift({ id: threadId, messages: [sent] });
+    this.#record({ added: sent.id, threadId, labelIds: sent.labelIds });
+  }
+
+  /** A draft being written in a conversation, which Gmail records as a message added with the Draft label. */
+  drafts(threadId: string): string {
+    const thread = this.#thread(threadId);
+    const draft = message(threadId, { id: `${threadId}-d${thread.messages.length}`, sentAt: '2026-10-03T08:30:00Z', plain: 'Half a reply', labelled: false });
+    draft.labelIds = ['DRAFT'];
+    thread.messages.push(draft);
+    this.#record({ added: draft.id, threadId, labelIds: draft.labelIds });
+    return draft.id;
+  }
+
+  /** Every draft `users.drafts.create` was asked for, in order: its message decoded from `raw`, and the conversation it was asked in. */
+  readonly draftsAsked: { text: string; threadId: string | null }[] = [];
+  /** Every draft `users.drafts.update` replaced, in order: its id, the message decoded from `raw`, and the conversation named (issue 1732). */
+  readonly draftsUpdated: { id: string; text: string; threadId: string | null }[] = [];
+  readonly #drafts = new Map<string, { messageId: string; threadId: string; raw: string }>();
+
+  /**
+   * A draft edited in Gmail (issue 1732): its words written anew - and, where
+   * `attaching`, a file added, which makes its message one of parts.
+   */
+  editsTheDraft(draftId: string, words: string, { attaching = false }: { attaching?: boolean } = {}): void {
+    const held = this.#email(this.#drafts.get(draftId)!.messageId);
+    held.payload = attaching
+      ? { ...message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: words }).payload, mimeType: 'multipart/mixed' }
+      : message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: words }).payload;
+  }
+
+  /** A draft's message as Gmail now holds it, in raw text, as a person's mail app saving it would leave it. */
+  replacesTheDraftRaw(draftId: string, text: string): void {
+    let binary = '';
+    for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+    this.#drafts.get(draftId)!.raw = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  #updateDraft(id: string, body: { id?: string; message: { raw: string; threadId?: string } }): Response {
+    const draft = this.#drafts.get(id)!;
+    const text = new TextDecoder().decode(Uint8Array.from(atob(body.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+    this.draftsUpdated.push({ id, text, threadId: body.message.threadId ?? null });
+    draft.raw = body.message.raw;
+    const held = this.#email(draft.messageId);
+    // As Gmail reads the new message back: its words, a look after the rewrite seeing them.
+    held.payload = message('x', { id: 'x', sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), from: `Anna Peeters <${ADDRESS}>` }).payload;
+    return json({ id, message: { id: held.id, threadId: draft.threadId, labelIds: held.labelIds } });
+  }
+
+  /** A draft sent from Gmail where it stands, by the draft's id (`users.drafts.create` answered it). */
+  sendsTheDraft(draftId: string, sentAt = '2026-10-09T12:30:00Z'): void {
+    const { messageId } = this.#drafts.get(draftId)!;
+    this.#email(messageId).internalDate = String(Date.parse(sentAt));
+    this.sendsDraft(messageId);
+  }
+
+  /** A draft deleted from Gmail unsent, by the draft's id. */
+  deletesTheDraft(draftId: string): void {
+    this.deleteEmail(this.#drafts.get(draftId)!.messageId);
+  }
+
+  /** A draft moved to the bin unsent, by the draft's id: Gmail keeps it, labelled Bin, until the bin is emptied. */
+  binsTheDraft(draftId: string): void {
+    this.binEmail(this.#drafts.get(draftId)!.messageId);
+  }
+
+  #makeDraft(body: { message: { raw: string; threadId?: string } }): Response {
+    const text = new TextDecoder().decode(Uint8Array.from(atob(body.message.raw.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+    this.draftsAsked.push({ text, threadId: body.message.threadId ?? null });
+    const n = this.#drafts.size + 1;
+    const messageId = `draft-message-${n}`;
+    const threadId = body.message.threadId ?? messageId;
+    const draft = message(threadId, { id: messageId, sentAt: '2026-10-09T12:00:00Z', plain: wordsOfRaw(text), labelled: false, from: `Anna Peeters <${ADDRESS}>` });
+    draft.labelIds = ['DRAFT'];
+    const thread = this.#threads.find((one) => one.id === threadId);
+    if (thread) thread.messages.push(draft);
+    else this.#threads.unshift({ id: threadId, messages: [draft] });
+    this.#record({ added: messageId, threadId, labelIds: draft.labelIds });
+    const id = `r-${n}`;
+    this.#drafts.set(id, { messageId, threadId, raw: body.message.raw });
+    return json({ id, message: { id: messageId, threadId, labelIds: draft.labelIds } });
+  }
+
+  /** The messages read one by one, in order - what a run spent on reading turns. */
+  emailReads(): string[] {
+    return this.requests.filter((one) => /GET .*messages\/[^/?]+\?format=/.test(one)).map((one) => /messages\/([^/?]+)/.exec(one)![1]!);
   }
 
   /**
@@ -174,6 +310,17 @@ export class GmailWorld {
     this.#record({ added: email.id, threadId, labelIds: email.labelIds });
   }
 
+  /**
+   * An email arriving as it was built (`linkedin-notifications.ts`), in the
+   * conversation it names: a new one, or the existing one it joins.
+   */
+  receives(email: ReturnType<typeof message>): void {
+    const thread = this.#threads.find((one) => one.id === email.threadId);
+    if (thread) thread.messages.push(email);
+    else this.#threads.unshift({ id: email.threadId, messages: [email] });
+    this.#record({ added: email.id, threadId: email.threadId, labelIds: email.labelIds });
+  }
+
   /** One email starred, as a person does it in Gmail's list of messages: the others of its conversation are not. */
   star(emailId: string): void {
     this.#changeEmail(emailId, STARRED, true);
@@ -186,6 +333,21 @@ export class GmailWorld {
   /** One email moved to the bin, which keeps its labels. */
   binEmail(emailId: string): void {
     this.#changeEmail(emailId, 'TRASH', true);
+  }
+
+  /** One email taken back out of the bin, with the labels it kept there. */
+  unbinEmail(emailId: string): void {
+    this.#changeEmail(emailId, 'TRASH', false);
+  }
+
+  /**
+   * A draft sent where it stands, keeping its id: the Draft label taken off and
+   * Sent put on, a record each - the history a draft that is not replaced by a
+   * new message on sending would leave.
+   */
+  sendsDraft(draftId: string): void {
+    this.#changeEmail(draftId, 'DRAFT', false);
+    this.#changeEmail(draftId, 'SENT', true);
   }
 
   /** One email deleted for good: gone from its conversation, which goes with its last. */
@@ -323,8 +485,22 @@ export class GmailWorld {
     return json(threadsPage(page, offset + size < all.length ? String(offset + size) : undefined));
   }
 
-  /** `messages.list` by label: the emails carrying it, newest first, the bin and spam left out as Gmail leaves them. */
+  /**
+   * `messages.list` by label, or by `q=from:<address>`: the emails carrying
+   * the label, or sent from the address, newest first, the bin and spam left out
+   * as Gmail leaves them.
+   */
   #listEmails(url: URL): Response {
+    const search = /^from:(\S+)$/.exec(url.searchParams.get('q') ?? '')?.[1];
+    if (search) {
+      const sentBy = this.#threads.flatMap((thread) =>
+        [...thread.messages]
+          .reverse()
+          .filter((one) => !one.labelIds.includes('TRASH') && JSON.stringify(one.payload.headers).toLowerCase().includes(`<${search.toLowerCase()}>`))
+          .map((one) => ({ id: one.id, threadId: thread.id })),
+      );
+      return json(messagesPage(sentBy.slice(0, Number(url.searchParams.get('maxResults')))));
+    }
     const markId = url.searchParams.get('labelIds')!;
     const size = Math.min(Number(url.searchParams.get('maxResults')), this.emailPageSize);
     const offset = Number(url.searchParams.get('pageToken') ?? 0);
@@ -352,7 +528,20 @@ export class GmailWorld {
     const start = Number(url.searchParams.get('startHistoryId'));
     if (start < this.#oldestKept) return json({ error: { code: 404 } }, 404);
     const offset = Number(url.searchParams.get('pageToken') ?? 0);
-    const wanted = this.#records.filter((one) => one.at > start);
+    // Asked for one label, Gmail answers only the records of messages carrying
+    // it or moving it - which is why a reply, arriving without the star, is
+    // absent from a history read by the star. A deletion says no labels, and is kept.
+    const labelId = url.searchParams.get('labelId');
+    const concerns = (record: ReturnType<typeof historyRecord>) => {
+      if (labelId === null || 'messagesDeleted' in record) return true;
+      const entries = [
+        ...('messagesAdded' in record ? record.messagesAdded : []),
+        ...('labelsAdded' in record ? record.labelsAdded : []),
+        ...('labelsRemoved' in record ? record.labelsRemoved : []),
+      ] as { message: { labelIds: readonly string[] }; labelIds?: readonly string[] }[];
+      return entries.some((entry) => entry.message.labelIds.includes(labelId) || (entry.labelIds ?? []).includes(labelId));
+    };
+    const wanted = this.#records.filter((one) => one.at > start && concerns(one.record));
     const page = wanted.slice(offset, offset + this.historyPageSize);
     return json(
       historyAnswer(
@@ -376,6 +565,15 @@ export class GmailWorld {
     }
     return json(modifyAnswer({ id: thread.id, historyId: String(this.#historyId), messages: thread.messages }));
   }
+}
+
+/** A draft's words as Gmail reads them back from its raw message: the body after the headers, decoded as its encoding says. */
+function wordsOfRaw(text: string): string {
+  const [headers = '', ...rest] = text.split('\r\n\r\n');
+  const after = rest.join('\r\n\r\n');
+  return /^Content-Transfer-Encoding: base64$/im.test(headers)
+    ? new TextDecoder().decode(Uint8Array.from(atob(after.replace(/\s+/g, '')), (c) => c.charCodeAt(0)))
+    : after;
 }
 
 function json(body: unknown, status = 200): Response {

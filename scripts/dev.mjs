@@ -2,7 +2,7 @@
 //
 // Start Cockpit locally with one command: `pnpm dev`.
 //
-// The testing strategy's definition of done requires that the application be
+// The testing skill's definition of done requires that the application be
 // started and the changed behaviour actually exercised before anything is
 // claimed to work, and its enforcement section asks for the one-command way to
 // do that to be written down. Four steps across two terminals is the kind of
@@ -263,6 +263,11 @@ if (running.api) {
         // the contract tier's question.
         '--var',
         'TRANSCRIPTION_STAND_IN:true',
+        // And Claude's drafts of a reply (issue 1730): a fixed text echoing the points, so Reply… and Email…
+        // ask what Claude should say against the stand-in mailbox and spend no key. What the real model
+        // writes is the contract tier's question (apps/api/src/ai/reply-stand-in.ts).
+        '--var',
+        'DRAFT_STAND_IN:true',
         // Where this Worker's Claude calls are recorded ("Record staging's and
         // local Claude calls in production, under a token per environment",
         // issue 1458): sent to production, with this checkout's branch on each.

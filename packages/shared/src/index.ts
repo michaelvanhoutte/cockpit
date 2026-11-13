@@ -7,6 +7,7 @@ export * from './domain/attachment.js';
 export * from './domain/claude-prompt.js';
 export * from './domain/claude-send.js';
 export * from './domain/claude-proposal.js';
+export * from './domain/conversation.js';
 export * from './domain/remembered-sentence.js';
 export * from './domain/demo-address.js';
 export * from './domain/dashboard-filter.js';
@@ -18,6 +19,7 @@ export * from './domain/filters.js';
 export * from './domain/find-item.js';
 export * from './domain/item.js';
 export * from './domain/item-form-presentation.js';
+export * from './domain/message-link.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';
 export * from './domain/recurring-item.js';
@@ -41,5 +43,6 @@ export * from './api/users.js';
 export * from './api/connected-apps.js';
 export * from './api/claude-links.js';
 export * from './api/usage.js';
+export * from './api/most-used-panels.js';
 // The usage export's schema is imported from '@cockpit/shared/usage-export',
 // not from here, so the web app, which never reads it, does not carry it.

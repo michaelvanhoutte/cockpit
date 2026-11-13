@@ -2,17 +2,58 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { connectionHistorySchema, type ConnectionHistory as History, type SourceAccount } from '@cockpit/shared';
 import { api, refusal } from '../api/client';
-import { historyDays, olderDaysNote } from '../connectionHistory';
+import { CHECK_TAKES_LONG_MS, checkEndedNote, checkWaitingNote, historyDays, olderDaysNote, type CheckAsked } from '../connectionHistory';
 import { useOpenItem } from '../itemForm';
 import { LoadFailure } from './LoadFailure';
 
 /** One connection's history, read when it is opened and never from a copy. */
-async function fetchHistory(workspaceId: string, sourceAccountId: string): Promise<History> {
+export async function fetchHistory(workspaceId: string, sourceAccountId: string): Promise<History> {
   const res = await api.v1.workspaces[':workspaceId'].connections[':sourceAccountId'].history.$get({
     param: { workspaceId, sourceAccountId },
   });
   if (!res.ok) throw refusal('connection history', res.status);
   return connectionHistorySchema.parse(await res.json());
+}
+
+/** How often the history is read again while a check is awaited, in case the stream's word of its end is lost. */
+const CHECK_AWAITED_EVERY_MS = 15_000;
+
+/**
+ * Waits for the check *Check now* asked for to end, and hands `ended` the note
+ * that says so ("Conversation follow-up: Open, previews, drafts and Check now
+ * misbehave on real Gmail and Outlook mailboxes", issue 1720). The history is
+ * read while one is awaited, again when the stream says a check of it ended -
+ * which is what invalidates this query - and every so often besides.
+ */
+export function useCheckEnding(
+  workspaceId: string,
+  asked: CheckAsked | null,
+  ended: (note: { ok: boolean; text: string }) => void,
+  /** Handed the note that says the check is taking long, once `CHECK_TAKES_LONG_MS` passes with no end. */
+  slow: (note: { ok: boolean; text: string }) => void,
+): void {
+  const tellSlow = useRef(slow);
+  tellSlow.current = slow;
+  useEffect(() => {
+    if (!asked) return;
+    const timer = setTimeout(() => tellSlow.current(checkWaitingNote(asked, CHECK_TAKES_LONG_MS)), CHECK_TAKES_LONG_MS);
+    return () => clearTimeout(timer);
+  }, [asked]);
+  const { data } = useQuery({
+    queryKey: ['connectionHistory', workspaceId, asked?.sourceAccountId ?? ''],
+    queryFn: () => fetchHistory(workspaceId, asked!.sourceAccountId),
+    enabled: asked !== null,
+    staleTime: 0,
+    refetchInterval: CHECK_AWAITED_EVERY_MS,
+  });
+  const note = asked && data ? checkEndedNote(data.lines, asked) : null;
+  const ok = note?.ok;
+  const text = note?.text;
+  const tell = useRef(ended);
+  tell.current = ended;
+  useEffect(() => {
+    if (ok !== undefined && text !== undefined) tell.current({ ok, text });
+  }, [ok, text]);
 }
 
 /**
@@ -107,7 +148,7 @@ export function ConnectionHistory({
               <ul className="mt-1">
                 {day.folded && (
                   <li className="flex gap-3 border-b border-shade/5 py-1.5 text-sm last:border-b-0">
-                    <span className="w-28 shrink-0 tabular-nums text-ink-faint">{day.folded.when}</span>
+                    <span className="w-40 shrink-0 tabular-nums text-ink-faint">{day.folded.when}</span>
                     <span className="min-w-0 flex-1">
                       <span className="text-ink-soft">{day.folded.says}</span>
                       <span className="text-ink-faint"> · </span>
@@ -124,7 +165,7 @@ export function ConnectionHistory({
                 )}
                 {(day.folded === null || unfolded.has(day.key)) && day.lines.map((line) => (
                   <li key={line.id} className="flex gap-3 border-b border-shade/5 py-1.5 text-sm last:border-b-0">
-                    <span className="w-28 shrink-0 tabular-nums text-ink-faint">{line.when}</span>
+                    <span className="w-40 shrink-0 tabular-nums text-ink-faint">{line.when}</span>
                     <span className="min-w-0 flex-1">
                       <span className={line.failed ? 'font-medium text-over-ink' : 'text-ink-soft'}>{line.says}</span>
                       {line.detail && <span className="break-words text-ink-faint"> · {line.detail}</span>}

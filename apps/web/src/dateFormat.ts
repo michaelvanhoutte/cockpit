@@ -38,6 +38,7 @@ const SHAPES = {
   dateTime: { dateStyle: 'medium', timeStyle: 'short' },
   date: { dateStyle: 'medium' },
   time: { hour: '2-digit', minute: '2-digit' },
+  timeToTheSecond: { hour: '2-digit', minute: '2-digit', second: '2-digit' },
   weekdayAndDay: { weekday: 'short', day: 'numeric', month: 'short' },
   dayAndMonth: { day: 'numeric', month: 'short' },
   dayAndMonthAndYear: { day: 'numeric', month: 'short', year: '2-digit' },
@@ -88,6 +89,9 @@ export const momentDateLabel = (instant: string | number | Date) => at('date', i
 /** The clock time of a moment in the device's zone. */
 export const timeOfDayLabel = (instant: string | number | Date) => at('time', instant);
 
+/** The clock time of a moment to the second, in the device's zone. */
+export const timeToTheSecondLabel = (instant: string | number | Date) => at('timeToTheSecond', instant);
+
 /**
  * When a note was added to an Item, as its *Details* tab says it (*Added 14:32*,
  * issue 1640): the clock time where it was added on the day the Item was
@@ -115,6 +119,17 @@ export function shortDayLabel(day: string, now: Date): string | null {
   if (Number.isNaN(date.getTime())) return null;
   const thisYear = deviceCalendar(now).getUTCFullYear();
   return onTheDay(date.getUTCFullYear() === thisYear ? 'dayAndMonth' : 'dayAndMonthAndYear', day);
+}
+
+/**
+ * The day a moment falls on in the device's zone as day and month (*4 Nov*),
+ * with a two-digit year only when it is not in `now`'s year.
+ */
+export function momentDayMonthLabel(instant: string | number | Date, now: Date): string {
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return String(instant);
+  const sameYear = deviceCalendar(date).getUTCFullYear() === deviceCalendar(now).getUTCFullYear();
+  return at(sameYear ? 'dayAndMonth' : 'dayAndMonthAndYear', date);
 }
 
 /** A day heading with its weekday (*Thursday 22 October*), the year only where `withYear`. */

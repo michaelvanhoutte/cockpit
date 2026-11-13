@@ -20,8 +20,8 @@ describe('Capture', () => {
   describe('a run brings in each conversation the connection follows, once, as a titled Task tagged with the choice', () => {
     it.each([
       { situation: 'labelled Cockpit, by label', choice: 'label', marks: ['label'] as const, sourceId: 't-1' },
-      // By star the Item is the starred email's, and its source id says so.
-      { situation: 'starred, by star', choice: 'star', marks: ['star'] as const, sourceId: 'message:t-1' },
+      // By star too the Item is the conversation's (issue 1705).
+      { situation: 'starred, by star', choice: 'star', marks: ['star'] as const, sourceId: 't-1' },
     ])('files a conversation $situation under its subject, sender, link and the choice', async ({ choice, marks, sourceId }) => {
       const world = new GmailWorld();
       const first = signedInHost({ choice });
@@ -70,7 +70,7 @@ describe('Capture', () => {
       const second = first.next();
       await run(world, second);
 
-      expect([...second.filed.keys()]).toEqual(['message:t-after']);
+      expect([...second.filed.keys()]).toEqual(['t-after']);
     });
   });
 
@@ -196,7 +196,7 @@ describe('Capture', () => {
   describe('a label or star coming off, or going back on, is a change the Task follows', () => {
     it.each([
       { situation: 'the label taken off', choice: 'label', mark: 'label', sourceId: 't-1', change: (w: GmailWorld) => w.unmark('t-1', 'label'), says: ['resolved'] },
-      { situation: 'the star taken off', choice: 'star', mark: 'star', sourceId: 'message:t-1', change: (w: GmailWorld) => w.unmark('t-1', 'star'), says: ['resolved'] },
+      { situation: 'the star taken off', choice: 'star', mark: 'star', sourceId: 't-1', change: (w: GmailWorld) => w.unmark('t-1', 'star'), says: ['resolved'] },
       { situation: 'the conversation moved to the bin', choice: 'label', mark: 'label', sourceId: 't-1', change: (w: GmailWorld) => w.bin('t-1'), says: ['resolved'] },
     ] as const)('says resolved for $situation', async ({ choice, mark, sourceId, change, says }) => {
       const world = new GmailWorld();
@@ -215,7 +215,7 @@ describe('Capture', () => {
 
     it.each([
       { situation: 'the label put back', choice: 'label', mark: 'label', sourceId: 't-1' },
-      { situation: 'the star put back', choice: 'star', mark: 'star', sourceId: 'message:t-1' },
+      { situation: 'the star put back', choice: 'star', mark: 'star', sourceId: 't-1' },
     ] as const)('says reopened for $situation', async ({ choice, mark, sourceId }) => {
       const world = new GmailWorld();
       const first = signedInHost({ choice });
