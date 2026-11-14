@@ -863,6 +863,7 @@ describe('Capture', () => {
         name: 'set_description' as const,
         field: { description: 'Mine to write' },
       },
+      { situation: 'the Next action', name: 'set_next_action' as const, field: { nextAction: 'Call Tom' } },
     ])('leaves both texts alone once you have edited $situation', async ({ name, field }) => {
       // Captured with a priority and a due date, so the texts are the last thing a reading could set.
       const itemId = await captureANote({ priority: 'normal', dueDate: '2026-09-30' });

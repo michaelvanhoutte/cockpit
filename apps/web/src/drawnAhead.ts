@@ -1,4 +1,5 @@
 import {
+  asNextAction,
   DEFAULT_ITEM_FORM_PRESENTATION,
   FIRST_DASHBOARD_NAME,
   FOLLOW_UP_DAYS,
@@ -135,7 +136,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_description':
       return withItem(snapshot, change.payload.itemId, { description: change.payload.description });
     case 'set_next_action':
-      return withItem(snapshot, change.payload.itemId, { nextAction: change.payload.nextAction });
+      return withItem(snapshot, change.payload.itemId, { nextAction: asNextAction(change.payload.nextAction) });
     case 'set_dismissed':
       // The Workspace read holds open Items only, so a dismissed Item is simply absent.
       // Undoing one has no copy to draw it from and waits for the next read.

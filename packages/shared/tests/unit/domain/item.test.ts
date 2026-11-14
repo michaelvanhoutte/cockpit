@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TITLE_LENGTH,
   UNTITLED,
+  asNextAction,
   capturedFromSchema,
   itemDescriptionSchema,
   itemHasOpenReadings,
@@ -10,8 +11,10 @@ import {
   itemSchema,
   itemStatus,
   itemTitleSchema,
+  nextActionSchema,
   textsFromCapture,
   workspaceNameSchema,
+  type Item,
 } from '../../../src/domain/item.js';
 
 /**
@@ -74,28 +77,20 @@ describe('Workspace management', () => {
  * apps/web/tests/unit/components/ItemRow.test.tsx.
  */
 describe('Item editing', () => {
-  describe('a row shows the next action, or the title', () => {
-    const texts = (over: Partial<Parameters<typeof itemLabel>[0]>) => ({
+  describe('everything that names an Item names it by its title, else Untitled', () => {
+    const texts = (over: Partial<Item>) => ({
       nextAction: null,
       title: '',
       ...over,
     });
 
     it.each([
-      {
-        situation: 'a next action, which wins over the title',
-        item: texts({ nextAction: 'Reply to Tom', title: 'Part 11' }),
-        shows: 'Reply to Tom',
-      },
+      { situation: 'a title and a next action', item: texts({ nextAction: 'Reply to Tom', title: 'Part 11' }), shows: 'Part 11' },
+      { situation: 'a next action and a blank title', item: texts({ nextAction: 'Reply to Tom', title: ' ' }), shows: UNTITLED },
       { situation: 'no next action but a title', item: texts({ title: 'Part 11' }), shows: 'Part 11' },
       // Blank is absent, or a row whose title is a space would be a gap where
       // a name should be rather than something a person can read.
       { situation: 'a title of nothing but blanks', item: texts({ title: '   ' }), shows: UNTITLED },
-      {
-        situation: 'a next action of nothing but blanks',
-        item: texts({ nextAction: ' ', title: 'Part 11' }),
-        shows: 'Part 11',
-      },
       { situation: 'nothing written anywhere', item: texts({}), shows: UNTITLED },
       // Reachable on a title written before a title was one line, and on one
       // an older release stored from a captured message.
@@ -113,6 +108,26 @@ describe('Item editing', () => {
       },
     ])('$situation', ({ item, shows }) => {
       expect(itemLabel(item)).toBe(shows);
+    });
+  });
+
+  describe('a Next action is stored trimmed, and an empty one is none', () => {
+    it.each([
+      { situation: 'with spaces around the text', given: '  Call Tom  ', stored: 'Call Tom' },
+      { situation: 'of nothing but spaces', given: '   ', stored: null },
+      { situation: 'empty', given: '', stored: null },
+      { situation: 'none', given: null, stored: null },
+    ])('$situation', ({ given, stored }) => {
+      expect(asNextAction(given)).toBe(stored);
+    });
+
+    it.each([
+      { situation: 'exactly 200 characters', length: 200, accepted: true },
+      { situation: '201 characters', length: 201, accepted: false },
+      // Counted after the trim, as a title is.
+      { situation: '200 characters with spaces around them', length: 200, around: '  ', accepted: true },
+    ])('is refused past the limit: $situation', ({ length, around = '', accepted }) => {
+      expect(nextActionSchema.safeParse(`${around}${'a'.repeat(length)}${around}`).success).toBe(accepted);
     });
   });
 

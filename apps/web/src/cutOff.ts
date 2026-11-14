@@ -1,7 +1,7 @@
 /**
  * Whether a line of text is drawn showing less than it holds, for the hover
- * that spells the rest of it out ("A row shows the next action, or the title"
- * in docs/functional-definition.md, which is where the rule itself lives).
+ * that spells the rest of it out (the title and the Next action line of a row, as
+ * docs/product/items.md describes the row, which is where the rule itself lives).
  *
  * **A single pixel is not a cut.** Both widths are rounded to whole pixels, so
  * text that fits to within a fraction of one can still report a pixel more than
