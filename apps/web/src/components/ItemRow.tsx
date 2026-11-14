@@ -27,6 +27,7 @@ import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraf
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
+import { CHANGED_ELSEWHERE } from '../bulkEdit';
 import { claudeEntriesFor, endCommand, reopenCommand, whatWasEnded } from '../claudeRunEnd';
 import { NeedsYouChip } from './NeedsYouChip';
 import { isCutOff } from '../cutOff';
@@ -463,7 +464,9 @@ export function ItemRow({
     offerToUndo({
       what: whatWasEnded([{ item, run: ended }]),
       unlessRefused: answer,
-      undo: () => send(reopenCommand(ended, envelope())),
+      undo: async () => {
+        if (!(await send(reopenCommand(ended, envelope()))).applied) throw new Error(CHANGED_ELSEWHERE);
+      },
     });
   };
 

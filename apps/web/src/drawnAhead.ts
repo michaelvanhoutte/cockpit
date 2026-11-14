@@ -90,15 +90,10 @@ export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayl
  * upload is held by the queue once the server has answered it, and never sent by
  * it.
  */
-export function drawnAhead(
-  snapshot: WorkspaceSnapshot,
-  change: Drawn,
-  /** The runs an *End Claude run* drawn earlier in the same pass took off, which its Undo brings back. */
-  ended: Map<string, AgentRun> = new Map(),
-): WorkspaceSnapshot {
+export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): WorkspaceSnapshot {
   switch (change.name) {
     case 'end_claude_run':
-      return runEndedAhead(snapshot, change.payload, ended);
+      return runEndedAhead(snapshot, change.payload);
     case 'capture_item':
       return capturedAhead(snapshot, change.payload);
     case 'append_to_item':
@@ -332,30 +327,26 @@ function recurringItemDrawn(
 }
 
 /**
- * A Claude run ended, and brought back by its Undo ("End a Claude run from its
- * row, and make Needs you say what Claude is asking", issue 1770): the Item's open
+ * A Claude run ended, and brought back by its Undo (issue 1770): the Item's open
  * run - or the one the change names - off the Workspace's runs, so its chip leaves
- * the row at once. **An Undo draws the run back only while the change that ended
- * it is drawn too** (`ended`), since the copy holds nothing else to draw it from;
- * a run this tab ended is also kept by id (`endedRuns.ts`), so an Undo after that read has landed draws it back at once too.
+ * the row at once. **An Undo draws the run back from the one this tab ended**
+ * (`endedRuns.ts`, filled by `endCommand`), since the held copy no longer holds it
+ * once the end's read has landed.
  */
 function runEndedAhead(
   snapshot: WorkspaceSnapshot,
   change: CommandPayload<'end_claude_run'>,
-  ended: Map<string, AgentRun>,
 ): WorkspaceSnapshot {
   const runs = snapshot.agentRuns ?? [];
   if (change.reopen) {
-    const run = change.runId ? (ended.get(change.runId) ?? endedRun(change.runId)) : undefined;
+    const run = change.runId ? endedRun(change.runId) : undefined;
     if (!run || runs.some((one) => one.itemId === run.itemId) || !snapshot.items.some((item) => item.id === run.itemId)) {
       return snapshot;
     }
-    ended.delete(run.id);
     return { ...snapshot, agentRuns: [...runs, run] };
   }
   const gone = runs.filter((run) => run.itemId === change.itemId && (change.runId === undefined || run.id === change.runId));
   if (gone.length === 0) return snapshot;
-  for (const run of gone) ended.set(run.id, run);
   return { ...snapshot, agentRuns: runs.filter((run) => !gone.includes(run)) };
 }
 
@@ -639,8 +630,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
 
 /** The changes in the order they were made, each drawn over the one before. */
 export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly Drawn[]): WorkspaceSnapshot {
-  const ended = new Map<string, AgentRun>();
-  return changes.reduce((held, change) => drawnAhead(held, change, ended), snapshot);
+  return changes.reduce(drawnAhead, snapshot);
 }
 
 /** The list of Workspaces with the changes drawn over it, in the order they were made. */

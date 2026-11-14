@@ -2710,6 +2710,18 @@ describe('Agents', () => {
         expect(screen.queryByRole('menuitem', { name: 'End Claude run' })).toBeNull();
       });
 
+      it('says the run could not come back where the server declines the Undo', async () => {
+        const user = userEvent.setup();
+        const { send } = aRow({ extra: { openRun: sentRun() } });
+        send.mockResolvedValueOnce({ ok: true as const, applied: false });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await user.click(await screen.findByRole('menuitem', { name: 'End Claude run' }));
+        await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+        expect(await screen.findByText(/changed somewhere else/)).toBeInTheDocument();
+      });
+
       it('offers Undo, which asks for exactly that run back', async () => {
         const user = userEvent.setup();
         const { send } = aRow({ extra: { openRun: sentRun() } });

@@ -1,12 +1,13 @@
 import { itemLabel, type AgentRun, type Item } from '@cockpit/shared';
 import { rememberEnded } from './endedRuns';
-import { whyNot, type Refused, type Sending } from './bulkEdit';
+import { CHANGED_ELSEWHERE, whyNot, type Refused, type Sending } from './bulkEdit';
 
 /**
- * Ending a Claude run without finishing its Item ("End a Claude run from its row,
- * and make Needs you say what Claude is asking", issue 1770). The deciding is here,
+ * Ending a Claude run without finishing its Item (issue 1770). The deciding is here,
  * and pure: which entries the row's Claude group holds, which picked rows the
  * selection bar acts on, and what each Undo sends. The sending is handed in.
+ * **`endCommand` is the one exception to pure**: it also records the ended run
+ * (`endedRuns.ts`), which is what lets the Undo draw the run back at once.
  */
 
 /** What the Claude group of a row's menu holds, in order, so a decision with cases is proved without a drawn menu. */
@@ -106,7 +107,9 @@ export function endSeveral(
 export async function reopenSeveral(sending: Sending, ended: readonly Target[]): Promise<void> {
   for (const [at, target] of ended.entries()) {
     try {
-      await sending.send(reopenCommand(target.run, sending.envelope(target.item.id)()));
+      if (!(await sending.send(reopenCommand(target.run, sending.envelope(target.item.id)()))).applied) {
+        throw new Error(CHANGED_ELSEWHERE);
+      }
     } catch (error) {
       throw new Error(`${at} of ${ended.length} put back, the rest still ended. ${whyNot(error)}`);
     }

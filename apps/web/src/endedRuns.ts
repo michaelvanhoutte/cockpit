@@ -1,8 +1,7 @@
 import type { AgentRun } from '@cockpit/shared';
 
 /**
- * The runs this tab ended with *End Claude run* ("End a Claude run from its row,
- * and make Needs you say what Claude is asking", issue 1770), kept by run id so its
+ * The runs this tab ended with *End Claude run* (issue 1770), kept by run id so its
  * Undo can draw the run back at once, after the end's read has landed and the held
  * copy no longer holds it. Local to the tab and never sent. Bounded: the oldest go
  * first.

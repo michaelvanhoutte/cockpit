@@ -1033,6 +1033,8 @@ describe('Agents', () => {
     });
 
     it('draws the run back when its Undo comes while the end is still drawn', () => {
+      forgetEndedRuns();
+      rememberEnded(aRun(RUN, BART));
       const copy = withRuns(aRun(RUN, BART));
 
       expect(drawnOver(copy, [end(BART, RUN), undo(BART, RUN)]).agentRuns.map((run) => run.id)).toEqual([RUN]);

@@ -189,8 +189,7 @@ test.describe('MCP connections', () => {
 });
 
 /**
- * F3, the one walk "End a Claude run from its row, and make Needs you say what
- * Claude is asking" (issue 1770) gets: a chip Claude left behind is cleared from
+ * F3, the one walk issue 1770 gets: a chip Claude left behind is cleared from
  * the row's menu without finishing the Item, and Undo brings chip and link back.
  * Which Item is touched, what the server guards the Undo by and what the menu
  * holds are proved below this (ending-a-claude-run.test.ts, claudeRunEnd.test.ts);

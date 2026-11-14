@@ -590,8 +590,7 @@ export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 
 /**
  * What Claude is told when it reports *Needs you* without saying what it
- * needs ("End a Claude run from its row, and make Needs you say what Claude
- * is asking", issue 1770).
+ * needs (issue 1770).
  */
 export const NEEDS_YOU_WITHOUT_A_QUESTION =
   'Needs you has to say what you are asking: send the question as the note.';

@@ -6,8 +6,7 @@ import type { Sending } from '../../src/bulkEdit';
 
 /**
  * F1: which entries a row's Claude group holds, which picked rows the selection
- * bar ends a run on and what its Undo sends ("End a Claude run from its row, and
- * make Needs you say what Claude is asking", issue 1770). That the row and the bar
+ * bar ends a run on and what its Undo sends (issue 1770). That the row and the bar
  * draw them is ItemRow.test.tsx's and EditingSeveral.test.tsx's.
  */
 
@@ -59,6 +58,13 @@ describe('Agents', () => {
       { situation: 'two picked, none with a run', runs: [], available: false, why: 'None of them has a Claude run' },
     ])('with $situation the action is available: $available', ({ runs, available, why }) => {
       expect(barEntryFor(targetsOf([anItem('a'), anItem('b')], runs))).toEqual({ available, why });
+    });
+
+    it('says the runs could not come back where the server declines the Undo', async () => {
+      const targets = targetsOf([anItem('a')], [aRun('run-a', 'a')]);
+      const declining: Sending = { send: async () => ({ applied: false }), envelope: (itemId) => () => ({ commandId: 'c', issuedAt: AT, workspaceId: 'ws', itemId }) };
+
+      await expect(reopenSeveral(declining, targets)).rejects.toThrow('That item changed somewhere else.');
     });
 
     it('records a refused Item and goes on with the rest', async () => {

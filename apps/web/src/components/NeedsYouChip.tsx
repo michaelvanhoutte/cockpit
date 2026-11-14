@@ -3,8 +3,7 @@ import { NO_QUESTION_SAID, type NeedsYouBox } from '../agentRunChip';
 import { QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 
 /**
- * A *Needs you* chip with no session to open ("End a Claude run from its row, and
- * make Needs you say what Claude is asking", issue 1770): a click opens a small
+ * A *Needs you* chip with no session to open (issue 1770): a click opens a small
  * box saying what Claude is asking and where to answer it, with *End Claude run*.
  * Drawn from the run the held copy already carries, so it reaches no server.
  */
