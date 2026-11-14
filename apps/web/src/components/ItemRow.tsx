@@ -734,7 +734,9 @@ export function ItemRow({
   /**
    * The four statuses an Item can be set to, ticking the one it is in: drawn
    * into the row menu's Status submenu and into the small menu the hover ✓
-   * opens on a right-click ("Set a status from the ✓", issue 1772). One list,
+   * opens on a right-click ("Item rows: setting a status other than Done
+   * takes two steps through the row menu: right-click the hover ✓ to pick any
+   * status", issue 1772). One list,
    * so the two cannot come to offer different things. Choosing the ticked one
    * changes nothing.
    */
@@ -761,9 +763,6 @@ export function ItemRow({
         {ticked && <span aria-hidden="true">✓</span>}
       </M.Item>
     ));
-
-  /** Whether the menu the hover ✓ opens on a right-click is open. */
-  const [tickMenuOpen, setTickMenuOpen] = useState(false);
 
   /**
    * What this row offers, drawn into whichever primitive opens it - the
@@ -1558,9 +1557,11 @@ export function ItemRow({
         {/* Mark done in one click ("Mark an item done with a ✓ that appears on
             hover", issue 716): the menu's Status ▸ Done, sent the same way, so
             the Undo bar offers it back identically. A right-click on it opens
-            the four statuses alone, the Status submenu's own entries ("Set a
-            status from the ✓", issue 1772), not the row's full menu. Shown only under a fine
-            pointer hovering the row, so never on touch, which keeps the menu and
+            the four statuses alone, the Status submenu's own entries ("Item
+            rows: setting a status other than Done takes two steps through the
+            row menu: right-click the hover ✓ to pick any status", issue 1772),
+            not the row's full menu. Shown only under a fine pointer hovering
+            the row, so never on touch, which keeps the menu and
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
             keeps its width and its title does not re-truncate under the pointer.
@@ -1571,7 +1572,11 @@ export function ItemRow({
             belongs, and a ✓ under the pointer made finishing it the easiest
             thing to do there (issue 880). Its menu keeps Status ▸ Done. */}
         {!inInbox && !selecting?.revealed && (
-          <ContextMenu.Root open={tickMenuOpen} onOpenChange={setTickMenuOpen}>
+          // The right-click still reaches the row, which moves a single pick
+          // here as it does for a right-click anywhere on the row, but the row's
+          // full menu stays shut: Radix opens no menu for a right-click whose
+          // default this one's trigger has already taken.
+          <ContextMenu.Root>
             <ContextMenu.Trigger asChild>
               <button
                 type="button"
@@ -1581,8 +1586,6 @@ export function ItemRow({
                   event.stopPropagation();
                   markDone();
                 }}
-                // The row's full menu is not what a right-click here means.
-                onContextMenu={(event) => event.stopPropagation()}
                 className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
               >
                 <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

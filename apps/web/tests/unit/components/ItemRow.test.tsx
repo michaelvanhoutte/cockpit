@@ -2501,6 +2501,16 @@ describe('Selection', () => {
         await screen.findAllByRole('menuitemradio');
         expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
       });
+
+      it('moves a single pick on another row to this one, as a right-click anywhere on the row does', async () => {
+        const onPickAlone = vi.fn();
+        aRow({ selecting: { picked: false, revealed: false, held: true, onPickAlone, onPick: () => {}, onEndSelection: () => {} } });
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        await screen.findAllByRole('menuitemradio');
+        expect(onPickAlone).toHaveBeenCalledOnce();
+      });
     });
 
     it('draws no ✓ on an Inbox row, whose menu still offers Status ▸ Done', async () => {
