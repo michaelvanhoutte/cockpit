@@ -446,6 +446,8 @@ export function filePulledItem(
       .onConflictDoNothing()
       .run();
     followTheConversation(db, accountName, holds, ids.itemId, item, ids.followCommandId, at);
+    // Following sets the date from the message's turn, which would replace the day the source gave: the day comes last.
+    if (sourceGave !== null && item.conversation) applySourceDay(db, accountName, holds, item.sourceId, sourceGave, at);
     return { answer: 'filed', named: namedOn(ids.itemId, outcomesWithMark(decided.outcomes, item.followed)) };
   });
 }
@@ -473,46 +475,56 @@ export function reportPulledDueDay(
   const holds = runHolds(db, accountName, sourceAccountId, runId);
   if (!holds) return 'disconnected';
   const day = sourceDay(report.dueDay);
-  return db.transaction((): 'recorded' | 'unchanged' | 'unknown' => {
-    const link = linkOf(db, accountName, holds, report.sourceId);
-    if (!link) return 'unknown';
-    if (day === null) return 'unchanged';
-    const item = getItem(db, accountName, link.itemId);
-    if (!item) return 'unchanged';
-    const untouched = item.dueDate === null && item.dueDateChosenAt === null;
-    if (!untouched && !dueDateIsTheConnections(item, link.givenDueDate)) return 'unchanged';
-    // Past the check above, the Item already on the day is one the link already records.
-    if (item.dueDate === day) return 'unchanged';
-    // Never older than what the Item last heard, or the change would be refused as stale.
-    const issuedAt = at < item.updatedAt ? item.updatedAt : at;
-    const result = runCommand(
-      db,
-      accountName,
-      'set_due_date',
-      {
-        commandId: crypto.randomUUID(),
-        issuedAt,
-        workspaceId: item.workspaceId,
-        itemId: item.id,
-        dueDate: day,
-      },
-      { fromTheSource: true },
-    );
-    if (!result.applied) return 'unchanged';
-    db.update(pulledLinks)
-      .set({ givenDueDate: day })
-      .where(
-        and(
-          eq(pulledLinks.tenantId, accountName),
-          eq(pulledLinks.workspaceId, link.workspaceId),
-          eq(pulledLinks.connectorId, link.connectorId),
-          eq(pulledLinks.externalAccountKey, link.externalAccountKey),
-          eq(pulledLinks.sourceId, link.sourceId),
-        ),
-      )
-      .run();
-    return 'recorded';
-  });
+  return db.transaction(() => applySourceDay(db, accountName, holds, report.sourceId, day, at));
+}
+
+/** `reportPulledDueDay`'s change, inside the caller's transaction; `day` is null where the source's day was not a real one. */
+function applySourceDay(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  sourceId: string,
+  day: string | null,
+  at: string,
+): 'recorded' | 'unchanged' | 'unknown' {
+  const link = linkOf(db, accountName, holds, sourceId);
+  if (!link) return 'unknown';
+  if (day === null) return 'unchanged';
+  const item = getItem(db, accountName, link.itemId);
+  if (!item) return 'unchanged';
+  const untouched = item.dueDate === null && item.dueDateChosenAt === null;
+  if (!untouched && !dueDateIsTheConnections(item, link.givenDueDate)) return 'unchanged';
+  // Past the check above, the Item already on the day is one the link already records.
+  if (item.dueDate === day) return 'unchanged';
+  // Never older than what the Item last heard, or the change would be refused as stale.
+  const issuedAt = at < item.updatedAt ? item.updatedAt : at;
+  const result = runCommand(
+    db,
+    accountName,
+    'set_due_date',
+    {
+      commandId: crypto.randomUUID(),
+      issuedAt,
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      dueDate: day,
+    },
+    { fromTheSource: true },
+  );
+  if (!result.applied) return 'unchanged';
+  db.update(pulledLinks)
+    .set({ givenDueDate: day })
+    .where(
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.workspaceId, link.workspaceId),
+        eq(pulledLinks.connectorId, link.connectorId),
+        eq(pulledLinks.externalAccountKey, link.externalAccountKey),
+        eq(pulledLinks.sourceId, link.sourceId),
+      ),
+    )
+    .run();
+  return 'recorded';
 }
 
 /** How much of a message a conversation keeps (`CONVERSATION_EXCERPT_LENGTH`), and of a name. */

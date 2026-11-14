@@ -187,6 +187,26 @@ describe('Connector management', () => {
       expect(await dateOf('m-1')).toMatchObject({ due_date: '2031-06-12', given_due_date: '2031-06-12', due_date_chosen_at: null });
     });
 
+    it('keeps the day on a conversation the Item follows, which the message’s turn would otherwise date', async () => {
+      await connect(3);
+
+      await nextCheck(async (host) => {
+        await host.emitItem({
+          ...aMessage('conversation:c-1', '2031-06-12'),
+          conversation: {
+            id: 'c-1',
+            link: 'https://source.example/c-1',
+            latest: { by: 'them', from: 'Someone', at: now().toISOString(), excerpt: 'Could you look at this' },
+            messageCount: 1,
+            startedAt: now().toISOString(),
+            withWhom: 'Someone',
+          },
+        });
+      });
+
+      expect(await dateOf('conversation:c-1')).toMatchObject({ due_date: '2031-06-12', given_due_date: '2031-06-12', due_date_chosen_at: null });
+    });
+
     it('takes no day that is not a day, and gives the connection’s days instead', async () => {
       await connect(null);
 

@@ -203,8 +203,8 @@ Following the category is per message, as before.
   right after the reopen, since the reopen gives the connection's days first.
   The host decides what a day does (it moves an Item only while its date is
   still the connection's). Each report is a call to the host and shares
-  `NAMES_REPORTED_PER_RUN` with the names, so the first run after this shipped
-  reports the day of every dated flag already followed, a few hundred a run.
+  `NAMES_REPORTED_PER_RUN` with the names, so a connection with no recorded
+  days reports each dated flag once, within that budget.
 
 ## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
 
