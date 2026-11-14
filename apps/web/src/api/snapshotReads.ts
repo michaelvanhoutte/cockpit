@@ -140,3 +140,20 @@ export function readForAnnouncement(client: QueryClient, event: Exclude<ServerEv
   }
   read(client, workspaceId, at ?? UNTIMED, true);
 }
+
+/**
+ * The live-updates stream opened when the account's newest change was `upTo`
+ * ("Live updates: a change stored while a tab's event stream is opening never
+ * reaches that tab", issue 1798). Each Workspace with a copy behind it, or still
+ * on its way, is read as if that change were announced on it alone, so a copy
+ * already current is not read again because another Workspace's is old.
+ */
+export function readWhereBehind(client: QueryClient, upTo: string): void {
+  const behind = new Set<string>();
+  for (const kind of READS_OF_A_WORKSPACE) {
+    for (const query of client.getQueryCache().findAll({ queryKey: [kind] })) {
+      if (((query.state.data as { upTo?: string } | undefined)?.upTo ?? '') < upTo) behind.add(String(query.queryKey[1]));
+    }
+  }
+  for (const workspaceId of behind) readForAnnouncement(client, { type: 'snapshot_invalidated', workspaceId, at: upTo });
+}

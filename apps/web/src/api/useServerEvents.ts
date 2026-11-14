@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ACCOUNT_WIDE, serverEventSchema, streamOpenedSchema } from '@cockpit/shared';
+import { serverEventSchema, streamOpenedSchema } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
 import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
-import { readForAnnouncement } from './snapshotReads';
+import { readForAnnouncement, readWhereBehind } from './snapshotReads';
 
 /**
  * Liveness via SSE (architecture, "The read model: persisted snapshot,
@@ -92,9 +92,8 @@ export function useServerEvents() {
 
       // The stream's first message names the newest change the account had taken
       // when it opened. A change stored after this tab read a copy and before the
-      // stream's cursor was set is announced nowhere else, so it is announced
-      // here, through the path every announcement takes: skipped where every
-      // copy held already has it, read otherwise.
+      // stream's cursor was set is announced nowhere else, so each Workspace
+      // whose copy is behind it is read (`snapshotReads.ts`).
       stream.addEventListener('opened', (message) => {
         let parsed;
         try {
@@ -103,7 +102,7 @@ export function useServerEvents() {
           return;
         }
         if (!parsed.success || !parsed.data.upTo) return;
-        readForAnnouncement(queryClient, { type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE, at: parsed.data.upTo });
+        readWhereBehind(queryClient, parsed.data.upTo);
       });
 
       stream.addEventListener('change', (message) => {

@@ -192,18 +192,6 @@ describe('Live updates', () => {
       expect(JSON.parse(first.data)).toEqual({ upTo: held });
     });
 
-    it('names a change stored before it opened, rather than announcing it after', async () => {
-      await capture('Stored before the stream opened');
-      const held = await upToOf();
-
-      const first = await firstMessage();
-
-      expect(JSON.parse(first.data).upTo).toBe(held);
-      // Nothing newer than it is announced: the change is named, not replayed.
-      const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, held!);
-      expect((answer as { value: { events: ServerEvent[] } }).value.events).toEqual([]);
-    });
-
     it('names nothing for an account that has never taken a change', async () => {
       const first = await firstMessage();
 

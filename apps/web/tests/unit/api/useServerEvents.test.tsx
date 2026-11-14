@@ -317,6 +317,20 @@ describe('Live updates', () => {
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
     });
 
+    it('reads only the workspace whose copy is behind, not one already current beside it', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:04.000Z'));
+      client.setQueryData(['snapshot', 'ws-home'], heldAt('2026-09-01T10:00:00.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.opensAt('2026-09-08T10:00:04.000Z');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+      expect(client.getQueryState(['snapshot', 'ws-home'])?.isInvalidated).toBe(true);
+    });
+
     it('reads nothing when the account has never taken a change', async () => {
       open();
       client.setQueryData(['snapshot', 'ws-work'], heldAt(undefined));

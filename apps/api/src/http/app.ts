@@ -2613,7 +2613,8 @@ const routes = app
         let cursor = new Date().toISOString();
         // Read after the cursor is set, so a change is either at or before this
         // stamp (the tab compares it with the copy it holds) or after the cursor
-        // (announced below); none falls between. It is also the first message,
+        // (announced below), as long as this Worker's clock is not ahead of the
+        // store's, which stamps the change. It is also the first message,
         // so it doubles as the sign the stream is live.
         const upTo = await account.newestChange();
         let lastPing = Date.now();
