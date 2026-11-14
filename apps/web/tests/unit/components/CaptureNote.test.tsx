@@ -73,6 +73,7 @@ const held = vi.hoisted(() => ({
   mutate: vi.fn(),
   /** Opens an Item's form, which the shell answers by changing the address. */
   open: vi.fn(),
+  /** Closes an Item's form if it is the one open, which Undo asks. */
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   /** The snapshot each workspace answers with; one left out is a workspace never read, which fails as offline does. */
@@ -186,6 +187,7 @@ async function thePage({
   onPutOn,
   onCaptured,
   onKept,
+  onOpenedItem,
   recordingStore = browserRecordingStore(),
   recordingLock = inTabLock(),
   waitingRecordings = [],
@@ -233,6 +235,7 @@ async function thePage({
   onPutOn?: () => void;
   onCaptured?: () => void;
   onKept?: () => void;
+  onOpenedItem?: () => void;
 } = {}) {
   held.workspaces = [WORK, HOME];
   held.snapshots = { 'ws-work': WORK_SNAPSHOT, 'ws-home': HOME_SNAPSHOT };
@@ -278,7 +281,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
+          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} onOpenedItem={onOpenedItem} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -354,6 +357,7 @@ describe('Capture', () => {
   beforeEach(() => {
     // A browser of its own for every case: nothing kept by the last one.
     globalThis.indexedDB = new IDBFactory();
+    held.open.mockClear();
     held.mutate.mockClear();
     vi.mocked(sendCommand).mockReset();
     vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
@@ -937,6 +941,140 @@ describe('Capture', () => {
   });
 
   /**
+   * "Open a captured Item's form from the Captured line" (issue 1639). Which
+   * Workspace the form then draws from is tests/unit/components/ItemForm.test.tsx;
+   * the walk from the line to the form is tests/e2e/capture.test.ts.
+   */
+  describe('the Captured line opens the Item once it is an Item, and the window it is in closes', () => {
+    const lineButton = () => screen.queryByRole('button', { name: /^Captured “/ });
+    const addToThis = () => screen.getByRole('button', { name: 'Add to this' });
+    const itemCaptured = async () => (await captured()).payload.itemId;
+    /** The Workspace's read answering with what has been captured, as it does once the tab has read after the landing. */
+    const itemsAreRead = async (user: Awaited<ReturnType<typeof thePage>>) => {
+      await waitFor(() => expect(capturedCalls().length).toBeGreaterThan(0));
+      held.snapshots['ws-home'] = {
+        ...HOME_SNAPSHOT,
+        items: capturedCalls().map(({ payload }) => ({
+          id: payload.itemId as string,
+          title: 'A note',
+          nextAction: null,
+          completedAt: null,
+          createdAt: new Date().toISOString(),
+        })),
+      } as never;
+      await user.client.invalidateQueries({ queryKey: ['snapshot'] });
+    };
+
+    it('is a button that opens that Item once it has landed', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+
+      await user.click(lineButton()!);
+
+      expect(held.open).toHaveBeenCalledWith(await itemCaptured());
+    });
+
+    it('is text, with Undo still offered, while the note waits in the outbox, and a button once it lands', async () => {
+      vi.mocked(sendCommand).mockRejectedValue(new TypeError('Failed to fetch'));
+      const user = await thePage();
+      await user.type(box(), 'Ask Ada about the backup window');
+      await user.click(chip('Capture'));
+      await screen.findByText('1 waiting to send');
+
+      expect(captureLine()).toBeVisible();
+      expect(lineButton()).toBeNull();
+      expect(undoButton()).toBeVisible();
+      await user.click(captureLine());
+      expect(held.open).not.toHaveBeenCalled();
+
+      vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
+      await act(async () => {
+        await user.outbox.send();
+      });
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+    });
+
+    it('is text until the read that brings the Item has landed, though the note has left the outbox', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(undoButton()).toBeVisible());
+      await settled();
+
+      expect(lineButton()).toBeNull();
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+    });
+
+    it('names and opens the second capture', async () => {
+      const user = await thePage();
+      for (const note of ['The first one', 'The second one']) {
+        await user.type(box(), note);
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(box()).toHaveValue(''));
+      }
+      await waitFor(() => expect(capturedCalls()).toHaveLength(2));
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).toHaveTextContent('The second one'));
+
+      await user.click(lineButton()!);
+
+      expect(held.open).toHaveBeenCalledWith(capturedCalls()[1]!.payload.itemId);
+    });
+
+    it('opens the same Item from the Added to line, which offers no Undo', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Ring the plumber');
+      await user.click(chip('Capture'));
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+      await user.click(addToThis());
+      await user.type(box(), 'about the boiler');
+      await user.click(chip('Capture'));
+
+      const line = await screen.findByRole('button', { name: 'Added to “Ring the plumber”' });
+      await user.click(line);
+
+      expect(held.open).toHaveBeenCalledWith(await itemCaptured());
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    });
+
+    it('makes no request of its own when pressed', async () => {
+      const user = await thePage();
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+      await settled();
+      const asked = everythingAsked().length;
+
+      await user.click(lineButton()!);
+      await settled();
+
+      expect(everythingAsked()).toHaveLength(asked);
+    });
+
+    it('tells the window to close once it has opened the Item', async () => {
+      const onOpenedItem = vi.fn();
+      const user = await thePage({ onOpenedItem });
+      await user.type(box(), 'Book the venue deposit');
+      await user.click(chip('Capture'));
+      await itemsAreRead(user);
+      await waitFor(() => expect(lineButton()).not.toBeNull());
+      expect(onOpenedItem).not.toHaveBeenCalled();
+
+      await user.click(lineButton()!);
+
+      expect(held.open).toHaveBeenCalledWith(await itemCaptured());
+      expect(onOpenedItem).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
    * "Capture append: add to the Item you just captured with an Add to this
    * button" (issue 1640). The button lives on the Captured line, so it is the
    * form's own memory, as the line is; what the server does with an addition
@@ -1320,7 +1458,8 @@ describe('Capture', () => {
     };
 
     it('names the other note and when, with Open it, above the Captured line', async () => {
-      const user = await thePage();
+      const onOpenedItem = vi.fn();
+      const user = await thePage({ onOpenedItem });
       await captureOne(user);
 
       await pairArrives(user, (id) => [{ itemId: id, otherItemId: 'item-bob' }]);
@@ -1330,6 +1469,7 @@ describe('Capture', () => {
       expect(undoButton()).toBeVisible();
       await user.click(screen.getByRole('button', { name: 'Open it' }));
       expect(held.open).toHaveBeenCalledWith('item-bob');
+      expect(onOpenedItem).toHaveBeenCalledTimes(1);
     });
 
     it('says nothing of a pair that names an earlier capture', async () => {

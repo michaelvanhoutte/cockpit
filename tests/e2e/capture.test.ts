@@ -13,9 +13,15 @@ import {
   openCapture,
   openFirstWorkspace,
   openInbox,
+  makeWorkspace,
   press,
+  saveTheItem,
+  startEditingTheItem,
+  STARTING_WORKSPACE,
+  switchTo,
   test,
   uniqueTitle,
+  workspaceTab,
 } from './support/app';
 
 /** A minimal, valid 1x1 PNG. */
@@ -144,7 +150,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Buy milk');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -160,7 +166,7 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const thought = uniqueTitle('Buy oat milk');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
 
       // Undo takes it back into the box, and nothing of it stays in the Inbox;
@@ -168,7 +174,7 @@ test.describe('Capture', () => {
       await press(capturedLine(page, thought).getByRole('button', { name: 'Undo' }), isMobile);
       await expect(captureBox(page)).toHaveValue(thought);
       await expect(capturedLine(page, thought)).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -187,7 +193,7 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const thought = uniqueTitle('Ring the plumber');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
 
       const addToThis = page.getByRole('button', { name: 'Add to this' });
@@ -198,7 +204,7 @@ test.describe('Capture', () => {
       const added = uniqueTitle(`about the boiler ${'and the radiators upstairs '.repeat(15)}`.trim());
       await captureBox(page).fill(added);
       const landed = page.waitForResponse((response) => response.url().endsWith('/v1/commands/append_to_item'));
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(page.getByText(`Added to “${thought}”`)).toBeVisible();
       expect((await landed).status()).toBe(200);
 
@@ -248,14 +254,14 @@ test.describe('Capture', () => {
       await openCapture(page, isMobile);
       const repeated = uniqueTitle(words);
       await captureBox(page).fill(repeated);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, repeated)).toBeVisible();
       const warning = page.getByRole('status').filter({ hasText: /^Looks like “/ });
       await expect(warning).toBeVisible({ timeout: 20_000 });
       await expect(warning.getByRole('button', { name: 'Open it' })).toBeVisible();
       await expect(capturedLine(page, repeated).getByRole('button', { name: 'Undo' })).toBeVisible();
       await captureBox(page).fill(uniqueTitle('Shopping list'));
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(warning).toHaveCount(0);
     });
 
@@ -305,7 +311,7 @@ test.describe('Capture', () => {
       await expect(captureBox(page)).toHaveValue(`${typed} ${STAND_IN_WORDS}`);
       await expect(mic).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByText('Transcribing…')).toHaveCount(0);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, typed)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -471,6 +477,55 @@ test.describe('Capture', () => {
     });
   });
 
+  test.describe('a captured note is read whole and edited from the Captured line, on a phone screen as on a desktop', () => {
+    test('opens the Item in the Workspace it was captured into, over the one on screen', async ({
+      page,
+      isMobile,
+    }) => {
+      // "Open a captured Item's form from the Captured line" (issue 1639). Only
+      // a browser carries the address, the shell's form and the Capture screen
+      // together, and on a phone the Capture page names no Workspace at all;
+      // which copy the form draws from is ItemForm.test.tsx's.
+      const elsewhere = 'Elsewhere';
+      await openInbox(page, isMobile);
+      if ((await workspaceTab(page, elsewhere).count()) === 0) {
+        await makeWorkspace(page, elsewhere, isMobile);
+        await switchTo(page, STARTING_WORKSPACE, isMobile);
+      }
+      await openCapture(page, isMobile);
+      await press(page.getByRole('button', { name: elsewhere }), isMobile);
+      const start = uniqueTitle('Plan the offsite');
+      const tail = `and book the ${crypto.randomUUID().slice(0, 8)} room`;
+      await captureBox(page).fill(`${start} with the whole team, then ${'draft the agenda, '.repeat(12)}${tail}`);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+
+      // A button only once the note is an Item; the line still cuts the note short.
+      const line = page.getByRole('button', { name: new RegExp(`^Captured “${start}`) });
+      await expect(line).toBeVisible();
+      await expectNoSidewaysScroll(page);
+      await press(line, isMobile);
+      // At a desk the window gives way to the form; on a phone the form opens over the page.
+      if (!isMobile) await expect(captureBox(page)).toBeHidden();
+      const form = page.getByRole('dialog').filter({ hasNot: page.getByLabel('What is on your mind?') });
+      await expect(form).toContainText(tail);
+
+      // Edited like any Item: the edit is in the Workspace it was captured into.
+      await startEditingTheItem(page, isMobile);
+      const edited = uniqueTitle('Offsite plan');
+      await form.getByLabel('Title').fill(edited);
+      await saveTheItem(page, isMobile);
+      await expect(form).toBeHidden();
+      // The form's closing replaces the entry its opening pushed, so on a phone the page is under Back twice.
+      if (isMobile) {
+        await page.goBack();
+        await closeCapture(page, isMobile);
+      }
+      await switchTo(page, elsewhere, isMobile);
+      if (isMobile) await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
+      await expect(itemRow(page, edited)).toBeVisible();
+    });
+  });
+
   test.describe('capturing a thought never asks what kind of thing it is', () => {
     test('shows it in the inbox with no Type on its row', async ({ page, isMobile }) => {
       await openInbox(page, isMobile);
@@ -483,7 +538,7 @@ test.describe('Capture', () => {
 
       const thought = uniqueTitle('Maybe split the pricing page');
       await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, thought)).toBeVisible();
       await closeCapture(page, isMobile);
 
@@ -502,7 +557,7 @@ test.describe('Capture', () => {
       await page.keyboard.type(bolded);
       await captureBox(page).press('ControlOrMeta+a');
       await press(toolbar.getByRole('button', { name: 'bold' }), isMobile);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
+      await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
       await expect(capturedLine(page, bolded)).toBeVisible();
       // Emptied, and still formatted for the next note.
       await expect(captureBox(page)).toHaveText('');

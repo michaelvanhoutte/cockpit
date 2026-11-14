@@ -22,6 +22,7 @@ import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
+import { useWorkspaceHolding } from '../api/useWorkspaceHolding';
 import { useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
 import type { Arrived } from '../shares';
@@ -73,6 +74,7 @@ export function CaptureNote({
   onPutOn,
   onCaptured,
   onKept,
+  onOpenedItem,
   dictating,
   shownAs = 'page',
 }: {
@@ -95,6 +97,8 @@ export function CaptureNote({
    * take the note with it.
    */
   onKept?: (() => void) | undefined;
+  /** Said when a line here opens an Item's form, so the window it is in can close. */
+  onOpenedItem?: (() => void) | undefined;
   /**
    * What dictation records with and transcribes with: the browser's recorder and
    * the Worker, unless a test hands in fakes. `transcriber` says whether the
@@ -253,7 +257,12 @@ export function CaptureNote({
   const queryClient = useQueryClient();
   const outbox = useOutbox();
   const waiting = useWaitingCaptures();
-  const openItem = useOpenItem();
+  const openItemForm = useOpenItem();
+  // Opening an Item's form from here is leaving Capture for it: the window closes (issue 1639).
+  const openItem = (itemId: string) => {
+    openItemForm(itemId);
+    saidNow.current.onOpenedItem?.();
+  };
   /**
    * The note the capture just made may repeat another ("Warn at Capture when
    * the note just captured repeats another", issue 1115): read from the
@@ -266,6 +275,15 @@ export function CaptureNote({
     select,
     enabled: last !== null && !waiting.some((entry) => entry.id === last.id),
   });
+  // The Captured line opens the Item's form once it is an Item this tab holds, not while it waits in the
+  // outbox or before the read that brings it has landed (issue 1639).
+  const held = useWorkspaceHolding(last?.id, last?.workspaceId);
+  const opensItem = last !== null && held !== undefined && !waiting.some((entry) => entry.id === last.id);
+  const said = !last
+    ? ''
+    : last.added
+      ? `Added to “${plainWords(last.message)}”`
+      : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`;
   const repeats =
     last && afterCapture
       ? possibleDuplicatesOf(
@@ -284,8 +302,8 @@ export function CaptureNote({
    * while this is open.
    */
   // What the page asked to be told, read when it happens rather than when drawn.
-  const saidNow = useRef({ onPutOn, onCaptured, onKept });
-  saidNow.current = { onPutOn, onCaptured, onKept };
+  const saidNow = useRef({ onPutOn, onCaptured, onKept, onOpenedItem });
+  saidNow.current = { onPutOn, onCaptured, onKept, onOpenedItem };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -1269,11 +1287,17 @@ export function CaptureNote({
               </p>
             )}
             <p role="status" className="flex min-w-0 max-w-full items-center gap-2 text-sm text-ink-soft">
-              <span className="min-w-0 truncate">
-                {last.added
-                  ? `Added to “${plainWords(last.message)}”`
-                  : `Captured “${plainWords(last.message)}” → ${last.filed.length > 0 ? last.filed.map((one) => one.name).join(', ') : 'Inbox'}`}
-              </span>
+              {opensItem ? (
+                <button
+                  type="button"
+                  onClick={() => openItem(last.id)}
+                  className="min-w-0 truncate text-left hover:text-accent-deep hover:underline"
+                >
+                  {said}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate">{said}</span>
+              )}
               {/* Undo of an addition takes back the addition alone, which a
                   later change brings; until then the line offers none. */}
               {!last.added && (

@@ -53,7 +53,7 @@ export function CaptureWindow({
       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Suspense fallback={null}>
           {/* A Panel's + came to add one note, so the window goes once it is kept; the tab and `C` stay for the next. */}
-          <CaptureNote shownAs="window" startsIn={startsIn} startsOn={startsOn} onKept={startsOn ? onClose : undefined} />
+          <CaptureNote shownAs="window" startsIn={startsIn} startsOn={startsOn} onKept={startsOn ? onClose : undefined} onOpenedItem={onClose} />
         </Suspense>
       </div>
     </ManageWindow>

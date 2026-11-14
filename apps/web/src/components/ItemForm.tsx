@@ -43,6 +43,7 @@ import { addedLabel, dateTimeLabel } from '../dateFormat';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshotWithFinishedItems } from '../api/finishedItems';
+import { useWorkspaceHolding } from '../api/useWorkspaceHolding';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { ItemFormLine } from './ItemFormLine';
 import { RecurringOriginLine } from './RecurringMark';
@@ -250,9 +251,13 @@ export function whatChanged(
  */
 export function ItemForm() {
   const { openItemId, close } = useItemForm();
-  const { workspaceId } = useParams({ strict: false }) as {
+  const { workspaceId: pageWorkspaceId } = useParams({ strict: false }) as {
     workspaceId?: string;
   };
+  // The Item's own Workspace where this tab holds one that has it, so the form opens on a page that names none
+  // (the phone Capture page) and on one that names another ("Open a captured Item's form from the Captured line",
+  // issue 1639). Nothing is read to look: an Item in no held Workspace opens on the page's, as it always did.
+  const workspaceId = useWorkspaceHolding(openItemId, pageWorkspaceId) ?? pageWorkspaceId;
 
   // Held here rather than in `TheForm`, so following a docked form to another
   // row (`key` below remounts it) keeps the presentation this open form was
