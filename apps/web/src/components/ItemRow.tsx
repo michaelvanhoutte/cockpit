@@ -732,6 +732,40 @@ export function ItemRow({
   };
 
   /**
+   * The four statuses an Item can be set to, ticking the one it is in: drawn
+   * into the row menu's Status submenu and into the small menu the hover ✓
+   * opens on a right-click ("Set a status from the ✓", issue 1772). One list,
+   * so the two cannot come to offer different things. Choosing the ticked one
+   * changes nothing.
+   */
+  const statusEntries = (M: Pick<MenuPrimitive, 'Item'>, keyed: (key: string) => object = () => ({})) =>
+    (
+      [
+        ['To do', status === 'to_do', () => setStarted(false)],
+        ['In progress', status === 'in_progress', () => setStarted(true)],
+        ['Waiting for reply', status === 'waiting', askToWait],
+        ['Done', false, markDone],
+      ] as const
+    ).map(([name, ticked, choose]) => (
+      <M.Item
+        key={name}
+        role="menuitemradio"
+        aria-checked={ticked}
+        className={menuItemSplitClass}
+        {...(name === 'Done' ? keyed('D') : {})}
+        onSelect={() => {
+          if (!ticked) choose();
+        }}
+      >
+        <span>{name}</span>
+        {ticked && <span aria-hidden="true">✓</span>}
+      </M.Item>
+    ));
+
+  /** Whether the menu the hover ✓ opens on a right-click is open. */
+  const [tickMenuOpen, setTickMenuOpen] = useState(false);
+
+  /**
    * What this row offers, drawn into whichever primitive opens it - the
    * dropdown its three dots open, and the context menu a right-click on the row
    * opens (the way a tab's does, issue 267). One list, so
@@ -915,28 +949,7 @@ export function ItemRow({
               style={{ width: SUBMENU_WIDTH_PX }}
               className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
             >
-              {(
-                [
-                  ['To do', status === 'to_do', () => setStarted(false)],
-                  ['In progress', status === 'in_progress', () => setStarted(true)],
-                  ['Waiting for reply', status === 'waiting', askToWait],
-                  ['Done', false, markDone],
-                ] as const
-              ).map(([name, ticked, choose]) => (
-                <M.Item
-                  key={name}
-                  role="menuitemradio"
-                  aria-checked={ticked}
-                  className={flexItemClass}
-                  {...(name === 'Done' ? keyed('D') : {})}
-                  onSelect={() => {
-                    if (!ticked) choose();
-                  }}
-                >
-                  <span>{name}</span>
-                  {ticked && <span aria-hidden="true">✓</span>}
-                </M.Item>
-              ))}
+              {statusEntries(M, keyed)}
             </M.SubContent>
           </M.Portal>
         </M.Sub>,
@@ -1544,7 +1557,9 @@ export function ItemRow({
 
         {/* Mark done in one click ("Mark an item done with a ✓ that appears on
             hover", issue 716): the menu's Status ▸ Done, sent the same way, so
-            the Undo bar offers it back identically. Shown only under a fine
+            the Undo bar offers it back identically. A right-click on it opens
+            the four statuses alone, the Status submenu's own entries ("Set a
+            status from the ✓", issue 1772), not the row's full menu. Shown only under a fine
             pointer hovering the row, so never on touch, which keeps the menu and
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
@@ -1556,20 +1571,36 @@ export function ItemRow({
             belongs, and a ✓ under the pointer made finishing it the easiest
             thing to do there (issue 880). Its menu keeps Status ▸ Done. */}
         {!inInbox && !selecting?.revealed && (
-          <button
-            type="button"
-            aria-label="Mark done"
-            title="Mark done"
-            onClick={(event) => {
-              event.stopPropagation();
-              markDone();
-            }}
-            className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
-          >
-            <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 8.5l3.2 3.2L13 4.8" />
-            </svg>
-          </button>
+          <ContextMenu.Root open={tickMenuOpen} onOpenChange={setTickMenuOpen}>
+            <ContextMenu.Trigger asChild>
+              <button
+                type="button"
+                aria-label="Mark done"
+                title="Mark done · right-click for other statuses"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  markDone();
+                }}
+                // The row's full menu is not what a right-click here means.
+                onContextMenu={(event) => event.stopPropagation()}
+                className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
+              >
+                <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 8.5l3.2 3.2L13 4.8" />
+                </svg>
+              </button>
+            </ContextMenu.Trigger>
+            <ContextMenu.Portal>
+              <ContextMenu.Content
+                aria-label="Status"
+                onCloseAutoFocus={keepFocusIfSomethingOpened}
+                style={{ width: SUBMENU_WIDTH_PX }}
+                className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
+              >
+                {statusEntries(ContextMenu)}
+              </ContextMenu.Content>
+            </ContextMenu.Portal>
+          </ContextMenu.Root>
         )}
 
         <DropdownMenu.Root

@@ -669,7 +669,7 @@ describe('Triage', () => {
         const { mutate, send } = aRow({ item, extra });
 
         const mark = screen.getByRole('button', { name: 'Mark done' });
-        expect(mark).toHaveAttribute('title', 'Mark done');
+        expect(mark).toHaveAttribute('title', 'Mark done · right-click for other statuses');
         await user.click(mark);
 
         expect(mutate).toHaveBeenCalledWith(
@@ -2440,6 +2440,67 @@ describe('Selection', () => {
       aRow({ selecting: { picked, revealed, held: revealed, onPickAlone: vi.fn(), onPick: vi.fn(), onEndSelection: vi.fn() } });
 
       expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
+    });
+
+    describe('a right-click on the row’s ✓ opens the four statuses alone', () => {
+      const STATUS_ENTRIES = ['To do', 'In progress', 'Waiting for reply', 'Done'];
+
+      it.each([
+        { situation: 'a To do item', over: {}, ticked: 'To do' },
+        { situation: 'an In progress item', over: { startedAt: '2026-08-12T11:00:00.000Z' }, ticked: 'In progress' },
+        { situation: 'a Waiting for reply item', over: { waitingSince: '2026-08-12T10:00:00.000Z' }, ticked: 'Waiting for reply' },
+      ])('lists To do, In progress, Waiting for reply and Done for $situation, ticking $ticked', async ({ over, ticked }) => {
+        aRow({ item: anItem(over) });
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        const entries = await screen.findAllByRole('menuitemradio');
+        expect(entries.map((entry) => entry.textContent?.replace('✓', ''))).toEqual(STATUS_ENTRIES);
+        expect(entries.filter((entry) => entry.getAttribute('aria-checked') === 'true').map((entry) => entry.textContent?.replace('✓', ''))).toEqual([ticked]);
+        expect(screen.queryByRole('menuitem')).toBeNull();
+      });
+
+      it('sends the start-work command and reads In progress at once when In progress is picked', async () => {
+        const user = userEvent.setup();
+        const { mutate } = aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+        await user.click(await screen.findByRole('menuitemradio', { name: 'In progress' }));
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'set_started', payload: expect.objectContaining({ itemId: 'item-1', started: true }) }),
+        );
+      });
+
+      it('sends nothing when the status the item is already in is picked', async () => {
+        const user = userEvent.setup();
+        const { mutate, send } = aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+        await user.click(await screen.findByRole('menuitemradio', { name: 'To do' }));
+
+        expect(mutate).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+      });
+
+      it('still opens the full row menu, Status included, on a right-click of the title, and not the ✓’s', async () => {
+        aRow();
+
+        fireEvent.contextMenu(screen.getByText('Make appointment with Novy'));
+
+        expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
+        expect(screen.queryByRole('menuitemradio')).toBeNull();
+      });
+
+      it('does not open the full row menu as well', async () => {
+        aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        await screen.findAllByRole('menuitemradio');
+        expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
+      });
     });
 
     it('draws no ✓ on an Inbox row, whose menu still offers Status ▸ Done', async () => {
