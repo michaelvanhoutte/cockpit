@@ -195,12 +195,28 @@ test.describe('Capture', () => {
       await expect(capturedLine(page, thought).getByRole('button', { name: 'Undo' })).toBeInViewport();
       await expectNoSidewaysScroll(page);
       await press(addToThis, isMobile);
-      const added = uniqueTitle('about the boiler');
+      const added = uniqueTitle(`about the boiler ${'and the radiators upstairs '.repeat(15)}`.trim());
       await captureBox(page).fill(added);
       const landed = page.waitForResponse((response) => response.url().endsWith('/v1/commands/append_to_item'));
       await press(page.getByRole('button', { name: 'Capture' }), isMobile);
       await expect(page.getByText(`Added to “${thought}”`)).toBeVisible();
       expect((await landed).status()).toBe(200);
+
+      // Lit again, the Adding to panel holds the note and the long addition
+      // (issue 1799). Only a real layout shows it capped and scrolling within
+      // itself, with the box and Capture still in view; its content is
+      // CaptureNote.test.tsx's.
+      await press(addToThis, isMobile);
+      const panel = page.getByRole('group', { name: 'Adding to' });
+      await expect(panel).toBeVisible();
+      const { client, scroll } = await panel.evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
+      expect(client).toBeLessThanOrEqual(130);
+      expect(scroll).toBeGreaterThan(client);
+      await expect(captureBox(page)).toBeInViewport();
+      await expect(page.getByRole('button', { name: 'Capture' })).toBeInViewport();
+      await expectNoSidewaysScroll(page);
+      await press(page.getByRole('button', { name: 'Stop adding to this Item' }), isMobile);
+      await expect(panel).toHaveCount(0);
       await closeCapture(page, isMobile);
 
       await expect(itemRow(page, thought)).toHaveCount(1);
@@ -213,43 +229,6 @@ test.describe('Capture', () => {
       await expect(details.getByText(thought, { exact: true })).toBeVisible();
       await expect(details.getByText(added, { exact: true })).toBeVisible();
       await expect(details.getByText(/^Added /)).toBeVisible();
-    });
-
-    test('keeps a long Adding to panel scrolling within itself, with the box and Capture still in view', async ({
-      page,
-      isMobile,
-    }) => {
-      // "Capture: Add to this lit shows what you are adding to" (issue 1799).
-      // Only a real layout shows the panel's height and what stays visible; the
-      // panel's content is CaptureNote.test.tsx's. At a desk and on a phone alike.
-      await openInbox(page, isMobile);
-      await openCapture(page, isMobile);
-      const thought = uniqueTitle(`Ring the plumber ${'about the long leak '.repeat(12)}`);
-      await captureBox(page).fill(thought);
-      await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-      await expect(capturedLine(page, thought.slice(0, 20))).toBeVisible();
-
-      const addToThis = page.getByRole('button', { name: 'Add to this' });
-      for (let one = 1; one <= 5; one++) {
-        await press(addToThis, isMobile);
-        await captureBox(page).fill(uniqueTitle(`addition ${one} ${'with more words '.repeat(6)}`));
-        await press(page.getByRole('button', { name: 'Capture' }), isMobile);
-        await expect(addToThis).toHaveAttribute('aria-pressed', 'false');
-      }
-
-      await press(addToThis, isMobile);
-      const panel = page.getByRole('group', { name: 'Adding to' });
-      await expect(panel).toBeVisible();
-      // Capped, and holding more than it shows.
-      const { client, scroll } = await panel.evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
-      expect(client).toBeLessThanOrEqual(130);
-      expect(scroll).toBeGreaterThan(client);
-      await expect(captureBox(page)).toBeInViewport();
-      await expect(page.getByRole('button', { name: 'Capture' })).toBeInViewport();
-      await expectNoSidewaysScroll(page);
-
-      await press(page.getByRole('button', { name: 'Stop adding to this Item' }), isMobile);
-      await expect(panel).toHaveCount(0);
     });
 
     test('says when the note just captured repeats another, until the next capture', async ({
