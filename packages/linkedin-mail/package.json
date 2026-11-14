@@ -1,0 +1,24 @@
+{
+  "name": "@cockpit/linkedin-mail",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reads a LinkedIn message email as a turn of the LinkedIn conversation it names. Pure: it knows no mail provider, so any mail connector may use it.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:fast": "pnpm test:unit",
+    "test:all": "pnpm test:unit",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@cockpit/config": "workspace:*",
+    "@vitest/coverage-v8": "4.1.10",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.10"
+  }
+}

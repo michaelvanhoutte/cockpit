@@ -48,6 +48,8 @@ exemptFromSources:
 # shared contract, not the app. `scope` is the prefix of our own packages.
 connectorRule:
   sdk: '@cockpit/connector-sdk'
+  # Also allowed, with why: a pure reader both mail connectors share (docs/architecture.yml, the connector import rule).
+  also: ['@cockpit/linkedin-mail']
   scope: '@cockpit/'
 
 # Areas every other area reads, so their cells on the Dependencies view are
@@ -161,9 +163,12 @@ layers:
         description: 'Shared tsconfig and formatting config for the monorepo; no code runs from it.'
 
   - title: Connector packages
-    note: A connector imports the connector SDK and nothing else of ours.
+    note: A connector imports the connector SDK and nothing else of ours, except that a mail connector may also import the LinkedIn mail reader.
     role: connector
     areas:
+      - path: packages/linkedin-mail
+        name: 'linkedin-mail'
+        description: 'Reads a LinkedIn message email as a turn of the conversation it names. Pure, with no mail provider in it, so Gmail and Outlook read it the same way.'
       - path: packages/connectors/teams
         name: 'connectors/teams'
         description: 'The Microsoft Teams connector: a Save to Cockpit message action, verified as a genuine Bot Framework call.'
@@ -239,6 +244,7 @@ design:
       drawInside: true
       items:
         - - { id: sdk }
+          - { id: linkedin-mail }
         - - { id: gmail }
           - { id: outlook }
           - { id: teams }

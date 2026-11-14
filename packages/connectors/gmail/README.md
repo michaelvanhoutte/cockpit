@@ -197,13 +197,15 @@ so); replace them with a captured one when there is one.
   message* (*Bekijk bericht*) button.
 - **A later notification is found by sender, not by thread.** While an open Item
   follows a LinkedIn conversation, each page of history that added mail also
-  asks `messages.list` for `from:messages-noreply@linkedin.com` (the newest
-  100) and reads in full only the added messages that are among them, the one
+  asks `messages.list` for mail from either of LinkedIn's message senders,
+  `messages-noreply@linkedin.com` and `messaging-digest-noreply@linkedin.com`
+  (the newest 100) and reads in full only the added messages that are among them, the one
   place the connector reads a message outside a followed Gmail conversation.
   With no LinkedIn conversation followed, that call is not made. A notification
   that is no longer among the newest 100 when its page is read, after a long
-  backlog, is missed. The notification sender is a constant; if LinkedIn changes
-  it, turns stop and the line goes stale.
+  backlog, is missed. The senders are constants of `@cockpit/linkedin-mail`, the pure reader
+  Gmail shares with the other mail connectors; if LinkedIn adds or changes one,
+  turns stop and the line goes stale.
 - **A star on another notification of a followed conversation adds to its Item**
   and makes no second one.
 

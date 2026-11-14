@@ -160,6 +160,8 @@ describe('Modules', () => {
     it.each([
       { situation: 'only the SDK, third-party packages and its own files', files: { 'src/a.ts': "import { x } from '@cockpit/connector-sdk';\nimport { jwtVerify } from 'jose';\nimport { y } from './b.js';\nexport * from '../src/c.js';" }, expected: [] },
       { situation: 'a file of the SDK, by its own path', files: { 'src/a.ts': "import { x } from '@cockpit/connector-sdk/extra';" }, expected: [] },
+      { situation: 'the one pure reader the rule also allows', files: { 'src/a.ts': "import { linkedInMessageIn } from '@cockpit/linkedin-mail';" }, expected: [] },
+      { situation: 'a file of the allowed reader, which is not the reader itself', files: { 'src/a.ts': "import x from '@cockpit/linkedin-mail/src/reader';" }, expected: [{ file: 'src/a.ts', import: '@cockpit/linkedin-mail/src/reader' }] },
       { situation: 'the shared contract', files: { 'src/a.ts': "import type { Item } from '@cockpit/shared';" }, expected: [{ file: 'src/a.ts', import: '@cockpit/shared' }] },
       { situation: 'the app, by a path out of the package', files: { 'src/a.ts': "import { app } from '../../../../apps/api/src/http/app.js';" }, expected: [{ file: 'src/a.ts', import: '../../../../apps/api/src/http/app.js' }] },
       { situation: 'another package, from a dynamic import', files: { 'src/a.ts': "const m = await import('@cockpit/web');" }, expected: [{ file: 'src/a.ts', import: '@cockpit/web' }] },
