@@ -1245,7 +1245,7 @@ function TheForm({
    * once behind Save ("Save a docked item's fields as you finish them, not
    * behind one Save button", issue 483): a form meant to stay open for a while
    * has no session boundary for Save to be, and would sit holding an hour of
-   * unsaved edits. The same four commands `save` sends, one per field.
+   * unsaved edits. The same commands `save` sends, one per field.
    *
    * **Handed to the queue at the gesture, each reading the boxes as they are
    * then.** A blur and the next blur can land a round trip apart, and a second
