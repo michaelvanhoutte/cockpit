@@ -611,7 +611,7 @@ describe('Item editing', () => {
 
         await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
         expect(held.send).toHaveBeenCalledTimes(1);
-        expect(held.send.mock.calls[0]![0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: 'Call Tom' } });
+        expect(sent()[0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: 'Call Tom' } });
       });
 
       it('changes nothing on Cancel', async () => {
@@ -631,7 +631,7 @@ describe('Item editing', () => {
         await user.tab();
 
         await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_next_action']));
-        expect(held.send.mock.calls[0]![0]).toMatchObject({ payload: { nextAction: 'Call Tom' } });
+        expect(sent()[0]).toMatchObject({ payload: { nextAction: 'Call Tom' } });
       });
 
       it('clears it when the field is emptied, docked', async () => {
@@ -643,7 +643,7 @@ describe('Item editing', () => {
         await user.tab();
 
         await waitFor(() => expect(sent()).toHaveLength(1));
-        expect(held.send.mock.calls[0]![0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: '' } });
+        expect(sent()[0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: '' } });
       });
 
       it('holds 200 characters', async () => {
