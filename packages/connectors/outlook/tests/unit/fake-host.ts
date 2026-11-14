@@ -20,6 +20,8 @@ import type {
  */
 export class FakeHost implements ConnectorHost {
   choice: string | null;
+  /** Your Cockpit alias as the connection holds it (issue 1760); none unless a case sets one. */
+  ownAlias: string | null;
   state: unknown = null;
   credential: Record<string, string>;
   readonly filed = new Map<string, SourceItem>();
@@ -36,14 +38,15 @@ export class FakeHost implements ConnectorHost {
   readonly credentialsSaved: Record<string, string>[] = [];
   readonly logged: { level: string; message: string; data?: unknown }[] = [];
 
-  constructor(options: { choice?: string | null; credential: Record<string, string> }) {
+  constructor(options: { choice?: string | null; ownAlias?: string | null; credential: Record<string, string> }) {
     this.choice = options.choice === undefined ? 'flag' : options.choice;
+    this.ownAlias = options.ownAlias ?? null;
     this.credential = options.credential;
   }
 
   /** The next run of the same connection: what this one saved, a clean record of what it is handed. */
   next(): FakeHost {
-    const next = new FakeHost({ choice: this.choice, credential: this.credential });
+    const next = new FakeHost({ choice: this.choice, ownAlias: this.ownAlias, credential: this.credential });
     next.state = this.state;
     for (const [id, item] of this.filed) next.filed.set(id, item);
     for (const id of this.following) next.following.add(id);

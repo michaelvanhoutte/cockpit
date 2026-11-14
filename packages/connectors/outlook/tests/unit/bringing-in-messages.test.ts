@@ -34,6 +34,7 @@ describe('Capture', () => {
           messageCount: 1,
           startedAt: '2026-10-01T08:30:00.000Z',
           withWhom: 'Pieter Claes',
+          othersOnIt: true,
         },
       });
     });

@@ -26,7 +26,7 @@ export function isConnectionChange(path: string): boolean {
   return (
     /^\/v1\/workspaces\/[^/]+\/connections\//.test(path) ||
     /^\/v1\/connections\//.test(path) ||
-    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name|set_connection_due_in_days|set_email_address)$/.test(
+    /^\/v1\/commands\/(connect_source_account|disconnect_source_account|set_connection_choice|set_connection_files_by_name|set_connection_due_in_days|set_connection_own_alias|set_email_address)$/.test(
       path,
     )
   );

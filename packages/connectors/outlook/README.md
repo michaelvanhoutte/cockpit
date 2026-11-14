@@ -145,8 +145,10 @@ Following the category is per message, as before.
   message the run has not read, in a conversation no open Item follows
   (`followedConversations`), is read in full and its conversation read whole
   (`messages?$filter=conversationId eq '…'`, drafts and Deleted Items left out),
-  then emitted with where the conversation stands: the latest message (yours if
-  in Sent Items), the count, the first message's time, who it is with. The
+  then emitted with where the conversation stands: the latest message (yours as
+  for a turn, below), the count, the first message's time, who it is with, and
+  whether anyone but you and the alias is a sender, To or Cc of any message in
+  it (`othersOnIt`). The
   flagged message gives the title, text and sender. The host answering
   `already-known` is reported reopened, which is how flagging again after Done
   reopens the same Item. A message in a conversation already followed costs no
@@ -154,13 +156,21 @@ Following the category is per message, as before.
   Item closes when no message of its conversation is flagged.
 - **A turn is any message received since the last run**, one read of the whole
   mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
-  with `$select` of the id, conversation, folder, sender, time and
+  with `$select` of the id, conversation, folder, sender, To, Cc, time and
   `bodyPreview`, cut where quoted earlier mail starts (an underscore line,
   `From:`/`Van:` then `Sent:`/`Verzonden:`, `On … wrote:`/`Op … schreef …:`), and
   its `webLink`, which Open then goes to. Each message in a followed conversation is reported once the
   host asks (`reportTurn`; it changes nothing for one already reported). **Yours
-  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), not
-  a From comparison, so a send-as alias still counts. Drafts and Deleted Items
+  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), so
+  a send-as alias still counts, **or one sent from an address you send from or
+  from your Cockpit alias**, wherever it is filed, so the alias's copy of a mail
+  you sent, delivered to your Inbox, is yours too ("Outlook capture: a mail you
+  Cc to your Cockpit alias arrives To do…", issue 1760). An address you
+  send from is the sender of any message seen in Sent Items, compared without
+  case; a run keeps the ones it has seen in its state (`sendsFrom`, at most 20),
+  since the alias's copy and its Sent Items copy need not be in one read. Each
+  turn also says whether anyone else is on it: a sender, To or Cc that is not
+  you or the alias (`othersOnIt`). Bcc is never on a copy received. Drafts and Deleted Items
   are not turns. Nothing is read while no Item follows a conversation. A read
   cut short by the call budget keeps the time of the last message reported and
   answers that there is more to do; a complete one restarts five minutes

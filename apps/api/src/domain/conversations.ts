@@ -8,6 +8,18 @@ import { dueDateOnArrival } from './due-in-days.js';
  * "Connectors: plugin-shaped, host-blind"). Pure, as every domain handler is.
  */
 
+/**
+ * Who a turn counts as for the Item's status ("Outlook capture: a mail you Cc
+ * to your Cockpit alias arrives To do…", issue 1760): **yours waits only where
+ * someone else is on the conversation**, so your message on one with nobody
+ * else on it is a note and counts as theirs would, To do. A source that does not
+ * say whether anyone else is on it (`othersOnIt` absent) is taken as saying yes,
+ * so it behaves as it always did.
+ */
+export function turnCountsAs(by: ConversationTurnBy, othersOnIt: boolean | undefined): ConversationTurnBy {
+  return by === 'you' && othersOnIt === false ? 'them' : by;
+}
+
 /** The days a turn's due date is counted with: the connection's, where it gives some, and the Follow-ups delay. */
 export interface TurnDays {
   connectionDays: number | null;

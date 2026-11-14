@@ -36,7 +36,7 @@ import {
   claudeSessionLink,
 } from './domain/claude-send.js';
 import { claudeProposalsSchema } from './domain/claude-proposal.js';
-import { dueInDaysSchema } from './domain/source-account.js';
+import { dueInDaysSchema, ownAliasSchema } from './domain/source-account.js';
 import { emailLocalPartSchema } from './domain/email-address.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
@@ -747,6 +747,8 @@ export const followConversationSchema = commandEnvelopeSchema.extend({
   withWhom: z.string().max(TITLE_LENGTH).nullable(),
   /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
   connectionDays: dueInDaysSchema.nullable(),
+  /** As `record_conversation_turn`'s: whether anyone but you is on the conversation, where the source says. */
+  othersOnIt: z.boolean().optional(),
   /**
    * The draft *Email…* or *Reply…* made in it ("Email… makes a Gmail draft the
    * Item then follows", issue 1708), recorded under the click that asked for it
@@ -813,7 +815,8 @@ export type DropDraftCommand = z.infer<typeof dropDraftSchema>;
  * record_conversation_turn - a message in a conversation an Item follows, as its
  * source reported it (issue 1705). **The core decides what it does to the
  * Item** (`applyConversationTurn`, apps/api/src/domain/conversations.ts): yours
- * makes it Waiting for reply, due after the Follow-ups delay; theirs makes it To
+ * makes it Waiting for reply, due after the Follow-ups delay, where anyone else
+ * is on the conversation (`othersOnIt`), and is a note otherwise; theirs makes it To
  * do, due after `connectionDays`, else the Follow-ups delay; on a finished or
  * dismissed Item, nothing. Its id derives from the message, so a turn read twice
  * is applied once. Self-sent, by the account's store on a pulled check.
@@ -837,6 +840,13 @@ export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
    * than the one it had. Leaves where the conversation stands as it is.
    */
   standing: z.literal(true).optional(),
+  /**
+   * Whether anyone but you is on the conversation, as its source read it
+   * ("Outlook capture: a mail you Cc to your Cockpit alias arrives To do…",
+   * issue 1760): `false` makes your message a note, which leaves the Item To do
+   * rather than waiting. Absent, from a source that does not say, is yes.
+   */
+  othersOnIt: z.boolean().optional(),
 });
 export type RecordConversationTurnCommand = z.infer<typeof recordConversationTurnSchema>;
 
@@ -1102,6 +1112,14 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * reconnect replaces what was stored.
    */
   granted: z.string().min(1).max(40).array().max(10).optional(),
+  /**
+   * Your Cockpit alias on the mailbox, as the person answered it before the
+   * sign-in ("Outlook capture: a mail you Cc to your Cockpit alias arrives To
+   * do…", issue 1760), or `null` for none. Written by the callback route only
+   * for a connector that asks for one. Absent: a new connection starts with
+   * none, and a reconnect leaves the stored one alone.
+   */
+  ownAlias: ownAliasSchema.nullable().optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -1158,6 +1176,21 @@ export const setConnectionDueInDaysSchema = commandEnvelopeSchema.extend({
   dueInDays: dueInDaysSchema.nullable(),
 });
 export type SetConnectionDueInDaysCommand = z.infer<typeof setConnectionDueInDaysSchema>;
+
+/**
+ * set_connection_own_alias - your Cockpit alias on a connection's mailbox, or
+ * `null` for none ("Outlook capture: a mail you Cc to your Cockpit alias
+ * arrives To do…", issue 1760): mail from it counts as yours, and a conversation
+ * with nobody but you and it on it is a note. Offered by the route only for a
+ * connector that asks for one; naming another Workspace's connection is
+ * refused. Read by the next check: an Item already in changes only at its
+ * conversation's next message.
+ */
+export const setConnectionOwnAliasSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  ownAlias: ownAliasSchema.nullable(),
+});
+export type SetConnectionOwnAliasCommand = z.infer<typeof setConnectionOwnAliasSchema>;
 
 /**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
@@ -1287,6 +1320,7 @@ export const commandSchemas = {
   set_connection_choice: setConnectionChoiceSchema,
   set_connection_files_by_name: setConnectionFilesByNameSchema,
   set_connection_due_in_days: setConnectionDueInDaysSchema,
+  set_connection_own_alias: setConnectionOwnAliasSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
   remember_sentence: rememberSentenceSchema,
   edit_remembered_sentence: editRememberedSentenceSchema,

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { SELF, applyD1Migrations, env, runDurableObjectAlarm } from 'cloudflare:test';
-import type { WorkspaceSnapshot } from '@cockpit/shared';
+import { ACCOUNT_WIDE, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import { OUTLOOK_CALLS_PER_RUN } from '../../../src/connectors/registry.js';
 import { ACCOUNT_NAME, WORKSPACE_ID, asUser, inTheStore, seedRegister, signInAs, startFromEmpty, storeNamed } from '../seed.js';
 import { issuerIsForgotten, issuerIsReachable, issuerWillIdentify, refreshes } from '../issuer.js';
 import { graphAdds, graphCalls, graphHolds, graphMessage } from '../graph.js';
-import { SENT_ITEMS_ID, type MessageOptions } from '../../../../../packages/connectors/outlook/tests/graph-payloads.js';
+import { MAILBOX, SENT_ITEMS_ID, type MessageOptions } from '../../../../../packages/connectors/outlook/tests/graph-payloads.js';
 
 /**
  * Integration level: an Outlook connection following the flag, run by the
@@ -89,11 +89,12 @@ async function nextCheckRuns(): Promise<void> {
   }
 }
 
-/** Connect on the Outlook card choosing the flag - the whole trip through Microsoft - and its first check. */
-async function connectedByFlag(): Promise<void> {
+/** Connect on the Outlook card choosing the flag - with your Cockpit alias, where one is given - the whole trip through Microsoft, and its first check. */
+async function connectedByFlag(ownAlias?: string): Promise<void> {
   const session = await signInAs();
+  const alias = ownAlias === undefined ? '' : `&${new URLSearchParams({ ownAlias })}`;
   const started = await SELF.fetch(
-    `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/outlook/connect?choice=flag&filesByName=false`,
+    `http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections/outlook/connect?choice=flag&filesByName=false${alias}`,
     { redirect: 'manual', headers: { cookie: session } },
   );
   const asked = new URL(started.headers.get('location')!);
@@ -272,6 +273,92 @@ describe('Triage', () => {
       await nextCheckRuns();
 
       expect(await turnsLogged()).toEqual([]);
+    });
+  });
+
+  // Issue 1760. A connector that does not say who else is on it (Gmail) still
+  // waits on your message: conversations-on-the-host.test.ts, "status follows
+  // who wrote last from the moment a conversation is followed".
+  describe('your message makes the Item Waiting for reply only when someone else is on the conversation; theirs makes it To do', () => {
+    const ALIAS = { name: 'Cockpit', address: 'cockpit@conselit.be' };
+    const CLIENT = { name: 'Client', address: 'client@example.com' };
+
+    /** Your mail, as Exchange files it: the copy in Sent Items, and the alias's copy delivered to the Inbox, flagged by your rule. */
+    function youSend(id: string, to: { name: string; address: string }[], cc: { name: string; address: string }[] = [], flagged = true): MessageOptions[] {
+      const at = later();
+      return [
+        { id: `${id}-sent`, conversation: 'c-1', folder: SENT_ITEMS_ID, from: MAILBOX, to, cc, receivedAt: at, subject: 'Offer' },
+        { id: `${id}-copy`, conversation: 'c-1', from: MAILBOX, to, cc, receivedAt: at, subject: 'Offer', ...(flagged ? { flag: 'flagged' as const } : {}) },
+      ];
+    }
+
+    async function followUpDays(days: number): Promise<void> {
+      const res = await asUser('http://cockpit.test/v1/commands/set_follow_up_days', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commandId: crypto.randomUUID(), issuedAt: now().toISOString(), workspaceId: ACCOUNT_WIDE, days }),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    /** The calendar day `days` after the day of `at`, as a connection on an account with no capture zone counts it (UTC). */
+    function daysAfter(at: string, days: number): string {
+      return new Date(Date.parse(`${at.slice(0, 10)}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    }
+
+    it('captures a mail to your alias alone To do, not waiting', async () => {
+      graphHolds(youSend('note', [ALIAS]));
+      await connectedByFlag(ALIAS.address);
+
+      const item = await theItem('conversation:c-1');
+      expect(statusOf(item)).toBe('to do');
+      expect(item.conversation).toEqual(expect.objectContaining({ lastBy: 'you' }));
+    });
+
+    it('captures a mail to a client with your alias in Cc Waiting for reply, due after the Follow-ups delay; your chase moves the date, their reply makes it To do', async () => {
+      await followUpDays(7);
+      graphHolds(youSend('offer', [CLIENT], [ALIAS]));
+      await connectedByFlag(ALIAS.address);
+
+      const waiting = await theItem('conversation:c-1');
+      expect(statusOf(waiting)).toBe('waiting');
+      expect(waiting.dueDate).toBe(daysAfter(waiting.waitingSince!, 7));
+
+      await followUpDays(10);
+      graphAdds(youSend('chase', [CLIENT], [ALIAS], false));
+      await nextCheckRuns();
+      const chased = await theItem('conversation:c-1');
+      expect((await outlookItems()).map((item) => item.id)).toEqual([waiting.id]);
+      expect(statusOf(chased)).toBe('waiting');
+      expect(chased.waitingSince).toBe(waiting.waitingSince);
+      expect(chased.dueDate).toBe(daysAfter(chased.updatedAt, 10));
+
+      graphAdds([{ id: 'answer', conversation: 'c-1', from: CLIENT, to: [MAILBOX], cc: [ALIAS], receivedAt: later() }]);
+      await nextCheckRuns();
+      expect(statusOf(await theItem('conversation:c-1'))).toBe('to do');
+    });
+
+    it('leaves an Item followed before the alias was set as it was until its conversation’s next message', async () => {
+      // No alias: the alias reads as someone else, so a mail to it alone waits.
+      graphHolds(youSend('note', [ALIAS]));
+      await connectedByFlag();
+      expect(statusOf(await theItem('conversation:c-1'))).toBe('waiting');
+
+      const [connection] = ((await (await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/connections`)).json()) as {
+        sourceAccounts: { id: string }[];
+      }).sourceAccounts;
+      const set = await asUser('http://cockpit.test/v1/commands/set_connection_own_alias', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commandId: crypto.randomUUID(), issuedAt: now().toISOString(), workspaceId: WORKSPACE_ID, sourceAccountId: connection!.id, ownAlias: ALIAS.address }),
+      });
+      expect(set.status).toBe(200);
+      await nextCheckRuns();
+      expect(statusOf(await theItem('conversation:c-1'))).toBe('waiting');
+
+      graphAdds(youSend('more', [ALIAS], [], false));
+      await nextCheckRuns();
+      expect(statusOf(await theItem('conversation:c-1'))).toBe('to do');
     });
   });
 

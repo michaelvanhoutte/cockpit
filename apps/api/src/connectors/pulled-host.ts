@@ -170,6 +170,8 @@ function pulledHost(
 
   return {
     choice: begun.choice,
+    // Beside the choice, as the connection holds it now (issue 1760).
+    ownAlias: begun.ownAlias,
 
     log: (level, message, data) => logged(connectorId, level, message, data),
 

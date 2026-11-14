@@ -50,6 +50,8 @@ interface GraphMessage {
   categories?: unknown;
   subject?: unknown;
   from?: { emailAddress?: { name?: unknown; address?: unknown } | null } | null;
+  toRecipients?: unknown;
+  ccRecipients?: unknown;
   body?: { contentType?: unknown; content?: unknown } | null;
   uniqueBody?: { contentType?: unknown; content?: unknown } | null;
   webLink?: unknown;
@@ -329,23 +331,91 @@ export function conversationIdIn(sourceId: string): string | null {
   return sourceId.startsWith(CONVERSATION_PREFIX) ? sourceId.slice(CONVERSATION_PREFIX.length) : null;
 }
 
-/** What is asked of a message to place it in a conversation, or to report it as a turn of one. */
-export const TURN_FIELDS = 'id,conversationId,parentFolderId,from,receivedDateTime,bodyPreview,isDraft,webLink,flag';
+/**
+ * What is asked of a message to place it in a conversation, or to report it as
+ * a turn of one: its To and Cc among it, which say who else is on it (issue
+ * 1760). Bcc is not asked: a copy received never names it.
+ */
+export const TURN_FIELDS =
+  'id,conversationId,parentFolderId,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isDraft,webLink,flag';
 
 /** One message of a conversation or of the mailbox's recent mail, as a turn would carry it. */
 export interface MailTurn {
   readonly messageId: string;
   readonly conversationId: string;
+  /** Yours where it sits in Sent Items or its sender is an address of yours (`asYours`); theirs otherwise. */
   readonly by: 'you' | 'them';
   readonly from: string | null;
   readonly at: string;
   readonly excerpt: string;
   readonly link: string | null;
+  /** Whether it sits in Sent Items. */
+  readonly inSentItems: boolean;
+  /** Its sender's address as compared (`addressKey`), or null where it names none. */
+  readonly fromAddress: string | null;
+  /** The addresses it was sent To and Cc, as compared. */
+  readonly recipients: readonly string[];
+}
+
+/** An address as compared: trimmed, and without regard to case, as mail delivers it. */
+export function addressKey(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+/**
+ * The addresses the mailbox sends from that these messages show: the sender of
+ * each one in Sent Items (issue 1760). Learned from the mail, so no permission
+ * beyond reading it is needed; a conversation you never sent from teaches none.
+ */
+export function sendFromAddresses(turns: readonly MailTurn[]): string[] {
+  return [...new Set(turns.flatMap((one) => (one.inSentItems && one.fromAddress ? [one.fromAddress] : [])))];
+}
+
+/** The addresses that count as you: those the mailbox sends from, and your Cockpit alias where one is set. */
+export function addressesOfYours(alias: string | null, sendFrom: Iterable<string>): Set<string> {
+  const yours = new Set([...sendFrom].map(addressKey));
+  if (alias && alias.trim()) yours.add(addressKey(alias));
+  return yours;
+}
+
+/**
+ * The messages with who wrote each read again (issue 1760): **yours where it
+ * sits in Sent Items, or was sent from an address of yours**, so the alias's
+ * copy of a mail you sent, delivered to your Inbox, is yours too; theirs
+ * otherwise. Pure.
+ */
+export function asYours(turns: readonly MailTurn[], yours: ReadonlySet<string>): MailTurn[] {
+  return turns.map((one) => {
+    const by = one.inSentItems || (one.fromAddress !== null && yours.has(one.fromAddress)) ? 'you' : 'them';
+    return by === one.by ? one : { ...one, by };
+  });
+}
+
+/**
+ * Whether anyone but you is on these messages: a sender, To or Cc recipient
+ * whose address is not among yours (issue 1760). A mail to your alias alone is
+ * then a note; Bcc'ing the alias leaves it off the recipients, so the others
+ * named are on it. Pure.
+ */
+export function othersOn(turns: readonly MailTurn[], yours: ReadonlySet<string>): boolean {
+  return turns.some((one) =>
+    [...(one.fromAddress === null ? [] : [one.fromAddress]), ...one.recipients].some((address) => !yours.has(address)),
+  );
+}
+
+/** The addresses in a To or Cc list, as compared. */
+function addressesIn(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((one: { emailAddress?: { address?: unknown } | null } | null) => {
+    const address = one?.emailAddress?.address;
+    return typeof address === 'string' && address.trim() ? [addressKey(address)] : [];
+  });
 }
 
 /**
  * One page of messages read for their turns: those that are sent (not drafts)
- * and not in Deleted Items, with `by` = `you` for Sent Items. Pure.
+ * and not in Deleted Items, with `by` = `you` for Sent Items - which `asYours`
+ * reads again once the addresses of yours are known. Pure.
  */
 export function turnPage(
   answer: unknown,
@@ -358,6 +428,7 @@ export function turnPage(
     const at = typeof one.receivedDateTime === 'string' ? Date.parse(one.receivedDateTime) : NaN;
     if (!Number.isFinite(at)) continue;
     const inSent = one.parentFolderId === folders.sentItems;
+    const address = one.from?.emailAddress?.address;
     turns.push({
       messageId: one.id,
       conversationId: conversationIdOf(one),
@@ -366,6 +437,9 @@ export function turnPage(
       at: new Date(at).toISOString(),
       excerpt: cutTo(oneLine(withoutQuotedText(typeof one.bodyPreview === 'string' ? one.bodyPreview : '')), 280),
       link: typeof one.webLink === 'string' && one.webLink ? one.webLink : null,
+      inSentItems: inSent,
+      fromAddress: typeof address === 'string' && address.trim() ? addressKey(address) : null,
+      recipients: [...addressesIn(one.toRecipients), ...addressesIn(one.ccRecipients)],
     });
   }
   return { turns, nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null };

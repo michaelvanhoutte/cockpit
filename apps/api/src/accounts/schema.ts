@@ -2067,6 +2067,16 @@ export const connectorAccounts = sqliteTable(
      * connections by the Connections card.
      */
     granted: text('granted'),
+    /**
+     * Your Cockpit alias on the mailbox, as typed ("Outlook capture: a mail you
+     * Cc to your Cockpit alias arrives To do…", issue 1760), or null for none:
+     * every connection made before it (`0107-connector-accounts-own-alias`,
+     * changes.ts) and every one whose connector asks for none. Written by
+     * Connect and `set_connection_own_alias`; read by the check for its own row
+     * and handed to the connector beside the choice. No index: never filtered or
+     * sorted on.
+     */
+    ownAlias: text('own_alias'),
   },
   (t) => [
     // What the window reads: one Workspace's accounts, oldest first.

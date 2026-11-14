@@ -80,6 +80,7 @@ import {
   applyStartDraft,
   statusBeforeDraftIn,
   statusBeforeDraftOf,
+  turnCountsAs,
   turnDueDate,
 } from '../domain/conversations.js';
 import { recordOfSend } from '../domain/claude-send-records.js';
@@ -1042,13 +1043,16 @@ function turnApplied(
   by: ConversationTurnBy,
   issuedAt: string,
   connectionDays: number | null,
+  othersOnIt: boolean | undefined,
 ): Item | null {
   if (item.completedAt !== null || item.deletedAt !== null) return null;
-  const dueDate = turnDueDate(by, issuedAt, recentCapturedTimeZones(db, tenantId), {
+  // Your message on a conversation nobody else is on is a note (issue 1760).
+  const counted = turnCountsAs(by, othersOnIt);
+  const dueDate = turnDueDate(counted, issuedAt, recentCapturedTimeZones(db, tenantId), {
     connectionDays,
     followUpDays: getFollowUpDays(db, tenantId),
   });
-  return applyConversationTurn(item, { by, recordedAt: issuedAt }, dueDate);
+  return applyConversationTurn(item, { by: counted, recordedAt: issuedAt }, dueDate);
 }
 
 /**
@@ -2316,6 +2320,8 @@ export function runCommand<N extends CommandName>(
             // What the source granted, for a connector that asks in tiers
             // (issue 1754).
             granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
+            // And your Cockpit alias, for a connector that asks for one (issue 1760).
+            ownAlias: cmd.ownAlias ?? null,
           })
           // **Named at the account, not at the id, and that is the rule
           // rather than a detail**: connecting the same tenant+account again
@@ -2349,6 +2355,8 @@ export function runCommand<N extends CommandName>(
               // Asked from the top again on a reconnect, so what it got now
               // replaces what the connection held, more or less (issue 1754).
               granted: cmd.granted ? JSON.stringify(cmd.granted) : null,
+              // And the alias, answered as the days are (issue 1760).
+              ...(cmd.ownAlias !== undefined ? { ownAlias: cmd.ownAlias } : {}),
             },
           })
           .run();
@@ -2501,6 +2509,24 @@ export function runCommand<N extends CommandName>(
         if (held.dueInDays !== cmd.dueInDays) {
           tx.update(connectorAccounts)
             .set({ dueInDays: cmd.dueInDays, updatedAt: cmd.issuedAt })
+            .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_connection_own_alias': {
+      const cmd = payload as CommandPayload<'set_connection_own_alias'>;
+      // Refused as `set_connection_due_in_days` refuses; that the connector
+      // asks for an alias is the route's to check (issue 1760). Read by the
+      // next check: nothing already in is changed here.
+      const held = getSourceAccount(db, tenantId, cmd.sourceAccountId);
+      if (!held || held.workspaceId !== cmd.workspaceId) throw new SourceAccountNotFoundError(cmd.sourceAccountId);
+      db.transaction((tx) => {
+        if (held.ownAlias !== cmd.ownAlias) {
+          tx.update(connectorAccounts)
+            .set({ ownAlias: cmd.ownAlias, updatedAt: cmd.issuedAt })
             .where(and(eq(connectorAccounts.tenantId, tenantId), eq(connectorAccounts.id, cmd.sourceAccountId)))
             .run();
         }
@@ -2738,7 +2764,7 @@ export function runCommand<N extends CommandName>(
         applied = false;
         break;
       }
-      const updated = turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays);
+      const updated = turnApplied(db, tenantId, existing, cmd.latest.by, cmd.issuedAt, cmd.connectionDays, cmd.othersOnIt);
       if (updated && !existing.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         tx.insert(itemConversations)
@@ -2799,7 +2825,7 @@ export function runCommand<N extends CommandName>(
       // draft's own stamp whatever the two clocks say, and is its first.
       const opening = statusBeforeDraftIn(followed?.statusBeforeDraft ?? null)?.opened === true && cmd.standing !== true;
       const newer = followed !== undefined && (cmd.standing === true || opening || cmd.at > followed.lastAt);
-      const updated = newer ? turnApplied(db, tenantId, existing, cmd.by, cmd.issuedAt, cmd.connectionDays) : null;
+      const updated = newer ? turnApplied(db, tenantId, existing, cmd.by, cmd.issuedAt, cmd.connectionDays, cmd.othersOnIt) : null;
       if (!followed || updated === null) {
         db.insert(commands).values(commandRow).run();
         applied = false;
