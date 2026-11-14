@@ -15,7 +15,7 @@ import { tabMemory } from '../updating';
 import { CommandRefused, uploadAttachment } from '../api/client';
 import { snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
-import { timeOfDayLabel } from '../dateFormat';
+import { addedLabel } from '../dateFormat';
 import { useDrawnSelect } from '../api/useSnapshot';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
@@ -693,6 +693,7 @@ export function CaptureNote({
       due: dueAtSubmit,
       filed: panelIds.length > 0 ? filedAtSubmit.filter((one) => one.workspaceId === targetWorkspace) : [],
       files: queuedAtSubmit.map((one) => one.file),
+      capturedAt: new Date().toISOString(),
     });
     // Empties the box of what was captured and nothing typed or dropped since.
     const emptied = () => {
@@ -986,15 +987,15 @@ export function CaptureNote({
       <div className="order-1 mt-2.5 flex w-full flex-col rounded-md border border-shade/10 bg-field shadow-field focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft/40 sm:order-none sm:mt-4 sm:min-h-56 sm:shrink-0 sm:resize-y sm:overflow-auto">
         {/* While Add to this is lit: what the next note goes onto, as the form
             remembers it (issue 1799). Greyed and not editable; a click on it
-            goes to the box below. Capped and scrolling, so the box and the
-            Capture button stay in view. */}
+            goes to the box below, but a drag still selects its words to copy.
+            Capped and scrolling, so the box and the Capture button stay in view. */}
         {adding && last && (
           <div
             role="group"
             aria-label="Adding to"
-            onMouseDown={(e) => {
+            onClick={(e) => {
               if ((e.target as HTMLElement).closest('button')) return;
-              e.preventDefault();
+              if (window.getSelection()?.toString()) return;
               theNote()?.focus();
             }}
             className="m-2.5 mb-0 flex max-h-28 shrink-0 flex-col gap-1.5 overflow-y-auto rounded-md bg-shade/5 px-3 py-2.5 text-sm text-ink-soft"
@@ -1013,7 +1014,7 @@ export function CaptureNote({
             <p className="whitespace-pre-wrap break-words">{last.message}</p>
             {(last.additions ?? []).map((one, at) => (
               <p key={at} className="whitespace-pre-wrap break-words">
-                <span className="text-[11px] text-ink-faint">Added {timeOfDayLabel(one.at)} · </span>
+                <span className="text-[11px] text-ink-faint">Added {addedLabel(one.at, last.capturedAt)} · </span>
                 {one.text}
               </p>
             ))}
@@ -1572,6 +1573,8 @@ interface Captured {
    * new capture, and gone with the line.
    */
   additions?: { text: string; at: string }[];
+  /** When it was kept, so an addition on another day is headed with its date, as Details heads it. */
+  capturedAt: string;
 }
 
 /** A dropped, pasted, chosen or put-back file, as a chip in the box. */
