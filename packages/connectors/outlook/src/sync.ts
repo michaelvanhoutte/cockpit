@@ -264,6 +264,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
               dueReported[conversationKey(conversationId)] = dueDay ?? '';
               followed!.add(conversationId);
             }
+          } else if (dueReported[conversationKey(conversationId)] === undefined) {
+            // Joins an Item that is already followed: its day is not the baseline, and is reported next run.
+            dueReported[conversationKey(conversationId)] = '';
           }
         } else {
           const names = await bringIn(host, mailbox, mark, listing.deletedItems, messageId, now);

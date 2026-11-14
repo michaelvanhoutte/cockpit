@@ -173,6 +173,41 @@ describe('Capture', () => {
       expect(next.daysReported).toEqual([{ sourceId: 'm-1', dueDay: '2026-11-24' }]);
     });
 
+    it('reports the day of a flag put on a conversation the host already follows, at the next run', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { flag: 'flagged', conversation: 'c-1', flagDue: at(DAY) });
+      const host = signedInHost();
+      host.following.add('c-1');
+
+      await world.connector().sync(host);
+      const next = host.next();
+      await world.connector().sync(next);
+
+      expect(host.daysReported).toEqual([]);
+      expect(next.daysReported).toEqual([{ sourceId: 'conversation:c-1', dueDay: DAY }]);
+    });
+
+    it('takes the day as where it starts for a conversation read before, and reports a change after', async () => {
+      const { world, host } = await (async () => {
+        const w = new GraphWorld();
+        w.arrives('m-1', { flag: 'flagged', conversation: 'c-1', flagDue: at(DAY) });
+        const h = signedInHost();
+        await w.connector().sync(h);
+        return { world: w, host: h };
+      })();
+      host.state = { ...(host.state as object), due: {} };
+      world.dueOn('m-1', '2026-11-24');
+
+      const first = host.next();
+      await world.connector().sync(first);
+      world.dueOn('m-1', '2026-11-27');
+      const second = first.next();
+      await world.connector().sync(second);
+
+      expect(first.daysReported).toEqual([]);
+      expect(second.daysReported).toEqual([{ sourceId: 'conversation:c-1', dueDay: '2026-11-27' }]);
+    });
+
     it('reports a day given later to a conversation already in that had none', async () => {
       const world = new GraphWorld();
       world.arrives('m-1', { flag: 'flagged', conversation: 'c-1' });

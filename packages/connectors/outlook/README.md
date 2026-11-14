@@ -206,7 +206,9 @@ Following the category is per message, as before.
   `NAMES_REPORTED_PER_RUN` with the names. A conversation already in with no
   `due` entry takes its current day (or none, saved as an empty entry) as where
   it starts and reports nothing, so a date the connection or a reply gave is not
-  replaced by a flag's day it had before; only a change after that is reported.
+  replaced by a flag's day it had before; only a change after that is reported. A message flagged
+  in a conversation the host already follows is the exception: its day is
+  reported at the next run.
 
 ## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
 
