@@ -275,7 +275,7 @@ test.describe('Connector management', () => {
   });
 
   test.describe('Outlook brings in the messages flagged there, and Done completes the flag', () => {
-    test('says what to know about the organisation, connects, lands them as Tasks and completes one done', async ({
+    test('says what to know about the organisation, connects with your Cockpit alias, lands them as Tasks, completes one done and changes the alias', async ({
       page,
       isMobile,
     }) => {
@@ -293,12 +293,18 @@ test.describe('Connector management', () => {
       const filesByCategory = outlookAsked.getByRole('checkbox', { name: 'File it on the panel named after its category' });
       await expect(filesByCategory).not.toBeChecked();
       await press(filesByCategory, isMobile);
+      // And your Cockpit alias, under the mark question, which rides the sign-in
+      // and the card names ("Outlook capture: a mail you Cc to your Cockpit alias
+      // arrives To do…", issue 1760). What is stored, refused and handed to the
+      // check is held by apps/api/tests/integration/connectors/own-alias-on-the-connection.test.ts.
+      await outlookAsked.getByRole('textbox', { name: 'Your Cockpit alias' }).fill('cockpit@conselit.be');
       await press(outlookAsked.getByRole('button', { name: 'Connect' }), isMobile);
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const backFromMicrosoft = page.getByRole('dialog', { name: 'Settings' });
       await expect(backFromMicrosoft.getByText('Connected.')).toBeVisible();
       await expect(backFromMicrosoft.getByText('Flagged for follow-up', { exact: true })).toBeVisible();
       await expect(backFromMicrosoft.getByText('Files by category', { exact: true })).toBeVisible();
+      await expect(backFromMicrosoft.getByText('Alias cockpit@conselit.be', { exact: true })).toBeVisible();
 
       // The check connecting queued brings the messages flagged in the stack's
       // stand-in Graph mailbox in as Tasks from Outlook, openable there; Done
@@ -324,6 +330,16 @@ test.describe('Connector management', () => {
       const outlookChecked = await openSettings(page, 'Connections', isMobile);
       await expect(outlookChecked.getByText('Files by category', { exact: true })).toBeVisible();
       await expect(outlookChecked.getByText(/^Checked /)).toBeVisible();
+
+      // Change… changes the alias, and the card names the new one at the click.
+      await chooseRowAction(page, 'michael@example.com', 'Change…', isMobile);
+      const changing = page.getByRole('dialog', { name: 'Change michael@example.com' });
+      const alias = changing.getByRole('textbox', { name: 'Your Cockpit alias' });
+      await expect(alias).toHaveValue('cockpit@conselit.be');
+      await alias.fill('inbox@conselit.be');
+      await press(changing.getByRole('button', { name: 'Save' }), isMobile);
+      await expect(changing).toHaveCount(0);
+      await expect(outlookChecked.getByText('Alias inbox@conselit.be', { exact: true })).toBeVisible();
       await disconnectMichael(page, isMobile);
       await putTheWorkspaceBack(page, workspace, isMobile);
     });

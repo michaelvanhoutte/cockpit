@@ -658,6 +658,27 @@ describe('Capture', () => {
       );
       expect(await turnsLogged()).toHaveLength(1);
     });
+
+    it('makes a later digest email ("just messaged you") about the followed conversation their turn on the same Item', async () => {
+      mailbox = new Mailbox();
+      await connectedByStar();
+      mailbox.receives(linkedInNotification('n-t-1', { id: 'n-1', sentAt: '2026-10-06T09:00:00Z' }));
+      mailbox.star('n-1');
+      await nextCheckRuns();
+      const item = await theItem('n-t-1');
+      await change('wait_for_reply', item.id, { days: 7, timeZone: 'Europe/Brussels' });
+
+      mailbox.receives(
+        linkedInNotification('n-t-2', { id: 'n-2', sentAt: '2026-10-08T07:30:00Z', sender: 'digest', link: 'digest', text: 'Friday works too.' }),
+      );
+      await nextCheckRuns();
+
+      const after = await theItem('n-t-1');
+      expect(statusOf(after)).toBe('to do');
+      expect(after.conversation).toEqual(
+        expect.objectContaining({ lastBy: 'them', lastExcerpt: 'Friday works too.', link: `https://www.linkedin.com/messaging/thread/${THREAD}/` }),
+      );
+    });
   });
 });
 

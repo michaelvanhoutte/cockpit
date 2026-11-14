@@ -48,6 +48,9 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
       // Email… makes a draft whose conversation a check then reads turns for,
       // which only a connection following the flag does (issue 1709).
       startsConversations: { underChoices: ['flag'] },
+      // Your Cockpit alias: mail from it is yours, and a conversation with
+      // nobody but you and it on it is a note (issue 1760).
+      asksOwnAlias: true,
       auth: outlookSignIn(config.issuer),
     },
 

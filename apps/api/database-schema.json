@@ -2420,6 +2420,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "granted"
+            },
+            {
+              "name": "own_alias",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "ownAlias"
             }
           ],
           "indexes": [

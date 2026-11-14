@@ -141,6 +141,7 @@ cockpit:
       name: Connectors
       parts:
         sdk: { name: connector-sdk, what: what a connector is, code: packages/connector-sdk }
+        linkedin-mail: { name: linkedin-mail, what: reads a LinkedIn message email for any mail connector, code: packages/linkedin-mail }
         gmail: { name: gmail, what: implements it, code: packages/connectors/gmail }
         outlook: { name: outlook, what: implements it, code: packages/connectors/outlook }
         teams: { name: teams, what: implements it, code: packages/connectors/teams }
@@ -187,8 +188,8 @@ cockpit:
       question: This order lets engines and connectors import email and auth, which the layers above forbid (Business logic may not call the API layer). Which is right?
       agreed: false
 
-    - rule: A connector package imports the connector SDK and nothing else of ours
-      reason: Plain in-app separation erodes one convenient import at a time; a package that may import only the SDK cannot.
+    - rule: A connector package imports the connector SDK and nothing else of ours, except that a mail connector (gmail, outlook) may also import `@cockpit/linkedin-mail`
+      reason: Plain in-app separation erodes one convenient import at a time; a package that may import only the SDK cannot. The one exception is a pure reader of LinkedIn's message emails, which LinkedIn sends to whichever mailbox the person uses, so both mail connectors read it the same way and a copy in each cannot drift. It imports nothing of ours and knows no mail provider, and the SDK is not its home because it would then hold one source's knowledge.
       source: 'Connectors: plugin-shaped, host-blind ("Decision: plugin-shaped packages behind an SDK")'
       agreed: false
 

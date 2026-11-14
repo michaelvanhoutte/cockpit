@@ -327,6 +327,7 @@ describe('Connector management', () => {
           },
           names: { noun: 'category', example: 'a message with the category' },
           pulled: true,
+          asksOwnAlias: true,
           refusals: OUTLOOK_REFUSALS,
         },
         {

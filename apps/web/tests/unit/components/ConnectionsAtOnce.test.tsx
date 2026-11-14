@@ -83,6 +83,7 @@ const MAIL: SourceAccount = {
   filesByName: false,
   dueInDays: null,
   granted: null,
+  ownAlias: null,
   pulled: true,
   keepsHistory: true,
 };
@@ -96,6 +97,7 @@ const TEAMS: SourceAccount = {
   filesByName: false,
   dueInDays: null,
   granted: null,
+  ownAlias: null,
 };
 
 /** Every change the server has been sent and not yet answered, oldest first. */
