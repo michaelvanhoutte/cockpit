@@ -5,6 +5,7 @@ import { RecurringMark } from './RecurringMark';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import {
   itemHasOpenReadings,
+  asNextAction,
   itemLabel,
   itemStatus,
   panelPlace,
@@ -536,9 +537,13 @@ export function ItemRow({
   const [labelCutOff, setLabelCutOff] = useState(false);
   /** The same, for the "also in…" text beside the label - answered and forgotten the same way, on its own hover. */
   const [alsoInCutOff, setAlsoInCutOff] = useState(false);
+  /** The same, for the Next action line - the title's hover rule applied to it. */
+  const [nextCutOff, setNextCutOff] = useState(false);
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
+  const nextAction = asNextAction(item.nextAction);
   const atSource = openableAtSource(item, sourceNames, messageLinks);
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
   const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
@@ -1410,6 +1415,21 @@ export function ItemRow({
               </span>
             )}
           </span>
+          {/* The Next action, on a line of its own between the title and the
+              source line - on a phone too, where the pills and the source
+              follow it. A row without one has no line at all. */}
+          {nextAction && (
+            <span
+              className="block truncate text-[13px] leading-[18px] text-ink"
+              onPointerEnter={(event) =>
+                setNextCutOff(isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth))
+              }
+              onPointerLeave={() => setNextCutOff(false)}
+              title={nextCutOff ? `Next: ${nextAction}` : undefined}
+            >
+              <span className="font-semibold text-accent-deep">Next:</span> {nextAction}
+            </span>
+          )}
           {/* Where it came from, on one line under the title. Its own element,
               so it is a thing on the row rather than part of a sentence. */}
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">

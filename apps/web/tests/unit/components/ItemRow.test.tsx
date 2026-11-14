@@ -1377,14 +1377,14 @@ describe('Item editing', () => {
       expect(label).not.toHaveAttribute('title');
     });
 
-    it('spells out the label the row drew, not the title underneath it', async () => {
+    it('spells out the title and leaves the next action to its own line', async () => {
       const user = userEvent.setup();
       aRow({ item: anItem({ title: 'Novy', nextAction: 'Ask Novy about part 11' }) });
-      const label = screen.getByText('Ask Novy about part 11');
+      const label = screen.getByText('Novy');
 
       await hoverLabel(user, label, { scrollWidth: 340, clientWidth: 120 });
 
-      expect(label).toHaveAttribute('title', 'Ask Novy about part 11');
+      expect(label).toHaveAttribute('title', 'Novy');
     });
 
     it('leaves the description mark out of what it spells out', async () => {
@@ -1813,6 +1813,73 @@ describe('Triage', () => {
       aRow({ item: anItem(over) });
 
       expect(screen.queryByText(/^Waiting since/)).toBeNull();
+    });
+  });
+});
+
+/**
+ * "Item Next action: rows show it only in place of the title" (issue 1790):
+ * F1, a rendering branch of the row with nothing behind it. Its layout is the
+ * design canvas's artboard "C - Its own line under the title".
+ */
+describe('Item editing', () => {
+  describe('a row shows its Next action on a line of its own under the title, and a row without one looks as before', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const lines = () => {
+      const title = screen.getByText('Make appointment with Novy').parentElement as HTMLElement;
+      return { title, next: screen.queryByText('Next:')?.parentElement ?? null, meta: screen.getByText(/Own/).parentElement as HTMLElement };
+    };
+
+    it.each([
+      { situation: 'at a desk', width: A_DESK },
+      { situation: 'on a phone', width: A_PHONE },
+    ])('puts it between the title line and the source line $situation', ({ width }) => {
+      onAScreen(width);
+      aRow({ item: anItem({ nextAction: 'Confirm 4 Feb to Steven' }) });
+
+      const { title, next, meta } = lines();
+
+      expect(next).toHaveTextContent('Next: Confirm 4 Feb to Steven');
+      expect(title.nextElementSibling).toBe(next);
+      expect(next!.nextElementSibling).toBe(meta);
+    });
+
+    it.each([
+      { situation: 'none at a desk', width: A_DESK, nextAction: null },
+      { situation: 'none on a phone', width: A_PHONE, nextAction: null },
+      { situation: 'only spaces', width: A_DESK, nextAction: '   ' },
+    ])('draws no line for $situation', ({ width, nextAction }) => {
+      onAScreen(width);
+      aRow({ item: anItem({ nextAction }) });
+
+      const { title, next, meta } = lines();
+
+      expect(next).toBeNull();
+      expect(screen.queryByText('Next:')).toBeNull();
+      expect(title.nextElementSibling).toBe(meta);
+    });
+
+    it('keeps the Next action out of the title the row names the Item by', () => {
+      aRow({ item: anItem({ nextAction: 'Confirm 4 Feb to Steven' }) });
+
+      expect(screen.getByText('Make appointment with Novy')).toHaveTextContent(/^Make appointment with Novy$/);
+    });
+
+    it.each([
+      { situation: 'cut off', scrollWidth: 340, clientWidth: 120, spelled: true },
+      { situation: 'drawn whole', scrollWidth: 120, clientWidth: 400, spelled: false },
+    ])('hovered $situation, the line spells it out only when it is cut off', async ({ scrollWidth, clientWidth, spelled }) => {
+      const user = userEvent.setup();
+      aRow({ item: anItem({ nextAction: 'Confirm 4 Feb to Steven' }) });
+      const line = screen.getByText('Next:').parentElement as HTMLElement;
+
+      await hoverLabel(user, line, { scrollWidth, clientWidth });
+
+      if (spelled) expect(line).toHaveAttribute('title', 'Next: Confirm 4 Feb to Steven');
+      else expect(line).not.toHaveAttribute('title');
     });
   });
 });

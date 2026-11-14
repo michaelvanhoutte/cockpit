@@ -417,6 +417,7 @@ function heldUpload() {
 const titleBox = () => screen.getByLabelText('Title');
 const priorityFlag = (level: string) => screen.getByRole('button', { name: `${level} priority` });
 const descriptionBox = () => screen.getByLabelText('Description');
+const nextActionBox = () => screen.getByLabelText('Next action');
 const sent = () =>
   held.send.mock.calls.map((call) => (call as unknown as [{ name: string }])[0]);
 
@@ -579,7 +580,7 @@ describe('Item editing', () => {
       },
     ])('$situation', ({ stored, draft, asks }) => {
       // Nothing waits unless the case says so.
-      const nothingWaits = { waiting: false, wait: null };
+      const nothingWaits = { waiting: false, wait: null, nextAction: '' };
       expect(
         whatChanged(
           { ...nothingWaits, ...(stored ?? { title: 'Part 11', description: '', priority: null, dueDate: null, status: 'to_do' as const, started: false }) },
@@ -598,6 +599,73 @@ describe('Item editing', () => {
 
       await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
       expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']);
+    });
+
+    describe('sets the Next action in a field under the title, by the form’s usual rule', () => {
+      it('changes it on Save, and sends nothing for it before', async () => {
+        const user = await theForm();
+
+        await user.type(nextActionBox(), 'Call Tom');
+        expect(sent()).toHaveLength(0);
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+        expect(held.send).toHaveBeenCalledTimes(1);
+        expect(held.send.mock.calls[0]![0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: 'Call Tom' } });
+      });
+
+      it('changes nothing on Cancel', async () => {
+        const user = await theForm();
+
+        await user.type(nextActionBox(), 'Call Tom');
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(held.send).not.toHaveBeenCalled();
+      });
+
+      it('changes it at once when docked, as the field is left', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm();
+
+        await user.type(nextActionBox(), 'Call Tom');
+        await user.tab();
+
+        await waitFor(() => expect(sent().map((change) => change.name)).toEqual(['set_next_action']));
+        expect(held.send.mock.calls[0]![0]).toMatchObject({ payload: { nextAction: 'Call Tom' } });
+      });
+
+      it('clears it when the field is emptied, docked', async () => {
+        held.itemFormPresentation = 'docked';
+        const user = await theForm(anItem({ nextAction: 'Call Tom' }));
+
+        expect(nextActionBox()).toHaveValue('Call Tom');
+        await user.clear(nextActionBox());
+        await user.tab();
+
+        await waitFor(() => expect(sent()).toHaveLength(1));
+        expect(held.send.mock.calls[0]![0]).toMatchObject({ name: 'set_next_action', payload: { nextAction: '' } });
+      });
+
+      it('holds 200 characters', async () => {
+        const user = await theForm();
+
+        await user.click(nextActionBox());
+        await user.paste('x'.repeat(250));
+
+        expect(nextActionBox()).toHaveValue('x'.repeat(200));
+      });
+
+      it.each([
+        { situation: 'at a desk', width: 1280 },
+        { situation: 'on a phone', width: 390 },
+      ])('sits directly under the title $situation', async ({ width }) => {
+        await atWidth(width, async () => {
+          if (width < 768) await theEditingPhonePage();
+          else await theForm();
+
+          expect(titleBox().closest('label')!.nextElementSibling).toBe(nextActionBox().closest('label'));
+        });
+      });
     });
 
     // Against the live item this inverted: an edit arriving while the form was

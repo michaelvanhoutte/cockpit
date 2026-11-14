@@ -13,6 +13,7 @@ import {
   itemDescriptionSchema,
   itemReadingSchema,
   itemTitleSchema,
+  nextActionSchema,
   panelFitSchema,
   prioritySchema,
   TITLE_LENGTH,
@@ -374,7 +375,7 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   /** Capped where a description is capped, on the way in only (architecture.md §4.4). */
   message: z.string().trim().min(1).max(60_000),
-  nextAction: z.string().optional(),
+  nextAction: nextActionSchema.optional(),
   /**
    * Whether the envelope's Workspace is where this Item belongs, or merely
    * where it was captured from ("Capture something before you know which
@@ -671,7 +672,7 @@ export type AssociateCommand = z.infer<typeof associateSchema>;
 
 export const setNextActionSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  nextAction: z.string(),
+  nextAction: nextActionSchema,
 });
 export type SetNextActionCommand = z.infer<typeof setNextActionSchema>;
 

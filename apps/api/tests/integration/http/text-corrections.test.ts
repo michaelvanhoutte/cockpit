@@ -183,6 +183,15 @@ describe('Triage', () => {
       expect(await correctionsFor(itemId)).toHaveLength(0);
     });
 
+    it('records no row, when the Next action of a proposed Item is set', async () => {
+      const itemId = await anItem('Reply to Bart');
+      await propose(itemId, 'Reply to Bart with the numbers', 'The message Cockpit wrote.');
+
+      expect((await send('set_next_action', { workspaceId: WORKSPACE_ID, itemId, nextAction: 'Mail Bart' }, LATER)).status).toBe(200);
+
+      expect(await correctionsFor(itemId)).toHaveLength(0);
+    });
+
     it('writes one row, not two, when the same edit command is replayed', async () => {
       const itemId = await anItem('Reply to Bart');
       await propose(itemId, 'Reply to Bart with the numbers', 'The message Cockpit wrote.');

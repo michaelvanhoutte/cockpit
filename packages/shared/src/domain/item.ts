@@ -51,6 +51,17 @@ export type PanelFit = z.infer<typeof panelFitSchema>;
 /** How long a title may be. A product number, not a storage one (architecture.md §4.4, "packages/shared: schema and command rationale"). */
 export const TITLE_LENGTH = 200;
 
+/** How long a Next action may be: one line under the title, so the same size as a title. */
+export const NEXT_ACTION_LENGTH = 200;
+
+/** A Next action as stored: trimmed, at most `NEXT_ACTION_LENGTH`; an empty one is no Next action (`asNextAction`). */
+export const nextActionSchema = z.string().trim().max(NEXT_ACTION_LENGTH);
+
+/** What a Next action is stored as: the text trimmed, and none where nothing is left. */
+export function asNextAction(text: string | null | undefined): string | null {
+  return text?.trim() || null;
+}
+
 /**
  * An Item carries three texts, answering three different questions
  * (functional-definition.md, "An Item carries three texts"; architecture.md
@@ -193,14 +204,12 @@ export type Item = z.infer<typeof itemSchema>;
 export const UNTITLED = 'Untitled';
 
 /**
- * What a row shows: the next action, or the title (functional-definition.md,
- * "A row shows the next action, or the title"; architecture.md §4.4 for why
- * this is computed rather than stored).
+ * What names an Item everywhere it is named - the undo bar, a drag, Find item:
+ * its title, or *Untitled*. Only the row and the form draw the Next action
+ * (architecture.md, `itemLabel`).
  */
-export function itemLabel(item: Pick<Item, 'nextAction' | 'title'>): string {
-  const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
-
-  return oneLine(item.nextAction ?? '') || oneLine(item.title) || UNTITLED;
+export function itemLabel(item: Pick<Item, 'title'>): string {
+  return item.title.replace(/\s+/gu, ' ').trim() || UNTITLED;
 }
 
 /**
