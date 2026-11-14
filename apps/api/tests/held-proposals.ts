@@ -15,7 +15,17 @@ import type { EnrichmentJob, ProposeForClaudeJob } from '../src/jobs/enrichment.
  */
 export const heldProposals: ProposeForClaudeJob[] = [];
 
-/** Puts the hold on `env`'s queue, letting every other job through to the real one. */
+/**
+ * Puts the hold on `env`'s queue, letting every other job through to the real
+ * one except a guest arrival, which is dropped.
+ *
+ * **A guest arrival is dropped for every file** for the same reason: each guest
+ * sign-in queues a mail and a Teams message that land twenty and thirty
+ * seconds later as Items in the guest account, which under a loaded run is
+ * inside a later case comparing what that account holds
+ * (`guest-reset.test.ts`). The case about arrivals holds the whole queue
+ * itself (`guest-arrivals.test.ts`).
+ */
 export function holdProposalsForClaude(env: typeof testEnv): void {
   const queue = env.ENRICHMENT;
   env.ENRICHMENT = {
@@ -24,6 +34,7 @@ export function holdProposalsForClaude(env: typeof testEnv): void {
         heldProposals.push(body);
         return;
       }
+      if (body.kind === 'guest-arrival') return;
       await queue.send(body, options);
     },
     sendBatch: async (messages: Iterable<MessageSendRequest<EnrichmentJob>>, options?: QueueSendBatchOptions) => {
