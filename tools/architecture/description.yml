@@ -49,7 +49,8 @@ exemptFromSources:
 connectorRule:
   sdk: '@cockpit/connector-sdk'
   # Also allowed, with why: a pure reader both mail connectors share (docs/architecture.yml, the connector import rule).
-  also: ['@cockpit/linkedin-mail']
+  also:
+    '@cockpit/linkedin-mail': [packages/connectors/gmail, packages/connectors/outlook]
   scope: '@cockpit/'
 
 # Areas every other area reads, so their cells on the Dependencies view are

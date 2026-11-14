@@ -535,6 +535,22 @@ describe('the stub issuer stands in for a Gmail mailbox the way Gmail answers', 
     assert.match(Buffer.from(sent.payload.body.data, 'base64url').toString(), /Friday works[\s\S]*thread\/2-abc\//);
   });
 
+  it('delivers a digest-sender LinkedIn email with the digest link, found by a search naming both senders', async () => {
+    const email = 'linkedin-digest@example.com';
+    const token = await accessTokenFor(email);
+    const { thread, message } = await fetch(
+      `${issuer.origin}/gmail-stub/linkedin?email=${encodeURIComponent(email)}&sender=digest&text=Friday%20works&conversation=2-abc`,
+      { method: 'POST' },
+    ).then((answer) => answer.json());
+
+    const query = encodeURIComponent('from:(messages-noreply@linkedin.com OR messaging-digest-noreply@linkedin.com)');
+    const listed = await (await read(token, `messages?q=${query}`)).json();
+    assert.deepEqual(listed.messages, [{ id: message, threadId: thread }]);
+    const sent = await (await read(token, `messages/${message}`)).json();
+    assert.equal(sent.payload.headers.find((header) => header.name === 'From').value, 'Steven Noels via LinkedIn <messaging-digest-noreply@linkedin.com>');
+    assert.match(Buffer.from(sent.payload.body.data, 'base64url').toString(), /thread\/2-abc\?lipi=.*otpToken=/);
+  });
+
   it('takes the star off one email alone, leaving the history record Gmail leaves and the other starred email listed', async () => {
     const email = 'per-email-off@example.com';
     const token = await accessTokenFor(email);

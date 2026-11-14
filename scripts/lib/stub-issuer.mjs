@@ -125,8 +125,9 @@ export async function startStubIssuer({ port, seedPath }) {
    * Sent label then lists first ("Follow a sent email… in Capture", issue 1710).
    * `POST /gmail-stub/linkedin?email=` delivers a LinkedIn message notification
    * in a conversation of its own, as LinkedIn sends one: `name=` for who wrote,
-   * `text=` for what, `subject=`, `conversation=` for LinkedIn's thread id, and `starred`
-   * for one that arrives starred ("Follow the LinkedIn conversation instead of
+   * `text=` for what, `subject=`, `conversation=` for LinkedIn's thread id, `starred`
+   * for one that arrives starred, and `sender=digest` for one from LinkedIn's digest
+   * sender, with the digest's link (issue 1775) ("Follow the LinkedIn conversation instead of
    * the notification", issue 1711). Reconstructed, not captured.
    */
   function actInMailbox(action, url, response) {
@@ -170,18 +171,23 @@ export async function startStubIssuer({ port, seedPath }) {
       const thread = url.searchParams.get('conversation') ?? '2-c3R1Yi10aHJlYWQtMQ==';
       const text = url.searchParams.get('text') ?? 'Shall we have dinner on Thursday?';
       const labelIds = ['INBOX', 'UNREAD', ...(url.searchParams.has('starred') ? ['STARRED'] : [])];
+      const digest = url.searchParams.get('sender') === 'digest';
+      // The digest's button has no slash before the query and carries a sign-in token, which Cockpit must never keep.
+      const button = digest
+        ? `https://www.linkedin.com/comm/messaging/thread/${thread}?lipi=urn%3Ali%3Apage%3Aemail_messaging_digest%3BstubLipi&otpToken=STUBOTPTOKEN&midToken=stubMid`
+        : `https://www.linkedin.com/comm/messaging/thread/${thread}/?trk=eml`;
       const notification = messageOf(
         id,
         id,
         labelIds,
-        url.searchParams.get('subject') ?? `${name} sent you a message`,
-        `${name} via LinkedIn <messages-noreply@linkedin.com>`,
+        url.searchParams.get('subject') ?? (digest ? `${name} just messaged you` : `${name} sent you a message`),
+        `${name} via LinkedIn <${digest ? 'messaging-digest-noreply@linkedin.com' : 'messages-noreply@linkedin.com'}>`,
         [
           name,
           '',
           text,
           '',
-          `View message: https://www.linkedin.com/comm/messaging/thread/${thread}/?trk=eml`,
+          `View message: ${button}`,
           '',
           '---',
           'You are receiving LinkedIn notification emails.',
@@ -558,12 +564,13 @@ export async function startStubIssuer({ port, seedPath }) {
         historyId: String(mailbox.historyId),
       });
     }
-    if (path === 'messages' && /^from:\S+$/.test(url.searchParams.get('q') ?? '')) {
-      // `users.messages.list` by sender, which finds a LinkedIn notification among the mail a page of history added.
-      const sender = url.searchParams.get('q').slice('from:'.length).toLowerCase();
+    const fromQuery = /^from:(?:\((.+)\)|(\S+))$/.exec(url.searchParams.get('q') ?? '');
+    if (path === 'messages' && fromQuery) {
+      // `users.messages.list` by sender (`from:<a>` or `from:(<a> OR <b>)`), which finds a LinkedIn message email among the mail a page of history added.
+      const senders = (fromQuery[1] ?? fromQuery[2]).toLowerCase().split(' or ');
       const sentBy = mailbox.threads.flatMap((thread) =>
         thread.messages
-          .filter((message) => JSON.stringify(message.payload.headers).toLowerCase().includes(`<${sender}>`) && !message.labelIds.includes('TRASH'))
+          .filter((message) => senders.some((sender) => JSON.stringify(message.payload.headers).toLowerCase().includes(`<${sender}>`)) && !message.labelIds.includes('TRASH'))
           .map((message) => ({ id: message.id, threadId: thread.id })),
       );
       return json(response, { messages: sentBy, resultSizeEstimate: sentBy.length });

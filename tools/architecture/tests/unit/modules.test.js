@@ -157,10 +157,17 @@ describe('Modules', () => {
         'packages/connectors/teams',
       );
 
+    it('lets a package named for it import the one pure reader and marks any other connector that does', () => {
+      const code = { 'src/a.ts': "import { linkedInMessageIn } from '@cockpit/linkedin-mail';" };
+      const of = (path) => find(modulesOf({ layers: [layer([area(path)], 'connector')], candidates: [folder(path, code, { role: 'connector', pkg: true })] }), path);
+
+      expect(of('packages/connectors/gmail').breaches).toEqual([]);
+      expect(of('packages/connectors/teams').breaches).toEqual([{ file: 'src/a.ts', import: '@cockpit/linkedin-mail' }]);
+    });
+
     it.each([
       { situation: 'only the SDK, third-party packages and its own files', files: { 'src/a.ts': "import { x } from '@cockpit/connector-sdk';\nimport { jwtVerify } from 'jose';\nimport { y } from './b.js';\nexport * from '../src/c.js';" }, expected: [] },
       { situation: 'a file of the SDK, by its own path', files: { 'src/a.ts': "import { x } from '@cockpit/connector-sdk/extra';" }, expected: [] },
-      { situation: 'the one pure reader the rule also allows', files: { 'src/a.ts': "import { linkedInMessageIn } from '@cockpit/linkedin-mail';" }, expected: [] },
       { situation: 'a file of the allowed reader, which is not the reader itself', files: { 'src/a.ts': "import x from '@cockpit/linkedin-mail/src/reader';" }, expected: [{ file: 'src/a.ts', import: '@cockpit/linkedin-mail/src/reader' }] },
       { situation: 'the shared contract', files: { 'src/a.ts': "import type { Item } from '@cockpit/shared';" }, expected: [{ file: 'src/a.ts', import: '@cockpit/shared' }] },
       { situation: 'the app, by a path out of the package', files: { 'src/a.ts': "import { app } from '../../../../apps/api/src/http/app.js';" }, expected: [{ file: 'src/a.ts', import: '../../../../apps/api/src/http/app.js' }] },
