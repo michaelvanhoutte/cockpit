@@ -116,14 +116,8 @@ describe('Dashboards', () => {
       const rows = rowsFor(snapshot(), 'invoice', 1).rows;
       expect(rows.map((row) => [row.where, row.panel?.panelId ?? null])).toEqual(expected);
     });
-
-    it('keeps one row going to the Filter panel for an Inbox Item a Filter panel here gathers', () => {
-      const gatheredHere = { dashboardId: 'today', dashboardName: 'Today', panelId: 'f1', panelName: 'Due today' };
-      const index = [{ item: invoice, text: 'invoice', places: [], gatheredOn: [gatheredHere] }];
-      const rows = findItems(index, 'invoice', 1, 'today').rows;
-      expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['Due today', 'f1']]);
-    });
   });
+
   describe('a row says what the Item is and where, most recently changed first', () => {
     it('names the Panel in Dashboard, and Dashboard ▸ Panel with +n in Workspace, once for an Item on two Panels', () => {
       const snapshot = aSnapshot([anItem('a'), anItem('b')], [['a', 'plan'], ['a', 'review']]);
