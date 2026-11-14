@@ -486,17 +486,18 @@ export class GmailWorld {
   }
 
   /**
-   * `messages.list` by label, or by `q=from:<address>`: the emails carrying
+   * `messages.list` by label, or by `q=from:<address>` (or `from:(<address> OR <address>)`): the emails carrying
    * the label, or sent from the address, newest first, the bin and spam left out
    * as Gmail leaves them.
    */
   #listEmails(url: URL): Response {
-    const search = /^from:(\S+)$/.exec(url.searchParams.get('q') ?? '')?.[1];
+    const query = url.searchParams.get('q') ?? '';
+    const search = /^from:\((.+)\)$/.exec(query)?.[1]?.split(' OR ') ?? (/^from:(\S+)$/.exec(query) ? [/^from:(\S+)$/.exec(query)![1]!] : null);
     if (search) {
       const sentBy = this.#threads.flatMap((thread) =>
         [...thread.messages]
           .reverse()
-          .filter((one) => !one.labelIds.includes('TRASH') && JSON.stringify(one.payload.headers).toLowerCase().includes(`<${search.toLowerCase()}>`))
+          .filter((one) => !one.labelIds.includes('TRASH') && search.some((address) => JSON.stringify(one.payload.headers).toLowerCase().includes(`<${address.toLowerCase()}>`)))
           .map((one) => ({ id: one.id, threadId: thread.id })),
       );
       return json(messagesPage(sentBy.slice(0, Number(url.searchParams.get('maxResults')))));

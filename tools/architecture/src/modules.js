@@ -35,7 +35,7 @@ function breachesOf(area, files, rule) {
     for (const specifier of importsOf(text)) {
       const relative = specifier.startsWith('.');
       const leavesPackage = relative && !path.join(path.dirname(file), specifier).startsWith(`${own}/`);
-      const otherWorkspace = !relative && specifier.startsWith(rule.scope) && specifier !== rule.sdk && !specifier.startsWith(`${rule.sdk}/`);
+      const otherWorkspace = !relative && specifier.startsWith(rule.scope) && specifier !== rule.sdk && !specifier.startsWith(`${rule.sdk}/`) && !(rule.also?.[specifier] ?? []).includes(area.path);
       if (leavesPackage || otherWorkspace) found.push({ file: path.relative(own, file), import: specifier });
     }
   }
