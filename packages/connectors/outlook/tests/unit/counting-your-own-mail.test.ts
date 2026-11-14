@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TURN_FIELDS, addressesOfYours, asYours, othersOn, sendFromAddresses, turnPage } from '../../src/messages.js';
+import { SEND_FROM_KEPT, sendsFromKept } from '../../src/sync.js';
 import { DELETED_ITEMS_ID, INBOX_ID, MAILBOX, SENT_ITEMS_ID, message, messagesPage, type MessageOptions } from '../graph-payloads.js';
 
 /**
@@ -126,6 +127,18 @@ describe('Capture', () => {
     ])('$situation: someone else on it is $othersOnIt', ({ messages, alias, othersOnIt }) => {
       const { turns, yours } = read(messages, alias);
       expect(othersOn(turns, yours)).toBe(othersOnIt);
+    });
+  });
+
+  describe('the addresses kept for the next check', () => {
+    it('keeps the newest when there are more than it holds, so a new address displaces the oldest', () => {
+      const learned = Array.from({ length: SEND_FROM_KEPT + 1 }, (_, n) => `a${n}@example.com`);
+
+      const kept = sendsFromKept(learned);
+
+      expect(kept).toHaveLength(SEND_FROM_KEPT);
+      expect(kept).toContain(`a${SEND_FROM_KEPT}@example.com`);
+      expect(kept).not.toContain('a0@example.com');
     });
   });
 });

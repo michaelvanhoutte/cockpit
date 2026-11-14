@@ -108,6 +108,14 @@ export interface OutlookState {
 /** How many addresses a mailbox is remembered sending from: a person sends from a few. */
 export const SEND_FROM_KEPT = 20;
 
+/**
+ * The addresses kept for the next check: the last `SEND_FROM_KEPT` learned,
+ * so a newly learned address displaces the oldest rather than being dropped.
+ */
+export function sendsFromKept(addresses: Iterable<string>): string[] {
+  return [...addresses].slice(-SEND_FROM_KEPT);
+}
+
 /** The saved state, read - or a fresh one where there is none, it is unreadable, or it was kept under another choice. */
 export function stateIn(saved: unknown, choice: Mark): OutlookState {
   const held = (saved ?? {}) as Partial<OutlookState>;
@@ -130,7 +138,7 @@ export function stateIn(saved: unknown, choice: Mark): OutlookState {
     due,
     read: ids(held.read),
     ...(typeof held.turnsSince === 'string' && Number.isFinite(Date.parse(held.turnsSince)) ? { turnsSince: held.turnsSince } : {}),
-    ...(Array.isArray(held.sendsFrom) ? { sendsFrom: ids(held.sendsFrom).slice(0, SEND_FROM_KEPT) } : {}),
+    ...(Array.isArray(held.sendsFrom) ? { sendsFrom: sendsFromKept(ids(held.sendsFrom)) } : {}),
   };
 }
 
@@ -323,7 +331,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       ? { due: Object.fromEntries([...new Set([...seen, ...read].map(keyOf))].flatMap((key) => (dueReported[key] !== undefined ? [[key, dueReported[key]]] : []))) }
       : {}),
     ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
-    ...(sendsFrom.size > 0 ? { sendsFrom: [...sendsFrom].slice(0, SEND_FROM_KEPT) } : {}),
+    ...(sendsFrom.size > 0 ? { sendsFrom: sendsFromKept(sendsFrom) } : {}),
   } satisfies OutlookState);
   return moreToDo ? { moreToDo: true } : undefined;
 }
