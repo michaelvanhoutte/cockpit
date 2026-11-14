@@ -363,6 +363,8 @@ export interface Account {
   capturePushed(sourceAccountId: string, capture: CommandPayload<'capture_item'>): Promise<CommandResult>;
   /** A delivery that failed after it was attributed to a connection, as its *Failed* line (issue 1144). */
   pushFailed(sourceAccountId: string, failure: { message: string; status: number | null }): Promise<void>;
+  /** The newest change the account has taken (a snapshot's `upTo`), or undefined if it never has. */
+  newestChange(): Promise<string | undefined>;
   changesSince(since: string): Promise<{ events: ServerEvent[]; cursor: string }>;
   applyChange<N extends CommandName>(
     name: N,
@@ -543,6 +545,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     pushFailed: async (sourceAccountId, failure) => {
       unwrap(await store.pushFailed(accountName, sourceAccountId, failure));
     },
+    newestChange: async () => unwrap(await store.newestChange(accountName)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),

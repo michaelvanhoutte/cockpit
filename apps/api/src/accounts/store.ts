@@ -1113,6 +1113,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     );
   }
 
+  /** The newest change the account has taken, as a snapshot's `upTo` names it; what the live-updates stream announces when it opens. */
+  newestChange(accountName: string): Answer<string | undefined> {
+    return this.#answer(accountName, (db) => watermark(db, accountName));
+  }
+
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */
   changesSince(
     accountName: string,

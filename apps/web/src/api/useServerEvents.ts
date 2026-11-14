@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { serverEventSchema } from '@cockpit/shared';
+import { ACCOUNT_WIDE, serverEventSchema, streamOpenedSchema } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
 import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
@@ -80,13 +80,30 @@ export function useServerEvents() {
         if (wasUp || replacement) {
           globalThis.dispatchEvent(new Event(RECONNECTED));
           // Announcements were missed while it was down, so every copy held is
-          // out of date. Marked and not read: a filing reads a copy so marked
+          // out of date; where the Worker sends `opened`, it reads the ones that
+          // are behind, and marking is what an older Worker leaves. Marked and not read: a filing reads a copy so marked
           // before it is built (`useLatestSnapshot`), and what is on screen
           // follows with the next read.
           void queryClient.invalidateQueries({ queryKey: ['snapshot'], refetchType: 'none' });
           void queryClient.invalidateQueries({ queryKey: ['finishedItems'], refetchType: 'none' });
         }
         wasUp = true;
+      });
+
+      // The stream's first message names the newest change the account had taken
+      // when it opened. A change stored after this tab read a copy and before the
+      // stream's cursor was set is announced nowhere else, so it is announced
+      // here, through the path every announcement takes: skipped where every
+      // copy held already has it, read otherwise.
+      stream.addEventListener('opened', (message) => {
+        let parsed;
+        try {
+          parsed = streamOpenedSchema.safeParse(JSON.parse(message.data));
+        } catch {
+          return;
+        }
+        if (!parsed.success || !parsed.data.upTo) return;
+        readForAnnouncement(queryClient, { type: 'snapshot_invalidated', workspaceId: ACCOUNT_WIDE, at: parsed.data.upTo });
       });
 
       stream.addEventListener('change', (message) => {

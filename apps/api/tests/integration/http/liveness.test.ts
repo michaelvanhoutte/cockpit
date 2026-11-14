@@ -157,4 +157,58 @@ describe('Live updates', () => {
       expect(replay).toEqual({ ok: true, applied: false });
     });
   });
+  /**
+   * The stream's first message names the newest change the account has taken
+   * ("Live updates: a change stored while a tab's event stream is opening never
+   * reaches that tab", issue 1798), so a tab that read its copy before the
+   * stream's cursor was set can tell whether it missed one.
+   */
+  describe('the stream says where the account stood when it opened', () => {
+    async function firstMessage(): Promise<{ event: string; data: string }> {
+      const res = await asUser('http://cockpit.test/v1/events');
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = '';
+      while (!text.replaceAll('\r\n', '\n').includes('\n\n')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+      await reader.cancel();
+      const [block = ''] = text.replaceAll('\r\n', '\n').split('\n\n');
+      const field = (name: string) =>
+        block.split('\n').find((line) => line.startsWith(`${name}:`))?.slice(name.length + 1).trim() ?? '';
+      return { event: field('event'), data: field('data') };
+    }
+
+    it('names the newest change the account has taken as its first message', async () => {
+      await capture('Something to be newer than');
+      const held = await upToOf();
+
+      const first = await firstMessage();
+
+      expect(first.event).toBe('opened');
+      expect(JSON.parse(first.data)).toEqual({ upTo: held });
+    });
+
+    it('names a change stored before it opened, rather than announcing it after', async () => {
+      await capture('Stored before the stream opened');
+      const held = await upToOf();
+
+      const first = await firstMessage();
+
+      expect(JSON.parse(first.data).upTo).toBe(held);
+      // Nothing newer than it is announced: the change is named, not replayed.
+      const answer = await storeNamed(ACCOUNT_NAME).changesSince(ACCOUNT_NAME, held!);
+      expect((answer as { value: { events: ServerEvent[] } }).value.events).toEqual([]);
+    });
+
+    it('names nothing for an account that has never taken a change', async () => {
+      const first = await firstMessage();
+
+      expect(first.event).toBe('opened');
+      expect(JSON.parse(first.data)).toEqual({});
+    });
+  });
 });

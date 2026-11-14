@@ -2611,8 +2611,13 @@ const routes = app
         const account = await openAccount(c.env, c.get('visitor').accountName);
         const sessionId = c.get('sessionId');
         let cursor = new Date().toISOString();
+        // Read after the cursor is set, so a change is either at or before this
+        // stamp (the tab compares it with the copy it holds) or after the cursor
+        // (announced below); none falls between. It is also the first message,
+        // so it doubles as the sign the stream is live.
+        const upTo = await account.newestChange();
         let lastPing = Date.now();
-        await stream.writeSSE({ event: 'ping', data: '' });
+        await stream.writeSSE({ event: 'opened', data: JSON.stringify(upTo === undefined ? {} : { upTo }) });
         while (!stream.aborted) {
           // Whether the sign-in is still current *is* a question whose answer
           // changes, which is why it is asked again where the account is not.
