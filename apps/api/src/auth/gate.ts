@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { dueInDaysSchema } from '@cockpit/shared';
+import { dueInDaysSchema, ownAliasSchema } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { USAGE_RECORDS_PATH } from '../gateway/receive.js';
 import { ATTACHMENT_LINK_PREFIX } from './attachment-link.js';
@@ -415,6 +415,13 @@ export interface ConnectAttempt extends Attempt {
    */
   readonly dueInDays?: number | null;
   /**
+   * Your Cockpit alias on the mailbox, for a connector that asks for one
+   * (issue 1760): an email address, or `null` for none. Carried like the days,
+   * and checked on the way back in: anything but an email address or none is
+   * no attempt at all. Absent for a source that asks for none.
+   */
+  readonly ownAlias?: string | null;
+  /**
    * Which of the connector's permission tiers this attempt asked, 0 being the
    * first ("Read pasted Teams links: connecting Teams asks for no read
    * permission", issue 1754). Each step down is a new attempt with the next
@@ -498,7 +505,7 @@ export function attemptHeld(c: Context): SignInAttempt | null {
 export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   const held = readAttempt(getCookie(c, connectCookieName(c.req.url)));
   if (!held) return null;
-  const { workspaceId, accountName, connectorId, choice, filesByName, dueInDays, tier } = held.also;
+  const { workspaceId, accountName, connectorId, choice, filesByName, dueInDays, ownAlias, tier } = held.also;
   if (typeof workspaceId !== 'string' || !workspaceId) return null;
   if (typeof accountName !== 'string' || !accountName) return null;
   if (typeof connectorId !== 'string' || !connectorId) return null;
@@ -506,6 +513,8 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
   if (filesByName !== undefined && typeof filesByName !== 'boolean') return null;
   // The same for the days: absent, none, or a whole number in range (issue 1409).
   if (dueInDays !== undefined && dueInDays !== null && !dueInDaysSchema.safeParse(dueInDays).success) return null;
+  // And the alias: absent, none, or an email address (issue 1760).
+  if (ownAlias !== undefined && ownAlias !== null && !ownAliasSchema.safeParse(ownAlias).success) return null;
   // The tier is absent or a small whole number; whether the connector has that
   // tier is the callback's to say (issue 1754).
   if (tier !== undefined && !(typeof tier === 'number' && Number.isInteger(tier) && tier >= 0 && tier < 10)) return null;
@@ -521,6 +530,8 @@ export function connectAttemptHeld(c: Context): ConnectAttempt | null {
     ...(typeof filesByName === 'boolean' ? { filesByName } : {}),
     // Kept only as a number in range or none; whether the connector is pulled is the callback's to say.
     ...(dueInDays === null || typeof dueInDays === 'number' ? { dueInDays } : {}),
+    // Kept only as an address or none; whether the connector asks for one is the callback's to say.
+    ...(ownAlias === null || typeof ownAlias === 'string' ? { ownAlias } : {}),
     ...(typeof tier === 'number' ? { tier } : {}),
   };
 }

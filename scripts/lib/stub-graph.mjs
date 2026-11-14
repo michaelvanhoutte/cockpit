@@ -91,6 +91,9 @@ function seededMessages() {
 /** The mailbox owner, as the mail they sent names them: the stand-in does not know the address, so the display name stands in. */
 const ME = { name: 'Michael', address: 'michael@example.com' };
 
+/** Whom the mailbox writes to where a case names nobody. */
+const STEVEN = { name: 'Steven Noels', address: 'steven@example.com' };
+
 let versions = 0;
 
 /** A flag's date as Graph documents `followupFlag.dueDateTime`: midnight of the day, with the zone it was written in. */
@@ -223,6 +226,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
     const draft = message(`AAkALgStubDraft${mailbox.counter}`, {
       subject: original ? `RE: ${original.subject}` : (asked.subject ?? ''),
       from: { name: 'Michael', address: mailbox.email },
+      // Addressed as a person sends it: a reply to whoever wrote the email, a new one to Steven, so the
+      // conversation has someone else on it and a sent draft waits (issue 1760).
+      to: original ? [{ name: original.from.emailAddress.name, address: original.from.emailAddress.address }] : [STEVEN],
       // A reply holds the email it answers, quoted, in HTML as Outlook writes it; a new draft, the text it is handed.
       ...(original
         ? {
@@ -380,6 +386,8 @@ export function createStubGraph({ mailboxOfToken, json }) {
         subject: 'Re: a conversation',
         from: sent ? { name: 'Michael', address: email } : { name: from?.[1] ?? 'Steven Noels', address: from?.[2] ?? 'steven@example.com' },
         text: url.searchParams.get('text') ?? 'A reply, a moment ago.',
+        // One sent from the mailbox goes to Steven, so someone else is on the conversation (issue 1760).
+        ...(sent ? { to: [STEVEN] } : {}),
         at: new Date().toISOString(),
         folder: sent ? SENT_ITEMS : INBOX,
         conversation: url.searchParams.get('conversation') ?? undefined,

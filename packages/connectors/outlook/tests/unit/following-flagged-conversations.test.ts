@@ -52,6 +52,23 @@ describe('Capture', () => {
       });
     });
 
+    it.each([
+      { situation: 'a mail to your alias alone', alias: 'cockpit@conselit.be', to: ['cockpit@conselit.be'], othersOnIt: false },
+      { situation: 'a mail to a client with your alias in Cc', alias: 'cockpit@conselit.be', to: ['client@example.com'], othersOnIt: true },
+      { situation: 'a mail to your alias alone, with no alias set', alias: null, to: ['cockpit@conselit.be'], othersOnIt: true },
+    ])('brings in $situation as yours, saying whether anyone else is on it', async ({ alias, to, othersOnIt }) => {
+      const world = new GraphWorld();
+      const cc = to[0] === 'client@example.com' ? [{ address: 'cockpit@conselit.be' }] : [];
+      world.arrives('m-sent', { conversation: 'c-1', folder: SENT_ITEMS_ID, from: ANNA, to: to.map((address) => ({ address })), cc, receivedAt: '2026-10-09T08:00:00Z' });
+      // The alias's copy, delivered to the Inbox a moment later and flagged by the rule.
+      world.arrives('m-copy', { flag: 'flagged', conversation: 'c-1', from: ANNA, to: to.map((address) => ({ address })), cc, receivedAt: '2026-10-09T08:00:05Z' });
+      const host = signedInHost({ ownAlias: alias });
+
+      await world.connector().sync(host);
+
+      expect(host.filed.get('conversation:c-1')?.conversation).toMatchObject({ latest: { by: 'you' }, othersOnIt });
+    });
+
     it('makes nothing new for a second message flagged in a conversation an Item follows, and reads nothing for it', async () => {
       const { world, host } = await aFollowedConversation();
       world.arrives('m-2', { flag: 'flagged', conversation: 'c-1', receivedAt: '2026-10-09T09:00:00Z' });
@@ -139,8 +156,31 @@ describe('Triage', () => {
       // Each with where Outlook shows it, which Open then goes to as the newest (issue 1720).
       const link = (id: string) => `https://outlook.office365.com/owa/?ItemID=${id}&exvsurl=1&viewmodel=ReadMessageItem`;
       expect(next.turns).toEqual([
-        { conversationId: 'c-1', messageId: 'm-2', by: 'them', from: 'Pieter Claes', at: '2026-10-09T12:10:00.000Z', excerpt: 'Friday suits me.', link: link('m-2') },
-        { conversationId: 'c-1', messageId: 'm-3', by: 'you', from: 'Anna', at: '2026-10-09T12:30:00.000Z', excerpt: 'Great.', link: link('m-3') },
+        { conversationId: 'c-1', messageId: 'm-2', by: 'them', from: 'Pieter Claes', at: '2026-10-09T12:10:00.000Z', excerpt: 'Friday suits me.', link: link('m-2'), othersOnIt: true },
+        { conversationId: 'c-1', messageId: 'm-3', by: 'you', from: 'Anna', at: '2026-10-09T12:30:00.000Z', excerpt: 'Great.', link: link('m-3'), othersOnIt: true },
+      ]);
+    });
+
+    it('reports your alias’s copy of a later mail of yours as yours, with whoever else it names, learning your address from an earlier read', async () => {
+      const ALIAS = { name: 'Cockpit', address: 'cockpit@conselit.be' };
+      const { world, host } = await aFollowedConversation();
+      world.arrives('m-2', { conversation: 'c-1', folder: SENT_ITEMS_ID, from: ANNA, to: [ALIAS], receivedAt: '2026-10-09T12:10:00Z' });
+      const first = host.next();
+      first.ownAlias = ALIAS.address;
+      // Run at 12:20, so the next run reads from 12:15 and never sees m-2 again.
+      await world.connector({ now: () => new Date('2026-10-09T12:20:00Z') }).sync(first);
+      world.forget();
+      // The alias's copy of a later mail, its Sent Items copy in no read this run sees.
+      world.arrives('m-3', { conversation: 'c-1', from: ANNA, to: [{ name: 'Pieter Claes', address: 'pieter@example.com' }], cc: [ALIAS], receivedAt: '2026-10-09T12:20:00Z' });
+      world.arrives('m-4', { conversation: 'c-1', from: ANNA, to: [ALIAS], receivedAt: '2026-10-09T12:30:00Z' });
+
+      const next = first.next();
+      await world.connector({ now: () => new Date('2026-10-09T12:31:00Z') }).sync(next);
+
+      expect(first.turns.map((turn) => [turn.messageId, turn.by, turn.othersOnIt])).toEqual([['m-2', 'you', false]]);
+      expect(next.turns.map((turn) => [turn.messageId, turn.by, turn.othersOnIt])).toEqual([
+        ['m-3', 'you', true],
+        ['m-4', 'you', false],
       ]);
     });
 

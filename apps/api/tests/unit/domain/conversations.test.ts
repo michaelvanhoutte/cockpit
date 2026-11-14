@@ -6,6 +6,7 @@ import {
   applyStartDraft,
   statusBeforeDraftIn,
   statusBeforeDraftOf,
+  turnCountsAs,
   turnDueDate,
 } from '../../../src/domain/conversations.js';
 import { captureItem } from '../../../src/domain/items.js';
@@ -109,6 +110,21 @@ describe('Triage', () => {
         waitingSince,
       });
       expect(after.dueDateSetAt).toBe(RECORDED);
+    });
+
+    // Issue 1760: your message waits only where someone else is on the conversation.
+    it.each([
+      { situation: 'your message on a conversation nobody else is on', by: 'you' as const, othersOnIt: false, status: 'to_do', due: '2026-10-12' },
+      { situation: 'your message on a conversation someone else is on', by: 'you' as const, othersOnIt: true, status: 'waiting', due: '2026-10-10' },
+      { situation: 'your message, the source not saying who else is on it', by: 'you' as const, othersOnIt: undefined, status: 'waiting', due: '2026-10-10' },
+      { situation: 'their message on a conversation nobody else is on', by: 'them' as const, othersOnIt: false, status: 'to_do', due: '2026-10-12' },
+    ])('$situation: $status, due $due', ({ by, othersOnIt, status, due }) => {
+      const counted = turnCountsAs(by, othersOnIt);
+      const dueDate = turnDueDate(counted, RECORDED, BRUSSELS, { connectionDays: 5, followUpDays: 3 });
+
+      const after = applyConversationTurn(anItem(WAITING), { by: counted, recordedAt: RECORDED }, dueDate)!;
+
+      expect({ status: itemStatus(after), due: after.dueDate }).toEqual({ status, due });
     });
 
     it.each([
