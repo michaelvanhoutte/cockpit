@@ -197,7 +197,14 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
     return days;
   };
   // Reported for an Item already in: a day that differs from the last reported, a removed day being nothing to report.
-  for (const [sourceId, day] of earliest(listing.messageIds.filter((id) => known.has(id) || readBefore.has(id)))) {
+  // An Item with no entry yet takes today's day as where it starts ('' for none) and reports nothing, so one brought in before days were read keeps its date.
+  const already = listing.messageIds.filter((id) => known.has(id) || readBefore.has(id));
+  const days = earliest(already);
+  for (const messageId of already) {
+    const key = keyOf(messageId);
+    if (dueReported[key] === undefined) dueReported[key] = days.get(key) ?? '';
+  }
+  for (const [sourceId, day] of days) {
     if (dueReported[sourceId] === day) continue;
     if (reports === NAMES_REPORTED_PER_RUN) {
       moreToDo = true;
@@ -254,7 +261,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
             // Only once it was brought in: another flagged message of it must not be skipped for one that was gone.
             if (brought) {
               reported[conversationKey(conversationId)] = brought;
-              if (dueDay) dueReported[conversationKey(conversationId)] = dueDay;
+              dueReported[conversationKey(conversationId)] = dueDay ?? '';
               followed!.add(conversationId);
             }
           }
@@ -294,7 +301,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       [...new Set([...seen, ...(byConversation ? read : [])].map(keyOf))].flatMap((key) => (reported[key] ? [[key, reported[key]]] : [])),
     ),
     ...(byConversation
-      ? { due: Object.fromEntries([...new Set([...seen, ...read].map(keyOf))].flatMap((key) => (dueReported[key] ? [[key, dueReported[key]]] : []))) }
+      ? { due: Object.fromEntries([...new Set([...seen, ...read].map(keyOf))].flatMap((key) => (dueReported[key] !== undefined ? [[key, dueReported[key]]] : []))) }
       : {}),
     ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
   } satisfies OutlookState);

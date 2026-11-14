@@ -158,18 +158,33 @@ describe('Capture', () => {
       expect(next.daysReported).toEqual([{ sourceId: 'conversation:c-1', dueDay: '2026-11-24' }]);
     });
 
-    it('reports the day of an Item made of one message once, and not again at later runs', async () => {
+    it('takes the day of a conversation already in as where it starts, reports nothing, and reports a change after', async () => {
       const world = new GraphWorld();
       world.arrives('m-1', { flag: 'flagged', conversation: 'c-1', flagDue: at(DAY) });
       const host = signedInHost();
       host.state = { choice: 'flag', seen: ['m-1'] };
+
       await world.connector().sync(host);
+      world.dueOn('m-1', '2026-11-24');
+      const next = host.next();
+      await world.connector().sync(next);
+
+      expect(host.daysReported).toEqual([]);
+      expect(next.daysReported).toEqual([{ sourceId: 'm-1', dueDay: '2026-11-24' }]);
+    });
+
+    it('reports a day given later to a conversation already in that had none', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { flag: 'flagged', conversation: 'c-1' });
+      const host = signedInHost();
+      host.state = { choice: 'flag', seen: ['m-1'] };
+      await world.connector().sync(host);
+      world.dueOn('m-1', DAY);
 
       const next = host.next();
       await world.connector().sync(next);
 
-      expect(host.daysReported).toEqual([{ sourceId: 'm-1', dueDay: DAY }]);
-      expect(next.daysReported).toEqual([]);
+      expect(next.daysReported).toEqual([{ sourceId: 'm-1', dueDay: DAY }]);
     });
 
     it('reports the day with a reopen, as a flag put back after Done is brought in again', async () => {

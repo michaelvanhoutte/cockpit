@@ -203,8 +203,10 @@ Following the category is per message, as before.
   right after the reopen, since the reopen gives the connection's days first.
   The host decides what a day does (it moves an Item only while its date is
   still the connection's). Each report is a call to the host and shares
-  `NAMES_REPORTED_PER_RUN` with the names, so a connection with no recorded
-  days reports each dated flag once, within that budget.
+  `NAMES_REPORTED_PER_RUN` with the names. A conversation already in with no
+  `due` entry takes its current day (or none, saved as an empty entry) as where
+  it starts and reports nothing, so a date the connection or a reply gave is not
+  replaced by a flag's day it had before; only a change after that is reported.
 
 ## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
 
