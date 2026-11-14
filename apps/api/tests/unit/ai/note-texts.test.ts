@@ -67,6 +67,7 @@ describe('Capture', () => {
           priority: null,
           dueDate: null,
           place: null,
+          nextAction: null,
         },
       });
     });
@@ -127,6 +128,7 @@ describe('Capture', () => {
           priority: null,
           dueDate: null,
           place: null,
+          nextAction: null,
         },
       });
     });
@@ -191,6 +193,7 @@ describe('Capture', () => {
           priority: null,
           dueDate: null,
           place: null,
+          nextAction: null,
         },
       });
     });
@@ -293,6 +296,7 @@ describe('Capture', () => {
           priority: null,
           dueDate: null,
           place: null,
+          nextAction: null,
         },
       });
     });
@@ -332,6 +336,24 @@ describe('Capture', () => {
 
       expect('proposal' in read && read.proposal.dueDate).toBe(expected);
       expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
+    });
+  });
+
+  /** "Item Next action: a captured note's next step stays buried in its text" (issue 1791): read on its own, like the place, and never cut to fit. */
+  describe('a next step the note states is read as one the Item can hold, and never costs the note its texts', () => {
+    it.each([
+      { situation: 'the answer gave none', nextAction: undefined, expected: null },
+      { situation: 'the answer gave a blank one', nextAction: '   ', expected: null },
+      { situation: 'the answer gave exactly 200 characters', nextAction: 'x'.repeat(200), expected: 'x'.repeat(200) },
+      { situation: 'the answer gave 201 characters', nextAction: 'x'.repeat(201), expected: null },
+      { situation: 'the answer gave something that is not text', nextAction: 7, expected: null },
+      { situation: 'the answer gave one with spaces around it', nextAction: ' Confirm 4 Feb to Steven ', expected: 'Confirm 4 Feb to Steven' },
+    ])('when $situation', ({ nextAction, expected }) => {
+      const read = readProposal(JSON.stringify({ ...JSON.parse(usable), ...(nextAction === undefined ? {} : { nextAction }) }), []);
+
+      expect('proposal' in read && read.proposal.nextAction).toBe(expected);
+      expect('proposal' in read && read.proposal.title).toBe('Ask Novy about the Part 11 audit trail');
+      expect('proposal' in read && read.proposal.message).toBe('A question about the Part 11 audit trail for the validation protocol.');
     });
   });
 

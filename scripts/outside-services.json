@@ -22,7 +22,7 @@
       "suite": [
         "apps/api/tests/contract/one-call.test.ts",
         "apps/api/tests/contract/choose-a-panel.v3.test.ts",
-        "apps/api/tests/contract/clean-up-a-note.v17.test.ts",
+        "apps/api/tests/contract/clean-up-a-note.v18.test.ts",
         "apps/api/tests/contract/draft-a-reply.v1.test.ts",
         "apps/api/tests/contract/propose-for-claude.v4.test.ts",
         "apps/api/tests/contract/remember-a-sentence.v1.test.ts",

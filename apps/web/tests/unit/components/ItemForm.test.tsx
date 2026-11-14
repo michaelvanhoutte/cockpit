@@ -2376,6 +2376,26 @@ describe('Item editing', () => {
       );
     });
 
+    /**
+     * "Item Next action: a captured note's next step stays buried in its text"
+     * (issue 1791): a reading carries a title and a description and no Next
+     * action, so choosing one leaves the Next action as it was proposed.
+     */
+    it('leaves a proposed Next action as it is when another reading is chosen', async () => {
+      const user = await theForm(
+        anItem({ title: 'Call Jan', description: 'Mine already', nextAction: 'Confirm 4 Feb to Jan', readings: READINGS }),
+      );
+
+      await user.click(screen.getByRole('button', { name: /Call in January/ }));
+      expect(titleBox()).toHaveValue('Call in January');
+      expect(nextActionBox()).toHaveValue('Confirm 4 Feb to Jan');
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(held.close).toHaveBeenCalledTimes(1));
+      expect(sent().map((change) => change.name)).toEqual(['set_title', 'set_description']);
+    });
+
     it('on a phone, a reading chosen while reading opens editing with it in the boxes, still to be saved', async () => {
       await atWidth(390, async () => {
         const user = await thePhonePage(

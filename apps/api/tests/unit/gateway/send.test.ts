@@ -15,7 +15,7 @@ const DESTINATION = { url: 'https://production.test/v1/usage-records', token: TO
 
 const RECORD: AttemptRecord = {
   operation: 'clean-up-a-note',
-  promptVersion: 'clean-up-a-note.v17',
+  promptVersion: 'clean-up-a-note.v18',
   triggeredBy: 'captured-in-app',
   accountName: 'tenant-michael',
   itemId: 'item-1',

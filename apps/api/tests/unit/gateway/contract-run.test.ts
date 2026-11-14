@@ -28,7 +28,7 @@ const A_KEY_AND_A_PLACE: RunVariables = {
 const ATTEMPT: AttemptRecord = {
   ...A_CONTRACT_RUN,
   operation: 'clean-up-a-note',
-  promptVersion: 'clean-up-a-note.v17',
+  promptVersion: 'clean-up-a-note.v18',
   provider: 'anthropic',
   model: 'claude-sonnet-5-5',
   paidBy: { kind: 'cockpit-anthropic-key', account: null, keyEnding: 'WXYZ' },

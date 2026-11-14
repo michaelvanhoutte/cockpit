@@ -9,7 +9,7 @@ import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.j
  * The contract tier for proposing what to do with an Item ("Propose what to do
  * with each item before you look", issue 1161): the real Claude API and the real
  * prompt, a behaviour suite run by hand and only when named -
- * `clean-up-a-note.v17.test.ts`'s class comment says why.
+ * `clean-up-a-note.v18.test.ts`'s class comment says why.
  *
  * **The set is modelled on the 15 Items graded by hand on 16 October 2026, never
  * those Items themselves**: the repository is public, so each is rewritten as an

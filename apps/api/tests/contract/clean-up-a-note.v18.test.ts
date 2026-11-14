@@ -4,7 +4,7 @@ import type { ClaudeAiService, ProposalRead } from '../../src/ai/index.js';
 import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 import { NOTE_MARKER } from '@cockpit/connector-teams';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v17.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v18.js';
 import type { CaptureDay } from '../../src/domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
@@ -57,7 +57,7 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v17 on capture');
+const reading = tallied('clean-up-a-note.v18 on capture');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -268,7 +268,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v17');
+        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v18');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -589,7 +589,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v17.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v18.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per
@@ -856,6 +856,44 @@ describe('Capture', () => {
     it('gives none for a note that says nothing about where it belongs, even where it is about the house', async () => {
       const proposal = await ask('fix the leaking tap in the kitchen');
       expect(proposal.place).toBeNull();
+    });
+  });
+
+  /**
+   * "Item Next action: a captured note's next step stays buried in its text"
+   * (issue 1791): a next step the note states comes back as the Next action, in
+   * the note's language, and a note that states none gets none - the second
+   * half is the one only the model can fail, by making a step up from what the
+   * work usually needs.
+   */
+  describe('a note that states a next step gets it as its next action, and one that states none gets none', () => {
+    const ask = async (note: string) => {
+      const answer = await reading.cleanUpNote(note, [], [], [], [], NO_STOOD, A_DAY, A_CONTRACT_RUN);
+      if (!('proposal' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
+      return answer.proposal;
+    };
+
+    it('names confirming 4 Feb to Steven for a dinner note that says to confirm', async () => {
+      const proposal = await ask('dinner w steven, confirm 4 feb');
+
+      expect(proposal.nextAction).toMatch(/confirm/i);
+      expect(proposal.nextAction).toMatch(/4 feb/i);
+      expect(proposal.nextAction).toMatch(/steven/i);
+      expect(proposal.title).toMatch(/dinner/i);
+    });
+
+    it('gives none for a note that states no next step', async () => {
+      const proposal = await ask('kitchen renovation quote');
+
+      expect(proposal.nextAction).toBeNull();
+    });
+
+    it('gives a Dutch next action for a Dutch note', async () => {
+      const proposal = await ask('etentje met Steven, 4 feb bevestigen');
+
+      expect(proposal.nextAction).toMatch(/bevestig/i);
+      expect(proposal.nextAction).toMatch(MARKERS.Dutch);
+      expect(proposal.nextAction).not.toMatch(/confirm/i);
     });
   });
 

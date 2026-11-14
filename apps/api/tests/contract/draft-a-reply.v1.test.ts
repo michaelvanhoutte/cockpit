@@ -7,7 +7,7 @@ import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.j
  * an empty draft: have Claude write it from the Item, your points and the
  * conversation", issue 1730): the real Claude API and the real prompt, a
  * behaviour suite run by hand and only when named -
- * `clean-up-a-note.v17.test.ts`'s class comment says why.
+ * `clean-up-a-note.v18.test.ts`'s class comment says why.
  *
  * **Behaviours, not shapes**: a reply in the conversation's language; no date,
  * time, place or commitment that the Item, the points and the conversation do not

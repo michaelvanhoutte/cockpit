@@ -624,6 +624,8 @@ export async function cleanUpACapturedNote(
     const texts = {
       title: read.proposal.title,
       description: read.proposal.message,
+      // Left out where the note states no next step (issue 1791).
+      ...(read.proposal.nextAction === null ? {} : { nextAction: read.proposal.nextAction }),
       // Translated onto the wire shape the Item's own form uses, the same way
       // the main proposal's `message` becomes `description` above ("Offer the
       // other readings when a captured note says two things", issue 297).

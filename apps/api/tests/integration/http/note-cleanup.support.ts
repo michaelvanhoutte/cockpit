@@ -28,7 +28,7 @@ import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
  * horizontal dependency - the model, at the network boundary, exactly as the
  * issuer is faked for signing in (tests/integration/issuer.ts). Whether the
  * real model obeys the prompt is the contract tier's question
- * (tests/contract/clean-up-a-note.v17.test.ts).
+ * (tests/contract/clean-up-a-note.v18.test.ts).
  *
  * **The queue is real.** The pool runs this Worker's declared consumer, so a
  * capture really does put a message on a queue and the consumer really does
@@ -251,8 +251,9 @@ export async function textsOf(itemId: string, accountName = ACCOUNT_NAME) {
         description: string | null;
         captured_message: string | null;
         readings: string | null;
+        next_action: string | null;
       }>(
-        'SELECT title, description, captured_message, readings FROM items WHERE id = ? AND tenant_id = ?',
+        'SELECT title, description, captured_message, readings, next_action FROM items WHERE id = ? AND tenant_id = ?',
         itemId,
         accountName,
       )

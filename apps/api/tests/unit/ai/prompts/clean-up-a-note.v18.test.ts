@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NOTE_MARKER } from '@cockpit/connector-teams';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v17.js';
+import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v18.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -189,6 +189,32 @@ describe('Capture', () => {
 
       expect(schema.properties.priority?.enum).toEqual(['low', 'normal', 'high']);
       expect(schema.required).not.toContain('priority');
+    });
+  });
+
+  /**
+   * "Item Next action: a captured note's next step stays buried in its text"
+   * (issue 1791). Whether the model obeys is the contract tier's; this holds
+   * that the prompt asks for a next step only from words that state one, and
+   * that the answer may leave it out.
+   */
+  describe('every reading is told to take a next action only from words the note says', () => {
+    const prompt = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null);
+
+    it('asks for a stated next step, forbids making one up, and says the language and the length', () => {
+      const { instructions } = prompt.system;
+
+      expect(instructions).toContain('give that as its next action');
+      expect(instructions).toContain('Never make one up from what the work usually needs');
+      expect(instructions).toContain('where the note states no next step, leave the next action out');
+      expect(instructions).toContain('in the language named above, at most 200 characters');
+    });
+
+    it('lets the answer carry a next action and leave it out', () => {
+      const schema = prompt.schema as { properties: Record<string, { type?: string }>; required: string[] };
+
+      expect(schema.properties.nextAction?.type).toBe('string');
+      expect(schema.required).not.toContain('nextAction');
     });
   });
 

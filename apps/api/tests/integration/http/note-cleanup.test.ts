@@ -151,6 +151,67 @@ describe('Capture', () => {
   });
 
   /**
+   * "Item Next action: a captured note's next step stays buried in its text"
+   * (issue 1791): the Next action rides on the same call and the same
+   * proposal as the two texts, so it lands with them and is refused with them.
+   */
+  describe('a next step the note states is proposed as its Next action, with the texts', () => {
+    const A_NEXT_STEP = { ...A_READING, nextAction: 'Confirm 4 Feb to Steven' };
+
+    it('writes the title, the message and the Next action together', async () => {
+      theModelIs({ says: A_NEXT_STEP });
+      const itemId = await captureANote();
+
+      await untilTheNoteHasBeenRead(itemId);
+
+      const texts = await textsOf(itemId);
+      expect(texts?.title).toBe(A_READING.title);
+      expect(texts?.next_action).toBe('Confirm 4 Feb to Steven');
+    });
+
+    it('leaves the Next action empty where the note states none', async () => {
+      const itemId = await captureANote();
+
+      await untilTheNoteHasBeenRead(itemId);
+
+      expect((await textsOf(itemId))?.next_action).toBeNull();
+    });
+
+    it('writes the texts and no Next action where the answer holds one of 201 characters', async () => {
+      theModelIs({ says: { ...A_READING, nextAction: 'x'.repeat(201) } });
+      const itemId = await captureANote();
+
+      await untilTheNoteHasBeenRead(itemId);
+
+      const texts = await textsOf(itemId);
+      expect(texts?.title).toBe(A_READING.title);
+      expect(texts?.next_action).toBeNull();
+    });
+
+    it('writes nothing of the reading, and leaves the Next action empty, once you have edited the title', async () => {
+      const itemId = await captureANote();
+      await untilTheNoteHasBeenRead(itemId);
+      await postChange('set_title', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:01.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        title: 'Mine',
+      });
+      theModelIs({ says: { ...SOMETHING_ELSE, nextAction: 'Ring Steven' } });
+
+      await handleQueue(
+        batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId, attemptId: nextId() }),
+        env,
+      );
+
+      const texts = await textsOf(itemId);
+      expect(texts?.title).toBe('Mine');
+      expect(texts?.next_action).toBeNull();
+    });
+  });
+
+  /**
    * "Propose where a captured note belongs, without filing it there" (issue
    * 298): the routing half of the same job, riding on the same model call as
    * the texts above.
@@ -456,7 +517,7 @@ describe('Capture', () => {
    * the same model call reads the account's decision history and what else
    * has been captured lately - both rendered into the system prompt, which is
    * as far as an integration test can reach into a call whose actual routing
-   * is a live model's judgment call (tests/contract/clean-up-a-note.v17.test.ts
+   * is a live model's judgment call (tests/contract/clean-up-a-note.v18.test.ts
    * proves the judgment itself).
    */
   describe('a proposal is asked with the account’s decision history and its recent, unfiled captures', () => {

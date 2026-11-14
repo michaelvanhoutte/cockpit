@@ -3,6 +3,7 @@ import type { Item } from '@cockpit/shared';
 import {
   applyProposedFields,
   applyProposedPanel,
+  applyPastedLinkRead,
   applyProposedTexts,
   applySetDescription,
   applySetDismissed,
@@ -783,6 +784,63 @@ describe('Item editing', () => {
       const once = nextActed(anItem(), LATER, 'Call Tom');
       expect(once.textsSettledAt).toBe(LATER);
       expect(nextActed(once, LATEST, 'Call Tom again').textsSettledAt).toBe(LATER);
+    });
+  });
+});
+
+describe('Capture', () => {
+  /**
+   * "Item Next action: a captured note's next step stays buried in its text"
+   * (issue 1791): the Next action is proposed with the texts and refused with
+   * them, by the same decision, whichever command carries the reading.
+   */
+  describe('a Next action the note states is written with the texts, and never once they are yours', () => {
+    const proposedWith = (item: Item, nextAction?: string) =>
+      applyProposedTexts(item, {
+        ...request,
+        issuedAt: LATEST,
+        itemId: item.id,
+        title: 'Dinner with Steven',
+        description: 'Dinner with Steven. Confirm 4 Feb.',
+        readings: [],
+        ...(nextAction === undefined ? {} : { nextAction }),
+      });
+
+    it.each([
+      { situation: 'nothing was edited and the note stated a next step', before: (item: Item) => item, nextAction: 'Confirm 4 Feb to Steven', expected: 'Confirm 4 Feb to Steven' },
+      { situation: 'nothing was edited and the note stated none', before: (item: Item) => item, nextAction: undefined, expected: null },
+      { situation: 'the title was edited', before: (item: Item) => titled(item, LATER, 'Mine'), nextAction: 'Confirm 4 Feb to Steven', expected: null },
+      { situation: 'the Next action was set by you', before: (item: Item) => nextActed(item, LATER, 'Mine'), nextAction: 'Confirm 4 Feb to Steven', expected: 'Mine' },
+    ])('when $situation', ({ before, nextAction, expected }) => {
+      const standing = before(anItem());
+
+      const after = proposedWith(standing, nextAction);
+
+      expect((after ?? standing).nextAction).toBe(expected);
+    });
+
+    describe('a note holding a pasted Teams link', () => {
+      const LINK = {
+        capturedFrom: { source: 'teams' as const, sourceId: 'msg-1', sourceLink: 'https://teams.microsoft.com/l/message/1' },
+        capturedMessage: 'Can you confirm the dinner with Steven on 4 Feb?',
+      };
+      const aLinkRead = (item: Item, nextAction?: string) =>
+        applyPastedLinkRead(item, {
+          ...request,
+          issuedAt: LATEST,
+          itemId: item.id,
+          ...LINK,
+          texts: { title: 'Dinner with Steven', description: 'Confirm the dinner.', readings: [], ...(nextAction === undefined ? {} : { nextAction }) },
+        });
+
+      it.each([
+        { situation: 'the texts are not settled', before: (item: Item) => item, expected: 'Confirm 4 Feb to Steven' },
+        { situation: 'the texts are settled', before: (item: Item) => titled(item, LATER, 'Mine'), expected: null },
+      ])('is written with the title and description only where $situation', ({ before, expected }) => {
+        const after = aLinkRead(before(anItem({ source: 'internal', sourceId: null, sourceLink: null })), 'Confirm 4 Feb to Steven');
+
+        expect(after!.nextAction).toBe(expected);
+      });
     });
   });
 });
