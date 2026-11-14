@@ -645,7 +645,7 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
   // among the mail a page of history added (issue 1711, issue 1775).
   const query = url.searchParams.get('q') ?? '';
   const fromQuery = path === 'messages' ? /^from:(?:\((.+)\)|(\S+))$/.exec(query) : null;
-  const senders = fromQuery ? (fromQuery[1] ?? fromQuery[2]!).split(' OR ') : undefined;
+  const senders = fromQuery ? (fromQuery[1] ?? fromQuery[2]!).split(/\s+OR\s+/i) : undefined;
   if (senders) {
     const sentBy = mailbox.threads.flatMap((one) =>
       ((one.answer as { messages?: { id: string; payload?: { headers?: unknown } }[] }).messages ?? [])
