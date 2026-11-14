@@ -83,8 +83,10 @@ export function flagDayOf(message: unknown): string | null {
   if (flag?.flagStatus !== 'flagged') return null;
   const written = flag.dueDateTime?.dateTime;
   const day = typeof written === 'string' ? /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(written)?.[1] : undefined;
-  // A real calendar day: 2026-02-30 is not one.
-  return day && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day ? day : null;
+  if (!day) return null;
+  // A real calendar day: 2026-02-30 and 2026-13-01 are not.
+  const parsed = new Date(`${day}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
 
 /** What a flag is set to for an Item opened or closed in Cockpit: the flag alone, nothing else of the message. */
@@ -154,7 +156,12 @@ export function messagePage(
     conversations: Object.fromEntries(marked.map((one) => [one.id as string, conversationIdOf(one)])),
     dueDays:
       mark === 'flag'
-        ? Object.fromEntries(marked.flatMap((one) => (flagDayOf(one) ? [[one.id as string, flagDayOf(one)!]] : [])))
+        ? Object.fromEntries(
+            marked.flatMap((one) => {
+              const day = flagDayOf(one);
+              return day ? [[one.id as string, day]] : [];
+            }),
+          )
         : {},
     nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null,
   };

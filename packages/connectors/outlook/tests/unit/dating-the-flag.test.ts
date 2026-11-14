@@ -23,6 +23,7 @@ describe('Capture', () => {
       { situation: 'midnight UTC', due: at(DAY), day: '2026-11-20' },
       { situation: 'a time late in the day, which is still that day', due: { dateTime: '2026-11-20T23:30:00.0000000', timeZone: 'UTC' }, day: '2026-11-20' },
       { situation: 'a date that is not a day', due: { dateTime: '2026-02-30T00:00:00.0000000', timeZone: 'UTC' }, day: undefined },
+      { situation: 'a month that does not exist', due: { dateTime: '2026-13-01T00:00:00.0000000', timeZone: 'UTC' }, day: undefined },
       { situation: 'text that is not a date', due: { dateTime: 'tomorrow', timeZone: 'UTC' }, day: undefined },
     ])('reads $situation', async ({ due, day }) => {
       const world = new GraphWorld();
@@ -155,6 +156,20 @@ describe('Capture', () => {
 
       expect(failing.daysReported).toEqual([]);
       expect(next.daysReported).toEqual([{ sourceId: 'conversation:c-1', dueDay: '2026-11-24' }]);
+    });
+
+    it('reports the day of an Item made of one message once, and not again at later runs', async () => {
+      const world = new GraphWorld();
+      world.arrives('m-1', { flag: 'flagged', conversation: 'c-1', flagDue: at(DAY) });
+      const host = signedInHost();
+      host.state = { choice: 'flag', seen: ['m-1'] };
+      await world.connector().sync(host);
+
+      const next = host.next();
+      await world.connector().sync(next);
+
+      expect(host.daysReported).toEqual([{ sourceId: 'm-1', dueDay: DAY }]);
+      expect(next.daysReported).toEqual([]);
     });
 
     it('reports the day with a reopen, as a flag put back after Done is brought in again', async () => {

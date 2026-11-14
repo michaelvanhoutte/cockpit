@@ -52,7 +52,7 @@ import {
 const PAGE_SIZE = 100;
 
 /**
- * How many messages already in one run reports the names of: each report is a
+ * How many messages already in one run reports the names or due day of (the two share this budget): each report is a
  * round trip to the host, which counts against the 1,000 calls to Cloudflare's
  * own services an invocation is allowed, and the first run after names were
  * reported at all reports every message listed. The rest wait for the next run,
@@ -294,7 +294,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       [...new Set([...seen, ...(byConversation ? read : [])].map(keyOf))].flatMap((key) => (reported[key] ? [[key, reported[key]]] : [])),
     ),
     ...(byConversation
-      ? { due: Object.fromEntries([...new Set(read.map(keyOf))].flatMap((key) => (dueReported[key] ? [[key, dueReported[key]]] : []))) }
+      ? { due: Object.fromEntries([...new Set([...seen, ...read].map(keyOf))].flatMap((key) => (dueReported[key] ? [[key, dueReported[key]]] : []))) }
       : {}),
     ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
   } satisfies OutlookState);

@@ -291,8 +291,8 @@ message's `webLink`, which opens it in Outlook on the web.
   `followupFlag` (a `dateTimeTimeZone`), and the unit tests use midnight of the
   day chosen. If Graph answers a dated flag as midnight UTC while Outlook shows
   another day, or with a time that crosses midnight in the mailbox's zone, the
-  Item will be due a day off, and the day taken has to be decided again (issue
-  1757, decision 1). One flagged message read from a real mailbox settles it.
+  Item will be due a day off, and the day taken has to be decided again (the
+  first Decision of the issue "Outlook connection: name the mark plainly and make the flag's date the Item's due date", 1757). One flagged message read from a real mailbox settles it.
 - **Whether a draft made, opened and sent in real Outlook behaves as the
   stand-in does**: `webLink` opening a draft for writing (rather than a read
   view), its id staying the same through editing and sending (the check copes

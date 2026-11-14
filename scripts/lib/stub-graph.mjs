@@ -273,7 +273,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       if (ifMatch && ifMatch !== shown(held)['@odata.etag']) {
         return json(response, { error: { code: 'ErrorIrresolvableConflict', message: 'The change key passed in the request does not match the current change key for the item.' } }, 412);
       }
-      if (change.flag?.flagStatus) held.flag = { flagStatus: change.flag.flagStatus };
+      if (change.flag?.flagStatus) held.flag = { ...held.flag, flagStatus: change.flag.flagStatus };
       if (Array.isArray(change.categories)) held.categories = change.categories;
       // A draft's body, which only a draft takes (message-update: "updatable only if isDraft = true").
       if (change.body) {

@@ -478,28 +478,27 @@ export function reportPulledDueDay(
     if (!link) return 'unknown';
     if (day === null) return 'unchanged';
     const item = getItem(db, accountName, link.itemId);
-    if (!item || item.workspaceId !== holds.workspaceId) return 'unchanged';
+    if (!item) return 'unchanged';
     const untouched = item.dueDate === null && item.dueDateChosenAt === null;
     if (!untouched && !dueDateIsTheConnections(item, link.givenDueDate)) return 'unchanged';
-    if (item.dueDate === day && link.givenDueDate === day) return 'unchanged';
-    if (item.dueDate !== day) {
-      // Never older than what the Item last heard, or the change would be refused as stale.
-      const issuedAt = at < item.updatedAt ? item.updatedAt : at;
-      const result = runCommand(
-        db,
-        accountName,
-        'set_due_date',
-        {
-          commandId: crypto.randomUUID(),
-          issuedAt,
-          workspaceId: item.workspaceId,
-          itemId: item.id,
-          dueDate: day,
-        },
-        { fromTheSource: true },
-      );
-      if (!result.applied) return 'unchanged';
-    }
+    // Past the check above, the Item already on the day is one the link already records.
+    if (item.dueDate === day) return 'unchanged';
+    // Never older than what the Item last heard, or the change would be refused as stale.
+    const issuedAt = at < item.updatedAt ? item.updatedAt : at;
+    const result = runCommand(
+      db,
+      accountName,
+      'set_due_date',
+      {
+        commandId: crypto.randomUUID(),
+        issuedAt,
+        workspaceId: item.workspaceId,
+        itemId: item.id,
+        dueDate: day,
+      },
+      { fromTheSource: true },
+    );
+    if (!result.applied) return 'unchanged';
     db.update(pulledLinks)
       .set({ givenDueDate: day })
       .where(
