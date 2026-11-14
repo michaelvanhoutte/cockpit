@@ -75,7 +75,7 @@ const SCOPES: readonly { scope: Scope; label: string }[] = [
  *
  * **Find item is the same column in a second mode** ("Find an open Item with F
  * and Shift+F, and land on its row", issue 828), under the same rules: F on this
- * Dashboard, Shift+F on its Workspace (there is no *All*), nothing listed until
+ * Dashboard and the Inbox beside it, Shift+F on its Workspace (there is no *All*), nothing listed until
  * something is typed, then the open Items matching (`find-item.ts` in `@cockpit/shared`). The screen
  * follows the highlight onto the Item's row, and Enter lands focus on it, by a
  * request that outlives the column (`landOnItem.ts`).
@@ -543,7 +543,7 @@ export function PanelList({
       return chosen === 2 ? 'Only one Dashboard in this Workspace' : 'Only one Workspace';
     }
     const key = finding ? FIND_NAME : KEY_NAME;
-    if (chosen === 1) return `Search this Dashboard (${key})`;
+    if (chosen === 1) return finding ? `Search this Dashboard and the Inbox (${key})` : `Search this Dashboard (${key})`;
     return chosen === 2
       ? `Search every ${finding ? 'open Item' : 'Dashboard'} of ${here?.name ?? 'this Workspace'} (Shift+${key})`
       : 'Search every Workspace';

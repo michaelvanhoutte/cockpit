@@ -64,22 +64,66 @@ describe('Dashboards', () => {
       expect(rowsFor(snapshot, 'CONSELIT.BE').rows.map((row) => row.itemId)).toEqual(['a']);
     });
 
-    it('keeps this Dashboard’s Items in Dashboard, every open one in Workspace, and no finished one', () => {
-      const snapshot = aSnapshot(
-        [anItem('here-o'), anItem('away-o'), anItem('inbox-o'), anItem('done-o', { completedAt: '2026-08-31T09:00:00.000Z' })],
-        [['here-o', 'plan'], ['away-o', 'review'], ['done-o', 'plan']],
-      );
-      expect(rowsFor(snapshot, 'o', 1).rows.map((row) => row.itemId)).toEqual(['here-o']);
-      expect(rowsFor(snapshot, 'o', 2).rows.map((row) => row.itemId).toSorted()).toEqual(['away-o', 'here-o', 'inbox-o']);
+    it('keeps no finished Item in either scope', () => {
+      const snapshot = aSnapshot([anItem('done-o', { completedAt: '2026-08-31T09:00:00.000Z' })], [['done-o', 'plan']]);
+      expect(rowsFor(snapshot, 'o', 1).rows).toEqual([]);
+      expect(rowsFor(snapshot, 'o', 2).rows).toEqual([]);
     });
 
-    it('treats an Item filed on a Filter panel only as the Inbox’s', () => {
-      const snapshot = aSnapshot([anItem('a')], [['a', 'gather']]);
-      expect(rowsFor(snapshot, 'a', 2).rows[0]?.where).toBe('Inbox');
-      expect(rowsFor(snapshot, 'a', 1).rows).toEqual([]);
+    it('keeps every open one in Workspace, the Inbox’s included', () => {
+      const snapshot = aSnapshot([anItem('here-o'), anItem('away-o'), anItem('inbox-o')], [['here-o', 'plan'], ['away-o', 'review']]);
+      expect(rowsFor(snapshot, 'o', 2).rows.map((row) => row.itemId).toSorted()).toEqual(['away-o', 'here-o', 'inbox-o']);
     });
   });
 
+  describe('Find on Dashboard lists the open Items drawn on this Dashboard and the Inbox’s, and never one only on another Dashboard', () => {
+    const dueToday = { sets: [[[{ field: 'dueDate', window: 'today', orOverdue: false }]]], groupBy: 'none' };
+    const filterPanel = (id: string, dashboardId: string, name: string): Panel =>
+      ({ id, dashboardId, name, kind: 'filter', filter: dueToday }) as unknown as Panel;
+    const withFilters = (item: Item, filedOn: string[], filters: Panel[]) => {
+      const base = aSnapshot([item], filedOn.map((panelId) => [item.id, panelId] as [string, string]));
+      return { ...base, panels: [...(base.panels ?? []).filter((panel) => panel.id !== 'gather'), ...filters] } as WorkspaceSnapshot;
+    };
+    const invoice = anItem('invoice', { dueDate: '2026-09-01' } as Partial<Item>);
+
+    it.each([
+      {
+        situation: 'in the Inbox, filed nowhere',
+        snapshot: () => aSnapshot([invoice]),
+        expected: [['Inbox', null]],
+      },
+      {
+        situation: 'filed only on a Filter panel of another Dashboard, so the Inbox’s',
+        snapshot: () => withFilters(invoice, ['later-gather'], [filterPanel('later-gather', 'later', 'Due later')]),
+        expected: [['Inbox', null]],
+      },
+      {
+        situation: 'filed only on a Filter panel here, which does not gather the Inbox’s Items, so the Inbox’s',
+        snapshot: () => withFilters(invoice, ['here-gather'], [filterPanel('here-gather', 'today', 'Due today')]),
+        expected: [['Inbox', null]],
+      },
+      {
+        situation: 'filed only on a Panel of another Dashboard',
+        snapshot: () => aSnapshot([invoice], [['invoice', 'review']]),
+        expected: [],
+      },
+      {
+        situation: 'filed on a Panel here',
+        snapshot: () => aSnapshot([invoice], [['invoice', 'plan']]),
+        expected: [['Plan', 'plan']],
+      },
+    ])('$situation', ({ snapshot, expected }) => {
+      const rows = rowsFor(snapshot(), 'invoice', 1).rows;
+      expect(rows.map((row) => [row.where, row.panel?.panelId ?? null])).toEqual(expected);
+    });
+
+    it('keeps one row going to the Filter panel for an Inbox Item a Filter panel here gathers', () => {
+      const gatheredHere = { dashboardId: 'today', dashboardName: 'Today', panelId: 'f1', panelName: 'Due today' };
+      const index = [{ item: invoice, text: 'invoice', places: [], gatheredOn: [gatheredHere] }];
+      const rows = findItems(index, 'invoice', 1, 'today').rows;
+      expect(rows.map((row) => [row.where, row.panel?.panelId])).toEqual([['Due today', 'f1']]);
+    });
+  });
   describe('a row says what the Item is and where, most recently changed first', () => {
     it('names the Panel in Dashboard, and Dashboard ▸ Panel with +n in Workspace, once for an Item on two Panels', () => {
       const snapshot = aSnapshot([anItem('a'), anItem('b')], [['a', 'plan'], ['a', 'review']]);
