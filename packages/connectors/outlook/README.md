@@ -185,6 +185,26 @@ Following the category is per message, as before.
   following: flagging every message again would flag mail nobody chose.
 - **Names** of a conversation Item are the union of the categories of its
   flagged messages, reported when they change.
+- **A flag's date is the Item's due day** ("A flag's date becomes the Outlook
+  Item's due date", issue 1759), on a connection following the flag only: a
+  category connection never sends one. The listing already selects each
+  message's whole `flag`, so no call is added. `flag.dueDateTime` is a
+  `dateTimeTimeZone` (`dateTime` such as `2026-11-20T00:00:00.0000000`, no
+  offset, and a `timeZone` name); **the day taken is the date part of `dateTime`
+  as written, whatever `timeZone` says**, with no conversion to anyone's zone.
+  Only a message whose flag is `flagged` has one: a completed flag keeps its
+  date in Graph and is not listed. A conversation takes the earliest day of its
+  flagged messages. A new conversation is emitted with `SourceItem.dueDay`; one
+  already in has the day reported through `reportDueDay` when it differs from
+  the one last reported, which the state keeps per conversation in `due` and
+  saves only once the host took the report, so one that failed is reported
+  again next run. A removed date reports nothing, and keeps its `due` entry, so
+  the same day put back is not news. A reopened conversation reports its day
+  right after the reopen, since the reopen gives the connection's days first.
+  The host decides what a day does (it moves an Item only while its date is
+  still the connection's). Each report is a call to the host and shares
+  `NAMES_REPORTED_PER_RUN` with the names, so the first run after this shipped
+  reports the day of every dated flag already followed, a few hundred a run.
 
 ## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
 
@@ -266,6 +286,13 @@ message's `webLink`, which opens it in Outlook on the web.
 
 ## Not yet known
 
+- **What `flag.dueDateTime` really holds in a real mailbox.** No dated flag has
+  been read from a live mailbox: the shape above is Graph's documentation of
+  `followupFlag` (a `dateTimeTimeZone`), and the unit tests use midnight of the
+  day chosen. If Graph answers a dated flag as midnight UTC while Outlook shows
+  another day, or with a time that crosses midnight in the mailbox's zone, the
+  Item will be due a day off, and the day taken has to be decided again (issue
+  1757, decision 1). One flagged message read from a real mailbox settles it.
 - **Whether a draft made, opened and sent in real Outlook behaves as the
   stand-in does**: `webLink` opening a draft for writing (rather than a read
   view), its id staying the same through editing and sending (the check copes

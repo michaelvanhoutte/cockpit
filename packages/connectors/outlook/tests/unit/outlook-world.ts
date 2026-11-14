@@ -237,6 +237,14 @@ export class GraphWorld {
     this.#changed(Object.assign(this.#get(id), { flag: 'flagged' as const }));
   }
 
+  /** The flag given a date, as Outlook's Tomorrow or a picked day does: the day as midnight, in the zone given. */
+  dueOn(id: string, day: string | null, timeZone = 'UTC'): void {
+    const one = this.#get(id);
+    if (day === null) delete one.flagDue;
+    else one.flagDue = { dateTime: `${day}T00:00:00.0000000`, timeZone };
+    this.#changed(one);
+  }
+
   complete(id: string): void {
     this.#changed(Object.assign(this.#get(id), { flag: 'complete' as const }));
   }

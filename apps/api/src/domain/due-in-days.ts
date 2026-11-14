@@ -30,3 +30,14 @@ export function dueDateIsTheConnections(
 ): boolean {
   return given !== null && item.dueDateChosenAt === null && item.dueDate === given;
 }
+
+/**
+ * The calendar day a source gives an Item as due, as `YYYY-MM-DD`, or null for
+ * anything that is not a real day (a connector sends a day, never a time, and
+ * what it sends is checked here rather than trusted).
+ */
+export function sourceDay(day: unknown): string | null {
+  if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const parsed = new Date(`${day}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
+}

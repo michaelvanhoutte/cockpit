@@ -46,7 +46,7 @@ interface GraphMessage {
   isDraft?: unknown;
   bodyPreview?: unknown;
   parentFolderId?: unknown;
-  flag?: { flagStatus?: unknown } | null;
+  flag?: { flagStatus?: unknown; dueDateTime?: { dateTime?: unknown; timeZone?: unknown } | null } | null;
   categories?: unknown;
   subject?: unknown;
   from?: { emailAddress?: { name?: unknown; address?: unknown } | null } | null;
@@ -68,6 +68,23 @@ export function isMarked(message: unknown, mark: Mark): boolean {
     Array.isArray(categories) &&
     categories.some((one) => typeof one === 'string' && one.toLowerCase() === COCKPIT_CATEGORY.toLowerCase())
   );
+}
+
+/**
+ * The calendar day a flag is due, or null for a flag with no date. Graph gives
+ * `flag.dueDateTime` as a `dateTimeTimeZone` (`{ dateTime: '2026-11-20T00:00:00.0000000', timeZone: 'UTC' }`);
+ * the day is the date part of `dateTime` as written, in the zone it names,
+ * with no conversion to anyone's zone (the package README says what is and is
+ * not known of the shape). Only a flag that is still set (`flagged`) has one:
+ * a completed or cleared flag keeps its date in Graph.
+ */
+export function flagDayOf(message: unknown): string | null {
+  const { flag } = (message ?? {}) as GraphMessage;
+  if (flag?.flagStatus !== 'flagged') return null;
+  const written = flag.dueDateTime?.dateTime;
+  const day = typeof written === 'string' ? /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(written)?.[1] : undefined;
+  // A real calendar day: 2026-02-30 is not one.
+  return day && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day ? day : null;
 }
 
 /** What a flag is set to for an Item opened or closed in Cockpit: the flag alone, nothing else of the message. */
@@ -122,6 +139,8 @@ export function messagePage(
   messageIds: string[];
   categories: Record<string, string[]>;
   conversations: Record<string, string>;
+  /** The day each flagged message's flag is due, for the messages whose flag has one; none for a category. */
+  dueDays: Record<string, string>;
   nextLink: string | null;
 } {
   const { value, '@odata.nextLink': nextLink } = (answer ?? {}) as Record<string, unknown>;
@@ -133,6 +152,10 @@ export function messagePage(
     categories: Object.fromEntries(marked.map((one) => [one.id as string, categoryNames(one.categories)])),
     // A message Graph names no conversation for is its own: nothing else can be in it.
     conversations: Object.fromEntries(marked.map((one) => [one.id as string, conversationIdOf(one)])),
+    dueDays:
+      mark === 'flag'
+        ? Object.fromEntries(marked.flatMap((one) => (flagDayOf(one) ? [[one.id as string, flagDayOf(one)!]] : [])))
+        : {},
     nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null,
   };
 }

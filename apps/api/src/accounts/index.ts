@@ -44,6 +44,7 @@ import type {
   DraftMade,
   DraftWaiting,
   EmittedItem,
+  DueDayReport,
   NamesReport,
   OpenStateWanted,
   SourceItem,
@@ -428,6 +429,8 @@ export interface PulledRun {
   draftGone(draft: { conversationId: string; draftId: string }, commandId: string): Promise<'dropped' | 'not waited on' | 'disconnected'>;
   /** Records an Item's names as the source reported them, filing it by the new ones (issue 1146), and answers what each name did (issue 1197). */
   reportNames(report: NamesReport, forms: NameForms): Promise<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }>;
+  /** Applies the day the source gives an Item as due, only while its date is still the connection's (issue 1759). */
+  reportDueDay(report: DueDayReport): Promise<'recorded' | 'unchanged' | 'unknown' | 'disconnected'>;
   applySourceChange(change: SourceStateChange): Promise<{ changed: string } | 'unchanged' | 'disconnected'>;
   /** Closes the Items the connection filed under the listing's choice that it did not see, answering their ids (issues 938, 1141). */
   closeItemsNotListed(listing: CompleteListing): Promise<string[] | 'disconnected'>;
@@ -556,6 +559,8 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
         unwrap(await store.filePulledItem(accountName, sourceAccountId, runId, item, ids, forms)),
       reportNames: async (report, forms) =>
         unwrap(await store.reportPulledNames(accountName, sourceAccountId, runId, report, forms)),
+      reportDueDay: async (report) =>
+        unwrap(await store.reportPulledDueDay(accountName, sourceAccountId, runId, report)),
       followedConversations: async () =>
         unwrap(await store.followedPulledConversations(accountName, sourceAccountId, runId)),
       recordTurn: async (turn, commandId) =>

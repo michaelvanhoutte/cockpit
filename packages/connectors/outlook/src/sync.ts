@@ -80,6 +80,14 @@ export interface OutlookState {
    */
   readonly names?: Record<string, string[]>;
   /**
+   * Following the flag: the day last reported as due for each conversation (or
+   * message) that has one, so a day unchanged at a re-read is not reported
+   * again. Saved only once the host took the report, so one that failed is
+   * reported again next run. A day that is removed keeps its entry: nothing is
+   * reported for it, and the same day put back is not news.
+   */
+  readonly due?: Record<string, string>;
+  /**
    * Following the flag: the flagged messages whose conversation was brought in
    * (or was followed already), so a run does not read them again. Like `seen`,
    * only what the last listing still held.
@@ -92,18 +100,23 @@ export interface OutlookState {
 /** The saved state, read - or a fresh one where there is none, it is unreadable, or it was kept under another choice. */
 export function stateIn(saved: unknown, choice: Mark): OutlookState {
   const held = (saved ?? {}) as Partial<OutlookState>;
-  if (held.choice !== choice || !Array.isArray(held.seen)) return { choice, seen: [], names: {} };
+  if (held.choice !== choice || !Array.isArray(held.seen)) return { choice, seen: [], names: {}, due: {} };
   const names: Record<string, string[]> = {};
   if (held.names && typeof held.names === 'object') {
     for (const [id, set] of Object.entries(held.names)) {
       if (Array.isArray(set) && set.every((one) => typeof one === 'string')) names[id] = set;
     }
   }
+  const due: Record<string, string> = {};
+  if (held.due && typeof held.due === 'object') {
+    for (const [key, day] of Object.entries(held.due)) if (typeof day === 'string') due[key] = day;
+  }
   const ids = (list: unknown) => (Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && id.length > 0) : []);
   return {
     choice,
     seen: ids(held.seen),
     names,
+    due,
     read: ids(held.read),
     ...(typeof held.turnsSince === 'string' && Number.isFinite(Date.parse(held.turnsSince)) ? { turnsSince: held.turnsSince } : {}),
   };
@@ -145,6 +158,8 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
   const done = new Set<string>();
   // What each message's names were last reported as, this run's reports added.
   const reported: Record<string, string[]> = { ...state.names };
+  // The day last reported as due for each Item, this run's reports added.
+  const dueReported: Record<string, string> = { ...state.due };
   let moreToDo = false;
   // A message already in whose categories changed since the last report:
   // the listing reads them every run, so this costs no call (issue 1146).
@@ -171,6 +186,29 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
     await host.reportNames({ sourceId, names, ...(mark === 'category' ? { followed: COCKPIT_CATEGORY } : {}) });
     reported[sourceId] = names;
   }
+  // The earliest day a flag is due among the flagged messages each Item holds.
+  const earliest = (ids: Iterable<string>): Map<string, string> => {
+    const days = new Map<string, string>();
+    for (const messageId of ids) {
+      const day = listing.dueDays[messageId];
+      const key = keyOf(messageId);
+      if (day && (!days.has(key) || day < days.get(key)!)) days.set(key, day);
+    }
+    return days;
+  };
+  // Reported for an Item already in: a day that differs from the last reported, a removed day being nothing to report.
+  for (const [sourceId, day] of earliest(listing.messageIds.filter((id) => known.has(id) || readBefore.has(id)))) {
+    if (dueReported[sourceId] === day) continue;
+    if (reports === NAMES_REPORTED_PER_RUN) {
+      moreToDo = true;
+      break;
+    }
+    reports += 1;
+    await host.reportDueDay({ sourceId, dueDay: day });
+    dueReported[sourceId] = day;
+  }
+  // What a conversation not brought in yet is due, from every flagged message of it.
+  const newDays = earliest(listing.messageIds.filter((id) => !known.has(id)));
   let turnsSince = state.turnsSince;
   let turnsOutOfCalls = false;
   try {
@@ -211,10 +249,12 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
         if (byConversation) {
           const conversationId = listing.conversations[messageId]!;
           if (!followed!.has(conversationId)) {
-            const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now);
+            const dueDay = newDays.get(conversationKey(conversationId));
+            const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now, dueDay);
             // Only once it was brought in: another flagged message of it must not be skipped for one that was gone.
             if (brought) {
               reported[conversationKey(conversationId)] = brought;
+              if (dueDay) dueReported[conversationKey(conversationId)] = dueDay;
               followed!.add(conversationId);
             }
           }
@@ -253,6 +293,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
     names: Object.fromEntries(
       [...new Set([...seen, ...(byConversation ? read : [])].map(keyOf))].flatMap((key) => (reported[key] ? [[key, reported[key]]] : [])),
     ),
+    ...(byConversation
+      ? { due: Object.fromEntries([...new Set(read.map(keyOf))].flatMap((key) => (dueReported[key] ? [[key, dueReported[key]]] : []))) }
+      : {}),
     ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
   } satisfies OutlookState);
   return moreToDo ? { moreToDo: true } : undefined;
@@ -265,6 +308,8 @@ interface Listing {
   readonly categories: Record<string, string[]>;
   /** Each listed message's conversation. */
   readonly conversations: Record<string, string>;
+  /** The day each flagged message's flag is due, where it has one. */
+  readonly dueDays: Record<string, string>;
 }
 
 /** Every message carrying the mark outside Deleted Items, or an error where the listing could not be finished. */
@@ -275,15 +320,17 @@ async function list(mailbox: Mailbox, mark: Mark): Promise<Listing> {
   const messageIds = new Set<string>();
   const categories: Record<string, string[]> = {};
   const conversations: Record<string, string> = {};
+  const dueDays: Record<string, string> = {};
   let next: string | null = `messages?$filter=${encodeURIComponent(markFilter(mark))}&$select=${LIST_FIELDS}&$top=${PAGE_SIZE}`;
   while (next) {
     const page = messagePage(await mailbox.get(next), mark, deletedItems);
     for (const messageId of page.messageIds) messageIds.add(messageId);
     Object.assign(categories, page.categories);
     Object.assign(conversations, page.conversations);
+    Object.assign(dueDays, page.dueDays);
     next = page.nextLink;
   }
-  return { deletedItems, messageIds: [...messageIds], categories, conversations };
+  return { deletedItems, messageIds: [...messageIds], categories, conversations, dueDays };
 }
 
 /**
@@ -338,6 +385,7 @@ async function bringInConversation(
   messageId: string,
   foldersNow: () => Promise<Folders>,
   now: () => Date,
+  dueDay: string | undefined,
 ): Promise<string[] | null> {
   const answer = await mailbox.get(`messages/${encodeURIComponent(messageId)}?$select=${READ_FIELDS}`, { bodyAsText: true });
   const message = messageFrom(answer, mark, deletedItems);
@@ -354,10 +402,13 @@ async function bringInConversation(
     title: message.title,
     choice: mark,
     names: namesOf(message.categories, mark),
+    ...(dueDay ? { dueDay } : {}),
     ...(conversation ? { conversation } : {}),
   });
   if (filing === 'already-known') {
     await host.emitSourceStateChange({ sourceId, change: 'reopened', observedAt: now().toISOString() });
+    // The reopen gives the connection's days first; the flag's day replaces them while the date is still the connection's.
+    if (dueDay) await host.reportDueDay({ sourceId, dueDay });
   }
   return namesOf(message.categories, mark);
 }
