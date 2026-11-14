@@ -153,6 +153,10 @@ describe('Triage', () => {
       expect(openEntryFor(anItem, aConversation(), names)).toEqual({ name: 'Gmail', link: mailLink });
     });
 
+    it('falls back to the Item’s source link when the LinkedIn conversation has no link that opens', () => {
+      expect(openEntryFor(anItem, { ...linkedIn, link: '' }, names)).toEqual({ name: 'Gmail', link: mailLink });
+    });
+
     it('is the Item’s own source link for an Item following no conversation', () => {
       expect(openEntryFor(anItem, undefined, names)).toEqual({ name: 'Gmail', link: mailLink });
       expect(openEntryFor({ ...anItem, sourceLink: null }, undefined, names)).toBeNull();
