@@ -488,6 +488,8 @@ test.describe('Capture', () => {
       await expect(line).toBeVisible();
       await expectNoSidewaysScroll(page);
       await press(line, isMobile);
+      // At a desk the window gives way to the form; on a phone the form opens over the page.
+      if (!isMobile) await expect(captureBox(page)).toBeHidden();
       const form = page.getByRole('dialog').filter({ hasNot: page.getByLabel('What is on your mind?') });
       await expect(form).toContainText(tail);
 
@@ -498,8 +500,10 @@ test.describe('Capture', () => {
       await saveTheItem(page, isMobile);
       await expect(form).toBeHidden();
       // The form's closing replaces the entry its opening pushed, so on a phone the page is under Back twice.
-      if (isMobile) await page.goBack();
-      await closeCapture(page, isMobile);
+      if (isMobile) {
+        await page.goBack();
+        await closeCapture(page, isMobile);
+      }
       await switchTo(page, elsewhere, isMobile);
       if (isMobile) await press(page.getByRole('link', { name: 'Inbox' }).first(), isMobile);
       await expect(itemRow(page, edited)).toBeVisible();

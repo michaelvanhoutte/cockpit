@@ -22,7 +22,7 @@ import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
 import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
 import { useWorkspaceHolding } from '../api/useWorkspaceHolding';
-import { useCloseItem, useDockedItem, useOpenItem } from '../itemForm';
+import { useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
 import type { Arrived } from '../shares';
 import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from '../description/lazyEditor';
@@ -73,6 +73,7 @@ export function CaptureNote({
   onPutOn,
   onCaptured,
   onKept,
+  onOpenedItem,
   dictating,
   shownAs = 'page',
 }: {
@@ -95,6 +96,8 @@ export function CaptureNote({
    * take the note with it.
    */
   onKept?: (() => void) | undefined;
+  /** Said when a line here opens an Item's form, so the window it is in can close. */
+  onOpenedItem?: (() => void) | undefined;
   /**
    * What dictation records with and transcribes with: the browser's recorder and
    * the Worker, unless a test hands in fakes. `transcriber` says whether the
@@ -253,8 +256,12 @@ export function CaptureNote({
   const queryClient = useQueryClient();
   const outbox = useOutbox();
   const waiting = useWaitingCaptures();
-  const openItem = useOpenItem();
-  const closeItem = useCloseItem();
+  const openItemForm = useOpenItem();
+  // Opening an Item's form from here is leaving Capture for it: the window closes (issue 1639).
+  const openItem = (itemId: string) => {
+    openItemForm(itemId);
+    saidNow.current.onOpenedItem?.();
+  };
   /**
    * The note the capture just made may repeat another ("Warn at Capture when
    * the note just captured repeats another", issue 1115): read from the
@@ -294,8 +301,8 @@ export function CaptureNote({
    * while this is open.
    */
   // What the page asked to be told, read when it happens rather than when drawn.
-  const saidNow = useRef({ onPutOn, onCaptured, onKept });
-  saidNow.current = { onPutOn, onCaptured, onKept };
+  const saidNow = useRef({ onPutOn, onCaptured, onKept, onOpenedItem });
+  saidNow.current = { onPutOn, onCaptured, onKept, onOpenedItem };
   const dock = useDockedItem();
   const dockNow = useRef(dock);
   dockNow.current = dock;
@@ -532,8 +539,6 @@ export function CaptureNote({
       return;
     }
     restore(back);
-    // Its form is showing an Item that is no longer there; edits made in it are not restored.
-    closeItem(back.id);
     if (unsure) setRefused(UNDO_MAYBE_SENT);
     setLast((was) => (was?.id === back.id ? null : was));
     // Nothing is left on the line to add to.

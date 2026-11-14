@@ -74,7 +74,6 @@ const held = vi.hoisted(() => ({
   /** Opens an Item's form, which the shell answers by changing the address. */
   open: vi.fn(),
   /** Closes an Item's form if it is the one open, which Undo asks. */
-  close: vi.fn(),
   /** The workspaces the account holds, which another tab can delete one of. */
   workspaces: [] as unknown[],
   /** The snapshot each workspace answers with; one left out is a workspace never read, which fails as offline does. */
@@ -106,7 +105,6 @@ vi.mock('../../../src/api/mostUsedPanels', () => ({
 vi.mock('../../../src/itemForm', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/itemForm')>()),
   useOpenItem: () => held.open,
-  useCloseItem: () => held.close,
 }));
 
 vi.mock('../../../src/api/queries', async (importOriginal) => ({
@@ -189,6 +187,7 @@ async function thePage({
   onPutOn,
   onCaptured,
   onKept,
+  onOpenedItem,
   recordingStore = browserRecordingStore(),
   recordingLock = inTabLock(),
   waitingRecordings = [],
@@ -236,6 +235,7 @@ async function thePage({
   onPutOn?: () => void;
   onCaptured?: () => void;
   onKept?: () => void;
+  onOpenedItem?: () => void;
 } = {}) {
   held.workspaces = [WORK, HOME];
   held.snapshots = { 'ws-work': WORK_SNAPSHOT, 'ws-home': HOME_SNAPSHOT };
@@ -281,7 +281,7 @@ async function thePage({
     <QueryClientProvider client={client}>
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
-          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
+          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} onOpenedItem={onOpenedItem} />
         </KeptRecordingsProvider>
       </OutboxProvider>
     </QueryClientProvider>,
@@ -358,7 +358,6 @@ describe('Capture', () => {
     // A browser of its own for every case: nothing kept by the last one.
     globalThis.indexedDB = new IDBFactory();
     held.open.mockClear();
-    held.close.mockClear();
     held.mutate.mockClear();
     vi.mocked(sendCommand).mockReset();
     vi.mocked(sendCommand).mockResolvedValue({ ok: true as const, applied: true });
@@ -946,7 +945,7 @@ describe('Capture', () => {
    * Workspace the form then draws from is tests/unit/components/ItemForm.test.tsx;
    * the walk from the line to the form is tests/e2e/capture.test.ts.
    */
-  describe('the Captured line opens the Item once it is an Item, and Undo closes that form', () => {
+  describe('the Captured line opens the Item once it is an Item, and the window it is in closes', () => {
     const lineButton = () => screen.queryByRole('button', { name: /^Captured “/ });
     const addToThis = () => screen.getByRole('button', { name: 'Add to this' });
     const itemCaptured = async () => (await captured()).payload.itemId;
@@ -1059,18 +1058,19 @@ describe('Capture', () => {
       expect(everythingAsked()).toHaveLength(asked);
     });
 
-    it('closes the form of the Item taken back, and puts the note back in the box', async () => {
-      const user = await thePage();
+    it('tells the window to close once it has opened the Item', async () => {
+      const onOpenedItem = vi.fn();
+      const user = await thePage({ onOpenedItem });
       await user.type(box(), 'Book the venue deposit');
       await user.click(chip('Capture'));
       await itemsAreRead(user);
       await waitFor(() => expect(lineButton()).not.toBeNull());
+      expect(onOpenedItem).not.toHaveBeenCalled();
+
       await user.click(lineButton()!);
 
-      await user.click(undoButton());
-
-      await waitFor(() => expect(box()).toHaveValue('Book the venue deposit'));
-      expect(held.close).toHaveBeenCalledWith(await itemCaptured());
+      expect(held.open).toHaveBeenCalledWith(await itemCaptured());
+      expect(onOpenedItem).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1285,7 +1285,8 @@ describe('Capture', () => {
     };
 
     it('names the other note and when, with Open it, above the Captured line', async () => {
-      const user = await thePage();
+      const onOpenedItem = vi.fn();
+      const user = await thePage({ onOpenedItem });
       await captureOne(user);
 
       await pairArrives(user, (id) => [{ itemId: id, otherItemId: 'item-bob' }]);
@@ -1295,6 +1296,7 @@ describe('Capture', () => {
       expect(undoButton()).toBeVisible();
       await user.click(screen.getByRole('button', { name: 'Open it' }));
       expect(held.open).toHaveBeenCalledWith('item-bob');
+      expect(onOpenedItem).toHaveBeenCalledTimes(1);
     });
 
     it('says nothing of a pair that names an earlier capture', async () => {
