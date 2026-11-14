@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   DUE_IN_DAYS_MAX,
@@ -28,6 +28,7 @@ function ChoiceQuestion({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const noteId = useId();
   return (
     <>
       <p className="pt-4 text-sm">{choice.question}</p>
@@ -38,7 +39,13 @@ function ChoiceQuestion({
         value={value}
         onChange={onChange}
         className="mt-1 flex-wrap"
+        describedBy={choice.note ? noteId : undefined}
       />
+      {choice.note && (
+        <p id={noteId} className="pt-1.5 text-sm text-ink-faint">
+          {choice.note}
+        </p>
+      )}
     </>
   );
 }

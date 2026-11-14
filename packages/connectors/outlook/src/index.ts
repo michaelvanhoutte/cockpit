@@ -37,9 +37,10 @@ export function createOutlookConnector(config: OutlookConnectorConfig): Connecto
       choice: {
         question: 'Bring in messages',
         options: [
-          { value: 'flag', label: 'Flagged', listed: 'flagged' },
+          { value: 'flag', label: 'Flagged for follow-up', listed: 'flagged' },
           { value: 'category', label: 'Category Cockpit', listed: 'with category Cockpit' },
         ],
+        note: "Importance and other categories don't bring mail in.",
       },
       // A message's categories, the followed Cockpit one left out, are its
       // Item's names (issue 1146).

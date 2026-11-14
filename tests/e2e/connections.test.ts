@@ -287,7 +287,7 @@ test.describe('Connector management', () => {
       await expect(window.getByText(/Your organisation may have to approve Cockpit first/)).toBeVisible();
       await press(window.getByRole('button', { name: 'Connect Outlook' }), isMobile);
       const outlookAsked = page.getByRole('dialog', { name: 'Connect Outlook' });
-      await expect(outlookAsked.getByRole('radio', { name: 'Flagged' })).toBeChecked();
+      await expect(outlookAsked.getByRole('radio', { name: 'Flagged for follow-up' })).toBeChecked();
       // And whether it files by category (issue 1147): unticked to start, and
       // the answer given rides the sign-in to be the new connection's.
       const filesByCategory = outlookAsked.getByRole('checkbox', { name: 'File it on the panel named after its category' });
@@ -297,7 +297,7 @@ test.describe('Connector management', () => {
       await press(page.getByRole('link', { name: 'michael@example.com', exact: true }), isMobile);
       const backFromMicrosoft = page.getByRole('dialog', { name: 'Settings' });
       await expect(backFromMicrosoft.getByText('Connected.')).toBeVisible();
-      await expect(backFromMicrosoft.getByText('Flagged', { exact: true })).toBeVisible();
+      await expect(backFromMicrosoft.getByText('Flagged for follow-up', { exact: true })).toBeVisible();
       await expect(backFromMicrosoft.getByText('Files by category', { exact: true })).toBeVisible();
 
       // The check connecting queued brings the messages flagged in the stack's

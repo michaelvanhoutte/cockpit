@@ -631,7 +631,7 @@ test.describe("Triage", () => {
         isMobile,
       );
       const asked = page.getByRole("dialog", { name: "Connect Outlook" });
-      await expect(asked.getByRole("radio", { name: "Flagged" })).toBeChecked();
+      await expect(asked.getByRole("radio", { name: "Flagged for follow-up" })).toBeChecked();
       await press(asked.getByRole("button", { name: "Connect" }), isMobile);
       await press(
         page.getByRole("link", { name: MAILBOX, exact: true }),
@@ -730,7 +730,7 @@ test.describe("Triage", () => {
         isMobile,
       );
       const asked = page.getByRole("dialog", { name: "Connect Outlook" });
-      await expect(asked.getByRole("radio", { name: "Flagged" })).toBeChecked();
+      await expect(asked.getByRole("radio", { name: "Flagged for follow-up" })).toBeChecked();
       await press(asked.getByRole("button", { name: "Connect" }), isMobile);
       await press(
         page.getByRole("link", { name: MAILBOX, exact: true }),

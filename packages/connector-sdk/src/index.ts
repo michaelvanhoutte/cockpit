@@ -175,6 +175,8 @@ export interface ConnectionChoice {
     /** What a complete listing under this option counts, said after the number (*flagged*, *with category Cockpit*); absent: a history line gives no count for it. */
     listed?: string;
   }[];
+  /** One faint line under the options, saying what they leave out (*Importance and other categories don't bring mail in.*); absent: no line. */
+  note?: string;
 }
 
 /**

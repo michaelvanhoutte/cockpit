@@ -1607,7 +1607,13 @@ const routes = app
             asksFirst: manifest.choice !== undefined || manifest.names !== undefined || manifest.pulled === true,
             ...(manifest.pulled === true ? { pulled: true } : {}),
             ...(manifest.choice
-              ? { choice: { question: manifest.choice.question, options: manifest.choice.options.map((option) => ({ ...option })) } }
+              ? {
+                  choice: {
+                    question: manifest.choice.question,
+                    options: manifest.choice.options.map((option) => ({ ...option })),
+                    ...(manifest.choice.note === undefined ? {} : { note: manifest.choice.note }),
+                  },
+                }
               : {}),
             ...(manifest.names ? { names: { noun: manifest.names.noun, example: manifest.names.example } } : {}),
             refusals: auth?.refusals ?? {},

@@ -28,7 +28,7 @@ const held = vi.hoisted(() => ({
     cardText: string;
     asksFirst: boolean;
     refusals?: Record<string, string>;
-    choice?: { question: string; options: { value: string; label: string }[] };
+    choice?: { question: string; options: { value: string; label: string }[]; note?: string };
     pulled?: boolean;
     textedCode?: { textTo: string };
     permissions?: { code: string; granted?: string; withheld?: string }[];
@@ -2329,6 +2329,98 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'History of anna@example.com' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Check anna@example.com now' })).toBeNull();
       expect(screen.queryByRole('button', { name: /^Actions for / })).toBeNull();
+    });
+  });
+
+  /** The Outlook choice names the follow-up flag as the mark, with a line saying importance does not count (issue 1758). */
+  describe('the Outlook choice says the follow-up flag is the mark, with the line under it', () => {
+    const NOTE = "Importance and other categories don't bring mail in.";
+    const OUTLOOK_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag, or categorise Cockpit, arrive as items.',
+      asksFirst: true,
+      choice: {
+        question: 'Bring in messages',
+        options: [
+          { value: 'flag', label: 'Flagged for follow-up' },
+          { value: 'category', label: 'Category Cockpit' },
+        ],
+        note: NOTE,
+      },
+      names: { noun: 'category', example: 'a message with the category' },
+      pulled: true,
+    };
+    const GMAIL_CARD = {
+      id: 'gmail',
+      displayName: 'Gmail',
+      cardText: 'Conversations you label Cockpit arrive as items.',
+      asksFirst: true,
+      choice: {
+        question: 'Bring in conversations',
+        options: [
+          { value: 'label', label: 'Labelled Cockpit' },
+          { value: 'star', label: 'Starred (flagged in Outlook)' },
+        ],
+      },
+      pulled: true,
+    };
+    const OUTLOOK_ROW: SourceAccount = {
+      ...ADA,
+      id: 'account-outlook',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      lastTestedAt: '2026-10-16T09:00:00.000Z',
+      follows: 'flag',
+      followsLabel: 'Flagged for follow-up',
+      followsListed: 'flagged',
+    };
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, OUTLOOK_CARD, GMAIL_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', gmail: 'Gmail' };
+    });
+
+    it('Connect for Outlook offers the follow-up flag to start, and the category, with the line under them', async () => {
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+
+      expect(within(asked).getByRole('radio', { name: 'Flagged for follow-up' })).toBeChecked();
+      expect(within(asked).getByRole('radio', { name: 'Category Cockpit' })).not.toBeChecked();
+      expect(within(asked).getByText(NOTE)).toBeInTheDocument();
+      expect(within(asked).getByRole('radiogroup', { name: 'Bring in messages' })).toHaveAccessibleDescription(NOTE);
+    });
+
+    it('Change… on an Outlook row offers the same options and line, starting at the one held', async () => {
+      held.sourceAccounts = [OUTLOOK_ROW];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change…' }));
+      const changing = await screen.findByRole('dialog', { name: 'Change Ada’s mail' });
+
+      expect(within(changing).getByRole('radio', { name: 'Flagged for follow-up' })).toBeChecked();
+      expect(within(changing).getByRole('radio', { name: 'Category Cockpit' })).not.toBeChecked();
+      expect(within(changing).getByText(NOTE)).toBeInTheDocument();
+    });
+
+    it('the card chip shows the follow-up label the server gives it', async () => {
+      held.sourceAccounts = [OUTLOOK_ROW];
+      showWindow();
+
+      expect(await screen.findByText('Flagged for follow-up')).toBeInTheDocument();
+    });
+
+    it('Connect for Gmail draws no line under its options', async () => {
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+
+      expect(within(asked).getByRole('radio', { name: 'Labelled Cockpit' })).toBeChecked();
+      expect(asked.textContent).not.toContain('Importance and other categories');
     });
   });
 });

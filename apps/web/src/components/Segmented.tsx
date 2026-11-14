@@ -11,6 +11,7 @@ export function Segmented<V extends string>({
   value,
   onChange,
   className = '',
+  describedBy,
 }: {
   label: string;
   name: string;
@@ -18,11 +19,14 @@ export function Segmented<V extends string>({
   value: V;
   onChange: (value: V) => void;
   className?: string;
+  /** The id of the text that explains the choice, read with its label. */
+  describedBy?: string | undefined;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
+      aria-describedby={describedBy}
       className={`inline-flex rounded-md border border-shade/10 p-0.5 text-sm ${className}`}
     >
       {options.map((option) => (
