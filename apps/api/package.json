@@ -32,7 +32,7 @@
     "@cockpit/connector-twilio": "workspace:*",
     "@cockpit/shared": "workspace:*",
     "@hono/zod-openapi": "^1.5.2",
-    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.1",
     "jose": "^6.2.12",
