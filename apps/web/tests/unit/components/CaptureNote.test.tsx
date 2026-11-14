@@ -1115,6 +1115,179 @@ describe('Capture', () => {
   });
 
   /**
+   * "Capture: Add to this lit shows what you are adding to" (issue 1799): the
+   * panel is drawn from the form's own memory of the capture and the additions
+   * kept from this window, so none of it is read from the server.
+   */
+  describe('while Add to this is lit, the box shows what the next note goes onto', () => {
+    const panel = () => screen.queryByRole('group', { name: 'Adding to' });
+    const addToThis = () => screen.getByRole('button', { name: 'Add to this' });
+    async function captureFirst(user: Awaited<ReturnType<typeof thePage>>, note: string) {
+      await user.type(box(), note);
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(captureLine()).toHaveTextContent(note));
+    }
+    async function addOne(user: Awaited<ReturnType<typeof thePage>>, note: string) {
+      await user.click(addToThis());
+      await user.type(box(), note);
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await waitFor(() => expect(addToThis()).toHaveAttribute('aria-pressed', 'false'));
+    }
+
+    describe('it lists the captured note and each addition made from this window, oldest first', () => {
+      it('shows Adding to and the note alone for a note with no addition yet', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        expect(panel()).toBeNull();
+
+        await user.click(addToThis());
+
+        expect(panel()).toHaveTextContent('Adding to');
+        expect(panel()).toHaveTextContent('Call the plumber about the leak');
+        expect(within(panel()!).queryByText(/^Added /)).toBeNull();
+      });
+
+      it('lists one addition after the note, headed with its time', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await addOne(user, 'He can come Tuesday after 3');
+
+        await user.click(addToThis());
+
+        expect(panel()!.textContent).toMatch(/Call the plumber about the leak.*Added \d{1,2}:\d{2}.*·.*He can come Tuesday after 3/s);
+      });
+
+      it('lists two additions oldest first', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await addOne(user, 'first addition');
+        await addOne(user, 'second addition');
+
+        await user.click(addToThis());
+
+        const text = panel()!.textContent!;
+        expect(text.indexOf('Call the plumber')).toBeLessThan(text.indexOf('first addition'));
+        expect(text.indexOf('first addition')).toBeLessThan(text.indexOf('second addition'));
+      });
+
+      it('lists an addition at once while it is still waiting to send', async () => {
+        vi.mocked(sendCommand).mockImplementation((name) =>
+          name === 'append_to_item' ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve({ ok: true as const, applied: true }),
+        );
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await addOne(user, 'waiting addition');
+        expect(await screen.findByText('1 waiting to send')).toBeVisible();
+
+        await user.click(addToThis());
+
+        expect(panel()).toHaveTextContent('waiting addition');
+      });
+
+      it('lists only the new note after a new capture, with no earlier additions', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await addOne(user, 'He can come Tuesday after 3');
+        await user.type(box(), 'Order paper');
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(captureLine()).toHaveTextContent('Order paper'));
+
+        await user.click(addToThis());
+
+        expect(panel()).toHaveTextContent('Order paper');
+        expect(panel()).not.toHaveTextContent('Call the plumber');
+        expect(panel()).not.toHaveTextContent('He can come Tuesday after 3');
+      });
+
+      it('is not drawn while Add to this is not lit', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        expect(panel()).toBeNull();
+
+        await user.click(addToThis());
+        await user.click(addToThis());
+
+        expect(panel()).toBeNull();
+      });
+
+      it('sends what is typed after a click on the panel to the box below, and leaves the panel as it was', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await user.click(addToThis());
+
+        await user.click(within(panel()!).getByText('Call the plumber about the leak'));
+        await user.keyboard('typed after the click');
+
+        expect(box()).toHaveValue('typed after the click');
+        expect(panel()).toHaveTextContent('Call the plumber about the leak');
+        expect(panel()).not.toHaveTextContent('typed after the click');
+        expect(within(panel()!).queryByRole('textbox')).toBeNull();
+      });
+    });
+
+    describe('it goes whenever adding ends, and ✕ ends it as pressing the lit button again does', () => {
+      it('goes once the addition is kept, and the line reads Added to', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await user.click(addToThis());
+        await user.type(box(), 'about the boiler');
+        await user.click(chip('Capture'));
+
+        await waitFor(() => expect(panel()).toBeNull());
+        expect(screen.getByText('Added to “Call the plumber about the leak”')).toBeVisible();
+        expect(addToThis()).toHaveAttribute('aria-pressed', 'false');
+      });
+
+      it('goes with ✕, unlights the button, and the next capture makes a new Item', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await user.click(addToThis());
+
+        await user.click(screen.getByRole('button', { name: 'Stop adding to this Item' }));
+
+        expect(panel()).toBeNull();
+        expect(addToThis()).toHaveAttribute('aria-pressed', 'false');
+        await user.type(box(), 'A different thing');
+        await user.click(chip('Capture'));
+        await waitFor(() => expect(capturedCalls()).toHaveLength(2));
+      });
+
+      it('goes with the lit button pressed again, as with ✕', async () => {
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await user.click(addToThis());
+
+        await user.click(addToThis());
+
+        expect(panel()).toBeNull();
+        expect(addToThis()).toHaveAttribute('aria-pressed', 'false');
+      });
+
+      it('goes with the line when the Item is gone and the addition is put back', async () => {
+        vi.mocked(sendCommand).mockImplementation((name) =>
+          name === 'append_to_item'
+            ? Promise.reject(new CommandRefused(404, 'The item this was added to is gone or dismissed, so it was not added.'))
+            : Promise.resolve({ ok: true as const, applied: true }),
+        );
+        const user = await thePage();
+        await captureFirst(user, 'Call the plumber about the leak');
+        await user.click(addToThis());
+        await user.type(box(), 'about the boiler');
+        await user.click(chip('Capture'));
+        expect(await screen.findByText('1 not sent')).toBeVisible();
+        await user.click(addToThis());
+        expect(panel()).not.toBeNull();
+
+        await user.click(screen.getByRole('button', { name: 'Put back' }));
+
+        await waitFor(() => expect(panel()).toBeNull());
+        expect(screen.queryByRole('button', { name: 'Add to this' })).toBeNull();
+      });
+    });
+  });
+
+  /**
    * "Warn at Capture when the note just captured repeats another" (issue 1115):
    * the pairs arrive in the snapshot, and Capture reads them for the Item it
    * just made. Detection is the server's job, so a pair is put in the snapshot
