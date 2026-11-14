@@ -196,3 +196,43 @@ describe('Agents', () => {
   });
 });
 
+describe('Agents', () => {
+  describe('a Needs you chip opens the session where it has a link, and otherwise a box saying what Claude needs', () => {
+    const FOLDER = 'C:\\GitHub\\Cockpit';
+    const QUESTION = 'Should Level 3 cover LinkedIn messages or only email?';
+    const needsYou = (over: Partial<AgentRun> = {}) =>
+      aRun({ agentId: '', agentName: null, destination: 'code', stage: 'needs_you', sessionUrl: null, folder: FOLDER, note: QUESTION, ...over });
+
+    it('opens the session, with no box, where there is a link', () => {
+      const chip = runChipFor(needsYou({ sessionUrl: 'https://claude.ai/code/session_01' }), NOW);
+
+      expect({ href: chip.href, box: chip.box }).toEqual({ href: 'https://claude.ai/code/session_01', box: undefined });
+    });
+
+    it.each([
+      {
+        situation: 'sent to Claude Code with a folder',
+        run: needsYou(),
+        box: { title: 'Claude Code needs you', question: QUESTION, where: `Running in Claude Code, folder ${FOLDER}. Answer it there.` },
+      },
+      {
+        situation: 'sent to Cowork',
+        run: needsYou({ destination: 'cowork', folder: null }),
+        box: { title: 'Cowork needs you', question: QUESTION, where: 'Running in Cowork. Answer it there.' },
+      },
+      {
+        situation: 'with no folder',
+        run: needsYou({ folder: null }),
+        box: { title: 'Claude Code needs you', question: QUESTION, where: 'Running in Claude Code. Answer it there.' },
+      },
+      {
+        situation: 'stored before a question was required, with no note',
+        run: needsYou({ note: null }),
+        box: { title: 'Claude Code needs you', question: "Claude didn't say what it needs", where: `Running in Claude Code, folder ${FOLDER}. Answer it there.` },
+      },
+    ])('opens a box $situation', ({ run, box }) => {
+      expect(runChipFor(run, NOW).box).toEqual(box);
+    });
+  });
+});
+

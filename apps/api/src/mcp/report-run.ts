@@ -1,9 +1,11 @@
 import {
   CLAUDE_REPORTED_STAGES,
   REPORT_LINK_LIMIT,
+  NEEDS_YOU_WITHOUT_A_QUESTION,
   REPORT_NOTE_LIMIT,
   claudeResultLink,
   claudeSessionLink,
+  reportSaysWhatItNeeds,
   type ClaudeReportedStage,
 } from '@cockpit/shared';
 import type { ToolDefinition } from './create-item.js';
@@ -25,7 +27,7 @@ export function reportRunTool(): ToolDefinition {
       "Report how a task Cockpit sent you stands, so the user's Cockpit shows it on the item.",
       'Call it with the run id the prompt names: stage "on_it" when you start (with session_url, the address of this session),',
       '"ready" when you are done (with result_url, a link to what you made, and a note saying what is there),',
-      'or "needs_you" when you need an answer (with the question as the note).',
+      'or "needs_you" when you need an answer, which is refused unless the note is the question you are asking.',
       'You may report again as it changes. Nothing else about the item can be changed this way.',
     ].join(' '),
     inputSchema: {
@@ -107,5 +109,6 @@ export function readReport(args: unknown): ReadReport {
     }
     read.note = given.note;
   }
+  if (!reportSaysWhatItNeeds({ stage, note: read.note })) return { ok: false, refusal: NEEDS_YOU_WITHOUT_A_QUESTION };
   return read;
 }
