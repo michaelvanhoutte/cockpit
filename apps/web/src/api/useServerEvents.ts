@@ -80,10 +80,10 @@ export function useServerEvents() {
         if (wasUp || replacement) {
           globalThis.dispatchEvent(new Event(RECONNECTED));
           // Announcements were missed while it was down, so every copy held is
-          // out of date; where the Worker sends `opened`, it reads the ones that
-          // are behind, and marking is what an older Worker leaves. Marked and not read: a filing reads a copy so marked
-          // before it is built (`useLatestSnapshot`), and what is on screen
-          // follows with the next read.
+          // marked out of date: a filing reads a copy so marked before it is
+          // built (`useLatestSnapshot`). What is on screen is read again by
+          // `opened` below where it is behind; against an older Worker, which
+          // sends no `opened`, it follows with the next read.
           void queryClient.invalidateQueries({ queryKey: ['snapshot'], refetchType: 'none' });
           void queryClient.invalidateQueries({ queryKey: ['finishedItems'], refetchType: 'none' });
         }
