@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { BrowserContext, Page } from '@playwright/test';
 import {
   addressOf,
@@ -12,6 +13,7 @@ import {
   closeSettings,
   openSettings,
 } from './support/app';
+import { arrange, giveToTheInbox } from './support/arrange';
 
 /**
  * F3, and the one walk this capability gets: an app connecting to Cockpit and
@@ -182,6 +184,58 @@ test.describe('MCP connections', () => {
       expect(refused.status()).toBe(401);
       await closeSettings(page, isMobile);
       await expect(row).toBeVisible();
+    });
+  });
+});
+
+/**
+ * F3, the one walk issue 1770 gets: a chip Claude left behind is cleared from
+ * the row's menu without finishing the Item, and Undo brings chip and link back.
+ * Which Item is touched, what the server guards the Undo by and what the menu
+ * holds are proved below this (ending-a-claude-run.test.ts, claudeRunEnd.test.ts);
+ * what only a browser shows is the chip leaving a real row and returning with
+ * its link. The app is played by the walk, as above.
+ */
+test.describe('Agents', () => {
+  test.describe('a Claude run that was left open is ended from its row, and taken back', () => {
+    test('ends a Ready run from the row’s menu, leaving the Item, and Undo brings the chip and its link back', async ({
+      page,
+      context,
+      isMobile,
+    }) => {
+      test.skip(isMobile, 'the chip’s link and the Claude group of the menu are drawn at desk width');
+      const { token } = await connectClaude(page, context, isMobile);
+      await openInbox(page, isMobile);
+      const title = uniqueTitle('Chase the invoice');
+      const runId = randomUUID();
+      const [itemId] = await giveToTheInbox(page, [title]);
+      await arrange(page, 'send_item_to_claude', { runId, itemId, destination: 'cowork', folder: '' });
+      await page.reload();
+      const row = inbox(page).getByRole('listitem').filter({ hasText: title });
+      await expect(row.getByText('Sent to Cowork')).toBeVisible();
+
+      const report = async (args: Record<string, string>) => {
+        const answer = await page.request.post('/mcp', {
+          headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+          data: { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'report_run', arguments: { run: runId, ...args } } },
+        });
+        expect(answer.status()).toBe(200);
+        expect(((await answer.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
+      };
+      await report({ stage: 'on_it', session_url: 'https://claude.ai/code/session_01WALK' });
+      await report({ stage: 'ready', result_url: 'https://example.com/the-draft', note: 'Two drafts' });
+      await expect(row.getByRole('link', { name: 'Ready ↗' })).toBeVisible();
+
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await expect(page.getByRole('menuitem', { name: 'Open the Claude session ↗' })).toBeVisible();
+      await press(page.getByRole('menuitem', { name: 'End Claude run' }), isMobile);
+
+      // The chip is gone at once and the Item stays where it was.
+      await expect(row.getByRole('link', { name: 'Ready ↗' })).toHaveCount(0);
+      await expect(row).toBeVisible();
+
+      await press(page.getByRole('button', { name: 'Undo' }), isMobile);
+      await expect(row.getByRole('link', { name: 'Ready ↗' })).toHaveAttribute('href', 'https://example.com/the-draft');
     });
   });
 });

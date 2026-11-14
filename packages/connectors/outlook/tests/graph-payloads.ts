@@ -47,6 +47,12 @@ export interface MessageOptions {
   readonly folder?: string;
   /** Flag status; absent is not flagged. */
   readonly flag?: 'flagged' | 'complete' | 'notFlagged';
+  /**
+   * The flag's due date, in the dateTimeTimeZone shape Graph documents for
+   * followupFlag.dueDateTime (dateTime without an offset, and a timeZone name).
+   * Absent: a flag with no date.
+   */
+  readonly flagDue?: { readonly dateTime: string; readonly timeZone: string };
   readonly categories?: readonly string[];
   readonly subject?: string | null;
   /** `null` for a draft with no sender. */
@@ -94,7 +100,7 @@ export function message(options: MessageOptions) {
     ccRecipients: (options.cc ?? []).map((one) => ({ emailAddress: { name: one.name ?? '', address: one.address } })),
     subject: options.subject === undefined ? `About ${options.id}` : (options.subject ?? ''),
     categories: [...(options.categories ?? [])],
-    flag: { flagStatus: options.flag ?? 'notFlagged' },
+    flag: { flagStatus: options.flag ?? 'notFlagged', ...(options.flagDue ? { dueDateTime: { ...options.flagDue } } : {}) },
     from: from ? { emailAddress: { name: from.name ?? '', address: from.address } } : null,
     body: { contentType: html ? 'html' : 'text', content },
     uniqueBody: { contentType: html ? 'html' : 'text', content: options.unique ?? content },

@@ -24,6 +24,31 @@ export interface RunChip {
   trouble: boolean;
   /** Whether Claude has stopped and is waiting on you (issue 572) - amber, never a problem. */
   waiting: boolean;
+  /** What a *Needs you* chip with no session to open shows on click (issue 1770); absent where the chip opens a session. */
+  box?: NeedsYouBox;
+}
+
+/** The small box a linkless *Needs you* chip opens. */
+export interface NeedsYouBox {
+  title: string;
+  /** What Claude asked, or that it did not say. */
+  question: string;
+  /** Where the session runs and that the answer goes there; the folder is left out where the run has none. */
+  where: string;
+}
+
+/** What the box says in place of the question for a run stored in *Needs you* before the question was required. */
+export const NO_QUESTION_SAID = "Claude didn't say what it needs";
+
+function needsYouBoxFor(run: AgentRun, destinationName: string): NeedsYouBox {
+  const where = run.destination === 'code' ? 'Claude Code' : destinationName;
+  const folder = run.folder?.trim();
+  const note = run.note?.trim();
+  return {
+    title: `${where} needs you`,
+    question: note ? note : NO_QUESTION_SAID,
+    where: `Running in ${where}${folder ? `, folder ${folder}` : ''}. Answer it there.`,
+  };
 }
 
 /** The host a link really opens, which a note cannot rename; empty for an address that does not parse. */
@@ -81,6 +106,8 @@ export function runChipFor(run: AgentRun, now: number): RunChip {
           href: session,
           hint: run.note ?? null,
           waiting: true,
+          // Nothing to open: the chip says what Claude is asking instead (issue 1770).
+          ...(session ? {} : { box: needsYouBoxFor(run, name) }),
         };
     }
     return { ...base, text: `Sent to ${name}`, href: null, hint: 'Opened in Claude. Press send there.' };

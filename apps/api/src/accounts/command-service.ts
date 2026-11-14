@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -3173,6 +3173,9 @@ export function runCommand<N extends CommandName>(
       ) {
         throw new AgentRunRefusedError('That report is not one Cockpit takes.');
       }
+      // The rule sits on the command, so no caller can store a Needs you that
+      // does not say what it needs (issue 1770).
+      if (!reportSaysWhatItNeeds(cmd)) throw new AgentRunRefusedError(NEEDS_YOU_WITHOUT_A_QUESTION);
       // Only a Run sent to Claude, still open: unknown, ended and an Agent's
       // run are refused alike, so the answer tells nobody which it was.
       const run = getAgentRun(db, tenantId, cmd.runId);
@@ -3200,6 +3203,37 @@ export function runCommand<N extends CommandName>(
         tx.update(agentRuns)
           .set({ stage: cmd.stage, sessionUrl: sessionUrl ?? null, resultUrl, note })
           .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'end_claude_run': {
+      const cmd = payload as CommandPayload<'end_claude_run'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item) throw new ItemNotFoundError(cmd.itemId);
+      // A run of another Item, or of another account (this store cannot see
+      // it), is refused alike (issue 1770).
+      const named = cmd.runId ? getAgentRun(db, tenantId, cmd.runId) : undefined;
+      if (cmd.runId && (!named || named.itemId !== cmd.itemId)) throw new AgentRunNotFoundError(cmd.runId);
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      // What to write, or null where the run is already as asked: a replay of
+      // an end, an Item with no open run, an undo that has to leave things be.
+      const toEnd = cmd.reopen ? undefined : named ? (named.endedAt === null ? named.id : undefined) : openAgentRunOn(db, tenantId, cmd.itemId)?.id;
+      const toReopen =
+        cmd.reopen && named && named.endedAt !== null
+          ? runToReopen(db, tenantId, { workspaceId: named.workspaceId, itemId: cmd.itemId, reopensRunId: named.id }, named.endedAt, item)
+          : null;
+      const run = toEnd ?? toReopen;
+      if (!run) {
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+        break;
+      }
+      db.transaction((tx) => {
+        tx.update(agentRuns)
+          .set({ endedAt: toEnd ? cmd.issuedAt : null })
+          .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, run)))
           .run();
         tx.insert(commands).values(commandRow).run();
       });

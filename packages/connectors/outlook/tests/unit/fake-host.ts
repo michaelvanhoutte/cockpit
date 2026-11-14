@@ -1,6 +1,7 @@
 import type {
   CompleteListing,
   ConnectorHost,
+  DueDayReport,
   EmittedItem,
   NamesReport,
   SourceItem,
@@ -28,6 +29,10 @@ export class FakeHost implements ConnectorHost {
   readonly changes: SourceStateChange[] = [];
   readonly listings: CompleteListing[] = [];
   readonly namesReported: NamesReport[] = [];
+  /** Every due day reported, in order. */
+  readonly daysReported: DueDayReport[] = [];
+  /** A case makes the host refuse the next report of a due day, once. */
+  failTheNextDueReport = false;
   /** The conversations an open Item follows, by the source's id for them: those emitted with one, unless a case ends them. */
   readonly following = new Set<string>();
   readonly turns: ConversationTurn[] = [];
@@ -90,6 +95,14 @@ export class FakeHost implements ConnectorHost {
 
   async reportNames(report: NamesReport): Promise<void> {
     this.namesReported.push({ ...report, names: [...report.names] });
+  }
+
+  async reportDueDay(report: DueDayReport): Promise<void> {
+    if (this.failTheNextDueReport) {
+      this.failTheNextDueReport = false;
+      throw new Error('the host could not take the report');
+    }
+    this.daysReported.push({ ...report });
   }
 
   async followedConversations(): Promise<string[]> {

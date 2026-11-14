@@ -589,6 +589,18 @@ export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
 export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 
 /**
+ * What Claude is told when it reports *Needs you* without saying what it
+ * needs (issue 1770).
+ */
+export const NEEDS_YOU_WITHOUT_A_QUESTION =
+  'Needs you has to say what you are asking: send the question as the note.';
+
+/** Whether a report says what it needs where it must: `needs_you` carries a note that is not blank. */
+export function reportSaysWhatItNeeds(report: { stage: string; note?: string | undefined }): boolean {
+  return report.stage !== 'needs_you' || (report.note ?? '').trim() !== '';
+}
+
+/**
  * report_claude_run — Cowork or Claude Code saying how a Run it was sent
  * stands ("Follow on the row what Claude reports back", issue 1160). Sent by
  * the MCP tool alone, never posted as JSON: the Run's own Workspace is found
@@ -608,8 +620,30 @@ export const reportClaudeRunSchema = commandEnvelopeSchema.extend({
     .refine((value) => claudeResultLink(value) !== null)
     .optional(),
   note: z.string().max(REPORT_NOTE_LIMIT).optional(),
-});
+}).refine(reportSaysWhatItNeeds, { message: NEEDS_YOU_WITHOUT_A_QUESTION, path: ['note'] });
 export type ReportClaudeRunCommand = z.infer<typeof reportClaudeRunSchema>;
+
+/**
+ * end_claude_run - *End Claude run* on a row or the selection bar, and its Undo
+ * (issue 1770). Ends the Item's open run and nothing else: Status, Panels and
+ * dates stay. `runId` names the run the person saw; left out, the Item's open
+ * run, if any. **`reopen`** is the Undo: it brings back the run it names, only
+ * while the Item is still open, holds no other open run and has had no run
+ * since, the rule Undo after Done uses. Ending a run already ended, or an Item
+ * with none open, is accepted and changes nothing; a run of another Item is
+ * refused.
+ */
+export const endClaudeRunSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    runId: z.uuid().optional(),
+    reopen: z.boolean().optional(),
+  })
+  .refine((cmd) => !cmd.reopen || cmd.runId !== undefined, {
+    message: 'an undo names the run it brings back',
+    path: ['runId'],
+  });
+export type EndClaudeRunCommand = z.infer<typeof endClaudeRunSchema>;
 
 /**
  * finish_agent_run — "Agent finished: Done" or "Agent finished: Still to do"
@@ -1288,6 +1322,7 @@ export const commandSchemas = {
   wait_for_reply: waitForReplySchema,
   send_item_to_claude: sendItemToClaudeSchema,
   report_claude_run: reportClaudeRunSchema,
+  end_claude_run: endClaudeRunSchema,
   finish_agent_run: finishAgentRunSchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,

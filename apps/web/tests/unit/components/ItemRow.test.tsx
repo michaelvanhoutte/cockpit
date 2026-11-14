@@ -669,7 +669,7 @@ describe('Triage', () => {
         const { mutate, send } = aRow({ item, extra });
 
         const mark = screen.getByRole('button', { name: 'Mark done' });
-        expect(mark).toHaveAttribute('title', 'Mark done');
+        expect(mark).toHaveAttribute('title', 'Mark done · right-click for other statuses');
         await user.click(mark);
 
         expect(mutate).toHaveBeenCalledWith(
@@ -2442,6 +2442,77 @@ describe('Selection', () => {
       expect(screen.queryByRole('button', { name: 'Mark done' }) !== null).toBe(shown);
     });
 
+    describe('a right-click on the row’s ✓ opens the four statuses alone', () => {
+      const STATUS_ENTRIES = ['To do', 'In progress', 'Waiting for reply', 'Done'];
+
+      it.each([
+        { situation: 'a To do item', over: {}, ticked: 'To do' },
+        { situation: 'an In progress item', over: { startedAt: '2026-08-12T11:00:00.000Z' }, ticked: 'In progress' },
+        { situation: 'a Waiting for reply item', over: { waitingSince: '2026-08-12T10:00:00.000Z' }, ticked: 'Waiting for reply' },
+      ])('lists To do, In progress, Waiting for reply and Done for $situation, ticking $ticked', async ({ over, ticked }) => {
+        aRow({ item: anItem(over) });
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        const entries = await screen.findAllByRole('menuitemradio');
+        expect(entries.map((entry) => entry.textContent?.replace('✓', ''))).toEqual(STATUS_ENTRIES);
+        expect(entries.filter((entry) => entry.getAttribute('aria-checked') === 'true').map((entry) => entry.textContent?.replace('✓', ''))).toEqual([ticked]);
+        expect(screen.queryByRole('menuitem')).toBeNull();
+      });
+
+      it('sends the start-work command and reads In progress at once when In progress is picked', async () => {
+        const user = userEvent.setup();
+        const { mutate } = aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+        await user.click(await screen.findByRole('menuitemradio', { name: 'In progress' }));
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'set_started', payload: expect.objectContaining({ itemId: 'item-1', started: true }) }),
+        );
+      });
+
+      it('sends nothing when the status the item is already in is picked', async () => {
+        const user = userEvent.setup();
+        const { mutate, send } = aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+        await user.click(await screen.findByRole('menuitemradio', { name: 'To do' }));
+
+        expect(mutate).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+      });
+
+      it('still opens the full row menu, Status included, on a right-click of the title, and not the ✓’s', async () => {
+        aRow();
+
+        fireEvent.contextMenu(screen.getByText('Make appointment with Novy'));
+
+        expect(await screen.findByRole('menuitem', { name: /^Status/ })).toBeVisible();
+        expect(screen.queryByRole('menuitemradio')).toBeNull();
+      });
+
+      it('does not open the full row menu as well', async () => {
+        aRow();
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        await screen.findAllByRole('menuitemradio');
+        expect(screen.queryByRole('menuitem', { name: /^Status/ })).toBeNull();
+      });
+
+      it('moves a single pick on another row to this one, as a right-click anywhere on the row does', async () => {
+        const onPickAlone = vi.fn();
+        aRow({ selecting: { picked: false, revealed: false, held: true, onPickAlone, onPick: () => {}, onEndSelection: () => {} } });
+
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'Mark done' }));
+
+        await screen.findAllByRole('menuitemradio');
+        expect(onPickAlone).toHaveBeenCalledOnce();
+      });
+    });
+
     it('draws no ✓ on an Inbox row, whose menu still offers Status ▸ Done', async () => {
       const user = userEvent.setup();
       aRow({ extra: { inInbox: true } });
@@ -2678,6 +2749,101 @@ describe('Agents', () => {
       const sent = (send.mock.calls as unknown as [{ name: string; payload: Record<string, unknown> }][])[0]![0];
       expect(sent).toMatchObject({ name, payload: { itemId: 'item-1', ...turned } });
       expect(sent.payload.reopensRunId).toBe(named);
+    });
+
+    describe('End Claude run', () => {
+      const sentRun = (overrides: Partial<AgentRun> = {}) =>
+        aRun({ agentId: '', agentName: null, destination: 'code', stage: 'ready', ...overrides });
+
+      it('is offered under the session link while a run is open, and asks the server to end that run', async () => {
+        const user = userEvent.setup();
+        const { mutate } = aRow({ onMoveTo: () => {}, extra: { openRun: sentRun() } });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await screen.findAllByRole('menuitem');
+        const names = screen.getAllByRole('menuitem').map((node) => node.textContent);
+        await user.click(screen.getByRole('menuitem', { name: 'End Claude run' }));
+
+        expect(names.slice(names.indexOf('Open the Claude session ↗'))[1]).toBe('End Claude run');
+        expect(mutate).toHaveBeenCalledWith({
+          name: 'end_claude_run',
+          payload: expect.objectContaining({ itemId: 'item-1', runId: aRun().id }),
+        });
+      });
+
+      it('is not offered where the Item has no open run', async () => {
+        const user = userEvent.setup();
+        aRow({ onMoveTo: () => {} });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await screen.findAllByRole('menuitem');
+
+        expect(screen.queryByRole('menuitem', { name: 'End Claude run' })).toBeNull();
+      });
+
+      it('says the run could not come back where the server declines the Undo', async () => {
+        const user = userEvent.setup();
+        const { send } = aRow({ extra: { openRun: sentRun() } });
+        send.mockResolvedValueOnce({ ok: true as const, applied: false });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await user.click(await screen.findByRole('menuitem', { name: 'End Claude run' }));
+        await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+        expect(await screen.findByText(/changed somewhere else/)).toBeInTheDocument();
+      });
+
+      it('offers Undo, which asks for exactly that run back', async () => {
+        const user = userEvent.setup();
+        const { send } = aRow({ extra: { openRun: sentRun() } });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await user.click(await screen.findByRole('menuitem', { name: 'End Claude run' }));
+        await user.click(await screen.findByRole('button', { name: 'Undo' }));
+
+        expect(send).toHaveBeenCalledWith({
+          name: 'end_claude_run',
+          payload: expect.objectContaining({ itemId: 'item-1', runId: aRun().id, reopen: true }),
+        });
+      });
+    });
+
+    describe('a Needs you chip with no session to open', () => {
+      const linkless = aRun({
+        agentId: '',
+        agentName: null,
+        sessionUrl: null,
+        destination: 'code',
+        folder: 'C:\\GitHub\\Cockpit',
+        stage: 'needs_you',
+        note: 'Should Level 3 cover LinkedIn messages or only email?',
+      });
+
+      it('opens a box with the question, where to answer, and End Claude run, which ends the run', async () => {
+        const user = userEvent.setup();
+        const { mutate } = aRow({ extra: { openRun: linkless } });
+
+        await user.click(screen.getByRole('button', { name: 'Needs you' }));
+
+        expect(await screen.findByText('Claude Code needs you')).toBeInTheDocument();
+        expect(screen.getByText('“Should Level 3 cover LinkedIn messages or only email?”')).toBeInTheDocument();
+        expect(screen.getByText('Running in Claude Code, folder C:\\GitHub\\Cockpit. Answer it there.')).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: 'End Claude run' }));
+
+        expect(mutate).toHaveBeenCalledWith({
+          name: 'end_claude_run',
+          payload: expect.objectContaining({ itemId: 'item-1', runId: aRun().id }),
+        });
+        await waitFor(() => expect(screen.queryByText('Claude Code needs you')).toBeNull());
+      });
+
+      it('opens the session instead, with no box, where it has a link', () => {
+        aRow({ extra: { openRun: { ...linkless, sessionUrl: 'https://claude.ai/code/session_01' } } });
+
+        expect(screen.getByRole('link', { name: 'Needs you ↗' })).toHaveAttribute('href', 'https://claude.ai/code/session_01');
+        expect(screen.queryByRole('button', { name: /Needs you/ })).toBeNull();
+      });
     });
   });
 });

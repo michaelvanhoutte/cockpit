@@ -272,6 +272,8 @@ const commandSenders = {
     api.v1.commands.wait_for_reply.$post({ json: p }, o),
   send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>
     api.v1.commands.send_item_to_claude.$post({ json: p }, o),
+  end_claude_run: (p: CommandPayload<'end_claude_run'>, o?: ClientRequestOptions) =>
+    api.v1.commands.end_claude_run.$post({ json: p }, o),
   finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
     api.v1.commands.finish_agent_run.$post({ json: p }, o),
   set_dismissed: (p: CommandPayload<'set_dismissed'>, o?: ClientRequestOptions) => api.v1.commands.set_dismissed.$post({ json: p }, o),
