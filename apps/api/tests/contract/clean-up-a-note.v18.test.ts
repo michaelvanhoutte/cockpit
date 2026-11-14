@@ -137,7 +137,7 @@ const REPORTS_RATHER_THAN_INSTRUCTS =
  * Reads one note, and none of the notes below is one the prompt carries.
  *
  * **That is the whole difference between testing the model and testing its
- * recall.** The prompt has six worked examples with their answers written
+ * recall.** The prompt has eight worked examples with their answers written
  * out, so a case that reuses one of them can be passed by copying the example -
  * and the drift this tier exists to catch would sail through, since a note it
  * has been shown the answer to is not a note it had to decide anything about.
@@ -873,17 +873,16 @@ describe('Capture', () => {
       return answer.proposal;
     };
 
-    it('names confirming 4 Feb to Steven for a dinner note that says to confirm', async () => {
-      const proposal = await ask('dinner w steven, confirm 4 feb');
+    // Notes the prompt's own examples do not carry: the file's rule above.
+    it('names the step a note states, for a note that says to call someone', async () => {
+      const proposal = await ask('leak under the sink, call the plumber on monday');
 
-      expect(proposal.nextAction).toMatch(/confirm/i);
-      expect(proposal.nextAction).toMatch(/4 feb/i);
-      expect(proposal.nextAction).toMatch(/steven/i);
-      expect(proposal.title).toMatch(/dinner/i);
+      expect(proposal.nextAction).toMatch(/call/i);
+      expect(proposal.nextAction).toMatch(/plumber/i);
     });
 
     it('gives none for a note that states no next step', async () => {
-      const proposal = await ask('kitchen renovation quote');
+      const proposal = await ask('bathroom tiles supplier list');
 
       expect(proposal.nextAction).toBeNull();
     });
