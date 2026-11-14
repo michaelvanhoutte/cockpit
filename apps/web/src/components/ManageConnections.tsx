@@ -59,6 +59,8 @@ function connectPath(workspaceId: string, connectorId: string, answer: ConnectAn
   if (answer.filesByName !== undefined) asked.set('filesByName', String(answer.filesByName));
   // And how many days after it arrives each Item is due, `none` for none (issue 1409).
   if (answer.dueInDays !== undefined) asked.set('dueInDays', answer.dueInDays === null ? 'none' : String(answer.dueInDays));
+  // And your Cockpit alias, `none` for none (issue 1760).
+  if (answer.ownAlias !== undefined) asked.set('ownAlias', answer.ownAlias ?? 'none');
   const query = asked.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -74,6 +76,8 @@ interface Card {
   names?: ConnectorNames | undefined;
   /** Whether its connector is pulled: Connect asks whether to give each Item a due date too (issue 1409). */
   pulled?: boolean | undefined;
+  /** Whether its connector asks for your Cockpit alias: Connect asks for it too (issue 1760). */
+  asksOwnAlias?: boolean | undefined;
   /** Present where its connector connects a phone by a texted code rather than by leaving: Connect asks for a number (issue 1335). */
   textedCode?: { textTo: string } | undefined;
 }
@@ -114,7 +118,10 @@ function StatusPill({ account }: { account: SourceAccount }) {
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-md border border-shade/10 bg-shade/5 px-1.5 py-0.5 text-xs text-ink-soft">{children}</span>
+    // Wraps anywhere, so a long address on a phone never pushes the card wider than the screen (issue 1760).
+    <span className="max-w-full shrink-0 rounded-md border border-shade/10 bg-shade/5 px-1.5 py-0.5 text-xs text-ink-soft [overflow-wrap:anywhere]">
+      {children}
+    </span>
   );
 }
 
@@ -292,6 +299,7 @@ export default function ManageConnections({
         startAt?: string | undefined;
         startFilesByName?: boolean | undefined;
         startDueInDays?: number | null | undefined;
+        startOwnAlias?: string | null | undefined;
       })
     | null
   >(null);
@@ -336,6 +344,7 @@ export default function ManageConnections({
       choice: connector.choice,
       names: connector.names,
       pulled: connector.pulled,
+      asksOwnAlias: connector.asksOwnAlias,
       textedCode: connector.textedCode,
     }));
   /** The connector's own sentence for why it refused, where the listing holds one for the code. */
@@ -426,6 +435,9 @@ export default function ManageConnections({
   /** How a connected row's connector speaks of names, where it reports any - which also offers *Change…* (issue 1146). */
   const namesOf = (connectorId: string): ConnectorNames | undefined =>
     registry.data?.connectors.find((connector) => connector.id === connectorId)?.names;
+  /** Whether a connected row's connector asks for your Cockpit alias - which also offers *Change…* (issue 1760). */
+  const asksOwnAliasOf = (connectorId: string): boolean =>
+    registry.data?.connectors.find((connector) => connector.id === connectorId)?.asksOwnAlias === true;
   /**
    * What a connected row says it was granted, in its connector's words
    * ("Read pasted Teams links: connecting Teams asks for no read permission",
@@ -464,13 +476,14 @@ export default function ManageConnections({
   const reconnect = (account: SourceAccount, openedFrom: HTMLElement | null) => {
     const card = registered.find((one) => one.id === account.connectorId);
     if (!card) return;
-    if (card.choice || card.names || card.pulled) {
+    if (card.choice || card.names || card.pulled || card.asksOwnAlias) {
       askingOpenedFrom.current = openedFrom;
       setAsking({
         ...card,
         startAt: account.follows,
         startFilesByName: account.filesByName,
         startDueInDays: account.dueInDays,
+        startOwnAlias: account.ownAlias,
       });
     } else connectRegistered(card.id);
   };
@@ -606,6 +619,8 @@ export default function ManageConnections({
                           {account.dueInDays != null && (
                             <Chip>{`Due ${account.dueInDays} ${account.dueInDays === 1 ? 'day' : 'days'} after`}</Chip>
                           )}
+                          {/* Your Cockpit alias, by name (issue 1760). */}
+                          {account.ownAlias && <Chip>{`Alias ${account.ownAlias}`}</Chip>}
                           {/* A connected phone says which number to text, since that is what it is for (issue 1335). */}
                           {textTo !== undefined && (
                             <span className="text-xs text-ink-faint">Text {textTo} to add a note</span>
@@ -684,7 +699,10 @@ export default function ManageConnections({
                                 : []),
                               // The connector's own choice, changed without signing in
                               // again (issue 942).
-                              ...(choiceOf(account.connectorId) || namesOf(account.connectorId) || account.pulled
+                              ...(choiceOf(account.connectorId) ||
+                              namesOf(account.connectorId) ||
+                              account.pulled ||
+                              asksOwnAliasOf(account.connectorId)
                                 ? [
                                     {
                                       label: 'Change…',
@@ -768,7 +786,7 @@ export default function ManageConnections({
                         onClick={(event) => {
                           // A connector that asks nothing leaves at once from here; picked from the
                           // header's menu it opens its window first, so the person is told what it is.
-                          if (card.textedCode || card.choice || card.names || card.pulled) connectCard(card, event.currentTarget);
+                          if (card.textedCode || card.choice || card.names || card.pulled || card.asksOwnAlias) connectCard(card, event.currentTarget);
                           else connectRegistered(card.id);
                         }}
                         className="shrink-0 rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
@@ -798,6 +816,8 @@ export default function ManageConnections({
                 startFilesByName: asking.startFilesByName,
                 pulled: asking.pulled,
                 startDueInDays: asking.startDueInDays,
+                asksOwnAlias: asking.asksOwnAlias,
+                startOwnAlias: asking.startOwnAlias,
               }
             : null
         }
@@ -819,6 +839,7 @@ export default function ManageConnections({
         choice={changingChoice ? (choiceOf(changingChoice.connectorId) ?? null) : null}
         names={changingChoice ? (namesOf(changingChoice.connectorId) ?? null) : null}
         pulled={changingChoice?.pulled === true}
+        asksOwnAlias={changingChoice ? asksOwnAliasOf(changingChoice.connectorId) : false}
         workspaceId={workspaceId}
         returnFocusTo={choiceOpenedFrom.current}
         onClose={() => setChangingChoice(null)}

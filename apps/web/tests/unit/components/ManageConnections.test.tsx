@@ -143,6 +143,7 @@ const ADA: SourceAccount = {
   filesByName: false,
   dueInDays: null,
   granted: null,
+  ownAlias: null,
 };
 
 const MICHAEL: SourceAccount = {
@@ -155,6 +156,7 @@ const MICHAEL: SourceAccount = {
   filesByName: false,
   dueInDays: null,
   granted: null,
+  ownAlias: null,
 };
 
 let sent: ReturnType<typeof vi.fn>;
@@ -978,6 +980,175 @@ describe('Connector management', () => {
     });
   });
 
+  /** "Outlook capture: a mail you Cc to your Cockpit alias arrives To do…", issue 1760. */
+  describe('Connect and Change… ask for your Cockpit alias on an Outlook connection, and its card names it', () => {
+    const OUTLOOK_CARD = {
+      id: 'outlook',
+      displayName: 'Outlook',
+      cardText: 'Messages you flag arrive as items.',
+      asksFirst: true,
+      pulled: true,
+      asksOwnAlias: true,
+      choice: { question: 'Bring in messages', options: [{ value: 'flag', label: 'Flagged' }] },
+    };
+    const GMAIL_CARD = { ...OUTLOOK_CARD, id: 'gmail', displayName: 'Gmail', asksOwnAlias: undefined };
+    const MAIL: SourceAccount = {
+      ...ADA,
+      id: 'account-mail',
+      connectorId: 'outlook',
+      displayName: 'Ada’s mail',
+      lastTestedAt: '2026-10-16T09:00:00.000Z',
+      follows: 'flag',
+      followsLabel: 'Flagged',
+      pulled: true,
+    };
+    const ALIAS = 'Your Cockpit alias';
+    const REFUSED = 'Use an email address, or leave it empty.';
+
+    beforeEach(() => {
+      held.registry = [TEAMS_CARD, OUTLOOK_CARD, GMAIL_CARD];
+      held.sourceNames = { ...held.sourceNames, outlook: 'Outlook', gmail: 'Gmail' };
+    });
+
+    function leavingTo(): ReturnType<typeof vi.fn> {
+      const leaving = vi.fn();
+      vi.spyOn(window, 'location', 'get').mockReturnValue({ assign: leaving } as unknown as Location);
+      return leaving;
+    }
+
+    async function change(displayName: string): Promise<HTMLElement> {
+      await userEvent.click(await screen.findByRole('button', { name: `Actions for ${displayName}` }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Change…' }));
+      return screen.findByRole('dialog', { name: `Change ${displayName}` });
+    }
+
+    it('Connect asks it, empty, under the mark question, and says what it does', async () => {
+      leavingTo();
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+
+      const field = within(asked).getByRole('textbox', { name: ALIAS });
+      expect(field).toHaveValue('');
+      const mark = within(asked).getByRole('radiogroup', { name: 'Bring in messages' });
+      expect(mark.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(field).toHaveAccessibleDescription(/^Optional\. Mail from it counts as yours/);
+    });
+
+    it.each([
+      { situation: 'left empty, Connect carries none', typed: null, carries: 'none' },
+      { situation: 'with an alias, Connect carries it trimmed', typed: '  cockpit@conselit.be ', carries: 'cockpit@conselit.be' },
+    ])('$situation', async ({ typed, carries }) => {
+      const leaving = leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      if (typed !== null) await userEvent.type(within(asked).getByRole('textbox', { name: ALIAS }), typed);
+
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(
+        `/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&dueInDays=none&${new URLSearchParams({ ownAlias: carries })}`,
+      );
+    });
+
+    it('Connect with an alias that is not an email address is refused beside the field, and goes nowhere', async () => {
+      const leaving = leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Outlook' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      await userEvent.type(within(asked).getByRole('textbox', { name: ALIAS }), 'my alias');
+
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(within(asked).getByRole('alert')).toHaveTextContent(REFUSED);
+      expect(leaving).not.toHaveBeenCalled();
+    });
+
+    it('asks no alias of Gmail', async () => {
+      const leaving = leavingTo();
+      showWindow();
+      await userEvent.click(await screen.findByRole('button', { name: 'Connect Gmail' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Gmail' });
+
+      expect(within(asked).queryByRole('textbox', { name: ALIAS })).toBeNull();
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+      expect(leaving).toHaveBeenCalledWith('/v1/workspaces/ws-work/connections/gmail/connect?choice=flag&dueInDays=none');
+    });
+
+    it('Reconnect starts at the alias the row holds', async () => {
+      const leaving = leavingTo();
+      held.sourceAccounts = [{ ...MAIL, ownAlias: 'cockpit@conselit.be', failingBecause: 'Microsoft no longer accepts the sign-in.' }];
+      showWindow();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Actions for Ada’s mail' }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: 'Reconnect' }));
+      const asked = await screen.findByRole('dialog', { name: 'Connect Outlook' });
+      expect(within(asked).getByRole('textbox', { name: ALIAS })).toHaveValue('cockpit@conselit.be');
+      await userEvent.click(within(asked).getByRole('button', { name: 'Connect' }));
+
+      expect(leaving).toHaveBeenCalledWith(
+        '/v1/workspaces/ws-work/connections/outlook/connect?choice=flag&dueInDays=none&ownAlias=cockpit%40conselit.be',
+      );
+    });
+
+    it.each([
+      { situation: 'opened with none, Save with nothing changed sends nothing', held: null, typed: null, sends: undefined },
+      { situation: 'opened with an alias, Save with nothing changed sends nothing', held: 'cockpit@conselit.be', typed: null, sends: undefined },
+      { situation: 'an alias typed, it sends it for this workspace and this row', held: null, typed: 'cockpit@conselit.be', sends: 'cockpit@conselit.be' },
+      { situation: 'the alias changed, it sends the new one', held: 'old@conselit.be', typed: 'cockpit@conselit.be', sends: 'cockpit@conselit.be' },
+      { situation: 'the alias cleared, it sends none', held: 'cockpit@conselit.be', typed: '', sends: null },
+    ])('Change…, $situation', async ({ held: alias, typed, sends }) => {
+      held.sourceAccounts = [{ ...MAIL, ownAlias: alias }];
+      showWindow();
+      const changing = await change('Ada’s mail');
+      const field = within(changing).getByRole('textbox', { name: ALIAS });
+      expect(field).toHaveValue(alias ?? '');
+      if (typed !== null) {
+        await userEvent.clear(field);
+        if (typed !== '') await userEvent.type(field, typed);
+      }
+
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      if (sends === undefined) expect(sent).not.toHaveBeenCalled();
+      else {
+        expect(sent).toHaveBeenCalledTimes(1);
+        expect(sent.mock.calls[0]![0]).toMatchObject({
+          name: 'set_connection_own_alias',
+          payload: { workspaceId: 'ws-work', sourceAccountId: 'account-mail', ownAlias: sends },
+        });
+      }
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change Ada’s mail' })).toBeNull());
+    });
+
+    it('Save with an alias that is not an email address is refused beside the field, sends nothing and keeps the form open', async () => {
+      held.sourceAccounts = [{ ...MAIL, ownAlias: null }];
+      showWindow();
+      const changing = await change('Ada’s mail');
+      await userEvent.type(within(changing).getByRole('textbox', { name: ALIAS }), 'cockpit@');
+
+      await userEvent.click(within(changing).getByRole('button', { name: 'Save' }));
+
+      expect(within(changing).getByRole('alert')).toHaveTextContent(REFUSED);
+      expect(sent).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog', { name: 'Change Ada’s mail' })).toBeInTheDocument();
+    });
+
+    it.each([
+      { situation: 'a card holding an alias names it', alias: 'cockpit@conselit.be', chip: 'Alias cockpit@conselit.be' },
+      { situation: 'a card holding none says nothing of it', alias: null, chip: null },
+    ])('$situation', async ({ alias, chip }) => {
+      held.sourceAccounts = [{ ...MAIL, ownAlias: alias }];
+
+      showWindow();
+
+      expect(await screen.findByText('Flagged')).toBeInTheDocument();
+      expect(screen.queryByText(/^Alias /)?.textContent ?? null).toBe(chip);
+    });
+  });
+
   /** "Switch Gmail onto the generic host, and take it out of the core", issue 944. */
   describe('a failing connection says why, and its row offers Reconnect, which signs in again under the choice it holds', () => {
     const GMAIL_CARD = {
@@ -1216,6 +1387,7 @@ describe('Connector management', () => {
     filesByName: false,
     dueInDays: null,
     granted: null,
+    ownAlias: null,
   };
 
   beforeEach(() => {
@@ -1374,6 +1546,7 @@ describe('Connector management', () => {
     filesByName: false,
     dueInDays: null,
     granted: null,
+    ownAlias: null,
     failingBecause: null,
     keepsHistory: true,
     pulled: true,
@@ -1931,6 +2104,7 @@ describe('Connector management', () => {
     filesByName: false,
     dueInDays: null,
     granted: null,
+    ownAlias: null,
     failingBecause: null,
     follows: 'star',
     followsLabel: 'Starred (flagged in Outlook)',

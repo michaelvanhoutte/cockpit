@@ -36,6 +36,7 @@ import {
   sourceAccountListSchema,
   DUE_IN_DAYS_MAX,
   DUE_IN_DAYS_MIN,
+  ownAliasSchema,
   connectionHistorySchema,
   checkedNowSchema,
   uuidv7,
@@ -1365,6 +1366,18 @@ function dueInDaysAnswered(asked: string | undefined): number | null | undefined
   return days >= DUE_IN_DAYS_MIN && days <= DUE_IN_DAYS_MAX ? days : 'not an answer';
 }
 
+/**
+ * The answer a Connect carries to your Cockpit alias on the mailbox (issue
+ * 1760): an email address, trimmed; `none` or empty for none; absent for no
+ * answer; anything else is not an answer.
+ */
+function ownAliasAnswered(asked: string | undefined): string | null | undefined | 'not an answer' {
+  if (asked === undefined) return undefined;
+  const typed = asked.trim();
+  if (typed === '' || typed === 'none') return null;
+  return ownAliasSchema.safeParse(typed).success ? typed : 'not an answer';
+}
+
 /** The batch a call asked for, or that what it asked for is not one. */
 function batchSize(asked: string | undefined): number | 'not a batch size' {
   if (asked === undefined || asked === '') return BATCH_BY_DEFAULT;
@@ -1604,8 +1617,9 @@ const routes = app
             id: manifest.id,
             displayName: manifest.displayName,
             cardText: manifest.cardText,
-            asksFirst: manifest.choice !== undefined || manifest.names !== undefined || manifest.pulled === true,
+            asksFirst: manifest.choice !== undefined || manifest.names !== undefined || manifest.pulled === true || manifest.asksOwnAlias === true,
             ...(manifest.pulled === true ? { pulled: true } : {}),
+            ...(manifest.asksOwnAlias === true ? { asksOwnAlias: true } : {}),
             ...(manifest.choice
               ? {
                   choice: {
@@ -1808,6 +1822,18 @@ const routes = app
       throw new RefusedByAccountError('this connection does not give a due date');
     }
     return c.json(await account.applyChange('set_connection_due_in_days', cmd), 200);
+  })
+  .openapi(commandRoute('set_connection_own_alias'), async (c) => {
+    const cmd = c.req.valid('json');
+    // Only a connection whose connector asks for an alias keeps one, which only
+    // this layer can say, as for the days (issue 1760).
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const held = (await account.sourceAccounts(cmd.workspaceId)).find((one) => one.id === cmd.sourceAccountId);
+    if (!held) throw new NotFoundInAccountError(`source account ${cmd.sourceAccountId} not found`);
+    if (getConnector(c.env, held.connectorId)?.manifest.asksOwnAlias !== true) {
+      throw new RefusedByAccountError('this connection does not keep an alias');
+    }
+    return c.json(await account.applyChange('set_connection_own_alias', cmd), 200);
   })
   .openapi(
     commandRoute('send_item_to_claude', { conflict: 'The item is done, dismissed, or Claude is already on it' }),
@@ -2228,6 +2254,14 @@ const routes = app
     if (pulled && dueInDays === 'not an answer') {
       return refuseConnection(c, workspaceId, 'how many days to give a due date was not answered');
     }
+    // Your Cockpit alias, answered the same way for a connector that asks for
+    // one: an email address or none, or the Connect is refused and nothing is
+    // started (issue 1760).
+    const asksOwnAlias = sign.connector.manifest.asksOwnAlias === true;
+    const ownAlias = ownAliasAnswered(c.req.query('ownAlias'));
+    if (asksOwnAlias && ownAlias === 'not an answer') {
+      return refuseConnection(c, workspaceId, 'the alias is not an email address');
+    }
     try {
       // Theirs, and still there - asked before anybody is sent away, so a
       // Workspace deleted in another tab refuses here rather than after a
@@ -2251,6 +2285,7 @@ const routes = app
         ...(asked && choice ? { choice } : {}),
         ...(sign.connector.manifest.names && filesByName !== undefined ? { filesByName } : {}),
         ...(pulled && dueInDays !== undefined && dueInDays !== 'not an answer' ? { dueInDays } : {}),
+        ...(asksOwnAlias && ownAlias !== undefined && ownAlias !== 'not an answer' ? { ownAlias } : {}),
         // A source that asks in tiers is asked from the top every time, a
         // reconnect included (issue 1754).
         ...firstTier(sign.auth),
@@ -2350,6 +2385,8 @@ const routes = app
     const reportsNames = sign.connector.manifest.names !== undefined;
     // And so does the days, for a connector that is pulled (issue 1409).
     const givesADueDate = sign.connector.manifest.pulled === true;
+    // And the alias, for a connector that asks for one (issue 1760).
+    const asksOwnAlias = sign.connector.manifest.asksOwnAlias === true;
 
     try {
       const client = clientOf(c.env, sign.auth);
@@ -2387,6 +2424,7 @@ const routes = app
         ...(asked ? { choice: attempt!.choice! } : {}),
         ...(reportsNames && attempt!.filesByName !== undefined ? { filesByName: attempt!.filesByName } : {}),
         ...(givesADueDate && attempt!.dueInDays !== undefined ? { dueInDays: attempt!.dueInDays } : {}),
+        ...(asksOwnAlias && attempt!.ownAlias !== undefined ? { ownAlias: attempt!.ownAlias } : {}),
         ...(reached.grants ? { granted: reached.grants } : {}),
       });
       // The register's index, after the connection is stored and never failing

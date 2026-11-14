@@ -25,6 +25,7 @@ const MAIL: SourceAccount = {
   filesByName: false,
   dueInDays: null,
   granted: null,
+  ownAlias: null,
 };
 const TEAMS: SourceAccount = { ...MAIL, id: 'account-teams', connectorId: 'teams', displayName: 'Ada Lovelace' };
 const held: SourceAccountList = { sourceAccounts: [MAIL, TEAMS] };
@@ -49,6 +50,11 @@ const filing = (filesByName: boolean): CommandArgs => ({
 const dueIn = (dueInDays: number | null): CommandArgs => ({
   name: 'set_connection_due_in_days',
   payload: { commandId: `c-due-${String(dueInDays)}`, issuedAt: AT, workspaceId: 'ws-work', sourceAccountId: 'account-mail', dueInDays },
+});
+
+const aliased = (ownAlias: string | null): CommandArgs => ({
+  name: 'set_connection_own_alias',
+  payload: { commandId: `c-alias-${String(ownAlias)}`, issuedAt: AT, workspaceId: 'ws-work', sourceAccountId: 'account-mail', ownAlias },
 });
 
 const rows = (list: SourceAccountList) => list.sourceAccounts.map((row) => row.id);
@@ -83,6 +89,12 @@ describe('Connector management', () => {
       expect(mail(over(held, [dueIn(3)])).dueInDays).toBe(3);
       expect(mail(over(held, [dueIn(3), dueIn(7)])).dueInDays).toBe(7);
       expect(mail(over(held, [dueIn(3), dueIn(null)])).dueInDays).toBeNull();
+    });
+
+    it('names your Cockpit alias, a changed one, and none once it is cleared', () => {
+      expect(mail(over(held, [aliased('cockpit@conselit.be')])).ownAlias).toBe('cockpit@conselit.be');
+      expect(mail(over(held, [aliased('cockpit@conselit.be'), aliased('other@conselit.be')])).ownAlias).toBe('other@conselit.be');
+      expect(mail(over(held, [aliased('cockpit@conselit.be'), aliased(null)])).ownAlias).toBeNull();
     });
 
     it('draws a choice and files by name made together on the one connection', () => {

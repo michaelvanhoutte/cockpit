@@ -391,10 +391,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 /** A host holding an Outlook credential the way the generic sign-in seals it, with an access token that has hours left. */
-export function signedInHost(options: { choice?: string | null; expiresAt?: string | null; accessToken?: string } = {}): FakeHost {
+export function signedInHost(
+  options: { choice?: string | null; ownAlias?: string | null; expiresAt?: string | null; accessToken?: string } = {},
+): FakeHost {
   const expiresAt = options.expiresAt === undefined ? '2026-10-09T13:00:00.000Z' : options.expiresAt;
   return new FakeHost({
     ...(options.choice === undefined ? {} : { choice: options.choice }),
+    ...(options.ownAlias === undefined ? {} : { ownAlias: options.ownAlias }),
     credential: {
       credential: JSON.stringify({
         access_token: options.accessToken ?? 'a-good-access-token',

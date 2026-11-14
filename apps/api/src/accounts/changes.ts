@@ -192,6 +192,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CONVERSATIONS_CLAUDE_DRAFT_DIGEST,
     PANEL_ITEMS_FILED_AT,
     CONNECTOR_ACCOUNTS_GRANTED,
+    CONNECTOR_ACCOUNTS_OWN_ALIAS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1737,6 +1738,26 @@ const PANEL_ITEMS_FILED_AT: Change = {
     { sql: `ALTER TABLE \`panel_items\` ADD COLUMN \`filed_at\` text ${timestampCheck('panel_items', 'filed_at')}` },
     { sql: 'CREATE INDEX IF NOT EXISTS `panel_items_tenant_filed` ON `panel_items` (`tenant_id`,`filed_at`)' },
   ],
+};
+
+/**
+ * Your Cockpit alias on a connection's mailbox (`connector_accounts.own_alias`,
+ * whose meaning `schema.ts` gives; "Outlook capture: a mail you Cc to your
+ * Cockpit alias arrives To do…", issue 1760): a nullable column added, nothing
+ * else. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ALTER TABLE ADD
+ *   COLUMN`, every row null, which reads as no alias, the behaviour every
+ *   connection had before it.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a connection behaves as having no alias; a release that returns reads
+ *   it again.
+ */
+const CONNECTOR_ACCOUNTS_OWN_ALIAS: Change = {
+  name: '0107-connector-accounts-own-alias',
+  statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `own_alias` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

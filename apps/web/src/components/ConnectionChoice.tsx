@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   DUE_IN_DAYS_MAX,
   DUE_IN_DAYS_MIN,
+  ownAliasSchema,
   uuidv7,
   type RegisteredConnector,
   type SourceAccount,
@@ -67,6 +68,10 @@ interface Asked {
   pulled?: boolean | undefined;
   /** The days a reconnected row holds, which start the due date tick box ticked at that number; none on a first Connect. */
   startDueInDays?: number | null | undefined;
+  /** Whether the connector asks for your Cockpit alias: the field is drawn when it does (issue 1760). */
+  asksOwnAlias?: boolean | undefined;
+  /** The alias a reconnected row holds, which the field starts at; empty on a first Connect. */
+  startOwnAlias?: string | null | undefined;
 }
 
 /** What the person answered before Connect leaves: each part is present only where the connector asked it. */
@@ -75,6 +80,8 @@ export interface ConnectAnswer {
   filesByName?: boolean;
   /** Days after it arrives each Item is due, or `null` for none (issue 1409). */
   dueInDays?: number | null;
+  /** Your Cockpit alias, or `null` for none (issue 1760). */
+  ownAlias?: string | null;
 }
 
 /**
@@ -123,12 +130,13 @@ export function ConnectWithChoice({
 }
 
 function Question({ connector, onConnect }: { connector: Asked; onConnect: (answer: ConnectAnswer) => void }) {
-  const { choice, names, pulled } = connector;
+  const { choice, names, pulled, asksOwnAlias } = connector;
   const [value, setValue] = useState(
     choice && (choice.options.find((option) => option.value === connector.startAt)?.value ?? choice.options[0]!.value),
   );
   const [filesByName, setFilesByName] = useState(connector.startFilesByName ?? false);
   const dueDate = useDueDate(connector.startDueInDays ?? null);
+  const alias = useOwnAlias(connector.startOwnAlias ?? null);
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -138,6 +146,7 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (answ
         {choice && value !== undefined && (
           <ChoiceQuestion choice={choice} value={value} onChange={setValue} />
         )}
+        {asksOwnAlias && <OwnAlias {...alias} />}
         {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
         {pulled && <GivesADueDate {...dueDate} />}
       </div>
@@ -147,14 +156,16 @@ function Question({ connector, onConnect }: { connector: Asked; onConnect: (answ
         </Dialog.Close>
         <button
           type="button"
-          // Leaves the application, as every Connect does - unless the days typed are not a number of days.
+          // Leaves the application, as every Connect does - unless the days typed are not a number of days, or the alias is not an address.
           onClick={() => {
             const dueInDays = pulled ? dueDate.answer() : null;
-            if (dueInDays === 'refused') return;
+            const ownAlias = asksOwnAlias ? alias.answer() : null;
+            if (dueInDays === 'refused' || ownAlias === 'refused') return;
             onConnect({
               ...(choice && typeof value === 'string' ? { choice: value } : {}),
               ...(names ? { filesByName } : {}),
               ...(pulled ? { dueInDays } : {}),
+              ...(asksOwnAlias ? { ownAlias } : {}),
             });
           }}
           className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover"
@@ -309,6 +320,71 @@ function GivesADueDate({
 }
 
 /**
+ * Your Cockpit alias as typed, held with whether it was refused: `answer` is
+ * what Save or Connect sends - none where the field is empty, the address
+ * trimmed where it is one, and `refused` (shown beside the field) where it is
+ * not (issue 1760).
+ */
+function useOwnAlias(held: string | null) {
+  const [typed, setTyped] = useState(held ?? '');
+  const [refused, setRefused] = useState(false);
+  const answer = (): string | null | 'refused' => {
+    const trimmed = typed.trim();
+    const ok = trimmed === '' || ownAliasSchema.safeParse(trimmed).success;
+    setRefused(!ok);
+    if (!ok) return 'refused';
+    return trimmed === '' ? null : trimmed;
+  };
+  return {
+    typed,
+    refused,
+    onType: (text: string) => {
+      setTyped(text);
+      setRefused(false);
+    },
+    answer,
+  };
+}
+
+/**
+ * Your Cockpit alias on the mailbox, optional, with the one faint line saying
+ * what it does (issue 1760): mail from it is yours, so a mail to it alone comes
+ * in To do and one with anyone else on it waits for their reply.
+ */
+function OwnAlias({ typed, refused, onType }: { typed: string; refused: boolean; onType: (text: string) => void }) {
+  const id = useId();
+  return (
+    <div className="pt-4">
+      <label htmlFor={id} className="text-sm">
+        Your Cockpit alias
+      </label>
+      <input
+        id={id}
+        type="email"
+        inputMode="email"
+        autoComplete="off"
+        spellCheck={false}
+        value={typed}
+        onChange={(event) => onType(event.target.value)}
+        placeholder="cockpit@example.com"
+        aria-invalid={refused}
+        aria-describedby={refused ? `${id}-why ${id}-refused` : `${id}-why`}
+        className="mt-1 block w-full min-w-0 rounded-md border border-shade/20 bg-field px-2 py-1 text-sm text-ink-strong focus:border-accent focus:outline-none"
+      />
+      {refused && (
+        <p id={`${id}-refused`} role="alert" className="pt-1 text-sm text-over-ink">
+          Use an email address, or leave it empty.
+        </p>
+      )}
+      <p id={`${id}-why`} className="pt-1 text-sm text-ink-faint">
+        Optional. Mail from it counts as yours: sent to it alone, it comes in To do; with anyone else on it, it waits for
+        their reply.
+      </p>
+    </div>
+  );
+}
+
+/**
  * *Change…* on a connected row: the connector's own question again, starting at
  * the choice held now, and - for a connector that reports names - whether it
  * files by them, at the value held now; nothing to sign in to. **A form, not a
@@ -323,6 +399,7 @@ export function ChangeConnectionChoice({
   choice,
   names = null,
   pulled = false,
+  asksOwnAlias = false,
   workspaceId,
   onClose,
   returnFocusTo,
@@ -335,13 +412,15 @@ export function ChangeConnectionChoice({
   names?: ConnectorNames | null;
   /** Whether its connector is pulled, which offers the due date (issue 1409). */
   pulled?: boolean;
+  /** Whether its connector asks for your Cockpit alias (issue 1760). */
+  asksOwnAlias?: boolean;
   workspaceId: string;
   onClose: () => void;
   returnFocusTo?: HTMLElement | null;
 }) {
   return (
     <Dialog.Root
-      open={account !== null && (choice !== null || names !== null || pulled)}
+      open={account !== null && (choice !== null || names !== null || pulled || asksOwnAlias)}
       onOpenChange={(nowOpen) => !nowOpen && onClose()}
     >
       <Dialog.Portal>
@@ -354,12 +433,13 @@ export function ChangeConnectionChoice({
           }}
           className={DIALOG_CLASS}
         >
-          {account && (choice || names || pulled) && (
+          {account && (choice || names || pulled || asksOwnAlias) && (
             <Changing
               account={account}
               choice={choice}
               names={names}
               pulled={pulled}
+              asksOwnAlias={asksOwnAlias}
               workspaceId={workspaceId}
               onClose={onClose}
             />
@@ -375,6 +455,7 @@ function Changing({
   choice,
   names,
   pulled,
+  asksOwnAlias,
   workspaceId,
   onClose,
 }: {
@@ -382,6 +463,7 @@ function Changing({
   choice: ConnectorChoice | null;
   names: ConnectorNames | null;
   pulled: boolean;
+  asksOwnAlias: boolean;
   workspaceId: string;
   onClose: () => void;
 }) {
@@ -396,13 +478,17 @@ function Changing({
   // `?? null`: a row drawn from a read before this field reads as none.
   const heldDays = account.dueInDays ?? null;
   const dueDate = useDueDate(heldDays);
+  // `?? null`, as for the days.
+  const heldAlias = account.ownAlias ?? null;
+  const alias = useOwnAlias(heldAlias);
   const changeConnection = useChangeConnection();
   const offerToUndo = useUndo();
 
   const save = () => {
-    // Refused beside the field, and nothing sent, while the days are not a number of days.
+    // Refused beside the field, and nothing sent, while the days are not a number of days or the alias not an address.
     const dueInDays = pulled ? dueDate.answer() : heldDays;
-    if (dueInDays === 'refused') return;
+    const ownAlias = asksOwnAlias ? alias.answer() : heldAlias;
+    if (dueInDays === 'refused' || ownAlias === 'refused') return;
     const envelope = { issuedAt: new Date().toISOString(), workspaceId, sourceAccountId: account.id };
     const refused = (failure: unknown) => {
       offerToUndo({ what: `“${account.displayName}” was not changed. ${whyNotDone(failure)}` });
@@ -426,6 +512,12 @@ function Changing({
         payload: { ...envelope, commandId: uuidv7(), dueInDays },
       }).catch(refused);
     }
+    if (asksOwnAlias && ownAlias !== heldAlias) {
+      changeConnection({
+        name: 'set_connection_own_alias',
+        payload: { ...envelope, commandId: uuidv7(), ownAlias },
+      }).catch(refused);
+    }
     onClose();
   };
 
@@ -435,6 +527,7 @@ function Changing({
         <Dialog.Title className="text-base font-semibold">Change {account.displayName}</Dialog.Title>
         <Dialog.Description className="sr-only">Choose again without signing in.</Dialog.Description>
         {choice && value !== undefined && <ChoiceQuestion choice={choice} value={value} onChange={setValue} />}
+        {asksOwnAlias && <OwnAlias {...alias} />}
         {names && <FilesByName names={names} checked={filesByName} onChange={setFilesByName} />}
         {pulled && <GivesADueDate {...dueDate} />}
       </div>

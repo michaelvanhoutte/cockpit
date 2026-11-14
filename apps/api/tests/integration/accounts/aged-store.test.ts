@@ -2010,8 +2010,8 @@ describe('Connector management', () => {
 
       expect(read).toEqual({ status: 'ok', value: { lines: [], olderRemain: false } });
       expect(await rowsIn()).toEqual({
-        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, `due_in_days` none, which `0091-due-in-days` does, and `granted` none, which `0106-connector-accounts-granted` does.
-        connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null, granted: null })),
+        // With `files_by_name` off, which `0078-files-by-name` adds on the same open, `due_in_days` none, which `0091-due-in-days` does, `granted` none, which `0106-connector-accounts-granted` does, and `own_alias` none, which `0107-connector-accounts-own-alias` does.
+        connections: before.connections.map((row) => ({ ...row, files_by_name: 0, due_in_days: null, granted: null, own_alias: null })),
         checks: before.checks.map((row) => ({ ...row, check_reason: null })),
       });
     });
@@ -2189,11 +2189,11 @@ const GMAIL_RECONNECT = '0066-gmail-connections-reconnect';
  */
 const connectorRowsIn = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
+    // Without `files_by_name`, `due_in_days`, `granted` and `own_alias`, which `0078-files-by-name`, `0091-due-in-days`, `0106-connector-accounts-granted` and `0107-connector-accounts-own-alias` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, own_alias: _ownAlias, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
@@ -2283,11 +2283,11 @@ const schemaIn = (name: string) =>
 /** The rows the drop must leave alone: connections, Items and the generic host's own. */
 const keptBesideGmail = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    // Without `files_by_name`, `due_in_days` and `granted`, which `0078-files-by-name`, `0091-due-in-days` and `0106-connector-accounts-granted` add on the same open.
+    // Without `files_by_name`, `due_in_days`, `granted` and `own_alias`, which `0078-files-by-name`, `0091-due-in-days`, `0106-connector-accounts-granted` and `0107-connector-accounts-own-alias` add on the same open.
     connections: sql
       .exec('SELECT * FROM connector_accounts ORDER BY id')
       .toArray()
-      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, ...row }) => row),
+      .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, own_alias: _ownAlias, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
     items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
     // Without `names` and `given_due_date`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
@@ -3746,11 +3746,11 @@ describe('Triage', () => {
  */
 /**
  * The rows of an account kept before `0103-connection-history-started-at`, as the same open leaves them: each line with no start, and (with
- * `0106-connector-accounts-granted`) each connection granting none.
+ * `0106-connector-accounts-granted` and `0107-connector-accounts-own-alias`) each connection granting none and holding no alias.
  */
 const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => ({
   ...withFilingsUnstamped(kept),
-  connector_accounts: (kept.connector_accounts ?? []).map((row) => ({ ...(row as object), granted: null })),
+  connector_accounts: (kept.connector_accounts ?? []).map((row) => ({ ...(row as object), granted: null, own_alias: null })),
   connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
 });
 
@@ -3966,7 +3966,7 @@ describe('Triage', () => {
       expect(keptAfter).toEqual({
         ...withFilingsUnstamped(keptBefore),
         item_conversations: keptBefore.item_conversations!.map((row) => ({ ...(row as object), claude_draft_digest: null })),
-        connector_accounts: keptBefore.connector_accounts!.map((row) => ({ ...(row as object), granted: null })),
+        connector_accounts: keptBefore.connector_accounts!.map((row) => ({ ...(row as object), granted: null, own_alias: null })),
       });
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
@@ -4021,6 +4021,57 @@ describe('Panels', () => {
       await abortAllDurableObjects();
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await filingsAndIndexesIn(name)).toEqual(once);
+    });
+  });
+});
+
+/**
+ * `0107-connector-accounts-own-alias` ("Outlook capture: a mail you Cc to your
+ * Cockpit alias arrives To do…", issue 1760) meets connections from before it:
+ * every one, an Outlook one among them, reads as holding no alias, which is how
+ * each behaved before, and nothing else about it changes.
+ */
+describe('Connector management', () => {
+  describe('adding the Cockpit alias loses nothing already stored', () => {
+    const OWN_ALIAS = '0107-connector-accounts-own-alias';
+    const connectionsIn = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        connections: sql.exec('SELECT * FROM connector_accounts ORDER BY id').toArray(),
+        applied: sql.exec('SELECT COUNT(*) AS n FROM account_changes WHERE name = ?', OWN_ALIAS).one().n,
+      }));
+
+    it('reads every existing connection, an Outlook one among them, as holding no alias, and is skipped the second time it is opened', async () => {
+      const name = 'aged-store-before-own-alias';
+      await agedTo(name, justBefore(OWN_ALIAS));
+      await fillWithWhatIsAlreadyThere(name);
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          `INSERT INTO connector_accounts
+             (id, tenant_id, workspace_id, connector_id, external_account_key,
+              display_name, encrypted_credential, credential_nonce, connected_at, updated_at, choice, due_in_days)
+           VALUES ('cn-outlook-before', ?, 'ws-before', 'outlook', 'tenant:anna', 'Anna', 'c2VhbGVk', 'bm9uY2UtMTItYnl0', ?, ?, 'flag', 3)`,
+          name,
+          AT,
+          AT,
+        ),
+      );
+      const before = await connectionsIn(name);
+      expect(before.connections[0]).not.toHaveProperty('own_alias');
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const read = await storeNamed(name).sourceAccounts(name, 'ws-before');
+      const once = await connectionsIn(name);
+
+      expect(read.status === 'ok' ? read.value.map((one) => [one.connectorId, one.ownAlias]) : []).toEqual(
+        expect.arrayContaining([['outlook', null]]),
+      );
+      expect(read.status === 'ok' ? read.value.every((one) => one.ownAlias === null) : false).toBe(true);
+      expect(once.connections).toEqual(before.connections.map((row) => ({ ...row, own_alias: null })));
+      expect(once.applied).toBe(1);
+
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await connectionsIn(name)).toEqual(once);
     });
   });
 });

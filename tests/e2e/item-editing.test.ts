@@ -65,6 +65,7 @@ const form = (page: Page) => page.getByRole('dialog');
  *  the word "description" and a page-wide lookup matches both. */
 const titleBox = (page: Page) => form(page).getByRole('textbox', { name: 'Title' });
 const descriptionBox = (page: Page) => form(page).getByRole('textbox', { name: 'Description' });
+const nextActionBox = (page: Page) => form(page).getByRole('textbox', { name: 'Next action' });
 const priorityGroup = (page: Page) => form(page).getByRole('group', { name: 'Priority' });
 const priorityFlag = (page: Page, level: string) =>
   form(page).getByRole('button', { name: `${level} priority` });
@@ -271,6 +272,25 @@ test.describe('Item editing', () => {
       // No question asked on the way out, and nothing kept: Cancel means cancel.
       await expect(descriptionBox(page)).toHaveCount(0);
       await expect(itemRow(page, thought).getByLabel('Has a description')).toHaveCount(0);
+    });
+
+    // The capability's one walk (issue 1790): what the form's field sends is
+    // ItemForm.test.tsx's, and where the line sits on the row is ItemRow.test.tsx's.
+    test('a Next action set in the form is drawn on its own line under the title', async ({ page, isMobile }) => {
+      const thought = uniqueTitle('Dinner with Steven');
+      await openInboxHolding(page, isMobile, [thought]);
+
+      await openItem(page, thought, isMobile);
+      await nextActionBox(page).fill('Confirm 4 Feb to Steven');
+      await saveTheItem(page, isMobile);
+
+      const row = itemRow(page, thought);
+      await expect(row.getByText('Next:')).toBeVisible();
+      await expect(row).toContainText('Next: Confirm 4 Feb to Steven');
+      // Under the title, not beside it.
+      const title = (await row.getByText(thought, { exact: true }).boundingBox())!;
+      const next = (await row.getByText('Next:').boundingBox())!;
+      expect(next.y).toBeGreaterThan(title.y + title.height - 1);
     });
 
     test('is opened and closed by the address, so the back button closes it', async ({

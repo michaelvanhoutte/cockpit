@@ -13,6 +13,7 @@ import {
   messageFrom,
   messagePage,
   namesOf,
+  sendFromAddresses,
   type Mark,
 } from './messages.js';
 
@@ -95,6 +96,24 @@ export interface OutlookState {
   readonly read?: string[];
   /** Following the flag: where the next read of received mail starts. */
   readonly turnsSince?: string;
+  /**
+   * The addresses the mailbox was seen sending from - the senders of messages
+   * in Sent Items, as compared - so the alias's copy of a mail you sent counts
+   * as yours even where its Sent Items copy is not in the same read (issue 1760).
+   * At most `SEND_FROM_KEPT`.
+   */
+  readonly sendsFrom?: string[];
+}
+
+/** How many addresses a mailbox is remembered sending from: a person sends from a few. */
+export const SEND_FROM_KEPT = 20;
+
+/**
+ * The addresses kept for the next check: the last `SEND_FROM_KEPT` learned,
+ * so a newly learned address displaces the oldest rather than being dropped.
+ */
+export function sendsFromKept(addresses: Iterable<string>): string[] {
+  return [...addresses].slice(-SEND_FROM_KEPT);
 }
 
 /** The saved state, read - or a fresh one where there is none, it is unreadable, or it was kept under another choice. */
@@ -119,6 +138,7 @@ export function stateIn(saved: unknown, choice: Mark): OutlookState {
     due,
     read: ids(held.read),
     ...(typeof held.turnsSince === 'string' && Number.isFinite(Date.parse(held.turnsSince)) ? { turnsSince: held.turnsSince } : {}),
+    ...(Array.isArray(held.sendsFrom) ? { sendsFrom: sendsFromKept(ids(held.sendsFrom)) } : {}),
   };
 }
 
@@ -134,6 +154,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
   const mailbox = await mailboxOf(host, config);
   const state = stateIn(await host.getState(), mark);
   const now = config.now ?? (() => new Date());
+  // Your Cockpit alias, and the addresses you were seen sending from: what makes a message yours outside Sent Items (issue 1760).
+  const alias = host.ownAlias ?? null;
+  const sendsFrom = new Set(state.sendsFrom ?? []);
 
   let listing: Listing;
   try {
@@ -228,8 +251,9 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       // before the conversation is read as where things stand.
       if (followed.size > 0) {
         const since = state.turnsSince ?? new Date(runStart.getTime() - OVERLAP_MS).toISOString();
-        const turns = await reportTurnsSince(host, mailbox, await foldersNow(), followed, since, runStart);
+        const turns = await reportTurnsSince(host, mailbox, await foldersNow(), followed, since, runStart, alias, sendsFrom);
         turnsSince = turns.next;
+        for (const address of turns.sendFrom) sendsFrom.add(address);
         if (turns.moreToDo) {
           moreToDo = true;
           turnsOutOfCalls = true;
@@ -257,7 +281,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
           const conversationId = listing.conversations[messageId]!;
           if (!followed!.has(conversationId)) {
             const dueDay = newDays.get(conversationKey(conversationId));
-            const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now, dueDay);
+            const brought = await bringInConversation(host, mailbox, mark, listing.deletedItems, messageId, foldersNow, now, dueDay, alias, sendsFrom);
             // Only once it was brought in: another flagged message of it must not be skipped for one that was gone.
             if (brought) {
               reported[conversationKey(conversationId)] = brought;
@@ -307,6 +331,7 @@ export async function syncMailbox(host: ConnectorHost, config: OutlookConnectorC
       ? { due: Object.fromEntries([...new Set([...seen, ...read].map(keyOf))].flatMap((key) => (dueReported[key] !== undefined ? [[key, dueReported[key]]] : []))) }
       : {}),
     ...(byConversation ? { read, ...(turnsSince ? { turnsSince } : {}) } : {}),
+    ...(sendsFrom.size > 0 ? { sendsFrom: sendsFromKept(sendsFrom) } : {}),
   } satisfies OutlookState);
   return moreToDo ? { moreToDo: true } : undefined;
 }
@@ -396,12 +421,15 @@ async function bringInConversation(
   foldersNow: () => Promise<Folders>,
   now: () => Date,
   dueDay: string | undefined,
+  alias: string | null,
+  sendsFrom: Set<string>,
 ): Promise<string[] | null> {
   const answer = await mailbox.get(`messages/${encodeURIComponent(messageId)}?$select=${READ_FIELDS}`, { bodyAsText: true });
   const message = messageFrom(answer, mark, deletedItems);
   if (!message) return null;
-  const whole = await conversationMessages(mailbox, message.conversationId, await foldersNow());
-  const conversation = standingOf(whole, message.conversationId);
+  const whole = await conversationMessages(mailbox, message.conversationId, await foldersNow(), alias, sendsFrom);
+  for (const address of sendFromAddresses(whole)) sendsFrom.add(address);
+  const conversation = standingOf(whole, message.conversationId, alias, sendsFrom);
   const sourceId = conversationKey(message.conversationId);
   const filing = await host.emitItem({
     sourceId,

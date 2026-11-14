@@ -591,6 +591,59 @@ describe('Item editing', () => {
     });
   });
 
+  describe('a Next action is refused past 200 characters, however it arrives', () => {
+    const nextActionOf = async (itemId: string) => (await storedIn('items', 'id', itemId))[0]?.next_action;
+
+    it('keeps an item as it was when a set_next_action carries 201 characters', async () => {
+      const itemId = await captureAnItem({ nextAction: 'Call Tom' });
+
+      const response = await postChange('set_next_action', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T12:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        nextAction: 'x'.repeat(201),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await nextActionOf(itemId)).toBe('Call Tom');
+    });
+
+    it('makes no item when a capture carries 201 characters', async () => {
+      const itemId = nextId();
+
+      const response = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        message: 'Make appointment with Novy',
+        nextAction: 'x'.repeat(201),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await storedIn('items', 'id', itemId)).toHaveLength(0);
+    });
+
+    it.each([
+      { situation: 'with blanks around it', given: '  Call back  ', stored: 'Call back' },
+      { situation: 'emptied', given: '', stored: null },
+    ])('stores a Next action $situation as $stored', async ({ given, stored }) => {
+      const itemId = await captureAnItem({ nextAction: 'Call Tom' });
+
+      const response = await postChange('set_next_action', {
+        commandId: nextId(),
+        issuedAt: '2026-08-12T12:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        nextAction: given,
+      });
+
+      expect(response.status).toBe(200);
+      expect(await nextActionOf(itemId)).toBe(stored);
+    });
+  });
+
   describe('the captured message is written when the item is made and never changes', () => {
     it('holds what was said, and holds it through everything the form can do', async () => {
       const itemId = await captureAnItem({ message: 'Ask Novy about part 11' });

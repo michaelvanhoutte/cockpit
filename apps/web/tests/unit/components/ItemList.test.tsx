@@ -224,12 +224,11 @@ const LISA = anItem('11111111-1111-7111-8111-000000000002', 'Reply to Lisa');
 const MAGGIE = anItem('11111111-1111-7111-8111-000000000003', 'Reply to Maggie');
 
 /**
- * An item whose label is not its title: the next action wins over both the
- * other texts. Every other fixture here has a title and no next action, and
- * with one the bare `item.title` and `itemLabel(item)` say the same thing - so
- * nothing else in this file can tell the two apart.
+ * An item with a next action, which the row draws on a line of its own and no
+ * dialog names it by: every other fixture here has none, so nothing else in this
+ * file can tell a dialog naming the title from one naming the next action.
  */
-const LABELLED_BY_ITS_NEXT_ACTION: Item = {
+const WITH_A_NEXT_ACTION: Item = {
   ...anItem('11111111-1111-7111-8111-000000000009', 'Part 11'),
   nextAction: 'Ask Novy about the part 11 tolerances',
 };
@@ -324,12 +323,13 @@ describe('Item editing', () => {
     // rather than asking what the row shows, so each named an item by a text
     // the row was not showing. Found in the browser, which is the only tier
     // that reads these dialogs - and this is the level that can hold it.
-    it('names it by its next action rather than by its title, in the picker', async () => {
-      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
+    it('names it by its title rather than by its next action, in the picker', async () => {
+      const user = await showList({ items: [WITH_A_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
 
-      expect(dialog).toHaveTextContent('Ask Novy about the part 11 tolerances');
+      expect(dialog).toHaveTextContent('Part 11');
+      expect(dialog).not.toHaveTextContent('Ask Novy about the part 11 tolerances');
     });
 
     it('names it the same way in the offer to undo what just happened', async () => {
@@ -338,14 +338,14 @@ describe('Item editing', () => {
       held.mutate.mockImplementation((_args, options?: { onSuccess?: () => void }) =>
         options?.onSuccess?.(),
       );
-      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
+      const user = await showList({ items: [WITH_A_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
 
-      expect(await screen.findByRole('status')).toHaveTextContent(
-        'Ask Novy about the part 11 tolerances',
-      );
+      const offer = await screen.findByRole('status');
+      expect(offer).toHaveTextContent('Part 11');
+      expect(offer).not.toHaveTextContent('Ask Novy about the part 11 tolerances');
     });
   });
 });

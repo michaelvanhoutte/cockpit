@@ -18,6 +18,7 @@ import type { Drawn } from './drawnAhead';
  *   connector's to say, so it is left out until the next read.
  * - **Files by name:** the row says so, or stops saying so.
  * - **Gives a due date:** the row says *Due N days after*, or stops saying so.
+ * - **Your Cockpit alias:** the row names it, or stops naming it.
  *
  * Only the connections of the Workspace the change names are touched, and a
  * change the server will refuse is drawn all the same until the refusal puts the
@@ -52,6 +53,10 @@ export function connectionsDrawnOver(
         case 'set_connection_due_in_days': {
           const { sourceAccountId: id, workspaceId: named, dueInDays } = change.payload;
           return named !== workspaceId ? held : rewrite(held, id, (account) => ({ ...account, dueInDays }));
+        }
+        case 'set_connection_own_alias': {
+          const { sourceAccountId: id, workspaceId: named, ownAlias } = change.payload;
+          return named !== workspaceId ? held : rewrite(held, id, (account) => ({ ...account, ownAlias }));
         }
         default:
           return held;

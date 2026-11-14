@@ -68,6 +68,8 @@ export interface PulledRunStarted {
   externalAccountKey: string;
   /** The choice the connection holds as the run starts, or null where it holds none (issue 942). */
   choice: string | null;
+  /** Your Cockpit alias on the mailbox as the run starts, or null for none (issue 1760). */
+  ownAlias: string | null;
 }
 
 export type PulledRunBegun = PulledRunStarted | { status: 'already running' | 'not queued' | 'disconnected' };
@@ -246,6 +248,7 @@ export function beginPulledRun(
     workspaceId: connection.workspaceId,
     externalAccountKey: connection.externalAccountKey,
     choice: connection.choice,
+    ownAlias: connection.ownAlias,
   };
 }
 
@@ -574,6 +577,8 @@ function followTheConversation(
       startedAt: read.startedAt,
       withWhom: cut(read.withWhom, NAME_LENGTH),
       connectionDays: holds.dueInDays,
+      // Whether anyone but you is on it, where the connector says (issue 1760).
+      ...(read.othersOnIt !== undefined ? { othersOnIt: read.othersOnIt } : {}),
     },
     { fromTheSource: true },
   );
@@ -651,6 +656,8 @@ export function recordPulledTurn(
       // Where the source shows the message, which Open goes to once it is the latest (issue 1720);
       // one too long to keep leaves the link as it was rather than refusing the turn.
       ...(turn.link && turn.link.length <= LINK_LENGTH ? { link: turn.link } : {}),
+      // Whether anyone but you is on it, where the connector says (issue 1760).
+      ...(turn.othersOnIt !== undefined ? { othersOnIt: turn.othersOnIt } : {}),
     },
     { fromTheSource: true },
   );
@@ -1125,6 +1132,7 @@ function connectionOf(db: AccountDb, accountName: string, sourceAccountId: strin
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
+      ownAlias: connectorAccounts.ownAlias,
     })
     .from(connectorAccounts)
     .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))

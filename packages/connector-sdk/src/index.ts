@@ -100,6 +100,13 @@ export interface ConnectorManifest {
    * name only. The host reads this, never which connector it is.
    */
   names?: { noun: string; example: string; byDashboard?: boolean };
+  /**
+   * Whether connecting and *Change…* ask for your Cockpit alias on the mailbox
+   * ("Outlook capture: a mail you Cc to your Cockpit alias arrives To do…",
+   * issue 1760): an address of yours the host keeps on the connection and hands
+   * a run as `ConnectorHost.ownAlias`. Absent is no.
+   */
+  asksOwnAlias?: boolean;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**
@@ -375,6 +382,13 @@ export interface ConversationRead {
   startedAt: string;
   /** Who it is with: the latest sender who is not the connected account, where there is one. */
   withWhom: string | null;
+  /**
+   * Whether anyone but you is on it: a sender or recipient who is not you
+   * (issue 1760). `false` makes your latest message a note, which the host
+   * leaves To do rather than waiting. Absent, from a source that does not say,
+   * is yes.
+   */
+  othersOnIt?: boolean;
 }
 
 /**
@@ -393,6 +407,8 @@ export interface ConversationTurn extends ConversationMessage {
    * whose messages have no address of their own does (a LinkedIn conversation).
    */
   link?: string;
+  /** As `ConversationRead.othersOnIt`, as this message shows it. Absent is yes. */
+  othersOnIt?: boolean;
 }
 
 /**
@@ -669,6 +685,13 @@ export interface ConnectorHost extends ConnectedAccountHost {
    * it listed; there is no event to miss.
    */
   readonly choice: string | null;
+
+  /**
+   * Your Cockpit alias on the mailbox as stored when this run started, for a
+   * connector whose manifest declares `asksOwnAlias` (issue 1760): mail from it
+   * is yours, and it counts as you on a conversation. Null or absent: none.
+   */
+  readonly ownAlias?: string | null;
 
   /** Opaque private state per connector+account: cursors, sync bookkeeping. */
   getState(): Promise<unknown>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, itemsInTheInbox, type AgentRun, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, attachmentSchema, itemSchema, itemStatus, itemsInTheInbox, type AgentRun, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { DRAWN_AHEAD, drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
@@ -131,11 +131,18 @@ describe('Item editing', () => {
         expected: 'Ask about the tolerances',
       },
       {
-        situation: 'a next action, which is what the row reads',
-        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: 'Call Bart' } } as CommandArgs,
+        situation: 'a next action, as the row draws it',
+        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: ' Call Bart ' } } as CommandArgs,
         from: {},
-        shown: (item: Item) => itemLabel(item),
+        shown: (item: Item) => item.nextAction,
         expected: 'Call Bart',
+      },
+      {
+        situation: 'a next action emptied, which is none',
+        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: '' } } as CommandArgs,
+        from: { nextAction: 'Call Bart' },
+        shown: (item: Item) => item.nextAction,
+        expected: null,
       },
     ])('$situation', ({ change, from, shown, expected }) => {
       const copy = workspace([anItem(BART, from), anItem(LISA)]);
