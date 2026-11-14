@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query';
 import { useServerEvents } from '../../../src/api/useServerEvents';
 import { diagnoseConnection } from '../../../src/api/loadFailure';
 import { RECONNECTED } from '../../../src/updating';
@@ -65,6 +65,11 @@ class FakeStream {
   droppedAndRetrying() {
     this.readyState = FakeStream.CONNECTING;
     this.#fire('error');
+  }
+
+  /** The stream's first message: the newest change the account had taken when it opened. */
+  opensAt(upTo: string | undefined) {
+    this.#fire('opened', { data: JSON.stringify(upTo === undefined ? {} : { upTo }) } as Partial<MessageEvent>);
   }
 
   /** Something changed, pushed down the stream. */
@@ -282,6 +287,93 @@ describe('Live updates', () => {
       FakeStream.made.at(-1)!.comesUp();
 
       expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+    });
+  });
+
+  describe('a stream opening tells the tab whether it missed a change', () => {
+    const heldAt = (upTo: string | undefined) => ({ items: [], upTo });
+
+    it('reads the workspace again when the stream opens with a stamp newer than the copy held', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:03.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.opensAt('2026-09-08T10:00:04.000Z');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(true);
+    });
+
+    it('reads nothing when the stream opens with a stamp the copy already holds', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:05.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.opensAt('2026-09-08T10:00:04.000Z');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+    });
+
+    it('reads only the workspace whose copy is behind, not one already current beside it', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:04.000Z'));
+      client.setQueryData(['snapshot', 'ws-home'], heldAt('2026-09-01T10:00:00.000Z'));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.opensAt('2026-09-08T10:00:04.000Z');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+      expect(client.getQueryState(['snapshot', 'ws-home'])?.isInvalidated).toBe(true);
+    });
+
+    it('reads nothing when the account has never taken a change', async () => {
+      open();
+      client.setQueryData(['snapshot', 'ws-work'], heldAt(undefined));
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+
+      stream.opensAt(undefined);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(client.getQueryState(['snapshot', 'ws-work'])?.isInvalidated).toBe(false);
+    });
+
+    it('reads once more after the first read lands, if it lands short', async () => {
+      open();
+      let reads = 0;
+      let land: (value: unknown) => void = () => {};
+      client.setQueryData(['snapshot', 'ws-work'], heldAt('2026-09-08T10:00:01.000Z'));
+      // Something showing the copy, as the page does, so a read is made and not only marked.
+      const showing = new QueryObserver(client, {
+        queryKey: ['snapshot', 'ws-work'],
+        staleTime: Infinity,
+        queryFn: () => {
+          reads += 1;
+          return reads === 1
+            ? new Promise((resolve) => { land = resolve; })
+            : Promise.resolve(heldAt('2026-09-08T10:00:04.000Z'));
+        },
+      });
+      const stopShowing = showing.subscribe(() => {});
+      const stream = FakeStream.made.at(-1)!;
+      stream.comesUp();
+      void client.refetchQueries({ queryKey: ['snapshot', 'ws-work'] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toBe(1);
+
+      stream.opensAt('2026-09-08T10:00:04.000Z');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toBe(1);
+      land(heldAt('2026-09-08T10:00:02.000Z'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(reads).toBe(2);
+      stopShowing();
     });
   });
 

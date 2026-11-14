@@ -40,4 +40,11 @@ export const serverEventSchema = z.discriminatedUnion('type', [
     workspaceId: z.string(),
   }),
 ]);
+/**
+ * The live-updates stream's first message, `opened`: the newest change the
+ * account had taken when the stream opened, as a snapshot's `upTo` names it.
+ * A tab holding a copy older than this read it before a change that no later
+ * announcement will name. Absent where the account has never taken a change.
+ */
+export const streamOpenedSchema = z.object({ upTo: z.iso.datetime().optional() });
 export type ServerEvent = z.infer<typeof serverEventSchema>;

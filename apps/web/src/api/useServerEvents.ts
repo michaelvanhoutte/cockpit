@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { serverEventSchema } from '@cockpit/shared';
+import { serverEventSchema, streamOpenedSchema } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
 import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
 import { diagnoseConnection } from './loadFailure';
-import { readForAnnouncement } from './snapshotReads';
+import { readForAnnouncement, readWhereBehind } from './snapshotReads';
 
 /**
  * Liveness via SSE (architecture, "The read model: persisted snapshot,
@@ -80,13 +80,29 @@ export function useServerEvents() {
         if (wasUp || replacement) {
           globalThis.dispatchEvent(new Event(RECONNECTED));
           // Announcements were missed while it was down, so every copy held is
-          // out of date. Marked and not read: a filing reads a copy so marked
-          // before it is built (`useLatestSnapshot`), and what is on screen
-          // follows with the next read.
+          // marked out of date: a filing reads a copy so marked before it is
+          // built (`useLatestSnapshot`). What is on screen is read again by
+          // `opened` below where it is behind; against an older Worker, which
+          // sends no `opened`, it follows with the next read.
           void queryClient.invalidateQueries({ queryKey: ['snapshot'], refetchType: 'none' });
           void queryClient.invalidateQueries({ queryKey: ['finishedItems'], refetchType: 'none' });
         }
         wasUp = true;
+      });
+
+      // The stream's first message names the newest change the account had taken
+      // when it opened. A change stored after this tab read a copy and before the
+      // stream's cursor was set is announced nowhere else, so each Workspace
+      // whose copy is behind it is read (`snapshotReads.ts`).
+      stream.addEventListener('opened', (message) => {
+        let parsed;
+        try {
+          parsed = streamOpenedSchema.safeParse(JSON.parse(message.data));
+        } catch {
+          return;
+        }
+        if (!parsed.success || !parsed.data.upTo) return;
+        readWhereBehind(queryClient, parsed.data.upTo);
       });
 
       stream.addEventListener('change', (message) => {

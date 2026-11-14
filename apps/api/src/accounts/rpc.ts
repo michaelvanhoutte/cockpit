@@ -357,6 +357,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
     failure: { message: string; status: number | null },
   ): Awaitable<Answer<null>>;
+  newestChange(accountName: string): Awaitable<Answer<string | undefined>>;
   changesSince(
     accountName: string,
     since: string,
