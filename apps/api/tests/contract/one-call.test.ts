@@ -11,7 +11,7 @@ import { A_CONTRACT_RUN, claude, hasAKey } from './support/claude.js';
  * alike, because it is about five calls (`.github/workflows/contract.yml`). A
  * red check here means the API or the parsing moved, never the model's
  * judgement: what each prompt is held to is the behaviour suite beside it
- * (`clean-up-a-note.v17.test.ts` and the others), which runs only when it is
+ * (`clean-up-a-note.v18.test.ts` and the others), which runs only when it is
  * named and costs about a hundred calls.
  *
  * **Every prompt in `src/ai/prompts/` has a check here, named by its versioned
@@ -45,7 +45,7 @@ const TREE: PlaceTreeWorkspace[] = [
 describe('Capture', () => {
   hasAKey();
 
-  it('clean-up-a-note.v17 answers with a proposal, not a discard', async () => {
+  it('clean-up-a-note.v18 answers with a proposal, not a discard', async () => {
     const answer = await asking.cleanUpNote(NOTE, PANELS, [], [], [], null, { date: '2026-10-13', weekday: 'Tuesday' }, A_CONTRACT_RUN);
     expect(answer, JSON.stringify(answer)).toHaveProperty('proposal');
   });

@@ -7,6 +7,7 @@ import {
   GUIDANCE_NO_TALKING_ABOUT_THE_NOTE as NO_TALKING_ABOUT_THE_NOTE,
   GUIDANCE_TITLE_LENGTH_TARGET as TITLE_LENGTH_TARGET_LINE,
   GUIDANCE_TITLE_NAMES_THE_WORK as TITLE_NAMES_THE_WORK,
+  NEXT_ACTION_LENGTH,
   prioritySchema,
   textLearningRatioSentence,
   TITLE_LENGTH,
@@ -37,6 +38,15 @@ export { TITLE_TARGET };
  * of a list by position, which is what stops a reorder from silently
  * rebinding a sentence to the wrong prompt slot.
  */
+
+/**
+ * How a next step the note states is read ("Item Next action: a captured
+ * note's next step stays buried in its text", issue 1791): a short action,
+ * only where the note itself says what comes next, in the note's language,
+ * and a different thing from the title (which names the work) and the message
+ * (which spells it out). Its own constant for the reason `STATED_PRIORITY` is.
+ */
+export const STATED_NEXT_ACTION = `Where the note itself says what to do next - "confirm 4 feb", "call back tomorrow", "bevestigen", "terugbellen" - give that as its next action: one short phrase, an action to do and not a description, in the language named above, at most ${NEXT_ACTION_LENGTH} characters. It is the next step only, never the whole work the title already names, and never a restatement of the title or the message. Read a next action only from words that say what to do next. Never make one up from what the work usually needs, and where the note states no next step, leave the next action out. The title and the message keep the words you read it from.`;
 
 /**
  * How a priority the note states is read ("Read a priority you say when you
@@ -122,7 +132,7 @@ You may:
 - finish a sentence the note leaves clipped
 - put a dictated run of words into a readable order
 
-${NO_INVENTION} Not a fact, not a name, not a date, not a number, not a reason, and not a next step. ${NO_HEDGE} Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
+${NO_INVENTION} Not a fact, not a name, not a date, not a number, not a reason, and not a next step the note does not state. ${NO_HEDGE} Write what the note carries and stop there. If you are unsure whether something is in the note, it is not.
 
 ${NO_TALKING_ABOUT_THE_NOTE} What lands in front of this person is a piece of their own work, not a report about something they typed, so never write "the note", "this note" or "de notitie" in either text.
 
@@ -145,6 +155,8 @@ ${STATED_PRIORITY}
 ${STATED_DUE_DATE}
 
 ${STATED_PLACE}
+
+${STATED_NEXT_ACTION}
 
 ${NOTE_FROM_TEAMS}
 
@@ -211,6 +223,21 @@ readings: []
 place: day to day, admin and money
 panel: (none of the panels offered fits)
 
+Note: dinner w steven, confirm 4 feb
+language: English
+title: Dinner with Steven
+message: Dinner with Steven. Confirm 4 Feb.
+readings: []
+nextAction: Confirm 4 Feb to Steven
+panel: (none of the panels offered fits)
+
+Note: kitchen renovation quote
+language: English
+title: Kitchen renovation quote
+message: Kitchen renovation quote.
+readings: []
+panel: (none of the panels offered fits)
+
 Note: Can you send me the Q3 numbers? I need them today, it's urgent!
 
 My note, typed when saving this message:
@@ -243,7 +270,7 @@ Note: book a table for the board dinner after the agm
 panel: Board meetings, closest, because the dinner is for the board, though it is not a meeting`;
 
 /**
- * What Cockpit asks Claude for when a note has been captured, version 17.
+ * What Cockpit asks Claude for when a note has been captured, version 18.
  * `v7` ("Learn how you write from the titles you correct", issue 394; "Show
  * what Cockpit is told, and say how you want it changed", issue 398; "Pin an
  * example of how you want a note written", issue 397) added `corrections`,
@@ -335,6 +362,12 @@ panel: Board meetings, closest, because the dinner is for the board, though it i
  * added to the schema or to what a call sends: the note arrives inside the
  * captured message, marked, and the person's words win a field where they
  * disagree with the sender's.
+ *
+ * **`v18` reads the next step a note states** ("Item Next action: a captured
+ * note's next step stays buried in its text", issue 1791): `STATED_NEXT_ACTION`
+ * in the instructions, two worked examples, and an optional `nextAction` in the
+ * schema, left out where the note states none. Whether it lands on the Item is
+ * the store's to decide, together with the texts.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
@@ -342,7 +375,7 @@ export function buildCleanUpANote(
   stood: WhatStood | null,
   day: CaptureDay | null,
 ): {
-  version: 'v17';
+  version: 'v18';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -380,11 +413,11 @@ export function buildCleanUpANote(
   ].join('\n\n');
 
   return {
-    version: 'v17',
+    version: 'v18',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v17.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v18.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.
@@ -497,6 +530,13 @@ export function buildCleanUpANote(
                   'The day the note itself names as when it is due, written YYYY-MM-DD and counted from the day it was captured on - left out wherever it names none or the day is unclear, and never a time.',
               },
             }),
+        // Optional for the reason `priority` is: most notes state no next
+        // step, and leaving it out is that answer (issue 1791).
+        nextAction: {
+          type: 'string',
+          description:
+            `The next step the note itself says to take, as one short action in the language named above and at most ${NEXT_ACTION_LENGTH} characters - left out wherever the note states none, and never made up from what the work usually needs.`,
+        },
         // Offered on every note, since no name is shown: the words alone
         // (issue 1116). Optional for the reason `priority` is.
         place: {

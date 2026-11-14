@@ -9,7 +9,7 @@
 // workflow's file list to stay off the model.
 //
 
-/** A behaviour suite is the cases one prompt version is held to, so its file name carries the version: `clean-up-a-note.v17.test.ts`. */
+/** A behaviour suite is the cases one prompt version is held to, so its file name carries the version: `clean-up-a-note.v18.test.ts`. */
 export const BEHAVIOUR_SUITE = /\.v\d+\.test\.ts$/;
 
 /** The file holding one call per Claude prompt. */
@@ -37,7 +37,7 @@ export function suitesNamed(argv) {
   return named;
 }
 
-/** The prompt a behaviour suite holds, `clean-up-a-note` for `area/clean-up-a-note.v17.test.ts`. */
+/** The prompt a behaviour suite holds, `clean-up-a-note` for `area/clean-up-a-note.v18.test.ts`. */
 const promptOf = (file) => file.split('/').pop().replace(BEHAVIOUR_SUITE, '');
 
 /**
@@ -58,7 +58,7 @@ export function filesRun(files, named) {
 }
 
 /**
- * The versioned prompt names (`clean-up-a-note.v17`) that open no case title in
+ * The versioned prompt names (`clean-up-a-note.v18`) that open no case title in
  * `check`'s source, as `X.vN` and not as the front of `X.vNN` - a title and not
  * anywhere, since a comment naming the prompt checks nothing.
  */

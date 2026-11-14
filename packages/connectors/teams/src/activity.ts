@@ -42,7 +42,7 @@ const CAPTURE_LENGTH = 60_000;
  * message to Cockpit", issue 1340).
  *
  * **The note-reading prompt quotes this exact line** (`NOTE_FROM_TEAMS` in
- * apps/api/src/ai/prompts/clean-up-a-note.v17.ts), and a test in apps/api holds
+ * apps/api/src/ai/prompts/clean-up-a-note.v18.ts), and a test in apps/api holds
  * the two together: the shape is the only thing that tells the reading whose
  * words are whose, since the note is stored inside the message and not beside it.
  */

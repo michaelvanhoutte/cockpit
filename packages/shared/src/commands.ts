@@ -975,6 +975,8 @@ export const proposeItemTextsSchema = commandEnvelopeSchema.extend({
   description: itemDescriptionSchema.min(1),
   /** The other ways this note could genuinely be read ("Offer the other readings when a captured note says two things", issue 297); empty where there is only the one. */
   readings: z.array(itemReadingSchema),
+  /** The next step the note states, where it states one ("Item Next action: a captured note's next step stays buried in its text", issue 1791); absent where it states none. Written with the texts and refused with them. */
+  nextAction: nextActionSchema.optional(),
 });
 export type ProposeItemTextsCommand = z.infer<typeof proposeItemTextsSchema>;
 
@@ -993,7 +995,7 @@ export const readPastedLinkSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   capturedFrom: capturedFromSchema.extend({ sourceLink: z.url().max(2_000) }),
   capturedMessage: z.string().trim().min(1).max(60_000),
-  texts: proposeItemTextsSchema.pick({ title: true, description: true, readings: true }).optional(),
+  texts: proposeItemTextsSchema.pick({ title: true, description: true, readings: true, nextAction: true }).optional(),
 });
 export type ReadPastedLinkCommand = z.infer<typeof readPastedLinkSchema>;
 

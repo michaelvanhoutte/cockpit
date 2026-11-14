@@ -1,4 +1,4 @@
-import { itemDescriptionSchema, itemTitleSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
+import { asNextAction, itemDescriptionSchema, itemTitleSchema, nextActionSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
 import type { PlaceNamed } from '../domain/spoken-path.js';
 
@@ -59,6 +59,8 @@ export interface NoteTexts {
   dueDate: string | null;
   /** The words in which the note said where it goes, as it said them, or null where it said none ("File a capture on the panels you name, read from the spoken path", issue 1116). Which places they mean is a second call's to read. */
   place: string | null;
+  /** The next step the note states, or null where it states none or the answer cannot be used ("Item Next action: a captured note's next step stays buried in its text", issue 1791). */
+  nextAction: string | null;
 }
 
 /**
@@ -210,7 +212,15 @@ export function readProposal(raw: unknown, offeredPanelIds: readonly string[]): 
       ? (z.string().trim().min(1).safeParse((parsed as Record<string, unknown>).place).data ?? null)
       : null;
 
-  return { proposal: { ...read.data, readings, panel, priority, dueDate, place } };
+  // And the Next action: missing, blank, not text or over its 200 characters
+  // is none, never a reason to discard the title and message, and never cut
+  // to fit, which could leave half a sentence (issue 1791).
+  const nextAction =
+    typeof parsed === 'object' && parsed !== null
+      ? asNextAction(nextActionSchema.safeParse((parsed as Record<string, unknown>).nextAction).data)
+      : null;
+
+  return { proposal: { ...read.data, readings, panel, priority, dueDate, place, nextAction } };
 }
 
 /** The names a note's place words mean, or why nothing usable came back. */

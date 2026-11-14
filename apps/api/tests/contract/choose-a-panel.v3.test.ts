@@ -7,7 +7,7 @@ import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.j
 /**
  * The contract tier for a settled filing's refresh of the rest of an inbox:
  * the real Claude API, the real prompt, no fake anywhere, run by hand and only
- * when named - `clean-up-a-note.v17.test.ts`'s class comment says why,
+ * when named - `clean-up-a-note.v18.test.ts`'s class comment says why,
  * and a failure here is priority work for the same reasons.
  *
  * **The same routing properties that file holds the full prompt to**, on a
@@ -51,7 +51,7 @@ async function choose(
   history: readonly DecisionHistoryEntry[] = [],
 ) {
   const answer = await choosing.choosePanel(item, panels, history, [], A_CONTRACT_RUN);
-  // Said out loud, for the same reason `clean-up-a-note.v17.test.ts`'s `read` does.
+  // Said out loud, for the same reason `clean-up-a-note.v18.test.ts`'s `read` does.
   if (!('panel' in answer)) throw new Error(`nothing usable came back: ${answer.discarded}`);
   return answer.panel;
 }
@@ -102,7 +102,7 @@ describe('Triage', () => {
 
   /**
    * "Re-propose the closest Panel too, with how sure it is" (issue 1108): the
-   * cases of `clean-up-a-note.v17.test.ts`'s "a note that plausibly fits a
+   * cases of `clean-up-a-note.v18.test.ts`'s "a note that plausibly fits a
    * panel is offered the closest one", on this prompt - notes the person
    * would file on a Panel without any of them naming it, which the previous
    * wording answered with none. Each plausibly fits one Panel and no other.
@@ -134,7 +134,7 @@ describe('Triage', () => {
   });
 
   /**
-   * `clean-up-a-note.v17.test.ts`'s "a proposal follows a correction recorded
+   * `clean-up-a-note.v18.test.ts`'s "a proposal follows a correction recorded
    * in the decision history", on this prompt: the note fits either panel
    * equally, so naming the corrected one is a call the history alone drives.
    */

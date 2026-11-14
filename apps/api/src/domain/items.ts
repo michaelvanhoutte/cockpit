@@ -481,6 +481,9 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
     title: cmd.title,
     description: cmd.description,
     readings: cmd.readings.length > 0 ? cmd.readings : null,
+    // Proposed with the texts and refused with them; where the reading found
+    // no next step the Item keeps what it has (issue 1791).
+    nextAction: asNextAction(cmd.nextAction) ?? item.nextAction,
     textsProposedAt: cmd.issuedAt,
   };
 }
@@ -518,6 +521,7 @@ export function applyPastedLinkRead(item: Item, cmd: ReadPastedLinkCommand): Ite
       title: cmd.texts.title,
       description: cmd.texts.description,
       readings: cmd.texts.readings.length > 0 ? cmd.texts.readings : null,
+      nextAction: asNextAction(cmd.texts.nextAction) ?? item.nextAction,
       textsProposedAt: cmd.issuedAt,
     };
   }

@@ -6,7 +6,7 @@ import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.j
  * The contract tier for offering a sentence to remember ("Remember an edit as a
  * sentence you confirm", issue 1163): the real Claude API and the real prompt,
  * a behaviour suite run by hand and only when named -
- * `clean-up-a-note.v17.test.ts`'s class comment says why.
+ * `clean-up-a-note.v18.test.ts`'s class comment says why.
  *
  * **Behaviours, not shapes**: an edit that shows a way of working gets a
  * sentence about the way and none of the facts; one that only corrects a fact
