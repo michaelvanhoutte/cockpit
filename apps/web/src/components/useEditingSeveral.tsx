@@ -11,6 +11,7 @@ import {
   type BulkValue,
   type Sending,
 } from '../bulkEdit';
+import { barEntryFor, endSeveral, reopenSeveral, targetsOf, whatWasEnded } from '../claudeRunEnd';
 import { dueDateLabel } from '../dueDate';
 import { useUndo } from '../undo';
 import { EditSeveralMenu } from './EditSeveralMenu';
@@ -104,6 +105,32 @@ export function useEditingSeveral({
     }
   };
 
+  /** *End Claude run*: every picked row with an open run, and the rest left alone (issue 1770). */
+  const targets = targetsOf(picked, data?.agentRuns ?? []);
+  const endRuns = async () => {
+    if (running.current || filing || targets.length === 0) return;
+    running.current = true;
+    setRefusal(null);
+    setPickingDate(false);
+    try {
+      const run = endSeveral(sending, {
+        targets,
+        onStarted: (answer) =>
+          offerToUndo({
+            what: whatWasEnded(targets),
+            unlessRefused: answer.then(({ ended }) => {
+              if (ended.length === 0) throw new Error('every run was refused');
+            }),
+            undo: async () => reopenSeveral(sending, (await answer).ended),
+          }),
+      });
+      const { refused } = await run;
+      setRefusal(saysWhatWasNotChanged(refused));
+    } finally {
+      running.current = false;
+    }
+  };
+
   const applyDate = () => {
     if (!date || running.current || filing) return;
     void set('dueDate', date, dueDateLabel(date) ?? date);
@@ -122,6 +149,8 @@ export function useEditingSeveral({
         disabled={saving !== null || filing}
         onSet={(field, value, name) => void set(field, value, name)}
         onPickDate={() => setPickingDate(true)}
+        endRuns={barEntryFor(targets)}
+        onEndRuns={() => void endRuns()}
       />
     ),
     /** The date field Pick a date… opens, for the bar to draw under its buttons. */

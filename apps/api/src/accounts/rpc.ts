@@ -34,6 +34,7 @@ import type {
   DraftMade,
   DraftWaiting,
   EmittedItem,
+  DueDayReport,
   NamesReport,
   OpenStateWanted,
   SourceItem,
@@ -529,6 +530,12 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     turn: ConversationTurn,
     commandId: string,
   ): Awaitable<Answer<'recorded' | 'not followed' | 'disconnected'>>;
+  reportPulledDueDay(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    report: DueDayReport,
+  ): Awaitable<Answer<'recorded' | 'unchanged' | 'unknown' | 'disconnected'>>;
   reportPulledNames(
     accountName: string,
     sourceAccountId: string,

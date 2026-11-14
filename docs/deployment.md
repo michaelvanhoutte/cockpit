@@ -210,7 +210,7 @@ pnpm exec wrangler secret put HARNESS_WRITE_KEY     # needs the Worker to exist:
 |---|---|
 | `@claude` runs in Actions | secret `HARNESS_WRITE_KEY` and variable `HARNESS_MONITOR_URL` on the repository; `claude.yml` passes both |
 | Cloud sessions | the key as an environment secret and the address as an environment variable, in the cloud environment's settings |
-| Desktop and terminal sessions | both as user environment variables, then restart Claude Code. If a desktop session shows project hooks do not fire there, register a one-time launcher in `~/.claude/settings.json`, as `.claude/hooks/build-title.mjs` does |
+| Desktop and terminal sessions | both as user environment variables, then restart Claude Code. If a desktop session shows project hooks do not fire there, register a one-time launcher: a user-level hook in `~/.claude/settings.json` that reads the session's working directory from the hook's stdin and runs the project's script from there, since the desktop app ignores project hooks |
 
 The hook never sends conversation text, and a request it could not send goes again on the next turn.
 

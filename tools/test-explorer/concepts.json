@@ -181,7 +181,7 @@
     {
       "key": "Triage",
       "label": "Triage",
-      "browserWalks": 23,
+      "browserWalks": 24,
       "parent": "Inbox",
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
@@ -493,7 +493,7 @@
     {
       "key": "Agents",
       "label": "Agents",
-      "browserWalks": 5,
+      "browserWalks": 6,
       "parent": "Workspaces",
       "sourcePatterns": [
         "packages/shared/src/domain/agent.ts",
@@ -506,6 +506,9 @@
         "apps/web/src/components/SendToClaudeWindow.tsx",
         "apps/api/src/http/app.ts",
         "apps/web/src/agentRunChip.ts",
+        "apps/web/src/claudeRunEnd.ts",
+        "apps/web/src/components/NeedsYouChip.tsx",
+        "apps/api/src/mcp/report-run.ts",
         "apps/web/src/components/ItemRow.tsx",
         "apps/web/src/components/ItemList.tsx",
         "apps/web/src/dragScroll.ts",

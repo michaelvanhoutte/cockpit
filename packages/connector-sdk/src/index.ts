@@ -331,6 +331,14 @@ export type SourceItem = Pick<
    */
   followed?: string;
   /**
+   * The day the source gives this Item as due, a calendar day as `YYYY-MM-DD`
+   * (an Outlook flag's date). Where the host would give the connection's days,
+   * it gives this instead, and a later change is reported through
+   * `ConnectorHost.reportDueDay`. Absent: the source names no day, and the
+   * connection's days apply as they do for any Item.
+   */
+  dueDay?: string;
+  /**
    * The conversation this Item follows at the source, and where it stands as
    * read, for a connector whose Items follow one (a Gmail thread under the
    * star). The host has the Item follow it, whether the Item was just made or
@@ -550,6 +558,16 @@ export interface NamesReport {
 }
 
 /**
+ * The day a source now gives an Item as due, reported whenever it differs from
+ * the last day the connector reported for an Item it already emitted
+ * (`ConnectorHost.reportDueDay`). A calendar day as `YYYY-MM-DD`, never a time.
+ */
+export interface DueDayReport {
+  sourceId: string;
+  dueDay: string;
+}
+
+/**
  * Every source id one complete listing of the source saw, under the choice the
  * connection now follows. A connector reports it only when it read the source
  * to the end; one that could not list says nothing, since an empty listing
@@ -684,6 +702,16 @@ export interface ConnectorHost extends ConnectedAccountHost {
    * them and files nothing.
    */
   reportNames(report: NamesReport): Promise<void>;
+
+  /**
+   * Reports the day the source gives an Item as due, after it changed at the
+   * source (or, for an Item filed before the connector reported days, the
+   * first time). The host decides what it does: it moves the Item's date only
+   * while that date is still one the connection gave, or the Item has none
+   * and nobody set or cleared it. A source id the host never filed is
+   * ignored, and the same day twice changes nothing.
+   */
+  reportDueDay(report: DueDayReport): Promise<void>;
 
   /**
    * The ids of the conversations this connection's open Items follow, as this

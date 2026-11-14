@@ -749,6 +749,16 @@ describe('Agents', () => {
       expect(await theRun(runId)).toMatchObject({ stage: 'needs_you', note: 'Which tenancy is it?' });
     });
 
+    it('refuses needs you with no question, telling Claude what is missing, and leaves the run as it was', async () => {
+      const { token } = await connected();
+      const { runId } = await aSentRun();
+
+      const said = await reportRun(token, { run: runId, stage: 'needs_you' });
+
+      expect(said).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('send the question as the note') }] });
+      expect(await theRun(runId)).toMatchObject({ stage: 'sent', note: null });
+    });
+
     it('goes back to on it when Claude picks it up again after an answer', async () => {
       const { token } = await connected();
       const { runId } = await aSentRun();

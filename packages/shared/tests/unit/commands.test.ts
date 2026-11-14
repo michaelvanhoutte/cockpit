@@ -3,6 +3,8 @@ import { uuidv7 } from '../../src/ids.js';
 import { panelFilterAsStored, panelFilterFrom, type FilterCondition } from '../../src/domain/panel.js';
 import {
   captureItemSchema,
+  endClaudeRunSchema,
+  reportClaudeRunSchema,
   moveItemToPanelSchema,
   proposeItemPanelSchema,
   proposeItemTextsSchema,
@@ -443,6 +445,40 @@ describe('Panels', () => {
       { situation: 'nothing at all', changes: {}, accepted: false },
     ])('$situation', ({ changes, accepted }) => {
       expect(setPanelSettingsSchema.safeParse({ ...base, ...changes }).success).toBe(accepted);
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('Claude’s Needs you report must say what it is asking', () => {
+    const base = {
+      commandId: uuidv7(),
+      issuedAt: '2026-10-20T09:00:00.000Z',
+      workspaceId: 'ws-work',
+      runId: uuidv7(),
+    };
+
+    it.each([
+      { situation: 'Needs you with no note', report: { stage: 'needs_you' }, accepted: false },
+      { situation: 'Needs you with a blank note', report: { stage: 'needs_you', note: '   ' }, accepted: false },
+      { situation: 'Needs you with a question', report: { stage: 'needs_you', note: 'Which tenancy?' }, accepted: true },
+      { situation: 'On it with no note', report: { stage: 'on_it' }, accepted: true },
+      { situation: 'Ready with no note', report: { stage: 'ready' }, accepted: true },
+    ])('$situation', ({ report, accepted }) => {
+      expect(reportClaudeRunSchema.safeParse({ ...base, ...report }).success).toBe(accepted);
+    });
+  });
+
+  describe('an Undo of ending a Claude run names the run it brings back', () => {
+    const base = { commandId: uuidv7(), issuedAt: '2026-10-20T09:00:00.000Z', workspaceId: 'ws-work', itemId: uuidv7() };
+
+    it.each([
+      { situation: 'an end naming its run', changes: { runId: uuidv7() }, accepted: true },
+      { situation: 'an end naming none, for the Item’s open run', changes: {}, accepted: true },
+      { situation: 'an Undo naming the run', changes: { runId: uuidv7(), reopen: true }, accepted: true },
+      { situation: 'an Undo naming none', changes: { reopen: true }, accepted: false },
+    ])('$situation', ({ changes, accepted }) => {
+      expect(endClaudeRunSchema.safeParse({ ...base, ...changes }).success).toBe(accepted);
     });
   });
 });

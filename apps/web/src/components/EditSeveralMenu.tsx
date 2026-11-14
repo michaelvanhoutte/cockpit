@@ -48,8 +48,13 @@ export function EditSeveralMenu({
   disabled,
   onSet,
   onPickDate,
+  endRuns,
+  onEndRuns,
 }: {
   picked: readonly Item[];
+  /** *End Claude run*: on offer where a picked row has an open run, and saying so where none does. */
+  endRuns: { available: boolean; why: string | null };
+  onEndRuns: () => void;
   /** Unavailable while a run is going or a filing is. */
   disabled: boolean;
   /** `name` is what the choice is called, or null for the due date being cleared. */
@@ -199,6 +204,16 @@ export function EditSeveralMenu({
               </DropdownMenu.Sub>
             );
           })}
+          {/* Kept visible where no picked row has a run, saying why it is off, so the entry is never hunted for (issue 1770). */}
+          <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
+          <DropdownMenu.Item
+            className={menuItemSplitClass}
+            disabled={!endRuns.available}
+            onSelect={onEndRuns}
+          >
+            <span>End Claude run</span>
+            {endRuns.why && <span className="text-xs text-ink-faint">{endRuns.why}</span>}
+          </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

@@ -70,7 +70,7 @@ export interface Sending {
   envelope: (itemId: string) => () => { commandId: string; issuedAt: string; workspaceId: string; itemId: string };
 }
 
-const CHANGED_ELSEWHERE = 'That item changed somewhere else.';
+export const CHANGED_ELSEWHERE = 'That item changed somewhere else.';
 
 /**
  * Why a command did not land: the server's own words where it gave any, and a

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
+import type { AgentRun, Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from '@cockpit/shared';
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -80,6 +80,7 @@ interface World {
   items: Item[];
   filings: Filing[];
   inbox?: Item[];
+  runs?: AgentRun[];
 }
 
 let client: QueryClient;
@@ -103,7 +104,7 @@ function snapshotOf(now: World): WorkspaceSnapshot {
     followUpDays: 3,
     duplicates: [],
     filings: now.filings,
-    agentRuns: [],
+    agentRuns: now.runs ?? [],
     generatedAt: '2026-08-31T09:00:00.000Z',
   } as unknown as WorkspaceSnapshot;
 }
@@ -193,7 +194,7 @@ beforeEach(() => {
 
 describe('Selection', () => {
   describe('Edit names the value every picked Item shares, or Mixed, and ticks the shared one', () => {
-    it('offers Priority, Due and Status, and no Type, though the workspace has one', async () => {
+    it('offers Priority, Due and Status, then End Claude run, and no Type, though the workspace has one', async () => {
       const user = show(TWO_PANELS);
       await tick(user, BART.title);
       await tick(user, RENEW.title);
@@ -201,7 +202,7 @@ describe('Selection', () => {
       await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
 
       const fields = (await screen.findAllByRole('menuitem')).map((item) => item.textContent?.split(' ')[0]);
-      expect(fields).toEqual(['Priority', 'Due', 'Status']);
+      expect(fields).toEqual(['Priority', 'Due', 'Status', 'End']);
     });
 
     it('reads High and ticks it when the picked Items are all High', async () => {
@@ -238,6 +239,38 @@ describe('Selection', () => {
       await openField(user, 'Status');
 
       expect(screen.getByRole('menuitem', { name: /^Status/ })).toHaveTextContent('Waiting for reply');
+    });
+  });
+
+  describe('End Claude run ends the run of each picked Item that has one', () => {
+    const run = (itemId: string, id: string) => ({ id, itemId, stage: 'ready', destination: 'code' }) as unknown as AgentRun;
+
+    it('sends one end for each picked Item with a run, and none for the rest', async () => {
+      const user = show({ ...TWO_PANELS, runs: [run(BART.id, 'run-bart'), run(CHASE.id, 'run-chase')] });
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+      await tick(user, CHASE.title);
+
+      await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'End Claude run' }));
+
+      await waitFor(() => expect(sent).toHaveLength(2));
+      expect(sent.map((one) => [one.name, (one.payload as { runId: string }).runId])).toEqual([
+        ['end_claude_run', 'run-bart'],
+        ['end_claude_run', 'run-chase'],
+      ]);
+    });
+
+    it('stays on the menu but unavailable, saying none has a Claude run, where no picked Item has one', async () => {
+      const user = show({ ...TWO_PANELS, runs: [run(CHASE.id, 'run-chase')] });
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+
+      await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
+
+      const entry = await screen.findByRole('menuitem', { name: /End Claude run/ });
+      expect(entry).toHaveAttribute('aria-disabled', 'true');
+      expect(entry).toHaveTextContent('None of them has a Claude run');
     });
   });
 
