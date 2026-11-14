@@ -189,9 +189,12 @@ Following the category is per message, as before.
   Item's due date", issue 1759), on a connection following the flag only: a
   category connection never sends one. The listing already selects each
   message's whole `flag`, so no call is added. `flag.dueDateTime` is a
-  `dateTimeTimeZone` (`dateTime` such as `2026-11-20T00:00:00.0000000`, no
-  offset, and a `timeZone` name); **the day taken is the date part of `dateTime`
-  as written, whatever `timeZone` says**, with no conversion to anyone's zone.
+  `dateTimeTimeZone`. **The day taken is the date part of `dateTime` as written,
+  whatever `timeZone` says**, with no conversion to anyone's zone, because
+  Outlook stores the chosen day itself at midnight labelled `UTC`: a message
+  flagged *Morgen* (tomorrow) on 14 November in a Brussels mailbox reads
+  `"dueDateTime": {"dateTime": "2026-11-15T00:00:00.0000000", "timeZone": "UTC"}`.
+  Converting it to the mailbox's zone would move the day.
   Only a message whose flag is `flagged` has one: a completed flag keeps its
   date in Graph and is not listed. A conversation takes the earliest day of its
   flagged messages. A new conversation is emitted with `SourceItem.dueDay`; one
@@ -290,13 +293,6 @@ message's `webLink`, which opens it in Outlook on the web.
 
 ## Not yet known
 
-- **What `flag.dueDateTime` really holds in a real mailbox.** No dated flag has
-  been read from a live mailbox: the shape above is Graph's documentation of
-  `followupFlag` (a `dateTimeTimeZone`), and the unit tests use midnight of the
-  day chosen. If Graph answers a dated flag as midnight UTC while Outlook shows
-  another day, or with a time that crosses midnight in the mailbox's zone, the
-  Item will be due a day off, and the day taken has to be decided again (the
-  first Decision of the issue "Outlook connection: name the mark plainly and make the flag's date the Item's due date", 1757). One flagged message read from a real mailbox settles it.
 - **Whether a draft made, opened and sent in real Outlook behaves as the
   stand-in does**: `webLink` opening a draft for writing (rather than a read
   view), its id staying the same through editing and sending (the check copes
