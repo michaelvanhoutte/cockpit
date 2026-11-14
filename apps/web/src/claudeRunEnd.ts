@@ -1,4 +1,5 @@
 import { itemLabel, type AgentRun, type Item } from '@cockpit/shared';
+import { rememberEnded } from './endedRuns';
 import { whyNot, type Refused, type Sending } from './bulkEdit';
 
 /**
@@ -55,6 +56,8 @@ export function whatWasEnded(targets: readonly Target[]): string {
 
 /** The command that ends a run, with the envelope the caller made for its Item. */
 export function endCommand(run: AgentRun, envelope: ReturnType<ReturnType<Sending['envelope']>>) {
+  // Kept so the Undo can draw the run back after the held copy has lost it.
+  rememberEnded(run);
   return { name: 'end_claude_run' as const, payload: { ...envelope, runId: run.id } };
 }
 

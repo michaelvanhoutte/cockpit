@@ -25,6 +25,7 @@ import {
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
+import { endedRun } from './endedRuns';
 
 /**
  * A change a window makes with a request of its own rather than a command ("Show a
@@ -336,7 +337,7 @@ function recurringItemDrawn(
  * run - or the one the change names - off the Workspace's runs, so its chip leaves
  * the row at once. **An Undo draws the run back only while the change that ended
  * it is drawn too** (`ended`), since the copy holds nothing else to draw it from;
- * once that read has landed, the Undo waits for its own.
+ * a run this tab ended is also kept by id (`endedRuns.ts`), so an Undo after that read has landed draws it back at once too.
  */
 function runEndedAhead(
   snapshot: WorkspaceSnapshot,
@@ -345,7 +346,7 @@ function runEndedAhead(
 ): WorkspaceSnapshot {
   const runs = snapshot.agentRuns ?? [];
   if (change.reopen) {
-    const run = change.runId ? ended.get(change.runId) : undefined;
+    const run = change.runId ? (ended.get(change.runId) ?? endedRun(change.runId)) : undefined;
     if (!run || runs.some((one) => one.itemId === run.itemId) || !snapshot.items.some((item) => item.id === run.itemId)) {
       return snapshot;
     }

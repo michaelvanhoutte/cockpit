@@ -3,6 +3,7 @@ import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, 
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { DRAWN_AHEAD, drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+import { forgetEndedRuns, rememberEnded } from '../../src/endedRuns';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 
 /**
@@ -1037,9 +1038,19 @@ describe('Agents', () => {
       expect(drawnOver(copy, [end(BART, RUN), undo(BART, RUN)]).agentRuns.map((run) => run.id)).toEqual([RUN]);
     });
 
+    it('draws the run back at once when its Undo comes after the end was answered and its read landed', () => {
+      forgetEndedRuns();
+      const ran = aRun(RUN, BART);
+      rememberEnded(ran);
+      const afterTheRead = withRuns();
+
+      expect(drawnAhead(afterTheRead, undo(BART, RUN)).agentRuns.map((run) => run.id)).toEqual([RUN]);
+      forgetEndedRuns();
+    });
+
     it.each([
       { situation: 'an Item with no run', change: end(LISA, undefined) },
-      { situation: 'an Undo of a run the copy no longer holds, which waits for the next read', change: undo(BART, RUN) },
+      { situation: 'an Undo of a run this tab never ended, which waits for the next read', change: undo(BART, RUN) },
     ])('leaves the copy as it is for $situation', ({ change }) => {
       const copy = withRuns();
 
