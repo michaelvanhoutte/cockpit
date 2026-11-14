@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DescriptionBox } from '../../../src/components/DescriptionBox';
@@ -11,6 +11,14 @@ import { DescriptionBox } from '../../../src/components/DescriptionBox';
  * said of the editor itself.
  */
 afterEach(cleanup);
+
+// The editor is a lazy chunk, and its first import in a fresh worker costs about
+// as long as `findBy`'s one second. Bringing it in here, with a timeout sized for
+// that, keeps the cost out of whichever test happens to run first; what the tests
+// prove is what the editor draws, not how quickly it arrives.
+beforeAll(async () => {
+  await import('../../../src/description/RichDescription');
+}, 30_000);
 
 describe('Item editing', () => {
   describe('a tap on a description drawn to be read opens a link in a new tab, and anywhere else asks to edit', () => {
