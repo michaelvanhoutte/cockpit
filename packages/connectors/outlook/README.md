@@ -145,8 +145,10 @@ Following the category is per message, as before.
   message the run has not read, in a conversation no open Item follows
   (`followedConversations`), is read in full and its conversation read whole
   (`messages?$filter=conversationId eq '…'`, drafts and Deleted Items left out),
-  then emitted with where the conversation stands: the latest message (yours if
-  in Sent Items), the count, the first message's time, who it is with. The
+  then emitted with where the conversation stands: the latest message (yours as
+  for a turn, below), the count, the first message's time, who it is with, and
+  whether anyone but you and the alias is a sender, To or Cc of any message in
+  it (`othersOnIt`). The
   flagged message gives the title, text and sender. The host answering
   `already-known` is reported reopened, which is how flagging again after Done
   reopens the same Item. A message in a conversation already followed costs no
@@ -154,13 +156,21 @@ Following the category is per message, as before.
   Item closes when no message of its conversation is flagged.
 - **A turn is any message received since the last run**, one read of the whole
   mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
-  with `$select` of the id, conversation, folder, sender, time and
+  with `$select` of the id, conversation, folder, sender, To, Cc, time and
   `bodyPreview`, cut where quoted earlier mail starts (an underscore line,
   `From:`/`Van:` then `Sent:`/`Verzonden:`, `On … wrote:`/`Op … schreef …:`), and
   its `webLink`, which Open then goes to. Each message in a followed conversation is reported once the
   host asks (`reportTurn`; it changes nothing for one already reported). **Yours
-  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), not
-  a From comparison, so a send-as alias still counts. Drafts and Deleted Items
+  is a message in Sent Items** (the folder id from `mailFolders/sentitems`), so
+  a send-as alias still counts, **or one sent from an address you send from or
+  from your Cockpit alias**, wherever it is filed, so the alias's copy of a mail
+  you sent, delivered to your Inbox, is yours too ("Outlook capture: a mail you
+  Cc to your Cockpit alias arrives To do…", issue 1760). An address you
+  send from is the sender of any message seen in Sent Items, compared without
+  case; a run keeps the ones it has seen in its state (`sendsFrom`, at most 20),
+  since the alias's copy and its Sent Items copy need not be in one read. Each
+  turn also says whether anyone else is on it: a sender, To or Cc that is not
+  you or the alias (`othersOnIt`). Bcc is never on a copy received. Drafts and Deleted Items
   are not turns. Nothing is read while no Item follows a conversation. A read
   cut short by the call budget keeps the time of the last message reported and
   answers that there is more to do; a complete one restarts five minutes
@@ -185,6 +195,33 @@ Following the category is per message, as before.
   following: flagging every message again would flag mail nobody chose.
 - **Names** of a conversation Item are the union of the categories of its
   flagged messages, reported when they change.
+- **A flag's date is the Item's due day** ("A flag's date becomes the Outlook
+  Item's due date", issue 1759), on a connection following the flag only: a
+  category connection never sends one. The listing already selects each
+  message's whole `flag`, so no call is added. `flag.dueDateTime` is a
+  `dateTimeTimeZone`. **The day taken is the date part of `dateTime` as written,
+  whatever `timeZone` says**, with no conversion to anyone's zone, because
+  Outlook stores the chosen day itself at midnight labelled `UTC`: a message
+  flagged *Morgen* (tomorrow) on 14 November in a Brussels mailbox reads
+  `"dueDateTime": {"dateTime": "2026-11-15T00:00:00.0000000", "timeZone": "UTC"}`.
+  Converting it to the mailbox's zone would move the day.
+  Only a message whose flag is `flagged` has one: a completed flag keeps its
+  date in Graph and is not listed. A conversation takes the earliest day of its
+  flagged messages. A new conversation is emitted with `SourceItem.dueDay`; one
+  already in has the day reported through `reportDueDay` when it differs from
+  the one last reported, which the state keeps per conversation in `due` and
+  saves only once the host took the report, so one that failed is reported
+  again next run. A removed date reports nothing, and keeps its `due` entry, so
+  the same day put back is not news. A reopened conversation reports its day
+  right after the reopen, since the reopen gives the connection's days first.
+  The host decides what a day does (it moves an Item only while its date is
+  still the connection's). Each report is a call to the host and shares
+  `NAMES_REPORTED_PER_RUN` with the names. A conversation already in with no
+  `due` entry takes its current day (or none, saved as an empty entry) as where
+  it starts and reports nothing, so a date the connection or a reply gave is not
+  replaced by a flag's day it had before; only a change after that is reported. A message flagged
+  in a conversation the host already follows is the exception: its day is
+  reported at the next run.
 
 ## Drafts Email… makes ("Email… makes an Outlook draft the Item then follows", issue 1709)
 

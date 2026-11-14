@@ -1273,6 +1273,18 @@ describe('Dashboards', () => {
       expect(chosenScope()).toEqual(['Workspace']);
     });
 
+    it('says in Find item that Dashboard searches this Dashboard and the Inbox, and in Go to panel only this Dashboard', async () => {
+      const user = userEvent.setup();
+      render(<Held listing={three()} reach={aReach({ snapshot })} />);
+
+      await user.keyboard('f');
+      expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('title', 'Search this Dashboard and the Inbox (F)');
+
+      await user.click(document.body);
+      await user.keyboard('g');
+      expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('title', 'Search this Dashboard (G)');
+    });
+
     it('closes on the key of the open mode and scope, and switches keeping the text on another of the four', async () => {
       const user = userEvent.setup();
       render(<Held listing={three()} reach={finder()} />);

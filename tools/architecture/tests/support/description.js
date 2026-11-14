@@ -62,7 +62,7 @@ export function filesOf(overrides = {}) {
       { id: 'gmail', name: 'Gmail', words: ['gmail'] },
       { id: 'claude-code', name: 'Claude Code', words: ['claude code'] },
     ],
-    connectorRule: { sdk: '@cockpit/connector-sdk', scope: '@cockpit/' },
+    connectorRule: { sdk: '@cockpit/connector-sdk', scope: '@cockpit/', also: { '@cockpit/linkedin-mail': ['packages/connectors/gmail'] } },
     context: { cockpit: { name: 'Cockpit', summary: 'Unified inbox and dashboards.' }, people: [], services: [] },
     layers: [],
     ...rest,

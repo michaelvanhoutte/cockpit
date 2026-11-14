@@ -1,4 +1,5 @@
 import {
+  asNextAction,
   DEFAULT_ITEM_FORM_PRESENTATION,
   FIRST_DASHBOARD_NAME,
   FOLLOW_UP_DAYS,
@@ -12,6 +13,7 @@ import {
   nextColor,
   stillOpen,
   themeOf,
+  type AgentRun,
   type CommandPayload,
   type Dashboard,
   type Item,
@@ -24,6 +26,7 @@ import {
   type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
+import { endedRun } from './endedRuns';
 
 /**
  * A change a window makes with a request of its own rather than a command ("Show a
@@ -54,7 +57,7 @@ export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayl
  * to be drawn; this decides what each one draws.
  *
  * **Only what an Item row, a Panel, the form or the Dashboard bar shows.** What a change also does
- * on the server - ending an Item's open run, withdrawing a proposal, recording
+ * on the server - ending an Item's open run (except *End Claude run*, drawn by `runEndedAhead`), withdrawing a proposal, recording
  * where it was filed - arrives with the next read.
  *
  * **A filing is the order it carries, written over the Panel's.** An order is the
@@ -90,6 +93,8 @@ export type Drawn = CommandArgs | { name: 'add_attachment'; payload: CommandPayl
  */
 export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): WorkspaceSnapshot {
   switch (change.name) {
+    case 'end_claude_run':
+      return runEndedAhead(snapshot, change.payload);
     case 'capture_item':
       return capturedAhead(snapshot, change.payload);
     case 'append_to_item':
@@ -131,7 +136,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_description':
       return withItem(snapshot, change.payload.itemId, { description: change.payload.description });
     case 'set_next_action':
-      return withItem(snapshot, change.payload.itemId, { nextAction: change.payload.nextAction });
+      return withItem(snapshot, change.payload.itemId, { nextAction: asNextAction(change.payload.nextAction) });
     case 'set_dismissed':
       // The Workspace read holds open Items only, so a dismissed Item is simply absent.
       // Undoing one has no copy to draw it from and waits for the next read.
@@ -320,6 +325,30 @@ function recurringItemDrawn(
     return { ...one, ...repeat, title, workspaceId, stoppedAt: null };
   });
   return { ...snapshot, series };
+}
+
+/**
+ * A Claude run ended, and brought back by its Undo (issue 1770): the Item's open
+ * run - or the one the change names - off the Workspace's runs, so its chip leaves
+ * the row at once. **An Undo draws the run back from the one this tab ended**
+ * (`endedRuns.ts`, filled by `endCommand`), since the held copy no longer holds it
+ * once the end's read has landed.
+ */
+function runEndedAhead(
+  snapshot: WorkspaceSnapshot,
+  change: CommandPayload<'end_claude_run'>,
+): WorkspaceSnapshot {
+  const runs = snapshot.agentRuns ?? [];
+  if (change.reopen) {
+    const run = change.runId ? endedRun(change.runId) : undefined;
+    if (!run || runs.some((one) => one.itemId === run.itemId) || !snapshot.items.some((item) => item.id === run.itemId)) {
+      return snapshot;
+    }
+    return { ...snapshot, agentRuns: [...runs, run] };
+  }
+  const gone = runs.filter((run) => run.itemId === change.itemId && (change.runId === undefined || run.id === change.runId));
+  if (gone.length === 0) return snapshot;
+  return { ...snapshot, agentRuns: runs.filter((run) => !gone.includes(run)) };
 }
 
 /**
@@ -585,6 +614,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'set_description',
   'set_next_action',
   'set_dismissed',
+  'end_claude_run',
   'set_duplicate_settled',
   'add_dashboard',
   'rename_dashboard',

@@ -13,6 +13,7 @@ import {
   itemDescriptionSchema,
   itemReadingSchema,
   itemTitleSchema,
+  nextActionSchema,
   panelFitSchema,
   prioritySchema,
   TITLE_LENGTH,
@@ -36,7 +37,7 @@ import {
   claudeSessionLink,
 } from './domain/claude-send.js';
 import { claudeProposalsSchema } from './domain/claude-proposal.js';
-import { dueInDaysSchema } from './domain/source-account.js';
+import { dueInDaysSchema, ownAliasSchema } from './domain/source-account.js';
 import { emailLocalPartSchema } from './domain/email-address.js';
 import { itemFormPresentationSchema } from './domain/item-form-presentation.js';
 import {
@@ -374,7 +375,7 @@ export const captureItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   /** Capped where a description is capped, on the way in only (architecture.md §4.4). */
   message: z.string().trim().min(1).max(60_000),
-  nextAction: z.string().optional(),
+  nextAction: nextActionSchema.optional(),
   /**
    * Whether the envelope's Workspace is where this Item belongs, or merely
    * where it was captured from ("Capture something before you know which
@@ -589,6 +590,18 @@ export const sendItemToClaudeSchema = commandEnvelopeSchema.extend({
 export type SendItemToClaudeCommand = z.infer<typeof sendItemToClaudeSchema>;
 
 /**
+ * What Claude is told when it reports *Needs you* without saying what it
+ * needs (issue 1770).
+ */
+export const NEEDS_YOU_WITHOUT_A_QUESTION =
+  'Needs you has to say what you are asking: send the question as the note.';
+
+/** Whether a report says what it needs where it must: `needs_you` carries a note that is not blank. */
+export function reportSaysWhatItNeeds(report: { stage: string; note?: string | undefined }): boolean {
+  return report.stage !== 'needs_you' || (report.note ?? '').trim() !== '';
+}
+
+/**
  * report_claude_run — Cowork or Claude Code saying how a Run it was sent
  * stands ("Follow on the row what Claude reports back", issue 1160). Sent by
  * the MCP tool alone, never posted as JSON: the Run's own Workspace is found
@@ -608,8 +621,30 @@ export const reportClaudeRunSchema = commandEnvelopeSchema.extend({
     .refine((value) => claudeResultLink(value) !== null)
     .optional(),
   note: z.string().max(REPORT_NOTE_LIMIT).optional(),
-});
+}).refine(reportSaysWhatItNeeds, { message: NEEDS_YOU_WITHOUT_A_QUESTION, path: ['note'] });
 export type ReportClaudeRunCommand = z.infer<typeof reportClaudeRunSchema>;
+
+/**
+ * end_claude_run - *End Claude run* on a row or the selection bar, and its Undo
+ * (issue 1770). Ends the Item's open run and nothing else: Status, Panels and
+ * dates stay. `runId` names the run the person saw; left out, the Item's open
+ * run, if any. **`reopen`** is the Undo: it brings back the run it names, only
+ * while the Item is still open, holds no other open run and has had no run
+ * since, the rule Undo after Done uses. Ending a run already ended, or an Item
+ * with none open, is accepted and changes nothing; a run of another Item is
+ * refused.
+ */
+export const endClaudeRunSchema = commandEnvelopeSchema
+  .extend({
+    itemId: z.uuid(),
+    runId: z.uuid().optional(),
+    reopen: z.boolean().optional(),
+  })
+  .refine((cmd) => !cmd.reopen || cmd.runId !== undefined, {
+    message: 'an undo names the run it brings back',
+    path: ['runId'],
+  });
+export type EndClaudeRunCommand = z.infer<typeof endClaudeRunSchema>;
 
 /**
  * finish_agent_run — "Agent finished: Done" or "Agent finished: Still to do"
@@ -637,7 +672,7 @@ export type AssociateCommand = z.infer<typeof associateSchema>;
 
 export const setNextActionSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
-  nextAction: z.string(),
+  nextAction: nextActionSchema,
 });
 export type SetNextActionCommand = z.infer<typeof setNextActionSchema>;
 
@@ -747,6 +782,8 @@ export const followConversationSchema = commandEnvelopeSchema.extend({
   withWhom: z.string().max(TITLE_LENGTH).nullable(),
   /** The days the connection gives an Item, or null where it gives none: the latest message's due date. */
   connectionDays: dueInDaysSchema.nullable(),
+  /** As `record_conversation_turn`'s: whether anyone but you is on the conversation, where the source says. */
+  othersOnIt: z.boolean().optional(),
   /**
    * The draft *Email…* or *Reply…* made in it ("Email… makes a Gmail draft the
    * Item then follows", issue 1708), recorded under the click that asked for it
@@ -813,7 +850,8 @@ export type DropDraftCommand = z.infer<typeof dropDraftSchema>;
  * record_conversation_turn - a message in a conversation an Item follows, as its
  * source reported it (issue 1705). **The core decides what it does to the
  * Item** (`applyConversationTurn`, apps/api/src/domain/conversations.ts): yours
- * makes it Waiting for reply, due after the Follow-ups delay; theirs makes it To
+ * makes it Waiting for reply, due after the Follow-ups delay, where anyone else
+ * is on the conversation (`othersOnIt`), and is a note otherwise; theirs makes it To
  * do, due after `connectionDays`, else the Follow-ups delay; on a finished or
  * dismissed Item, nothing. Its id derives from the message, so a turn read twice
  * is applied once. Self-sent, by the account's store on a pulled check.
@@ -837,6 +875,13 @@ export const recordConversationTurnSchema = commandEnvelopeSchema.extend({
    * than the one it had. Leaves where the conversation stands as it is.
    */
   standing: z.literal(true).optional(),
+  /**
+   * Whether anyone but you is on the conversation, as its source read it
+   * ("Outlook capture: a mail you Cc to your Cockpit alias arrives To do…",
+   * issue 1760): `false` makes your message a note, which leaves the Item To do
+   * rather than waiting. Absent, from a source that does not say, is yes.
+   */
+  othersOnIt: z.boolean().optional(),
 });
 export type RecordConversationTurnCommand = z.infer<typeof recordConversationTurnSchema>;
 
@@ -1102,6 +1147,14 @@ export const connectSourceAccountSchema = commandEnvelopeSchema.extend({
    * reconnect replaces what was stored.
    */
   granted: z.string().min(1).max(40).array().max(10).optional(),
+  /**
+   * Your Cockpit alias on the mailbox, as the person answered it before the
+   * sign-in ("Outlook capture: a mail you Cc to your Cockpit alias arrives To
+   * do…", issue 1760), or `null` for none. Written by the callback route only
+   * for a connector that asks for one. Absent: a new connection starts with
+   * none, and a reconnect leaves the stored one alone.
+   */
+  ownAlias: ownAliasSchema.nullable().optional(),
 });
 export type ConnectSourceAccountCommand = z.infer<typeof connectSourceAccountSchema>;
 
@@ -1158,6 +1211,21 @@ export const setConnectionDueInDaysSchema = commandEnvelopeSchema.extend({
   dueInDays: dueInDaysSchema.nullable(),
 });
 export type SetConnectionDueInDaysCommand = z.infer<typeof setConnectionDueInDaysSchema>;
+
+/**
+ * set_connection_own_alias - your Cockpit alias on a connection's mailbox, or
+ * `null` for none ("Outlook capture: a mail you Cc to your Cockpit alias
+ * arrives To do…", issue 1760): mail from it counts as yours, and a conversation
+ * with nobody but you and it on it is a note. Offered by the route only for a
+ * connector that asks for one; naming another Workspace's connection is
+ * refused. Read by the next check: an Item already in changes only at its
+ * conversation's next message.
+ */
+export const setConnectionOwnAliasSchema = commandEnvelopeSchema.extend({
+  sourceAccountId: z.string().min(1),
+  ownAlias: ownAliasSchema.nullable(),
+});
+export type SetConnectionOwnAliasCommand = z.infer<typeof setConnectionOwnAliasSchema>;
 
 /**
  * set_duplicate_settled — a flagged pair settled as not a duplicate, or that
@@ -1255,6 +1323,7 @@ export const commandSchemas = {
   wait_for_reply: waitForReplySchema,
   send_item_to_claude: sendItemToClaudeSchema,
   report_claude_run: reportClaudeRunSchema,
+  end_claude_run: endClaudeRunSchema,
   finish_agent_run: finishAgentRunSchema,
   set_dismissed: setDismissedSchema,
   associate: associateSchema,
@@ -1287,6 +1356,7 @@ export const commandSchemas = {
   set_connection_choice: setConnectionChoiceSchema,
   set_connection_files_by_name: setConnectionFilesByNameSchema,
   set_connection_due_in_days: setConnectionDueInDaysSchema,
+  set_connection_own_alias: setConnectionOwnAliasSchema,
   set_duplicate_settled: setDuplicateSettledSchema,
   remember_sentence: rememberSentenceSchema,
   edit_remembered_sentence: editRememberedSentenceSchema,

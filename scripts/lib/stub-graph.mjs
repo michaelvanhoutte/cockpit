@@ -91,9 +91,17 @@ function seededMessages() {
 /** The mailbox owner, as the mail they sent names them: the stand-in does not know the address, so the display name stands in. */
 const ME = { name: 'Michael', address: 'michael@example.com' };
 
+/** Whom the mailbox writes to where a case names nobody. */
+const STEVEN = { name: 'Steven Noels', address: 'steven@example.com' };
+
 let versions = 0;
 
-function message(id, { subject, from, to = [ME], text, html, flagged = false, categories = [], at, folder = INBOX, conversation = `stub-conversation-of-${id}` }) {
+/** A flag's date as Graph documents `followupFlag.dueDateTime`: midnight of the day, with the zone it was written in. */
+function dueOn(day) {
+  return { dateTime: `${day}T00:00:00.0000000`, timeZone: 'UTC' };
+}
+
+function message(id, { subject, from, to = [ME], text, html, flagged = false, due, categories = [], at, folder = INBOX, conversation = `stub-conversation-of-${id}` }) {
   return {
     id,
     conversationId: conversation,
@@ -105,7 +113,7 @@ function message(id, { subject, from, to = [ME], text, html, flagged = false, ca
     toRecipients: to.map(({ name, address }) => ({ emailAddress: { name, address } })),
     subject,
     categories,
-    flag: { flagStatus: flagged ? 'flagged' : 'notFlagged' },
+    flag: { flagStatus: flagged ? 'flagged' : 'notFlagged', ...(flagged && due ? { dueDateTime: dueOn(due) } : {}) },
     from: { emailAddress: { name: from.name, address: from.address } },
     body: html === undefined ? { contentType: 'text', content: text } : { contentType: 'html', content: html },
     // What the message adds to its conversation: the stand-in's messages quote nothing, so it is the body.
@@ -218,6 +226,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
     const draft = message(`AAkALgStubDraft${mailbox.counter}`, {
       subject: original ? `RE: ${original.subject}` : (asked.subject ?? ''),
       from: { name: 'Michael', address: mailbox.email },
+      // Addressed as a person sends it: a reply to whoever wrote the email, a new one to Steven, so the
+      // conversation has someone else on it and a sent draft waits (issue 1760).
+      to: original ? [{ name: original.from.emailAddress.name, address: original.from.emailAddress.address }] : [STEVEN],
       // A reply holds the email it answers, quoted, in HTML as Outlook writes it; a new draft, the text it is handed.
       ...(original
         ? {
@@ -268,7 +279,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       if (ifMatch && ifMatch !== shown(held)['@odata.etag']) {
         return json(response, { error: { code: 'ErrorIrresolvableConflict', message: 'The change key passed in the request does not match the current change key for the item.' } }, 412);
       }
-      if (change.flag?.flagStatus) held.flag = { flagStatus: change.flag.flagStatus };
+      if (change.flag?.flagStatus) held.flag = { ...held.flag, flagStatus: change.flag.flagStatus };
       if (Array.isArray(change.categories)) held.categories = change.categories;
       // A draft's body, which only a draft takes (message-update: "updatable only if isDraft = true").
       if (change.body) {
@@ -285,7 +296,9 @@ export function createStubGraph({ mailboxOfToken, json }) {
 
   /**
    * What a person does in Outlook, for a walk to do it from outside:
-   * `POST /graph-stub/flag?email=&subject=&text=` flags a new message and
+   * `POST /graph-stub/flag?email=&subject=&text=&due=2031-06-12` flags a new message (with a date
+   * on the flag where `due=` is given; `POST /graph-stub/due?email=&id=&due=` gives one a date, or
+   * `due=none` takes it off) and
    * `/graph-stub/categorise?email=&subject=&text=` puts the category Cockpit on
    * one, each also carrying every `category=` given; `POST
    * /graph-stub/tag?email=&id=&category=` adds a category to a message already
@@ -348,6 +361,16 @@ export function createStubGraph({ mailboxOfToken, json }) {
       return json(response, { id: draft.id, folder: draft.parentFolderId });
     }
     const extra = url.searchParams.getAll('category');
+    if (action === 'due') {
+      // A person giving a flag a date in Outlook (Tomorrow, a picked day), or taking it off with `due=none`.
+      const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
+      if (!held) return json(response, { error: 'no such message' }, 404);
+      const day = url.searchParams.get('due') ?? 'none';
+      if (day === 'none') delete held.flag.dueDateTime;
+      else held.flag.dueDateTime = dueOn(day);
+      held.version = ++versions;
+      return json(response, { id: held.id, flag: held.flag });
+    }
     if (action === 'tag') {
       const held = mailbox.messages.find((one) => one.id === url.searchParams.get('id'));
       if (!held) return json(response, { error: 'no such message' }, 404);
@@ -363,6 +386,8 @@ export function createStubGraph({ mailboxOfToken, json }) {
         subject: 'Re: a conversation',
         from: sent ? { name: 'Michael', address: email } : { name: from?.[1] ?? 'Steven Noels', address: from?.[2] ?? 'steven@example.com' },
         text: url.searchParams.get('text') ?? 'A reply, a moment ago.',
+        // One sent from the mailbox goes to Steven, so someone else is on the conversation (issue 1760).
+        ...(sent ? { to: [STEVEN] } : {}),
         at: new Date().toISOString(),
         folder: sent ? SENT_ITEMS : INBOX,
         conversation: url.searchParams.get('conversation') ?? undefined,
@@ -377,6 +402,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
       from: { name: 'Anna Peeters', address: 'anna@example.com' },
       text: url.searchParams.get('text') ?? `${subject}, a moment ago.`,
       flagged: action === 'flag',
+      due: url.searchParams.get('due') ?? undefined,
       categories: [...(action === 'categorise' ? ['Cockpit'] : []), ...extra],
       at: new Date().toISOString(),
       conversation: url.searchParams.get('conversation') ?? undefined,
@@ -469,7 +495,7 @@ export function createStubGraph({ mailboxOfToken, json }) {
         addTeamsMessage(url, response);
         return true;
       }
-      const acting = /^\/graph-stub\/(flag|categorise|tag|message|asked|refuse|reply|drafts|send-draft|delete-draft|edit-draft)$/.exec(url.pathname);
+      const acting = /^\/graph-stub\/(flag|categorise|tag|due|message|asked|refuse|reply|drafts|send-draft|delete-draft|edit-draft)$/.exec(url.pathname);
       if (acting) {
         act(acting[1], url, request, response);
         return true;

@@ -3258,6 +3258,7 @@ export function sourceAccountsIn(
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
       granted: connectorAccounts.granted,
+      ownAlias: connectorAccounts.ownAlias,
     })
     .from(connectorAccounts)
     .leftJoin(connectionFailures, eq(connectionFailures.sourceAccountId, connectorAccounts.id))
@@ -3377,6 +3378,7 @@ export function getSourceAccount(
       choice: string | null;
       filesByName: boolean;
       dueInDays: number | null;
+      ownAlias: string | null;
     }
   | undefined {
   return db
@@ -3388,6 +3390,7 @@ export function getSourceAccount(
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
+      ownAlias: connectorAccounts.ownAlias,
     })
     .from(connectorAccounts)
     .where(

@@ -73,6 +73,7 @@ import {
   recordPulledTurn,
   reportPulledDraftGone,
   reportPulledNames,
+  reportPulledDueDay,
   pulledSealedCredential,
   pulledState,
   pulledOpenStatesWaiting,
@@ -90,6 +91,7 @@ import type {
   DraftMade,
   DraftWaiting,
   EmittedItem,
+  DueDayReport,
   NamesReport,
   OpenStateWanted,
   SourceItem,
@@ -1111,6 +1113,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     );
   }
 
+  /** The newest change the account has taken, as a snapshot's `upTo` names it; what the live-updates stream announces when it opens. */
+  newestChange(accountName: string): Answer<string | undefined> {
+    return this.#answer(accountName, (db) => watermark(db, accountName));
+  }
+
   /** What has changed since `since`, for the live-updates stream the Worker holds open. */
   changesSince(
     accountName: string,
@@ -1371,6 +1378,18 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   ): Answer<{ answer: 'recorded' | 'unknown' | 'disconnected'; named: NamedOn | null }> {
     return this.#answer(accountName, (db) =>
       reportPulledNames(db, accountName, sourceAccountId, runId, report, new Date().toISOString(), forms),
+    );
+  }
+
+  /** Applies the day a pulled connector reports its source gives an Item as due (issue 1759). */
+  reportPulledDueDay(
+    accountName: string,
+    sourceAccountId: string,
+    runId: string,
+    report: DueDayReport,
+  ): Answer<'recorded' | 'unchanged' | 'unknown' | 'disconnected'> {
+    return this.#answer(accountName, (db) =>
+      reportPulledDueDay(db, accountName, sourceAccountId, runId, report, new Date().toISOString()),
     );
   }
 

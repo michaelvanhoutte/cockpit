@@ -1,4 +1,4 @@
-import type { ItemStatus, Priority } from '@cockpit/shared';
+import { asNextAction, type ItemStatus, type Priority } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 
 /**
@@ -27,6 +27,8 @@ export interface Wait {
  */
 export interface Draft extends StatusState {
   title: string;
+  /** What the Next action box holds; empty for none (`asStored` sends none). */
+  nextAction: string;
   description: string;
   priority: Priority | null;
   /** ISO calendar date (`2026-09-30`), or `null` for none - the empty string the date input shows for "unset" is never stored in the draft. */
@@ -36,12 +38,13 @@ export interface Draft extends StatusState {
 }
 
 /** The fields the item's form edits, in the order they are sent: a wait before the due date, so a date typed after choosing one lands over it. */
-export const FIELDS = ['title', 'description', 'priority', 'wait', 'dueDate', 'status'] as const;
+export const FIELDS = ['title', 'nextAction', 'description', 'priority', 'wait', 'dueDate', 'status'] as const;
 export type Field = (typeof FIELDS)[number];
 
 /** What each field is called where a person is told it changed. */
 export const FIELD_NAMES: Record<Field, string> = {
   title: 'title',
+  nextAction: 'next action',
   description: 'description',
   priority: 'priority',
   wait: 'wait for a reply',
@@ -68,6 +71,7 @@ export type WaitValue = number | WaitPutBack;
 export function asStored(draft: Draft, field: Field): string | Priority | ItemStatus | number | null {
   if (field === 'title') return draft.title.trim();
   if (field === 'description') return draft.description.trim() || null;
+  if (field === 'nextAction') return asNextAction(draft.nextAction);
   if (field === 'status') return draft.status;
   if (field === 'wait') return draft.wait?.days ?? null;
   return draft[field];
@@ -187,6 +191,8 @@ export function fieldWrites(
   switch (field) {
     case 'title':
       return one((e) => ({ name: 'set_title', payload: { ...e, title: value as string } }));
+    case 'nextAction':
+      return one((e) => ({ name: 'set_next_action', payload: { ...e, nextAction: (value as string | null) ?? '' } }));
     case 'description':
       return one((e) => ({
         name: 'set_description',

@@ -9,8 +9,8 @@ import { panelGathers } from './panel.js';
 
 /**
  * Find item, the column's second mode ("Find an open Item with F and Shift+F,
- * and land on its row", issue 828): the open Items of this Dashboard or this
- * Workspace that match what is typed, each with where it is.
+ * and land on its row", issue 828): the open Items of this Dashboard and the Inbox, or
+ * of this Workspace, that match what is typed, each with where it is.
  *
  * **Matching is over a snapshot**, and **each Item's search text is derived
  * once per snapshot**, not per keystroke: the browser's `useFindIndex`
@@ -42,7 +42,7 @@ export type FindEntry = {
 
 export type FindIndex = readonly FindEntry[];
 
-/** Where Find searches: this Dashboard or this Workspace. */
+/** Where Find searches: this Dashboard (and the Inbox beside it) or this Workspace. */
 export type FindScope = 1 | 2;
 
 /** One row of the result. */
@@ -127,7 +127,7 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex
  * The open Items matching what is typed, in scope, and how many more there are
  * past the limit. Nothing typed matches nothing. *Dashboard* keeps the Items
  * drawn on `dashboardId` - filed on a Panel of it or gathered by a Filter panel
- * of it; *Workspace* keeps every one, the Inbox's included. An Item in several
+ * of it - and the Inbox's, which sits beside the Dashboard; *Workspace* keeps every one. An Item in several
  * places is one row, going to the first - in *Dashboard* the Panels it is filed
  * on here, then the Filter panels here; in *Workspace* only where it is filed,
  * the Dashboard on screen's own first, then the others in tab order.
@@ -147,7 +147,8 @@ export function findItems(
     if (!entry.text.includes(needle)) continue;
     const here = entry.places.filter((place) => place.dashboardId === dashboardId);
     const gatheredHere = entry.gatheredOn.filter((place) => place.dashboardId === dashboardId);
-    if (scope === 1 && here.length + gatheredHere.length === 0) continue;
+    // *Dashboard* also keeps the Inbox's Items: one filed on no Panel (nowhere, or only on a Filter panel).
+    if (scope === 1 && here.length + gatheredHere.length === 0 && entry.places.length > 0) continue;
     matched += 1;
     if (rows.length >= limit) continue;
     const places = scope === 1 ? [...here, ...gatheredHere] : [...here, ...entry.places.filter((place) => place.dashboardId !== dashboardId)];

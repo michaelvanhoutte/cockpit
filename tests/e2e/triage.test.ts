@@ -3,6 +3,7 @@ import { ACCOUNT_WIDE } from '@cockpit/shared';
 import { arrange, giveToTheInbox } from './support/arrange';
 import {
   capture,
+  captureBox,
   dashboardBar,
   expect,
   fileOnto,
@@ -11,8 +12,10 @@ import {
   openFirstWorkspace,
   openDashboard,
   openInbox,
+  pastCapture,
   press,
   swipeRow,
+  switchTo,
   test,
   uniqueTitle,
   whileSwipingRow,
@@ -317,6 +320,56 @@ test.describe('Triage', () => {
         // The account is shared by every walk in the run: put it back on 3.
         await arrange(page, 'set_follow_up_days', { workspaceId: ACCOUNT_WIDE, days: 3 }).catch(() => {});
       }
+    });
+  });
+});
+
+/**
+ * "Draw the Inbox's other rows under an Other heading" (issue 1769). In the
+ * guest's account, the one that arrives with proposals (no model is reached in
+ * this tier): Oakline Retail's Inbox holds two rows proposed for one Panel and
+ * three that are not. What the heading says and when it is drawn is
+ * apps/web/tests/unit/components/ItemList.test.tsx; layout and stickiness
+ * need a real browser, at both widths.
+ */
+test.describe('Triage', () => {
+  test.describe('the Other heading separates the last proposal group from the rows after it, and stays pinned', () => {
+    test('pins Other · 3 at the top of the Inbox once the list is scrolled past the group', async ({ page, isMobile }) => {
+      await page.goto('/signin');
+      await press(page.getByRole('link', { name: 'Continue as guest' }), isMobile);
+      await dashboardBar(page).or(captureBox(page)).first().waitFor({ state: 'visible' });
+      await pastCapture(page, isMobile);
+      await switchTo(page, 'Oakline Retail', isMobile);
+      if (isMobile) await press(dashboardBar(page).getByRole('link', { name: 'Inbox' }), isMobile);
+      const other = inbox(page).getByRole('heading', { level: 4, name: /^Other/ });
+      await expect(other).toHaveText(/Other\s*·\s*3/);
+      await expect(inbox(page).getByRole('button', { name: 'File all' })).toHaveCount(1);
+
+      // Short enough that the four rows no longer fit, so there is something to scroll past.
+      await page.setViewportSize({ width: page.viewportSize()!.width, height: 240 });
+      const seen = await other.evaluate(async (heading) => {
+        const group = [...document.querySelectorAll('h4')].find((h) => h.querySelector('[title="Select this group"]'))!;
+        let scroller: Element | null = heading.parentElement;
+        while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+        const scrolling = scroller ?? document.scrollingElement!;
+        scrolling.scrollTop = scrolling.scrollHeight;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const at = heading.getBoundingClientRect();
+        const middle = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+        return {
+          scrolled: scrolling.scrollTop,
+          top: at.top,
+          floor: scroller ? scroller.getBoundingClientRect().top : 0,
+          onTop: heading.contains(middle),
+          groupBottom: group.getBoundingClientRect().bottom,
+        };
+      });
+      expect(seen.scrolled).toBeGreaterThan(0);
+      // Pinned: at the top of what scrolls rather than where it sits in the list, and nothing over it.
+      expect(seen.onTop).toBe(true);
+      expect(seen.top - seen.floor).toBeLessThan(8);
+      // The group's own header has left, rather than sitting above rows that are no part of the group.
+      expect(seen.groupBottom).toBeLessThanOrEqual(seen.top + 1);
     });
   });
 });

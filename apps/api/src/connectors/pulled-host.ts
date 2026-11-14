@@ -5,6 +5,7 @@ import {
   type ConnectorHost,
   type ConversationTurn,
   type EmittedItem,
+  type DueDayReport,
   type NamesReport,
   type SourceItem,
   type SourceStateChange,
@@ -170,6 +171,8 @@ function pulledHost(
 
   return {
     choice: begun.choice,
+    // Beside the choice, as the connection holds it now (issue 1760).
+    ownAlias: begun.ownAlias,
 
     log: (level, message, data) => logged(connectorId, level, message, data),
 
@@ -285,6 +288,16 @@ function pulledHost(
         forms,
       );
       if (named) (did.named ??= []).push(named);
+    },
+
+    /**
+     * The day the source gives an Item as due, applied by the store only while
+     * the Item's date is still the connection's (issue 1759). Nothing to say
+     * of it on the check's line: an Item that moved is told to open tabs by the
+     * command log.
+     */
+    async reportDueDay(report: DueDayReport): Promise<void> {
+      await run.reportDueDay({ sourceId: report.sourceId, dueDay: report.dueDay });
     },
 
     /** The conversations this connection's open Items follow (issue 1705). */

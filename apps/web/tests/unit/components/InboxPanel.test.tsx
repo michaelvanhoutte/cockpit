@@ -30,6 +30,9 @@ const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
   presentation: 'centered' as 'centered' | 'docked',
+  // Only the grouped Inbox reads these: a group needs a Panel to be proposed.
+  dashboards: [] as unknown[],
+  panels: [] as unknown[],
 }));
 
 vi.mock('../../../src/api/queries', () => ({
@@ -51,8 +54,8 @@ vi.mock('../../../src/api/queries', () => ({
       Promise.resolve({
         workspace: { id: workspaceId, tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#dbd7ee', ground: '#e3e1f2', header: '#d2cdea' },
         items: held.items,
-        dashboards: [],
-        panels: [],
+        dashboards: held.dashboards,
+        panels: held.panels,
         layouts: [],
         associations: [],
         attachments: [],
@@ -273,6 +276,8 @@ describe('Triage', () => {
     afterEach(() => {
       vi.unstubAllGlobals();
       held.presentation = 'centered';
+      held.dashboards = [];
+      held.panels = [];
     });
 
     it.each([
@@ -290,6 +295,21 @@ describe('Triage', () => {
       await user.keyboard(key);
 
       expect(rowOfTitle(to)).toHaveFocus();
+    });
+
+    it('steps from a group\'s last row to the first row under Other, the heading being no row', async () => {
+      const panel = { id: 'p-falcon', tenantId: 'tenant', dashboardId: 'd-today', name: 'Falcon', kind: 'items', format: 'plain', body: '', readOnly: false, neverPropose: false, filter: null, sort: null, columns: null };
+      held.dashboards = [{ id: 'd-today', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Today' }];
+      held.panels = [panel];
+      const proposed = (title: string) => ({ ...anItem(title), proposedPanelId: 'p-falcon', proposedPanelReason: 'a reason', proposedPanelFit: 'clear' as const });
+      const user = userEvent.setup();
+      await showWorkspace([anItem('Loose'), proposed('Grouped one'), proposed('Grouped two')]);
+      expect(screen.getByRole('heading', { name: /^Other/ })).toHaveTextContent('Other · 1');
+      act(() => rowOfTitle('Grouped two').focus());
+
+      await user.keyboard('{ArrowDown}');
+
+      expect(rowOfTitle('Loose')).toHaveFocus();
     });
 
     it('does nothing in an empty Inbox', async () => {

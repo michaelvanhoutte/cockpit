@@ -8,6 +8,7 @@ import {
   applySetDismissed,
   applySetDone,
   applySetDueDate,
+  applySetNextAction,
   applySetPriority,
   applySetStarted,
   applySetTitle,
@@ -55,6 +56,9 @@ const titled = (item: Item, at: string, title: string) =>
 
 const described = (item: Item, at: string, description: string) =>
   applySetDescription(item, { ...request, issuedAt: at, itemId: item.id, description })!;
+
+const nextActed = (item: Item, at: string, nextAction: string) =>
+  applySetNextAction(item, { ...request, issuedAt: at, itemId: item.id, nextAction })!;
 
 const dueDated = (item: Item, at: string, dueDate: string | null) =>
   applySetDueDate(item, { ...request, issuedAt: at, itemId: item.id, dueDate });
@@ -751,6 +755,34 @@ describe('Capture', () => {
         // A reading is not a change somebody made, as for every other field.
         expect(read.item.updatedAt).toBe(before.updatedAt);
       }
+    });
+  });
+});
+
+describe('Item editing', () => {
+  describe('a Next action is stored trimmed, an empty one as none, and 200 characters whole', () => {
+    it.each([
+      { situation: 'set with spaces around the text', given: '  Call Tom  ', stored: 'Call Tom' },
+      { situation: 'set to only spaces', given: '   ', stored: null },
+      { situation: 'set with exactly 200 characters', given: 'a'.repeat(200), stored: 'a'.repeat(200) },
+    ])('$situation', ({ given, stored }) => {
+      expect(nextActed(anItem(), LATER, given).nextAction).toBe(stored);
+    });
+
+    it('is stored trimmed when it comes in with the capture', () => {
+      const captured = captureItem(
+        { ...request, issuedAt: MADE, itemId: '018f0000-0000-7000-8000-000000000003', message: 'Call Tom', nextAction: ' Ring him ' },
+        'tenant-default',
+      );
+      expect(captured.nextAction).toBe('Ring him');
+    });
+  });
+
+  describe('setting the Next action settles the texts, the way editing either does', () => {
+    it('settles them the first time, and keeps the first moment after that', () => {
+      const once = nextActed(anItem(), LATER, 'Call Tom');
+      expect(once.textsSettledAt).toBe(LATER);
+      expect(nextActed(once, LATEST, 'Call Tom again').textsSettledAt).toBe(LATER);
     });
   });
 });

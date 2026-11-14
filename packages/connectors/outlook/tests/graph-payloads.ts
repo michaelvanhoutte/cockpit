@@ -47,6 +47,12 @@ export interface MessageOptions {
   readonly folder?: string;
   /** Flag status; absent is not flagged. */
   readonly flag?: 'flagged' | 'complete' | 'notFlagged';
+  /**
+   * The flag's due date, in the dateTimeTimeZone shape Graph documents for
+   * followupFlag.dueDateTime (dateTime without an offset, and a timeZone name).
+   * Absent: a flag with no date.
+   */
+  readonly flagDue?: { readonly dateTime: string; readonly timeZone: string };
   readonly categories?: readonly string[];
   readonly subject?: string | null;
   /** `null` for a draft with no sender. */
@@ -56,8 +62,10 @@ export interface MessageOptions {
   /** What the message adds to its conversation (uniqueBody), in the format of its body; the whole body unless said. */
   readonly unique?: string;
   readonly receivedAt?: string;
-  /** Whom it was sent to; this mailbox unless said. */
+  /** Whom it was sent to; this mailbox unless said, or Pieter for one this mailbox sent. */
   readonly to?: readonly { name?: string; address: string }[];
+  /** Whom it was copied to (Cc); nobody unless said. */
+  readonly cc?: readonly { name?: string; address: string }[];
   /** The conversation it is in; each message is its own conversation unless this says otherwise. */
   readonly conversation?: string;
   /** A draft not yet sent. */
@@ -68,11 +76,15 @@ export interface MessageOptions {
   readonly hasAttachments?: boolean;
 }
 
+/** The mailbox's own address, and the person who writes to it unless a case says otherwise. */
+export const MAILBOX = { name: 'Anna', address: 'anna@example.com' } as const;
+export const PIETER = { name: 'Pieter Claes', address: 'pieter@example.com' } as const;
+
 /** One message with every field the connector may ask for. */
 export function message(options: MessageOptions) {
   const html = options.html !== undefined;
   const content = html ? options.html! : (options.text ?? `The text of ${options.id}.`);
-  const from = options.from === undefined ? { name: 'Pieter Claes', address: 'pieter@example.com' } : options.from;
+  const from = options.from === undefined ? PIETER : options.from;
   return {
     '@odata.etag': options.version ?? 'W/"CQAAABYAAAB3Gs0yUuqeSKdKbXRSf8D4AAGH0d9d"',
     id: options.id,
@@ -82,10 +94,13 @@ export function message(options: MessageOptions) {
     parentFolderId: options.folder ?? INBOX_ID,
     receivedDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
     sentDateTime: options.receivedAt ?? '2026-10-01T08:30:00Z',
-    toRecipients: (options.to ?? [{ name: 'Anna', address: 'anna@example.com' }]).map((one) => ({ emailAddress: { name: one.name ?? '', address: one.address } })),
+    toRecipients: (options.to ?? (from?.address === MAILBOX.address ? [PIETER] : [MAILBOX])).map((one) => ({
+      emailAddress: { name: one.name ?? '', address: one.address },
+    })),
+    ccRecipients: (options.cc ?? []).map((one) => ({ emailAddress: { name: one.name ?? '', address: one.address } })),
     subject: options.subject === undefined ? `About ${options.id}` : (options.subject ?? ''),
     categories: [...(options.categories ?? [])],
-    flag: { flagStatus: options.flag ?? 'notFlagged' },
+    flag: { flagStatus: options.flag ?? 'notFlagged', ...(options.flagDue ? { dueDateTime: { ...options.flagDue } } : {}) },
     from: from ? { emailAddress: { name: from.name ?? '', address: from.address } } : null,
     body: { contentType: html ? 'html' : 'text', content },
     uniqueBody: { contentType: html ? 'html' : 'text', content: options.unique ?? content },

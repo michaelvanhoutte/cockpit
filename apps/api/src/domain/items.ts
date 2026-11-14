@@ -1,4 +1,5 @@
 import {
+  asNextAction,
   daysOnFrom,
   textsFromCapture,
   type Addition,
@@ -125,7 +126,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     // Nothing repeats until a person says so ("Repeat an Item on a schedule", issue 1405).
     seriesId: null,
     sourceResolvedAt: null,
-    nextAction: cmd.nextAction ?? null,
+    nextAction: asNextAction(cmd.nextAction),
     completedAt: null,
     startedAt: null,
     waitingSince: null,
@@ -265,7 +266,9 @@ export function applySetDismissed(item: Item, cmd: SetDismissedCommand): Item | 
 
 export function applySetNextAction(item: Item, cmd: SetNextActionCommand): Item | null {
   if (isStale(item, cmd.issuedAt)) return null;
-  return { ...item, nextAction: cmd.nextAction, updatedAt: cmd.issuedAt };
+  // Takes the texts over as a title or description edit does, and records no correction: a Next action is no
+  // text Cockpit proposes, so there is nothing of its own to learn from.
+  return { ...item, nextAction: asNextAction(cmd.nextAction), ...settledBy(item, cmd.issuedAt), updatedAt: cmd.issuedAt };
 }
 
 /**

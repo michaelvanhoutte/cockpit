@@ -1,6 +1,15 @@
 import type { ConnectorHost, ConversationRead } from '@cockpit/connector-sdk';
 import { OutOfCalls, type Mailbox } from './graph.js';
-import { TURN_FIELDS, deletedItemsIn, turnPage, type MailTurn } from './messages.js';
+import {
+  TURN_FIELDS,
+  addressesOfYours,
+  asYours,
+  deletedItemsIn,
+  othersOn,
+  sendFromAddresses,
+  turnPage,
+  type MailTurn,
+} from './messages.js';
 
 /**
  * Following an Outlook conversation ("Outlook follows the flagged conversation
@@ -49,8 +58,19 @@ export async function foldersOf(mailbox: Mailbox, deletedItems?: string): Promis
   return { sentItems: sent, deletedItems: deleted };
 }
 
-/** Every message of one conversation that was sent or received outside Deleted Items, a page at a time. */
-export async function conversationMessages(mailbox: Mailbox, conversationId: string, folders: Folders): Promise<MailTurn[]> {
+/**
+ * Every message of one conversation that was sent or received outside Deleted
+ * Items, a page at a time, each yours where it sits in Sent Items or was sent
+ * from an address of yours: one the conversation shows you sending from, one in
+ * `sendFrom`, or the alias (issue 1760).
+ */
+export async function conversationMessages(
+  mailbox: Mailbox,
+  conversationId: string,
+  folders: Folders,
+  alias: string | null = null,
+  sendFrom: Iterable<string> = [],
+): Promise<MailTurn[]> {
   const turns: MailTurn[] = [];
   let next: string | null =
     `messages?$filter=${encodeURIComponent(`conversationId eq '${conversationId.replace(/'/g, "''")}'`)}&$select=${TURN_FIELDS}&$top=${TURN_PAGE_SIZE}`;
@@ -59,11 +79,21 @@ export async function conversationMessages(mailbox: Mailbox, conversationId: str
     turns.push(...page.turns);
     next = page.nextLink;
   }
-  return turns;
+  return asYours(turns, addressesOfYours(alias, [...sendFrom, ...sendFromAddresses(turns)]));
 }
 
-/** Where a conversation stands, from its messages: null when nothing in it is a message that was sent. */
-export function standingOf(turns: readonly MailTurn[], conversationId: string): ConversationRead | null {
+/**
+ * Where a conversation stands, from its messages: null when nothing in it is a
+ * message that was sent. Says whether anyone but you is on it (issue 1760),
+ * reading the messages as `conversationMessages` read them, against the same
+ * addresses of yours.
+ */
+export function standingOf(
+  turns: readonly MailTurn[],
+  conversationId: string,
+  alias: string | null = null,
+  sendFrom: Iterable<string> = [],
+): ConversationRead | null {
   if (turns.length === 0) return null;
   const byTime = [...turns].sort((one, other) => Date.parse(one.at) - Date.parse(other.at));
   const latest = byTime[byTime.length - 1]!;
@@ -75,6 +105,7 @@ export function standingOf(turns: readonly MailTurn[], conversationId: string): 
     messageCount: byTime.length,
     startedAt: byTime[0]!.at,
     withWhom: lastFromThem?.from ?? null,
+    othersOnIt: othersOn(byTime, addressesOfYours(alias, [...sendFrom, ...sendFromAddresses(byTime)])),
   };
 }
 
@@ -83,6 +114,12 @@ export function standingOf(turns: readonly MailTurn[], conversationId: string): 
  * followed - one read of the mailbox, every folder. Returns where the next run
  * starts: the time of the last message reported when the calls ran out, else a
  * little before this run began. Paged on the cursor, oldest first.
+ *
+ * Each message is yours where it sits in Sent Items or was sent from an
+ * address of yours - `sendFrom`, the senders this read finds in Sent Items, or
+ * the alias - and says whether anyone but you is on it, as its own sender, To
+ * and Cc show (issue 1760). Answers too every address it learned you send from,
+ * for the next run to start with.
  */
 export async function reportTurnsSince(
   host: ConnectorHost,
@@ -91,14 +128,19 @@ export async function reportTurnsSince(
   followed: ReadonlySet<string>,
   since: string,
   runStart: Date,
-): Promise<{ next: string; moreToDo: boolean }> {
+  alias: string | null = null,
+  sendFrom: Iterable<string> = [],
+): Promise<{ next: string; moreToDo: boolean; sendFrom: string[] }> {
   let cursor = since;
+  const learned = new Set(sendFrom);
   const filter = encodeURIComponent(`receivedDateTime ge ${since}`);
   let next: string | null = `messages?$filter=${filter}&$orderby=receivedDateTime&$select=${TURN_FIELDS}&$top=${TURN_PAGE_SIZE}`;
   try {
     while (next) {
       const page = turnPage(await mailbox.get(next), folders);
-      for (const turn of page.turns) {
+      for (const address of sendFromAddresses(page.turns)) learned.add(address);
+      const yours = addressesOfYours(alias, learned);
+      for (const turn of asYours(page.turns, yours)) {
         if (followed.has(turn.conversationId)) {
           await host.reportTurn({
             conversationId: turn.conversationId,
@@ -109,6 +151,7 @@ export async function reportTurnsSince(
             excerpt: turn.excerpt,
             // The conversation's link moves to the newest message, which Open then shows (issue 1720).
             ...(turn.link ? { link: turn.link } : {}),
+            othersOnIt: othersOn([turn], yours),
           });
         }
         cursor = turn.at;
@@ -116,10 +159,10 @@ export async function reportTurnsSince(
       next = page.nextLink;
     }
   } catch (error) {
-    if (error instanceof OutOfCalls) return { next: cursor, moreToDo: true };
+    if (error instanceof OutOfCalls) return { next: cursor, moreToDo: true, sendFrom: [...learned] };
     throw error;
   }
-  return { next: new Date(runStart.getTime() - OVERLAP_MS).toISOString(), moreToDo: false };
+  return { next: new Date(runStart.getTime() - OVERLAP_MS).toISOString(), moreToDo: false, sendFrom: [...learned] };
 }
 
 /** The ids of the messages in a conversation that carry the flag, wherever they are: the ones Done has to complete. */

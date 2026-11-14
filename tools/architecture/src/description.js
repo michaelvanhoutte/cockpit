@@ -136,7 +136,16 @@ export function parseDescription(file, text, rules = null) {
     releasedOnItsOwn,
     exemptFromSources,
     readByEveryone,
-    connectorRule: { sdk: string(rule.sdk, 'connectorRule.sdk'), scope: string(rule.scope, 'connectorRule.scope') },
+    connectorRule: {
+      sdk: string(rule.sdk, 'connectorRule.sdk'),
+      scope: string(rule.scope, 'connectorRule.scope'),
+      also: Object.fromEntries(
+        Object.entries(rule.also === undefined ? {} : object(rule.also, 'connectorRule.also')).map(([name, packages]) => [
+          name,
+          array(packages, `connectorRule.also.${name}`).map((each, index) => string(each, `connectorRule.also.${name}[${index}]`)),
+        ]),
+      ),
+    },
     context: {
       cockpit: { name: string(cockpit.name, 'context.cockpit.name'), summary: string(cockpit.summary, 'context.cockpit.summary'), runs: cockpit.runs === undefined ? '' : string(cockpit.runs, 'context.cockpit.runs') },
       people: named(context.people, 'context.people'),

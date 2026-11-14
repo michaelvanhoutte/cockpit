@@ -100,6 +100,13 @@ export interface ConnectorManifest {
    * name only. The host reads this, never which connector it is.
    */
   names?: { noun: string; example: string; byDashboard?: boolean };
+  /**
+   * Whether connecting and *Change…* ask for your Cockpit alias on the mailbox
+   * ("Outlook capture: a mail you Cc to your Cockpit alias arrives To do…",
+   * issue 1760): an address of yours the host keeps on the connection and hands
+   * a run as `ConnectorHost.ownAlias`. Absent is no.
+   */
+  asksOwnAlias?: boolean;
   /** Whether the source can push (webhooks) in addition to being pulled. */
   supportsPush: boolean;
   /**
@@ -175,6 +182,8 @@ export interface ConnectionChoice {
     /** What a complete listing under this option counts, said after the number (*flagged*, *with category Cockpit*); absent: a history line gives no count for it. */
     listed?: string;
   }[];
+  /** One faint line under the options, saying what they leave out (*Importance and other categories don't bring mail in.*); absent: no line. */
+  note?: string;
 }
 
 /**
@@ -329,6 +338,14 @@ export type SourceItem = Pick<
    */
   followed?: string;
   /**
+   * The day the source gives this Item as due, a calendar day as `YYYY-MM-DD`
+   * (an Outlook flag's date). Where the host would give the connection's days,
+   * it gives this instead, and a later change is reported through
+   * `ConnectorHost.reportDueDay`. Absent: the source names no day, and the
+   * connection's days apply as they do for any Item.
+   */
+  dueDay?: string;
+  /**
    * The conversation this Item follows at the source, and where it stands as
    * read, for a connector whose Items follow one (a Gmail thread under the
    * star). The host has the Item follow it, whether the Item was just made or
@@ -365,6 +382,13 @@ export interface ConversationRead {
   startedAt: string;
   /** Who it is with: the latest sender who is not the connected account, where there is one. */
   withWhom: string | null;
+  /**
+   * Whether anyone but you is on it: a sender or recipient who is not you
+   * (issue 1760). `false` makes your latest message a note, which the host
+   * leaves To do rather than waiting. Absent, from a source that does not say,
+   * is yes.
+   */
+  othersOnIt?: boolean;
 }
 
 /**
@@ -383,6 +407,8 @@ export interface ConversationTurn extends ConversationMessage {
    * whose messages have no address of their own does (a LinkedIn conversation).
    */
   link?: string;
+  /** As `ConversationRead.othersOnIt`, as this message shows it. Absent is yes. */
+  othersOnIt?: boolean;
 }
 
 /**
@@ -548,6 +574,16 @@ export interface NamesReport {
 }
 
 /**
+ * The day a source now gives an Item as due, reported whenever it differs from
+ * the last day the connector reported for an Item it already emitted
+ * (`ConnectorHost.reportDueDay`). A calendar day as `YYYY-MM-DD`, never a time.
+ */
+export interface DueDayReport {
+  sourceId: string;
+  dueDay: string;
+}
+
+/**
  * Every source id one complete listing of the source saw, under the choice the
  * connection now follows. A connector reports it only when it read the source
  * to the end; one that could not list says nothing, since an empty listing
@@ -650,6 +686,13 @@ export interface ConnectorHost extends ConnectedAccountHost {
    */
   readonly choice: string | null;
 
+  /**
+   * Your Cockpit alias on the mailbox as stored when this run started, for a
+   * connector whose manifest declares `asksOwnAlias` (issue 1760): mail from it
+   * is yours, and it counts as you on a conversation. Null or absent: none.
+   */
+  readonly ownAlias?: string | null;
+
   /** Opaque private state per connector+account: cursors, sync bookkeeping. */
   getState(): Promise<unknown>;
   setState(state: unknown): Promise<void>;
@@ -682,6 +725,16 @@ export interface ConnectorHost extends ConnectedAccountHost {
    * them and files nothing.
    */
   reportNames(report: NamesReport): Promise<void>;
+
+  /**
+   * Reports the day the source gives an Item as due, after it changed at the
+   * source (or, for an Item filed before the connector reported days, the
+   * first time). The host decides what it does: it moves the Item's date only
+   * while that date is still one the connection gave, or the Item has none
+   * and nobody set or cleared it. A source id the host never filed is
+   * ignored, and the same day twice changes nothing.
+   */
+  reportDueDay(report: DueDayReport): Promise<void>;
 
   /**
    * The ids of the conversations this connection's open Items follow, as this

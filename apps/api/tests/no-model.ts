@@ -21,7 +21,8 @@ Reflect.deleteProperty(env as unknown as Record<string, unknown>, 'AI');
 /**
  * Nor a proposal for Claude that nobody asked to see: each is held, even where
  * a case sets a key, and a case about them delivers them (`held-proposals.ts`).
- * Each case starts with none held, so it delivers only what it queued.
+ * Each case starts with none held, so it delivers only what it queued. A
+ * guest's delayed arrivals are dropped by the same hold.
  */
 holdProposalsForClaude(env);
 beforeEach(() => {

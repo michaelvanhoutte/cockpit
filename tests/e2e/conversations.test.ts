@@ -562,6 +562,16 @@ test.describe("Triage", () => {
       await expect(page.getByRole("menuitem", { name: /^Email/ })).toHaveCount(
         0,
       );
+      // The menu's own Open names LinkedIn and goes where the row's does, not to the notification email.
+      await expect(
+        page.getByRole("menuitem", { name: "Open in LinkedIn" }),
+      ).toHaveAttribute(
+        "href",
+        `https://www.linkedin.com/messaging/thread/${conversation}/`,
+      );
+      await expect(
+        page.getByRole("menuitem", { name: "Open in Gmail" }),
+      ).toHaveCount(0);
       await page.keyboard.press("Escape");
 
       // Another notification about it, in a Gmail conversation of its own and not starred: still Steven's turn on this row.
@@ -596,6 +606,16 @@ test.describe("Triage", () => {
         "href",
         `https://www.linkedin.com/messaging/thread/${conversation}/`,
       );
+      // The form's own entry, beside "From Gmail", is LinkedIn's too.
+      await expect(
+        page.getByRole("link", { name: "Open in LinkedIn", exact: true }),
+      ).toHaveAttribute(
+        "href",
+        `https://www.linkedin.com/messaging/thread/${conversation}/`,
+      );
+      await expect(
+        page.getByRole("link", { name: "Open in Gmail" }),
+      ).toHaveCount(0);
       await expect(section.getByText("With Steven Noels")).toBeVisible();
       await expect(section.getByText(/emails?/)).toHaveCount(0);
       await page.keyboard.press("Escape");
@@ -631,7 +651,7 @@ test.describe("Triage", () => {
         isMobile,
       );
       const asked = page.getByRole("dialog", { name: "Connect Outlook" });
-      await expect(asked.getByRole("radio", { name: "Flagged" })).toBeChecked();
+      await expect(asked.getByRole("radio", { name: "Flagged for follow-up" })).toBeChecked();
       await press(asked.getByRole("button", { name: "Connect" }), isMobile);
       await press(
         page.getByRole("link", { name: MAILBOX, exact: true }),
@@ -730,7 +750,7 @@ test.describe("Triage", () => {
         isMobile,
       );
       const asked = page.getByRole("dialog", { name: "Connect Outlook" });
-      await expect(asked.getByRole("radio", { name: "Flagged" })).toBeChecked();
+      await expect(asked.getByRole("radio", { name: "Flagged for follow-up" })).toBeChecked();
       await press(asked.getByRole("button", { name: "Connect" }), isMobile);
       await press(
         page.getByRole("link", { name: MAILBOX, exact: true }),

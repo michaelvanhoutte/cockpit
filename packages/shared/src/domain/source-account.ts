@@ -8,6 +8,14 @@ export const DUE_IN_DAYS_MAX = 365;
 export const dueInDaysSchema = z.number().int().min(DUE_IN_DAYS_MIN).max(DUE_IN_DAYS_MAX);
 
 /**
+ * Your Cockpit alias on a mailbox ("Outlook capture: a mail you Cc to your
+ * Cockpit alias arrives To do…", issue 1760): an address of yours, so mail from
+ * it or to it alone counts as yours. Stored as typed, trimmed; compared without
+ * regard to case.
+ */
+export const ownAliasSchema = z.email().max(254);
+
+/**
  * A source account a Workspace has connected - a Microsoft Teams sign-in
  * ("Connect a Microsoft Teams source account", issue 485), a Gmail sign-in,
  * and whatever else is connected later.
@@ -77,6 +85,11 @@ export const sourceAccountSchema = z.object({
    */
   granted: z.string().array().nullable().default(null),
   /**
+   * Your Cockpit alias on the mailbox, or null for none (issue 1760).
+   * Defaulted, so an answer from before this field reads as none.
+   */
+  ownAlias: z.string().nullable().default(null),
+  /**
    * Whether the connection keeps a history its row's *History…* opens - a
    * connection Cockpit pulls from (issue 1140) or one its source pushes to
    * (issue 1144). Absent reads as none.
@@ -115,6 +128,11 @@ export const registeredConnectorSchema = z.object({
    */
   pulled: z.boolean().optional(),
   /**
+   * Whether connecting and *Change…* ask for your Cockpit alias on the mailbox
+   * (issue 1760). Absent reads as not asked.
+   */
+  asksOwnAlias: z.boolean().optional(),
+  /**
    * The one choice the connection makes, asked before the sign-in and
    * changeable later ("Ask a connection's one choice on connecting, and change
    * it later", issue 942): the connector's own question and options, a value
@@ -124,6 +142,8 @@ export const registeredConnectorSchema = z.object({
     .object({
       question: z.string(),
       options: z.object({ value: z.string(), label: z.string() }).array().min(1),
+      /** The line under the options, where the connector gives one (issue 1758). */
+      note: z.string().optional(),
     })
     .optional(),
   /**

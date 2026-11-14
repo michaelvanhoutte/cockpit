@@ -46,10 +46,12 @@ interface GraphMessage {
   isDraft?: unknown;
   bodyPreview?: unknown;
   parentFolderId?: unknown;
-  flag?: { flagStatus?: unknown } | null;
+  flag?: { flagStatus?: unknown; dueDateTime?: { dateTime?: unknown; timeZone?: unknown } | null } | null;
   categories?: unknown;
   subject?: unknown;
   from?: { emailAddress?: { name?: unknown; address?: unknown } | null } | null;
+  toRecipients?: unknown;
+  ccRecipients?: unknown;
   body?: { contentType?: unknown; content?: unknown } | null;
   uniqueBody?: { contentType?: unknown; content?: unknown } | null;
   webLink?: unknown;
@@ -68,6 +70,25 @@ export function isMarked(message: unknown, mark: Mark): boolean {
     Array.isArray(categories) &&
     categories.some((one) => typeof one === 'string' && one.toLowerCase() === COCKPIT_CATEGORY.toLowerCase())
   );
+}
+
+/**
+ * The calendar day a flag is due, or null for a flag with no date. Graph gives
+ * `flag.dueDateTime` as a `dateTimeTimeZone` (`{ dateTime: '2026-11-20T00:00:00.0000000', timeZone: 'UTC' }`);
+ * the day is the date part of `dateTime` as written, in the zone it names,
+ * with no conversion to anyone's zone (the package README says what is and is
+ * not known of the shape). Only a flag that is still set (`flagged`) has one:
+ * a completed or cleared flag keeps its date in Graph.
+ */
+export function flagDayOf(message: unknown): string | null {
+  const { flag } = (message ?? {}) as GraphMessage;
+  if (flag?.flagStatus !== 'flagged') return null;
+  const written = flag.dueDateTime?.dateTime;
+  const day = typeof written === 'string' ? /^(\d{4}-\d{2}-\d{2})(?:T|$)/.exec(written)?.[1] : undefined;
+  if (!day) return null;
+  // A real calendar day: 2026-02-30 and 2026-13-01 are not.
+  const parsed = new Date(`${day}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day ? day : null;
 }
 
 /** What a flag is set to for an Item opened or closed in Cockpit: the flag alone, nothing else of the message. */
@@ -122,6 +143,8 @@ export function messagePage(
   messageIds: string[];
   categories: Record<string, string[]>;
   conversations: Record<string, string>;
+  /** The day each flagged message's flag is due, for the messages whose flag has one; none for a category. */
+  dueDays: Record<string, string>;
   nextLink: string | null;
 } {
   const { value, '@odata.nextLink': nextLink } = (answer ?? {}) as Record<string, unknown>;
@@ -133,6 +156,15 @@ export function messagePage(
     categories: Object.fromEntries(marked.map((one) => [one.id as string, categoryNames(one.categories)])),
     // A message Graph names no conversation for is its own: nothing else can be in it.
     conversations: Object.fromEntries(marked.map((one) => [one.id as string, conversationIdOf(one)])),
+    dueDays:
+      mark === 'flag'
+        ? Object.fromEntries(
+            marked.flatMap((one) => {
+              const day = flagDayOf(one);
+              return day ? [[one.id as string, day]] : [];
+            }),
+          )
+        : {},
     nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null,
   };
 }
@@ -329,23 +361,91 @@ export function conversationIdIn(sourceId: string): string | null {
   return sourceId.startsWith(CONVERSATION_PREFIX) ? sourceId.slice(CONVERSATION_PREFIX.length) : null;
 }
 
-/** What is asked of a message to place it in a conversation, or to report it as a turn of one. */
-export const TURN_FIELDS = 'id,conversationId,parentFolderId,from,receivedDateTime,bodyPreview,isDraft,webLink,flag';
+/**
+ * What is asked of a message to place it in a conversation, or to report it as
+ * a turn of one: its To and Cc among it, which say who else is on it (issue
+ * 1760). Bcc is not asked: a copy received never names it.
+ */
+export const TURN_FIELDS =
+  'id,conversationId,parentFolderId,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isDraft,webLink,flag';
 
 /** One message of a conversation or of the mailbox's recent mail, as a turn would carry it. */
 export interface MailTurn {
   readonly messageId: string;
   readonly conversationId: string;
+  /** Yours where it sits in Sent Items or its sender is an address of yours (`asYours`); theirs otherwise. */
   readonly by: 'you' | 'them';
   readonly from: string | null;
   readonly at: string;
   readonly excerpt: string;
   readonly link: string | null;
+  /** Whether it sits in Sent Items. */
+  readonly inSentItems: boolean;
+  /** Its sender's address as compared (`addressKey`), or null where it names none. */
+  readonly fromAddress: string | null;
+  /** The addresses it was sent To and Cc, as compared. */
+  readonly recipients: readonly string[];
+}
+
+/** An address as compared: trimmed, and without regard to case, as mail delivers it. */
+export function addressKey(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+/**
+ * The addresses the mailbox sends from that these messages show: the sender of
+ * each one in Sent Items (issue 1760). Learned from the mail, so no permission
+ * beyond reading it is needed; a conversation you never sent from teaches none.
+ */
+export function sendFromAddresses(turns: readonly MailTurn[]): string[] {
+  return [...new Set(turns.flatMap((one) => (one.inSentItems && one.fromAddress ? [one.fromAddress] : [])))];
+}
+
+/** The addresses that count as you: those the mailbox sends from, and your Cockpit alias where one is set. */
+export function addressesOfYours(alias: string | null, sendFrom: Iterable<string>): Set<string> {
+  const yours = new Set([...sendFrom].map(addressKey));
+  if (alias && alias.trim()) yours.add(addressKey(alias));
+  return yours;
+}
+
+/**
+ * The messages with who wrote each read again (issue 1760): **yours where it
+ * sits in Sent Items, or was sent from an address of yours**, so the alias's
+ * copy of a mail you sent, delivered to your Inbox, is yours too; theirs
+ * otherwise. Pure.
+ */
+export function asYours(turns: readonly MailTurn[], yours: ReadonlySet<string>): MailTurn[] {
+  return turns.map((one) => {
+    const by = one.inSentItems || (one.fromAddress !== null && yours.has(one.fromAddress)) ? 'you' : 'them';
+    return by === one.by ? one : { ...one, by };
+  });
+}
+
+/**
+ * Whether anyone but you is on these messages: a sender, To or Cc recipient
+ * whose address is not among yours (issue 1760). A mail to your alias alone is
+ * then a note; Bcc'ing the alias leaves it off the recipients, so the others
+ * named are on it. Pure.
+ */
+export function othersOn(turns: readonly MailTurn[], yours: ReadonlySet<string>): boolean {
+  return turns.some((one) =>
+    [...(one.fromAddress === null ? [] : [one.fromAddress]), ...one.recipients].some((address) => !yours.has(address)),
+  );
+}
+
+/** The addresses in a To or Cc list, as compared. */
+function addressesIn(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((one: { emailAddress?: { address?: unknown } | null } | null) => {
+    const address = one?.emailAddress?.address;
+    return typeof address === 'string' && address.trim() ? [addressKey(address)] : [];
+  });
 }
 
 /**
  * One page of messages read for their turns: those that are sent (not drafts)
- * and not in Deleted Items, with `by` = `you` for Sent Items. Pure.
+ * and not in Deleted Items, with `by` = `you` for Sent Items - which `asYours`
+ * reads again once the addresses of yours are known. Pure.
  */
 export function turnPage(
   answer: unknown,
@@ -358,6 +458,7 @@ export function turnPage(
     const at = typeof one.receivedDateTime === 'string' ? Date.parse(one.receivedDateTime) : NaN;
     if (!Number.isFinite(at)) continue;
     const inSent = one.parentFolderId === folders.sentItems;
+    const address = one.from?.emailAddress?.address;
     turns.push({
       messageId: one.id,
       conversationId: conversationIdOf(one),
@@ -366,6 +467,9 @@ export function turnPage(
       at: new Date(at).toISOString(),
       excerpt: cutTo(oneLine(withoutQuotedText(typeof one.bodyPreview === 'string' ? one.bodyPreview : '')), 280),
       link: typeof one.webLink === 'string' && one.webLink ? one.webLink : null,
+      inSentItems: inSent,
+      fromAddress: typeof address === 'string' && address.trim() ? addressKey(address) : null,
+      recipients: [...addressesIn(one.toRecipients), ...addressesIn(one.ccRecipients)],
     });
   }
   return { turns, nextLink: typeof nextLink === 'string' && nextLink ? nextLink : null };

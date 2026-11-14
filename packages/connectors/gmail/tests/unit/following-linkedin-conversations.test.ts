@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceItem } from '@cockpit/connector-sdk';
-import { linkedInThreadOf } from '../../src/linkedin.js';
+import { linkedInThreadOf } from '@cockpit/linkedin-mail';
 import {
   LINKEDIN_THREAD,
+  OTP_TOKEN,
   linkedInConnectionRequest,
   linkedInNotification,
   notificationLeadingTo,
@@ -202,6 +203,20 @@ describe('Capture', () => {
           excerpt: 'Vrijdag past ook.',
         },
       ]);
+    });
+
+    it('reports a digest email ("just messaged you") as their turn, and keeps no sign-in token of its link', async () => {
+      const { world, host } = await followed();
+      world.receives(
+        linkedInNotification('t-9', { id: 'n-9', sentAt: '2026-10-08T07:30:00Z', sender: 'digest', link: 'digest', text: 'Vrijdag past ook.' }),
+      );
+
+      const next = await checked(world, host);
+
+      expect(next.turns).toEqual([
+        { conversationId: CONVERSATION, messageId: 'n-9', by: 'them', from: 'Steven Noels', at: '2026-10-08T07:30:00.000Z', excerpt: 'Vrijdag past ook.' },
+      ]);
+      expect(JSON.stringify(next.turns)).not.toContain(OTP_TOKEN);
     });
 
     it('reports one for the same conversation whether it lands in another Gmail conversation or in the starred one', async () => {

@@ -26,9 +26,14 @@ export const LINKEDIN_THREAD = '2-ZmFrZS10aHJlYWQtMQ==';
 const TRACKING = 'midToken=AQEfakeMidToken&trk=eml-messaging_digest-body-0&trkEmail=eml-messaging_digest-body-null-0-null-null-fakeemail';
 
 /** The three ways LinkedIn is seen to write the "View message" address. */
-export type LinkStyle = 'direct' | 'comm' | 'redirect';
+export type LinkStyle = 'direct' | 'comm' | 'redirect' | 'digest';
+
+/** The token LinkedIn signs a digest's links with: never to be kept, so a test looks for it. */
+export const OTP_TOKEN = 'FAKEOTPTOKEN-do-not-keep';
 
 function addressOf(threadId: string, style: LinkStyle): string {
+  // The digest's View message button: no slash before the query, a page tag and a sign-in token.
+  if (style === 'digest') return `https://www.linkedin.com/comm/messaging/thread/${threadId}?lipi=urn%3Ali%3Apage%3Aemail_messaging_digest%3BfakeLipi&otpToken=${OTP_TOKEN}&midToken=AQEfakeMidToken`;
   if (style === 'direct') return `https://www.linkedin.com/messaging/thread/${threadId}/`;
   const comm = `https://www.linkedin.com/comm/messaging/thread/${threadId}/?${TRACKING}`;
   if (style === 'comm') return comm;
@@ -59,6 +64,8 @@ export interface NotificationOptions {
   readonly thread?: string;
   readonly link?: LinkStyle;
   readonly name?: string;
+  /** Which of LinkedIn's two message senders it came from: the direct notification, or the digest ("Frederik just messaged you"). */
+  readonly sender?: 'direct' | 'digest';
   readonly text?: string;
   /** Sent without an HTML part, as some notification emails are. */
   readonly plainOnly?: boolean;
@@ -85,8 +92,8 @@ export function linkedInNotification(gmailThread: string, options: NotificationO
   return message(gmailThread, {
     id: options.id,
     sentAt: options.sentAt,
-    subject: words.subject(name),
-    from: `${name} via LinkedIn <messages-noreply@linkedin.com>`,
+    subject: options.sender === 'digest' ? `${name} just messaged you` : words.subject(name),
+    from: `${name} via LinkedIn <${options.sender === 'digest' ? 'messaging-digest-noreply@linkedin.com' : 'messages-noreply@linkedin.com'}>`,
     labelled: false,
     plain,
     ...(options.plainOnly ? {} : { html }),

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_THEMES, attachmentSchema, itemLabel, itemSchema, itemStatus, itemsInTheInbox, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
+import { WORKSPACE_THEMES, attachmentSchema, itemSchema, itemStatus, itemsInTheInbox, type AgentRun, type Attachment, type Item, type Workspace, type WorkspaceList, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
-import { drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+import { DRAWN_AHEAD, drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+import { forgetEndedRuns, rememberEnded } from '../../src/endedRuns';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 
 /**
@@ -130,11 +131,18 @@ describe('Item editing', () => {
         expected: 'Ask about the tolerances',
       },
       {
-        situation: 'a next action, which is what the row reads',
-        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: 'Call Bart' } } as CommandArgs,
+        situation: 'a next action, as the row draws it',
+        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: ' Call Bart ' } } as CommandArgs,
         from: {},
-        shown: (item: Item) => itemLabel(item),
+        shown: (item: Item) => item.nextAction,
         expected: 'Call Bart',
+      },
+      {
+        situation: 'a next action emptied, which is none',
+        change: { name: 'set_next_action', payload: { ...envelope(BART), nextAction: '' } } as CommandArgs,
+        from: { nextAction: 'Call Bart' },
+        shown: (item: Item) => item.nextAction,
+        expected: null,
       },
     ])('$situation', ({ change, from, shown, expected }) => {
       const copy = workspace([anItem(BART, from), anItem(LISA)]);
@@ -1003,6 +1011,59 @@ describe('Item editing', () => {
       const copy = held([own]);
 
       expect(drawnAhead(copy, change).series).toEqual(copy.series);
+    });
+  });
+});
+
+describe('Agents', () => {
+  describe('ending a Claude run shows the chip gone the moment it is chosen, and its Undo shows it back', () => {
+    const RUN = '11111111-1111-7111-8111-0000000000b1';
+    const OTHER_RUN = '11111111-1111-7111-8111-0000000000b2';
+    const aRun = (id: string, itemId: string) => ({ id, itemId, stage: 'ready' }) as unknown as AgentRun;
+    const withRuns = (...runs: AgentRun[]) =>
+      ({ workspace: { id: 'ws-work' }, items: [anItem(BART), anItem(LISA)], filings: [], panels: [], agentRuns: runs }) as unknown as WorkspaceSnapshot;
+    const end = (itemId: string, runId?: string): CommandArgs => ({ name: 'end_claude_run', payload: { ...envelope(itemId), ...(runId && { runId }) } });
+    const undo = (itemId: string, runId: string): CommandArgs => ({ name: 'end_claude_run', payload: { ...envelope(itemId), runId, reopen: true } });
+
+    it('takes that Item’s run off its row and leaves the other Item’s, and the copy the server sent', () => {
+      const copy = withRuns(aRun(RUN, BART), aRun(OTHER_RUN, LISA));
+
+      const drawn = drawnAhead(copy, end(BART, RUN));
+
+      expect(drawn.agentRuns.map((run) => run.id)).toEqual([OTHER_RUN]);
+      expect(copy.agentRuns).toHaveLength(2);
+      expect(read(drawn, BART)).toEqual(read(copy, BART));
+    });
+
+    it('is kept drawn after its answer, until a read covers it', () => {
+      expect(DRAWN_AHEAD.has('end_claude_run')).toBe(true);
+    });
+
+    it('draws the run back when its Undo comes while the end is still drawn', () => {
+      forgetEndedRuns();
+      rememberEnded(aRun(RUN, BART));
+      const copy = withRuns(aRun(RUN, BART));
+
+      expect(drawnOver(copy, [end(BART, RUN), undo(BART, RUN)]).agentRuns.map((run) => run.id)).toEqual([RUN]);
+    });
+
+    it('draws the run back at once when its Undo comes after the end was answered and its read landed', () => {
+      forgetEndedRuns();
+      const ran = aRun(RUN, BART);
+      rememberEnded(ran);
+      const afterTheRead = withRuns();
+
+      expect(drawnAhead(afterTheRead, undo(BART, RUN)).agentRuns.map((run) => run.id)).toEqual([RUN]);
+      forgetEndedRuns();
+    });
+
+    it.each([
+      { situation: 'an Item with no run', change: end(LISA, undefined) },
+      { situation: 'an Undo of a run this tab never ended, which waits for the next read', change: undo(BART, RUN) },
+    ])('leaves the copy as it is for $situation', ({ change }) => {
+      const copy = withRuns();
+
+      expect(drawnAhead(copy, change)).toBe(copy);
     });
   });
 });

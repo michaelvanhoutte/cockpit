@@ -5,6 +5,7 @@ import type {
   CompleteListing,
   ConversationTurn,
   DraftWaiting,
+  DueDayReport,
   EmittedItem,
   NamesReport,
   OpenStateWanted,
@@ -34,7 +35,7 @@ import {
   type NameOutcome,
   type NamedTarget,
 } from '../domain/filing-by-name.js';
-import { dueDateOnArrival } from '../domain/due-in-days.js';
+import { dueDateIsTheConnections, dueDateOnArrival, sourceDay } from '../domain/due-in-days.js';
 import { statusBeforeDraftIn } from '../domain/conversations.js';
 import { PULLED_CHECK_LEASE_MS, leaseFrom, nextCheckAfter, whatADeliveryDoes } from '../domain/pulled-checks.js';
 import { keptMessage, type CheckDid, type NamedOn } from '../domain/connection-history.js';
@@ -67,6 +68,8 @@ export interface PulledRunStarted {
   externalAccountKey: string;
   /** The choice the connection holds as the run starts, or null where it holds none (issue 942). */
   choice: string | null;
+  /** Your Cockpit alias on the mailbox as the run starts, or null for none (issue 1760). */
+  ownAlias: string | null;
 }
 
 export type PulledRunBegun = PulledRunStarted | { status: 'already running' | 'not queued' | 'disconnected' };
@@ -245,6 +248,7 @@ export function beginPulledRun(
     workspaceId: connection.workspaceId,
     externalAccountKey: connection.externalAccountKey,
     choice: connection.choice,
+    ownAlias: connection.ownAlias,
   };
 }
 
@@ -381,10 +385,14 @@ export function filePulledItem(
     const panelIds = decided.panelIds;
     // The date the connection gives the Item, counted from the day it arrives
     // here and read as the connection stands now (issue 1409).
+    // The day the source names, where it names one, comes ahead of the days.
+    const sourceGave = sourceDay(item.dueDay);
     const given =
-      holds.dueInDays === null
-        ? null
-        : dueDateOnArrival(at, recentCapturedTimeZones(db, accountName), holds.dueInDays);
+      sourceGave !== null
+        ? sourceGave
+        : holds.dueInDays === null
+          ? null
+          : dueDateOnArrival(at, recentCapturedTimeZones(db, accountName), holds.dueInDays);
     const captured = runCommand(
       db,
       accountName,
@@ -441,8 +449,85 @@ export function filePulledItem(
       .onConflictDoNothing()
       .run();
     followTheConversation(db, accountName, holds, ids.itemId, item, ids.followCommandId, at);
+    // Following sets the date from the message's turn, which would replace the day the source gave: the day comes last.
+    if (sourceGave !== null && item.conversation) applySourceDay(db, accountName, holds, item.sourceId, sourceGave, at);
     return { answer: 'filed', named: namedOn(ids.itemId, outcomesWithMark(decided.outcomes, item.followed)) };
   });
+}
+
+/**
+ * Applies the day a pulled connector reports its source now gives an Item
+ * ("A flag's date becomes the Outlook Item's due date", issue 1759): the Item's
+ * date becomes that day, as the source's own change through `set_due_date`, and
+ * the day is recorded on the link as the connection's, so readings, replies,
+ * reopen and a person's edits treat it as they treat the connection's days.
+ *
+ * **Only while the date is still the connection's**: the one the link recorded,
+ * not set or cleared by a person, not replaced by a reading - or the Item has
+ * no date at all and nobody set or cleared it. A source id the connection never
+ * filed changes nothing, and the same day reported twice changes nothing.
+ */
+export function reportPulledDueDay(
+  db: AccountDb,
+  accountName: string,
+  sourceAccountId: string,
+  runId: string,
+  report: DueDayReport,
+  at: string,
+): 'recorded' | 'unchanged' | 'unknown' | 'disconnected' {
+  const holds = runHolds(db, accountName, sourceAccountId, runId);
+  if (!holds) return 'disconnected';
+  const day = sourceDay(report.dueDay);
+  return db.transaction(() => applySourceDay(db, accountName, holds, report.sourceId, day, at));
+}
+
+/** `reportPulledDueDay`'s change, inside the caller's transaction; `day` is null where the source's day was not a real one. */
+function applySourceDay(
+  db: AccountDb,
+  accountName: string,
+  holds: { workspaceId: string; connectorId: string; externalAccountKey: string },
+  sourceId: string,
+  day: string | null,
+  at: string,
+): 'recorded' | 'unchanged' | 'unknown' {
+  const link = linkOf(db, accountName, holds, sourceId);
+  if (!link) return 'unknown';
+  if (day === null) return 'unchanged';
+  const item = getItem(db, accountName, link.itemId);
+  if (!item) return 'unchanged';
+  const untouched = item.dueDate === null && item.dueDateChosenAt === null;
+  if (!untouched && !dueDateIsTheConnections(item, link.givenDueDate)) return 'unchanged';
+  // Past the check above, the Item already on the day is one the link already records.
+  if (item.dueDate === day) return 'unchanged';
+  // Never older than what the Item last heard, or the change would be refused as stale.
+  const issuedAt = at < item.updatedAt ? item.updatedAt : at;
+  const result = runCommand(
+    db,
+    accountName,
+    'set_due_date',
+    {
+      commandId: crypto.randomUUID(),
+      issuedAt,
+      workspaceId: item.workspaceId,
+      itemId: item.id,
+      dueDate: day,
+    },
+    { fromTheSource: true },
+  );
+  if (!result.applied) return 'unchanged';
+  db.update(pulledLinks)
+    .set({ givenDueDate: day })
+    .where(
+      and(
+        eq(pulledLinks.tenantId, accountName),
+        eq(pulledLinks.workspaceId, link.workspaceId),
+        eq(pulledLinks.connectorId, link.connectorId),
+        eq(pulledLinks.externalAccountKey, link.externalAccountKey),
+        eq(pulledLinks.sourceId, link.sourceId),
+      ),
+    )
+    .run();
+  return 'recorded';
 }
 
 /** How much of a message a conversation keeps (`CONVERSATION_EXCERPT_LENGTH`), and of a name. */
@@ -492,6 +577,8 @@ function followTheConversation(
       startedAt: read.startedAt,
       withWhom: cut(read.withWhom, NAME_LENGTH),
       connectionDays: holds.dueInDays,
+      // Whether anyone but you is on it, where the connector says (issue 1760).
+      ...(read.othersOnIt !== undefined ? { othersOnIt: read.othersOnIt } : {}),
     },
     { fromTheSource: true },
   );
@@ -569,6 +656,8 @@ export function recordPulledTurn(
       // Where the source shows the message, which Open goes to once it is the latest (issue 1720);
       // one too long to keep leaves the link as it was rather than refusing the turn.
       ...(turn.link && turn.link.length <= LINK_LENGTH ? { link: turn.link } : {}),
+      // Whether anyone but you is on it, where the connector says (issue 1760).
+      ...(turn.othersOnIt !== undefined ? { othersOnIt: turn.othersOnIt } : {}),
     },
     { fromTheSource: true },
   );
@@ -1043,6 +1132,7 @@ function connectionOf(db: AccountDb, accountName: string, sourceAccountId: strin
       choice: connectorAccounts.choice,
       filesByName: connectorAccounts.filesByName,
       dueInDays: connectorAccounts.dueInDays,
+      ownAlias: connectorAccounts.ownAlias,
     })
     .from(connectorAccounts)
     .where(and(eq(connectorAccounts.tenantId, accountName), eq(connectorAccounts.id, sourceAccountId)))
@@ -1060,6 +1150,7 @@ function linkOf(
       itemId: pulledLinks.itemId,
       openWanted: pulledLinks.openWanted,
       names: pulledLinks.names,
+      givenDueDate: pulledLinks.givenDueDate,
       workspaceId: pulledLinks.workspaceId,
       connectorId: pulledLinks.connectorId,
       externalAccountKey: pulledLinks.externalAccountKey,

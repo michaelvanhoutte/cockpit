@@ -221,6 +221,8 @@ const commandSenders = {
     api.v1.commands.set_connection_files_by_name.$post({ json: p }, o),
   set_connection_due_in_days: (p: CommandPayload<'set_connection_due_in_days'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_connection_due_in_days.$post({ json: p }, o),
+  set_connection_own_alias: (p: CommandPayload<'set_connection_own_alias'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_connection_own_alias.$post({ json: p }, o),
   reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>, o?: ClientRequestOptions) =>
     api.v1.commands.reorder_workspaces.$post({ json: p }, o),
   set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>, o?: ClientRequestOptions) =>
@@ -270,6 +272,8 @@ const commandSenders = {
     api.v1.commands.wait_for_reply.$post({ json: p }, o),
   send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>
     api.v1.commands.send_item_to_claude.$post({ json: p }, o),
+  end_claude_run: (p: CommandPayload<'end_claude_run'>, o?: ClientRequestOptions) =>
+    api.v1.commands.end_claude_run.$post({ json: p }, o),
   finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
     api.v1.commands.finish_agent_run.$post({ json: p }, o),
   set_dismissed: (p: CommandPayload<'set_dismissed'>, o?: ClientRequestOptions) => api.v1.commands.set_dismissed.$post({ json: p }, o),

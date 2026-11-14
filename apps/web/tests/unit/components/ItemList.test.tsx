@@ -224,12 +224,11 @@ const LISA = anItem('11111111-1111-7111-8111-000000000002', 'Reply to Lisa');
 const MAGGIE = anItem('11111111-1111-7111-8111-000000000003', 'Reply to Maggie');
 
 /**
- * An item whose label is not its title: the next action wins over both the
- * other texts. Every other fixture here has a title and no next action, and
- * with one the bare `item.title` and `itemLabel(item)` say the same thing - so
- * nothing else in this file can tell the two apart.
+ * An item with a next action, which the row draws on a line of its own and no
+ * dialog names it by: every other fixture here has none, so nothing else in this
+ * file can tell a dialog naming the title from one naming the next action.
  */
-const LABELLED_BY_ITS_NEXT_ACTION: Item = {
+const WITH_A_NEXT_ACTION: Item = {
   ...anItem('11111111-1111-7111-8111-000000000009', 'Part 11'),
   nextAction: 'Ask Novy about the part 11 tolerances',
 };
@@ -324,12 +323,13 @@ describe('Item editing', () => {
     // rather than asking what the row shows, so each named an item by a text
     // the row was not showing. Found in the browser, which is the only tier
     // that reads these dialogs - and this is the level that can hold it.
-    it('names it by its next action rather than by its title, in the picker', async () => {
-      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
+    it('names it by its title rather than by its next action, in the picker', async () => {
+      const user = await showList({ items: [WITH_A_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
 
-      expect(dialog).toHaveTextContent('Ask Novy about the part 11 tolerances');
+      expect(dialog).toHaveTextContent('Part 11');
+      expect(dialog).not.toHaveTextContent('Ask Novy about the part 11 tolerances');
     });
 
     it('names it the same way in the offer to undo what just happened', async () => {
@@ -338,14 +338,14 @@ describe('Item editing', () => {
       held.mutate.mockImplementation((_args, options?: { onSuccess?: () => void }) =>
         options?.onSuccess?.(),
       );
-      const user = await showList({ items: [LABELLED_BY_ITS_NEXT_ACTION], openDashboardId: TODAY.id });
+      const user = await showList({ items: [WITH_A_NEXT_ACTION], openDashboardId: TODAY.id });
 
       const dialog = await openThePicker(user);
       await user.click(within(dialog).getByRole('button', { name: 'Falcon' }));
 
-      expect(await screen.findByRole('status')).toHaveTextContent(
-        'Ask Novy about the part 11 tolerances',
-      );
+      const offer = await screen.findByRole('status');
+      expect(offer).toHaveTextContent('Part 11');
+      expect(offer).not.toHaveTextContent('Ask Novy about the part 11 tolerances');
     });
   });
 });
@@ -3414,7 +3414,13 @@ describe('Triage', () => {
     proposedPanelFit: panelId ? fit : null,
   });
   const showInbox = (items: Item[]) => showList({ items, groupByProposal: true });
-  const headers = () => screen.queryAllByRole('heading', { level: 4 }).map((heading) => within(heading).getByTitle('Select this group').textContent);
+  // The group headings only: the `Other` heading has no name to select by.
+  const headers = () =>
+    screen
+      .queryAllByRole('heading', { level: 4 })
+      .filter((heading) => within(heading).queryByTitle('Select this group'))
+      .map((heading) => within(heading).getByTitle('Select this group').textContent);
+  const otherHeading = () => screen.queryByRole('heading', { level: 4, name: /^Other/ });
   const titlesInOrder = () =>
     [...document.querySelectorAll('li[data-item-row]')].map((row) => row.textContent!.replace(/^\W+/, '').slice(0, 3));
 
@@ -3558,6 +3564,107 @@ describe('Triage', () => {
 
       expect(screen.getByText('2 selected')).toBeVisible();
       expect(isPicked(items[1]!)).toBe(false);
+    });
+  });
+
+  describe('once the Inbox shows a proposal group, the rows outside every group sit under an Other heading, and only then', () => {
+    it('draws Other · 2 after the last group, over both other rows in the Inbox order', async () => {
+      await showInbox([
+        proposedFor('Aaa', 'p-anna'),
+        proposedFor('Bbb', null),
+        proposedFor('Ccc', 'p-falcon'),
+        proposedFor('Ddd', 'p-anna'),
+        proposedFor('Eee', 'p-reading'),
+        proposedFor('Fff', 'p-falcon'),
+      ]);
+
+      const other = otherHeading()!;
+      expect(other).toHaveTextContent('Other · 2');
+      const groupRows = [...document.querySelectorAll('[data-proposal-group] li[data-item-row]')];
+      const under = [...other.parentElement!.querySelectorAll('li[data-item-row]')];
+      expect(under.map((row) => /Bbb|Eee/.exec(row.textContent!)?.[0])).toEqual(['Bbb', 'Eee']);
+      for (const row of groupRows) {
+        expect(other.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+      }
+      expect(headers()).toHaveLength(2);
+    });
+
+    it.each([
+      {
+        situation: 'a group and no other rows',
+        items: () => [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon')],
+      },
+      {
+        situation: 'no group, every proposal unshared',
+        items: () => [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-anna'), proposedFor('Ccc', null)],
+      },
+      { situation: 'no proposal at all', items: () => [proposedFor('Aaa', null), proposedFor('Bbb', null)] },
+    ])('draws no heading with $situation', async ({ items }) => {
+      await showInbox(items());
+
+      expect(otherHeading()).toBeNull();
+    });
+
+    it('gives the heading no File all and a name that selects nothing', async () => {
+      const user = await showInbox([
+        proposedFor('Aaa', 'p-falcon'),
+        proposedFor('Bbb', 'p-falcon'),
+        proposedFor('Ccc', null),
+      ]);
+      const other = otherHeading()!;
+
+      expect(within(other).queryByRole('button')).toBeNull();
+      await user.click(within(other).getByText('Other'));
+
+      expect(screen.queryByText(/selected$/)).toBeNull();
+      expect(screen.getAllByRole('button', { name: 'File all' })).toHaveLength(1);
+    });
+  });
+
+  describe('the Other heading follows a regroup', () => {
+    const regrouping = async (first: Item[]) => {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const list = (items: Item[]) => (
+        <QueryClientProvider client={client}>
+          <UndoWhatJustHappened>
+            <ItemList workspaceId="ws-work" items={items} openDashboardId={null} groupByProposal emptyMessage="Nothing to deal with." />
+          </UndoWhatJustHappened>
+        </QueryClientProvider>
+      );
+      const { rerender } = render(list(first));
+      await waitFor(() => expect(client.getQueryData(['snapshot', 'ws-work'])).toBeDefined());
+      return (items: Item[]) => rerender(list(items));
+    };
+
+    it('appears over the rows left outside a group a proposal has just formed', async () => {
+      const [a, b, c] = [proposedFor('Aaa', null), proposedFor('Bbb', null), proposedFor('Ccc', null)];
+      const show = await regrouping([a, b, c]);
+      expect(otherHeading()).toBeNull();
+
+      show([{ ...a, proposedPanelId: 'p-falcon', proposedPanelReason: 'r', proposedPanelFit: 'clear' }, { ...b, proposedPanelId: 'p-falcon', proposedPanelReason: 'r', proposedPanelFit: 'clear' }, c]);
+
+      await waitFor(() => expect(otherHeading()).toHaveTextContent('Other · 1'));
+    });
+
+    it('goes when the last group is filed, the rest drawing as before', async () => {
+      const [a, b, c] = [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon'), proposedFor('Ccc', null)];
+      const show = await regrouping([a, b, c]);
+      expect(otherHeading()).not.toBeNull();
+
+      show([c]);
+
+      await waitFor(() => expect(otherHeading()).toBeNull());
+      expect(screen.getByText('Ccc')).toBeVisible();
+    });
+
+    it('counts one fewer when a row joins a group', async () => {
+      const [a, b, c, d] = [proposedFor('Aaa', 'p-falcon'), proposedFor('Bbb', 'p-falcon'), proposedFor('Ccc', null), proposedFor('Ddd', null)];
+      const show = await regrouping([a, b, c, d]);
+      expect(otherHeading()).toHaveTextContent('Other · 2');
+
+      show([a, b, { ...c, proposedPanelId: 'p-falcon', proposedPanelReason: 'r', proposedPanelFit: 'clear' }, d]);
+
+      await waitFor(() => expect(otherHeading()).toHaveTextContent('Other · 1'));
     });
   });
 

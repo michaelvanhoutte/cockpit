@@ -971,7 +971,7 @@ describe('Sign-in', () => {
       const stream = await SELF.fetch('http://cockpit.test/v1/events', carrying(cookie));
       expect(stream.status).toBe(200);
       const listening = stream.body!.getReader();
-      // The opening heartbeat, which is what says the stream is genuinely live
+      // The opening message, which is what says the stream is genuinely live
       // before anything is done to it.
       expect((await listening.read()).done).toBe(false);
 

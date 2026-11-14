@@ -5,6 +5,7 @@ import { RecurringMark } from './RecurringMark';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import {
   itemHasOpenReadings,
+  asNextAction,
   itemLabel,
   itemStatus,
   panelPlace,
@@ -27,6 +28,9 @@ import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraf
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
+import { CHANGED_ELSEWHERE } from '../bulkEdit';
+import { claudeEntriesFor, endCommand, reopenCommand, whatWasEnded } from '../claudeRunEnd';
+import { NeedsYouChip } from './NeedsYouChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -35,8 +39,8 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
-import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
-import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
+import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
+import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openEntryFor, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -450,6 +454,24 @@ export function ItemRow({
   };
 
   /**
+   * *End Claude run*: the chip and its session link leave the row and the Item
+   * keeps its Status; the Undo names the run, to have it back ("End a Claude run
+   * from its row, and make Needs you say what Claude is asking", issue 1770).
+   */
+  const endRun = () => {
+    if (!run) return;
+    const ended = run;
+    const answer = command.mutateAsync(endCommand(ended, envelope()));
+    offerToUndo({
+      what: whatWasEnded([{ item, run: ended }]),
+      unlessRefused: answer,
+      undo: async () => {
+        if (!(await send(reopenCommand(ended, envelope()))).applied) throw new Error(CHANGED_ELSEWHERE);
+      },
+    });
+  };
+
+  /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo
    * what just happened", issue 144).
    *
@@ -515,10 +537,14 @@ export function ItemRow({
   const [labelCutOff, setLabelCutOff] = useState(false);
   /** The same, for the "also in…" text beside the label - answered and forgotten the same way, on its own hover. */
   const [alsoInCutOff, setAlsoInCutOff] = useState(false);
+  /** The same, for the Next action line - the title's hover rule applied to it. */
+  const [nextCutOff, setNextCutOff] = useState(false);
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
-  const atSource = openableAtSource(item, sourceNames, messageLinks);
+  /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
+  const nextAction = asNextAction(item.nextAction);
+  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks);
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
   const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
@@ -732,6 +758,39 @@ export function ItemRow({
   };
 
   /**
+   * The four statuses an Item can be set to, ticking the one it is in: drawn
+   * into the row menu's Status submenu and into the small menu the hover ✓
+   * opens on a right-click ("Item rows: setting a status other than Done
+   * takes two steps through the row menu: right-click the hover ✓ to pick any
+   * status", issue 1772). One list,
+   * so the two cannot come to offer different things. Choosing the ticked one
+   * changes nothing.
+   */
+  const statusEntries = (M: Pick<MenuPrimitive, 'Item'>, keyed: (key: string) => object = () => ({})) =>
+    (
+      [
+        ['To do', status === 'to_do', () => setStarted(false)],
+        ['In progress', status === 'in_progress', () => setStarted(true)],
+        ['Waiting for reply', status === 'waiting', askToWait],
+        ['Done', false, markDone],
+      ] as const
+    ).map(([name, ticked, choose]) => (
+      <M.Item
+        key={name}
+        role="menuitemradio"
+        aria-checked={ticked}
+        className={menuItemSplitClass}
+        {...(name === 'Done' ? keyed('D') : {})}
+        onSelect={() => {
+          if (!ticked) choose();
+        }}
+      >
+        <span>{name}</span>
+        {ticked && <span aria-hidden="true">✓</span>}
+      </M.Item>
+    ));
+
+  /**
    * What this row offers, drawn into whichever primitive opens it - the
    * dropdown its three dots open, and the context menu a right-click on the row
    * opens (the way a tab's does, issue 267). One list, so
@@ -838,30 +897,37 @@ export function ItemRow({
       ],
       // Claude. *Send to Claude…* where nothing is already running on the row,
       // then the run's own way on while it is open: the session itself, a real
-      // link in a new tab as "Open in …" above is - the Status ends the run,
-      // so there is nothing to say about it here.
-      [
-        onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run) && (
+      // link in a new tab as "Open in …" above is, then *End Claude run*, which
+      // ends it without finishing the Item (issue 1770).
+      claudeEntriesFor({
+        canSend: Boolean(onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run)),
+        sessionHref,
+        hasRun: run !== undefined,
+      }).map((entry) =>
+        entry === 'send' ? (
           <M.Item
             key="send-to-claude"
             className={menuItemClass}
             onSelect={() => {
               // The window takes the focus itself, like the pickers.
               opening.current = true;
-              onSendToClaude(trigger.current);
+              onSendToClaude?.(trigger.current);
             }}
           >
             Send to Claude…
           </M.Item>
-        ),
-        sessionHref && (
+        ) : entry === 'session' ? (
           <M.Item key="session" asChild className={menuItemClass}>
-            <a href={sessionHref} target="_blank" rel="noopener noreferrer">
+            <a href={sessionHref!} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
           </M.Item>
+        ) : (
+          <M.Item key="end-claude-run" className={menuItemClass} onSelect={endRun}>
+            End Claude run
+          </M.Item>
         ),
-      ],
+      ),
       // Status: one row showing where the item stands, a submenu offering all
       // four, and the wait for a reply asked for or asked again ("Set an Item
       // Waiting for reply", issue 1463). Choosing the state it is already in
@@ -915,28 +981,7 @@ export function ItemRow({
               style={{ width: SUBMENU_WIDTH_PX }}
               className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
             >
-              {(
-                [
-                  ['To do', status === 'to_do', () => setStarted(false)],
-                  ['In progress', status === 'in_progress', () => setStarted(true)],
-                  ['Waiting for reply', status === 'waiting', askToWait],
-                  ['Done', false, markDone],
-                ] as const
-              ).map(([name, ticked, choose]) => (
-                <M.Item
-                  key={name}
-                  role="menuitemradio"
-                  aria-checked={ticked}
-                  className={flexItemClass}
-                  {...(name === 'Done' ? keyed('D') : {})}
-                  onSelect={() => {
-                    if (!ticked) choose();
-                  }}
-                >
-                  <span>{name}</span>
-                  {ticked && <span aria-hidden="true">✓</span>}
-                </M.Item>
-              ))}
+              {statusEntries(M, keyed)}
             </M.SubContent>
           </M.Portal>
         </M.Sub>,
@@ -1382,6 +1427,21 @@ export function ItemRow({
               </span>
             )}
           </span>
+          {/* The Next action, on a line of its own between the title and the
+              source line - on a phone too, where the pills and the source
+              follow it. A row without one has no line at all. */}
+          {nextAction && (
+            <span
+              className="block truncate text-[13px] leading-[18px] text-ink"
+              onPointerEnter={(event) =>
+                setNextCutOff(isCutOff(event.currentTarget.scrollWidth, event.currentTarget.clientWidth))
+              }
+              onPointerLeave={() => setNextCutOff(false)}
+              title={nextCutOff ? `Next: ${nextAction}` : undefined}
+            >
+              <span className="font-semibold text-accent-deep">Next:</span> {nextAction}
+            </span>
+          )}
           {/* Where it came from, on one line under the title. Its own element,
               so it is a thing on the row rather than part of a sentence. */}
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">
@@ -1413,6 +1473,14 @@ export function ItemRow({
                 >
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </a>
+              ) : chip.box ? (
+                <NeedsYouChip
+                  box={chip.box}
+                  label={`${chip.agent ? `${chip.agent} · ` : ''}${chip.text}`}
+                  className="shrink-0 rounded-full bg-due-soft px-1.5 text-due-ink"
+                  onEnd={endRun}
+                  onLoadFailure={() => setRowNotice('What Claude needs could not load. Reload Cockpit to try again.')}
+                />
               ) : (
                 <span
                   title={chip.hint ?? undefined}
@@ -1544,8 +1612,12 @@ export function ItemRow({
 
         {/* Mark done in one click ("Mark an item done with a ✓ that appears on
             hover", issue 716): the menu's Status ▸ Done, sent the same way, so
-            the Undo bar offers it back identically. Shown only under a fine
-            pointer hovering the row, so never on touch, which keeps the menu and
+            the Undo bar offers it back identically. A right-click on it opens
+            the four statuses alone, the Status submenu's own entries ("Item
+            rows: setting a status other than Done takes two steps through the
+            row menu: right-click the hover ✓ to pick any status", issue 1772),
+            not the row's full menu. Shown only under a fine pointer hovering
+            the row, so never on touch, which keeps the menu and
             the long press, and never while a selection is held, like every other
             single-row action. Invisible rather than absent at rest, so the row
             keeps its width and its title does not re-truncate under the pointer.
@@ -1556,20 +1628,38 @@ export function ItemRow({
             belongs, and a ✓ under the pointer made finishing it the easiest
             thing to do there (issue 880). Its menu keeps Status ▸ Done. */}
         {!inInbox && !selecting?.revealed && (
-          <button
-            type="button"
-            aria-label="Mark done"
-            title="Mark done"
-            onClick={(event) => {
-              event.stopPropagation();
-              markDone();
-            }}
-            className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
-          >
-            <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 8.5l3.2 3.2L13 4.8" />
-            </svg>
-          </button>
+          // The right-click still reaches the row, which moves a single pick
+          // here as it does for a right-click anywhere on the row, but the row's
+          // full menu stays shut: Radix opens no menu for a right-click whose
+          // default this one's trigger has already taken.
+          <ContextMenu.Root>
+            <ContextMenu.Trigger asChild>
+              <button
+                type="button"
+                aria-label="Mark done"
+                title="Mark done · right-click for other statuses"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  markDone();
+                }}
+                className={menuButtonClassName(false, 'w-6! invisible pointer-coarse:hidden pointer-fine:group-hover:visible')}
+              >
+                <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 8.5l3.2 3.2L13 4.8" />
+                </svg>
+              </button>
+            </ContextMenu.Trigger>
+            <ContextMenu.Portal>
+              <ContextMenu.Content
+                aria-label="Status"
+                onCloseAutoFocus={keepFocusIfSomethingOpened}
+                style={{ width: SUBMENU_WIDTH_PX }}
+                className="z-floating rounded-md border border-shade/10 bg-surface p-1 shadow-lg"
+              >
+                {statusEntries(ContextMenu)}
+              </ContextMenu.Content>
+            </ContextMenu.Portal>
+          </ContextMenu.Root>
         )}
 
         <DropdownMenu.Root

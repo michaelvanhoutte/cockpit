@@ -237,6 +237,14 @@ export class GraphWorld {
     this.#changed(Object.assign(this.#get(id), { flag: 'flagged' as const }));
   }
 
+  /** The flag given a date, as Outlook's Tomorrow or a picked day does: the day as midnight, in the zone given. */
+  dueOn(id: string, day: string | null, timeZone = 'UTC'): void {
+    const one = this.#get(id);
+    if (day === null) delete one.flagDue;
+    else one.flagDue = { dateTime: `${day}T00:00:00.0000000`, timeZone };
+    this.#changed(one);
+  }
+
   complete(id: string): void {
     this.#changed(Object.assign(this.#get(id), { flag: 'complete' as const }));
   }
@@ -383,10 +391,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 /** A host holding an Outlook credential the way the generic sign-in seals it, with an access token that has hours left. */
-export function signedInHost(options: { choice?: string | null; expiresAt?: string | null; accessToken?: string } = {}): FakeHost {
+export function signedInHost(
+  options: { choice?: string | null; ownAlias?: string | null; expiresAt?: string | null; accessToken?: string } = {},
+): FakeHost {
   const expiresAt = options.expiresAt === undefined ? '2026-10-09T13:00:00.000Z' : options.expiresAt;
   return new FakeHost({
     ...(options.choice === undefined ? {} : { choice: options.choice }),
+    ...(options.ownAlias === undefined ? {} : { ownAlias: options.ownAlias }),
     credential: {
       credential: JSON.stringify({
         access_token: options.accessToken ?? 'a-good-access-token',

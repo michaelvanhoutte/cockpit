@@ -15,10 +15,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ACCOUNT_WIDE,
   DEFAULT_ITEM_FORM_PRESENTATION,
+  NEXT_ACTION_LENGTH,
   TITLE_LENGTH,
   additionsOf,
   dayOf,
   daysOnFrom,
+  conversationOf,
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
@@ -71,7 +73,8 @@ import {
   useReportDocked,
   useSettleQuietOpening,
 } from '../itemForm';
-import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
+import { capturingApp, sourceNamed } from '../itemSource';
+import { openEntryFor } from '../conversationLine';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
 import { copyItemLinkAndSay } from '../itemLink';
@@ -120,6 +123,7 @@ const CHANGED_ELSEWHERE = 'That item changed somewhere else. Copy what you want 
 /** The boxes as the Item fills them. */
 const draftOf = (from: Item): Draft => ({
   title: from.title,
+  nextAction: from.nextAction ?? '',
   description: from.description ?? '',
   priority: from.priority,
   dueDate: from.dueDate,
@@ -199,6 +203,7 @@ export function whatChanged(
   now: Draft,
 ): {
   title?: string;
+  nextAction?: string | null;
   description?: string | null;
   priority?: Priority | null;
   dueDate?: string | null;
@@ -207,6 +212,7 @@ export function whatChanged(
 } {
   const changed: {
     title?: string;
+    nextAction?: string | null;
     description?: string | null;
     priority?: Priority | null;
     dueDate?: string | null;
@@ -215,8 +221,10 @@ export function whatChanged(
   } = {};
   const title = now.title.trim();
   const description = now.description.trim();
+  const nextAction = now.nextAction.trim();
 
   if (title !== was.title.trim()) changed.title = title;
+  if (nextAction !== was.nextAction.trim()) changed.nextAction = nextAction || null;
   if (description !== was.description.trim()) changed.description = description || null;
   // An enum, not text - nothing to trim, and no third state to collapse into.
   if (now.priority !== was.priority) changed.priority = now.priority;
@@ -353,7 +361,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openableAtSource(item, data?.sourceNames, data?.messageLinks) : null;
+  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -1068,9 +1076,9 @@ function TheForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stored]);
   /** The field a tap asked to write in, focused as editing opens; none for Edit itself. */
-  const [focusOnEdit, setFocusOnEdit] = useState<'title' | 'description' | null>(null);
+  const [focusOnEdit, setFocusOnEdit] = useState<'title' | 'nextAction' | 'description' | null>(null);
   /** Editing starts from what was being read, so there is nothing typed to carry over. */
-  const startEditing = (field: 'title' | 'description' | null) => {
+  const startEditing = (field: 'title' | 'nextAction' | 'description' | null) => {
     if (!item) return;
     changeEditing((held) => (held ? { was: held.was, now: { ...held.was } } : held));
     setRefusal(null);
@@ -1097,6 +1105,9 @@ function TheForm({
    */
   const changing = editing ? whatChanged(editing.was, editing.now) : {};
   const overCap =
+    (changing.nextAction != null && changing.nextAction.length > NEXT_ACTION_LENGTH
+      ? ('nextAction' as const)
+      : undefined) ??
     (changing.title !== undefined && changing.title.length > TITLE_LENGTH
       ? ('title' as const)
       : undefined) ??
@@ -1170,7 +1181,7 @@ function TheForm({
         held = write.held;
       }
       // A title or description the person has now set is one Cockpit's change to it no longer needs pointing out.
-      if (field === 'title' || field === 'description') markSeen.current();
+      if (field === 'title' || field === 'nextAction' || field === 'description') markSeen.current();
       return { failure: null, held };
     })();
     return { reaches: writes.at(-1)?.held ?? null, settled };
@@ -1241,7 +1252,7 @@ function TheForm({
    * once behind Save ("Save a docked item's fields as you finish them, not
    * behind one Save button", issue 483): a form meant to stay open for a while
    * has no session boundary for Save to be, and would sit holding an hour of
-   * unsaved edits. The same four commands `save` sends, one per field.
+   * unsaved edits. The same commands `save` sends, one per field.
    *
    * **Handed to the queue at the gesture, each reading the boxes as they are
    * then.** A blur and the next blur can land a round trip apart, and a second
@@ -1306,7 +1317,7 @@ function TheForm({
       const value = asStored(held.now, field);
       if (
         typeof value === 'string' &&
-        value.length > (field === 'title' ? TITLE_LENGTH : DESCRIPTION_LIMIT)
+        value.length > (field === 'title' ? TITLE_LENGTH : field === 'nextAction' ? NEXT_ACTION_LENGTH : DESCRIPTION_LIMIT)
       ) {
         continue;
       }
@@ -1860,6 +1871,35 @@ function TheForm({
                     }`}
                   />
                 </label>
+                )}
+
+                {/* The Next action, one line directly under the title: written as the title is
+                    (at once docked, on Save otherwise), emptied to clear it. */}
+                {readView ? (
+                  editing!.was.nextAction.trim() && (
+                    <p
+                      onClick={() => startEditing('nextAction')}
+                      className="shrink-0 whitespace-pre-wrap break-words pb-2 text-sm text-ink"
+                    >
+                      <span className="font-semibold text-accent-deep">Next:</span> {editing!.was.nextAction}
+                    </p>
+                  )
+                ) : (
+                  <label className="mt-3 block shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                    <span className={onAPage ? 'sr-only' : undefined}>Next action</span>
+                    <input
+                      autoFocus={onAPage && focusOnEdit === 'nextAction'}
+                      disabled={saving}
+                      maxLength={NEXT_ACTION_LENGTH}
+                      placeholder="What happens next"
+                      value={draft.nextAction}
+                      onChange={(e) => setDraft({ ...draft, nextAction: e.target.value })}
+                      onBlur={() => {
+                        if (docked) void commitFields(['nextAction']);
+                      }}
+                      className="mt-1 w-full rounded-md border border-shade/10 bg-field px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft/40"
+                    />
+                  </label>
                 )}
 
                 {/* Which recurring item this is a copy of, and the way to it ("Point a copy at its master, and retire the Repeats chip", issue 1450). */}
@@ -2476,7 +2516,9 @@ function TheForm({
             <p role="alert" className={`shrink-0 pt-3 text-sm text-over-ink${onAPage ? ' px-4' : ''}`}>
               {overCap === 'title'
                 ? `A title is at most ${TITLE_LENGTH} characters.`
-                : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
+                : overCap === 'nextAction'
+                  ? `A next action is at most ${NEXT_ACTION_LENGTH} characters.`
+                  : `A description is at most ${DESCRIPTION_LIMIT.toLocaleString()} characters.`}
             </p>
           )}
           {refusal && (
