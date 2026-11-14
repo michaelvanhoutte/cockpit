@@ -1244,9 +1244,24 @@ export function ItemList({
                 </ul>
               </li>
             ))}
-            {proposalGroups.rest.map((item) => (
-              <Fragment key={item.id}>{rowFor(item)}</Fragment>
-            ))}
+            {proposalGroups.rest.length > 0 && (
+              <li>
+                {/* The rows after the groups, so the last group's sticky header
+                    does not read as theirs once the list scrolls past it. Dressed
+                    like a group header but nothing to select or file as one, so
+                    the name is plain text. It is no row (`data-item-row`), so the
+                    keys and the regroup slide pass over it. */}
+                <h4 className="sticky top-0 z-[1] flex items-baseline gap-2 border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs text-ink-faint">
+                  <span className="min-w-0 truncate font-semibold text-accent-deep">Other</span>
+                  <span className="shrink-0 whitespace-pre tabular-nums">{` · ${proposalGroups.rest.length}`}</span>
+                </h4>
+                <ul>
+                  {proposalGroups.rest.map((item) => (
+                    <Fragment key={item.id}>{rowFor(item)}</Fragment>
+                  ))}
+                </ul>
+              </li>
+            )}
           </ul>
         ) : groups && groups.length > 0 ? (
           // Rows that land under no heading still draw, flat, rather than
