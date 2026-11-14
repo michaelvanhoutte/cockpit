@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dueDateIsTheConnections, dueDateOnArrival } from '../../../src/domain/due-in-days.js';
+import { dueDateIsTheConnections, dueDateOnArrival, sourceDay } from '../../../src/domain/due-in-days.js';
 
 /**
  * "Give each email a Gmail or Outlook connection brings in a due date a set
@@ -64,6 +64,22 @@ describe('Connector management', () => {
       { situation: 'it holds none and the connection gave none', item: { dueDate: null, dueDateChosenAt: null }, given: null, expected: false },
     ])('when $situation', ({ item, given, expected }) => {
       expect(dueDateIsTheConnections(item, given)).toBe(expected);
+    });
+  });
+});
+
+describe('Connector management', () => {
+  describe('a day a source gives is taken only when it is a real calendar day', () => {
+    it.each([
+      { situation: 'a day', given: '2031-06-14', day: '2031-06-14' },
+      { situation: 'a leap day', given: '2028-02-29', day: '2028-02-29' },
+      { situation: 'a day that does not exist', given: '2031-02-30', day: null },
+      { situation: 'a month that does not exist', given: '2031-13-01', day: null },
+      { situation: 'a day without its leading zero', given: '2031-1-5', day: null },
+      { situation: 'a day with a time on it', given: '2031-06-14T00:00:00Z', day: null },
+      { situation: 'something that is not text', given: 20310614, day: null },
+    ])('takes $situation as $day', ({ given, day }) => {
+      expect(sourceDay(given)).toBe(day);
     });
   });
 });

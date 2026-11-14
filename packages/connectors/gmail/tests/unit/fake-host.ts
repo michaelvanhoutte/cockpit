@@ -97,6 +97,8 @@ export class FakeHost implements ConnectorHost {
     this.namesReported.push({ sourceId: report.sourceId, names: [...report.names] });
   }
 
+  async reportDueDay(): Promise<void> {}
+
   /**
    * The conversations this connection's open Items follow: each one an emitted
    * Item said it follows, as a real host answers, less those a case marks
