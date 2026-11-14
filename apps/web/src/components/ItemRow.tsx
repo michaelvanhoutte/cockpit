@@ -1447,6 +1447,7 @@ export function ItemRow({
                   label={`${chip.agent ? `${chip.agent} · ` : ''}${chip.text}`}
                   className="shrink-0 rounded-full bg-due-soft px-1.5 text-due-ink"
                   onEnd={endRun}
+                  onLoadFailure={() => setRowNotice('What Claude needs could not load. Reload Cockpit to try again.')}
                 />
               ) : (
                 <span

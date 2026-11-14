@@ -1,21 +1,23 @@
-import * as Popover from '@radix-ui/react-popover';
-import { NO_QUESTION_SAID, type NeedsYouBox } from '../agentRunChip';
-import { QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
+import { Suspense, lazy, useRef, useState } from 'react';
+import type { NeedsYouBox } from '../agentRunChip';
+import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 
 /**
  * A *Needs you* chip with no session to open (issue 1770): a click opens a small
  * box saying what Claude is asking and where to answer it, with *End Claude run*.
- * Drawn from the run the held copy already carries, so it reaches no server.
+ * Drawn from the run the held copy already carries, so it reaches no server. The
+ * box is loaded on the first click (`NeedsYouPopover`), keeping the popover
+ * library out of the first load.
  */
 
-const BOX =
-  'z-floating w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-shade/10 bg-surface p-3 text-sm text-ink shadow-lg';
+const NeedsYouPopover = lazy(() => import('./NeedsYouPopover').then((loaded) => ({ default: loaded.NeedsYouPopover })));
 
 export function NeedsYouChip({
   box,
   label,
   className,
   onEnd,
+  onLoadFailure,
 }: {
   box: NeedsYouBox;
   /** What the chip itself says. */
@@ -23,44 +25,38 @@ export function NeedsYouChip({
   className: string;
   /** *End Claude run*, chosen in the box. */
   onEnd: () => void;
+  /** The box's chunk did not arrive. */
+  onLoadFailure: () => void;
 }) {
+  const chip = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   return (
-    <Popover.Root>
-      <Popover.Trigger
+    <>
+      <button
+        ref={chip}
         type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        // Opens only: a press outside the box, the chip's own included, closes it.
+        onClick={() => setOpen(true)}
         // A control of the row's own, so a right-click on it is not the row's menu.
         onContextMenu={(event) => event.stopPropagation()}
         className={`${className} cursor-pointer`}
       >
         {label}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="start"
-          sideOffset={6}
-          className={BOX}
-          // Drawn in a portal but inside the row in React's tree: what is pressed
-          // here is the box's, never a click, key or swipe on the row.
-          onClick={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-          onPointerUp={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
+      </button>
+      {open && (
+        <WhateverTheQuestionDoes
+          onFailure={() => {
+            setOpen(false);
+            onLoadFailure();
+          }}
         >
-          <div className="font-medium">{box.title}</div>
-          <blockquote className="mt-1 border-l-2 border-shade/20 pl-2 text-ink-soft">
-            {box.question === NO_QUESTION_SAID ? box.question : `“${box.question}”`}
-          </blockquote>
-          <p className="mt-2 text-xs text-ink-faint">{box.where}</p>
-          <Popover.Close
-            type="button"
-            onClick={onEnd}
-            className={`${STRIP_BUTTON} ${QUIET_BUTTON} mt-3`}
-          >
-            End Claude run
-          </Popover.Close>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+          <Suspense fallback={null}>
+            <NeedsYouPopover anchor={chip} box={box} onEnd={onEnd} onClose={() => setOpen(false)} />
+          </Suspense>
+        </WhateverTheQuestionDoes>
+      )}
+    </>
   );
 }
