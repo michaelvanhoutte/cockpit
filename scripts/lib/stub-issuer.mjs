@@ -567,7 +567,7 @@ export async function startStubIssuer({ port, seedPath }) {
     const fromQuery = /^from:(?:\((.+)\)|(\S+))$/.exec(url.searchParams.get('q') ?? '');
     if (path === 'messages' && fromQuery) {
       // `users.messages.list` by sender (`from:<a>` or `from:(<a> OR <b>)`), which finds a LinkedIn message email among the mail a page of history added.
-      const senders = (fromQuery[1] ?? fromQuery[2]).toLowerCase().split(' or ');
+      const senders = (fromQuery[1] ?? fromQuery[2]).toLowerCase().split(/\s+or\s+/);
       const sentBy = mailbox.threads.flatMap((thread) =>
         thread.messages
           .filter((message) => senders.some((sender) => JSON.stringify(message.payload.headers).toLowerCase().includes(`<${sender}>`)) && !message.labelIds.includes('TRASH'))

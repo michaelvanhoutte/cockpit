@@ -644,7 +644,8 @@ async function answered(url: URL, init?: RequestInit): Promise<Response> {
   // for LinkedIn's two message senders), which finds a LinkedIn notification
   // among the mail a page of history added (issue 1711, issue 1775).
   const query = url.searchParams.get('q') ?? '';
-  const senders = path === 'messages' ? (/^from:\((.+)\)$/.exec(query)?.[1]?.split(' OR ') ?? (/^from:(\S+)$/.exec(query) ? [/^from:(\S+)$/.exec(query)![1]!] : undefined)) : undefined;
+  const fromQuery = path === 'messages' ? /^from:(?:\((.+)\)|(\S+))$/.exec(query) : null;
+  const senders = fromQuery ? (fromQuery[1] ?? fromQuery[2]!).split(' OR ') : undefined;
   if (senders) {
     const sentBy = mailbox.threads.flatMap((one) =>
       ((one.answer as { messages?: { id: string; payload?: { headers?: unknown } }[] }).messages ?? [])

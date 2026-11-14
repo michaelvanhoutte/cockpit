@@ -23,7 +23,6 @@ import {
   type GmailConversationRead,
   type GmailMessage,
   type GmailPart,
-  type GmailTurn,
 } from './messages.js';
 
 export { LINKEDIN_PREFIX };
@@ -32,14 +31,7 @@ export { LINKEDIN_PREFIX };
 export const NOTIFICATION_SEARCH = `from:(${NOTIFICATION_SENDERS.join(' OR ')})`;
 
 /** A message notification, read: whose conversation it is, where it is, and the turn it is. */
-export interface LinkedInNotification {
-  /** `linkedin:` and LinkedIn's own thread id. */
-  readonly conversationId: string;
-  /** `https://www.linkedin.com/messaging/thread/<id>/`, and nothing LinkedIn tracked the email with. */
-  readonly link: string;
-  /** Always theirs: what the person answers on LinkedIn is never seen. */
-  readonly turn: GmailTurn;
-}
+export type LinkedInNotification = LinkedInMessage;
 
 /** Every text part of a message, decoded: the HTML ones first, since that is where LinkedIn puts its button. */
 function textPartsOf(part: GmailPart | null | undefined): { plain: string[]; html: string[] } {
@@ -67,8 +59,7 @@ export function linkedInNotificationIn(message: unknown): LinkedInNotification |
   if (!held || !Array.isArray(held.labelIds)) return null;
   const labels = held.labelIds as unknown[];
   if (labels.includes(DRAFT) || labels.includes(SENT) || labels.some((label) => AWAY.includes(label as string))) return null;
-  const read: LinkedInMessage | null = linkedInMessageIn({ from: headerOf(held.payload, 'From'), ...textPartsOf(held.payload), at: sentAt(held) });
-  return read;
+  return linkedInMessageIn({ from: headerOf(held.payload, 'From'), ...textPartsOf(held.payload), at: sentAt(held) });
 }
 
 /**
