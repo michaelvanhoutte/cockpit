@@ -74,6 +74,11 @@ describe('Dashboards', () => {
       const snapshot = aSnapshot([anItem('here-o'), anItem('away-o'), anItem('inbox-o')], [['here-o', 'plan'], ['away-o', 'review']]);
       expect(rowsFor(snapshot, 'o', 2).rows.map((row) => row.itemId).toSorted()).toEqual(['away-o', 'here-o', 'inbox-o']);
     });
+
+    it('names an Item filed on a Filter panel only as the Inbox’s in Workspace', () => {
+      const snapshot = aSnapshot([anItem('a')], [['a', 'gather']]);
+      expect(rowsFor(snapshot, 'a', 2).rows.map((row) => [row.where, row.panel])).toEqual([['Inbox', null]]);
+    });
   });
 
   describe('Find on Dashboard lists the open Items drawn on this Dashboard and the Inbox’s, and never one only on another Dashboard', () => {
