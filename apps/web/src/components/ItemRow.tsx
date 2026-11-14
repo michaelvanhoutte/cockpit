@@ -27,6 +27,8 @@ import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraf
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
 import { runChipFor, sessionHrefFor } from '../agentRunChip';
+import { claudeEntriesFor, endCommand, reopenCommand, whatWasEnded } from '../claudeRunEnd';
+import { NeedsYouChip } from './NeedsYouChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
@@ -450,6 +452,22 @@ export function ItemRow({
   };
 
   /**
+   * *End Claude run*: the chip and its session link leave the row and the Item
+   * keeps its Status; the Undo names the run, to have it back ("End a Claude run
+   * from its row, and make Needs you say what Claude is asking", issue 1770).
+   */
+  const endRun = () => {
+    if (!run) return;
+    const ended = run;
+    const answer = command.mutateAsync(endCommand(ended, envelope()));
+    offerToUndo({
+      what: whatWasEnded([{ item, run: ended }]),
+      unlessRefused: answer,
+      undo: () => send(reopenCommand(ended, envelope())),
+    });
+  };
+
+  /**
    * Dismissing, with the way back offered for as long as the bar lasts ("Undo
    * what just happened", issue 144).
    *
@@ -838,30 +856,37 @@ export function ItemRow({
       ],
       // Claude. *Send to Claude…* where nothing is already running on the row,
       // then the run's own way on while it is open: the session itself, a real
-      // link in a new tab as "Open in …" above is - the Status ends the run,
-      // so there is nothing to say about it here.
-      [
-        onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run) && (
+      // link in a new tab as "Open in …" above is, then *End Claude run*, which
+      // ends it without finishing the Item (issue 1770).
+      claudeEntriesFor({
+        canSend: Boolean(onSendToClaude && roomBesideTheMenu && !runBlocksAStart(run)),
+        sessionHref,
+        hasRun: run !== undefined,
+      }).map((entry) =>
+        entry === 'send' ? (
           <M.Item
             key="send-to-claude"
             className={menuItemClass}
             onSelect={() => {
               // The window takes the focus itself, like the pickers.
               opening.current = true;
-              onSendToClaude(trigger.current);
+              onSendToClaude?.(trigger.current);
             }}
           >
             Send to Claude…
           </M.Item>
-        ),
-        sessionHref && (
+        ) : entry === 'session' ? (
           <M.Item key="session" asChild className={menuItemClass}>
-            <a href={sessionHref} target="_blank" rel="noopener noreferrer">
+            <a href={sessionHref!} target="_blank" rel="noopener noreferrer">
               Open the Claude session ↗
             </a>
           </M.Item>
+        ) : (
+          <M.Item key="end-claude-run" className={menuItemClass} onSelect={endRun}>
+            End Claude run
+          </M.Item>
         ),
-      ],
+      ),
       // Status: one row showing where the item stands, a submenu offering all
       // four, and the wait for a reply asked for or asked again ("Set an Item
       // Waiting for reply", issue 1463). Choosing the state it is already in
@@ -1413,6 +1438,13 @@ export function ItemRow({
                 >
                   {chip.agent ? `${chip.agent} · ` : ''}{chip.text}
                 </a>
+              ) : chip.box ? (
+                <NeedsYouChip
+                  box={chip.box}
+                  label={`${chip.agent ? `${chip.agent} · ` : ''}${chip.text}`}
+                  className="shrink-0 rounded-full bg-due-soft px-1.5 text-due-ink"
+                  onEnd={endRun}
+                />
               ) : (
                 <span
                   title={chip.hint ?? undefined}

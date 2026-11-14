@@ -47,6 +47,26 @@ describe('Agents', () => {
     });
   });
 
+  describe('a Needs you report must say what Claude is asking', () => {
+    it.each([
+      { situation: 'no note', args: { run: RUN, stage: 'needs_you' }, accepted: false },
+      { situation: 'a blank note', args: { run: RUN, stage: 'needs_you', note: '   ' }, accepted: false },
+      { situation: 'a question', args: { run: RUN, stage: 'needs_you', note: 'Which tenancy?' }, accepted: true },
+      { situation: 'On it and no note', args: { run: RUN, stage: 'on_it' }, accepted: true },
+      { situation: 'Ready and no note', args: { run: RUN, stage: 'ready' }, accepted: true },
+    ])('with $situation it is read as accepted: $accepted', ({ args, accepted }) => {
+      expect(readReport(args).ok).toBe(accepted);
+    });
+
+    it('tells Claude to send the question as the note, and the description says the same', () => {
+      expect(readReport({ run: RUN, stage: 'needs_you' })).toMatchObject({
+        ok: false,
+        refusal: expect.stringContaining('send the question as the note'),
+      });
+      expect(reportRunTool().description).toContain('refused unless the note is the question');
+    });
+  });
+
   describe('the tool tells the app what it may change', () => {
     it('offers only the run, the stage, two links and a note', () => {
       const tool = reportRunTool();
