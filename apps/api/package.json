@@ -36,7 +36,7 @@
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.1",
     "jose": "^6.2.12",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.4",
