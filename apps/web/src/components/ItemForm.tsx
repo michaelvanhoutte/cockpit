@@ -19,6 +19,7 @@ import {
   additionsOf,
   dayOf,
   daysOnFrom,
+  conversationOf,
   itemHasOpenReadings,
   itemLabel,
   itemStatus,
@@ -70,7 +71,8 @@ import {
   useReportDocked,
   useSettleQuietOpening,
 } from '../itemForm';
-import { capturingApp, openableAtSource, sourceNamed } from '../itemSource';
+import { capturingApp, sourceNamed } from '../itemSource';
+import { openEntryFor } from '../conversationLine';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
 import { copyItemLinkAndSay } from '../itemLink';
@@ -348,7 +350,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openableAtSource(item, data?.sourceNames, data?.messageLinks) : null;
+  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is

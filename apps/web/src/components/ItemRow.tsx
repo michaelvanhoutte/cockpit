@@ -38,8 +38,8 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
-import { capturingApp, openableAtSource, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
-import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openLabel } from '../conversationLine';
+import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
+import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openEntryFor, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useUndo } from '../undo';
@@ -539,7 +539,7 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
-  const atSource = openableAtSource(item, sourceNames, messageLinks);
+  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks);
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
   const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */

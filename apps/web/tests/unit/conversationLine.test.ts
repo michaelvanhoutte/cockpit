@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Conversation } from '@cockpit/shared';
+import type { Conversation, Item } from '@cockpit/shared';
 import {
   agoLabel,
   conversationCountLine,
@@ -7,6 +7,7 @@ import {
   conversationOpensAt,
   conversationSourceName,
   latestText,
+  openEntryFor,
   openLabel,
 } from '../../src/conversationLine';
 import { deviceIsIn, deviceSpeaks } from './support/timeZone';
@@ -132,6 +133,29 @@ describe('Triage', () => {
     it('gives no count of messages, only who it is with', () => {
       expect(conversationCountLine({ ...linkedIn, messageCount: 4 }, NOW)).toBe('With Steven Noels');
       expect(conversationCountLine({ ...linkedIn, withWhom: null }, NOW)).toBe('');
+    });
+  });
+
+  describe('the Open in … entry of the row menu and the form names where the row’s Open goes ("Open the LinkedIn conversation from the row menu and the form", issue 1795)', () => {
+    const names = { gmail: 'Gmail' };
+    const mailLink = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/m-1';
+    const anItem = { source: 'gmail', sourceLink: mailLink, sender: 'LinkedIn' } as Item;
+    const linkedIn = aConversation({
+      conversationId: 'linkedin:2-Menu',
+      link: 'https://www.linkedin.com/messaging/thread/2-Menu/',
+    });
+
+    it('is LinkedIn at the conversation’s link for an Item following a LinkedIn conversation', () => {
+      expect(openEntryFor(anItem, linkedIn, names)).toEqual({ name: 'LinkedIn', link: 'https://www.linkedin.com/messaging/thread/2-Menu/' });
+    });
+
+    it('is Gmail at the Item’s link for an Item following a Gmail conversation', () => {
+      expect(openEntryFor(anItem, aConversation(), names)).toEqual({ name: 'Gmail', link: mailLink });
+    });
+
+    it('is the Item’s own source link for an Item following no conversation', () => {
+      expect(openEntryFor(anItem, undefined, names)).toEqual({ name: 'Gmail', link: mailLink });
+      expect(openEntryFor({ ...anItem, sourceLink: null }, undefined, names)).toBeNull();
     });
   });
 });
