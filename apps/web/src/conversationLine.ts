@@ -1,6 +1,6 @@
-import { isLinkedInConversation, type Conversation } from '@cockpit/shared';
+import { isLinkedInConversation, type Conversation, type Item } from '@cockpit/shared';
 import { momentDayMonthLabel } from './dateFormat';
-import { sourceNamed, whereALinkOpens, type SourceNames } from './itemSource';
+import { openableAtSource, sourceNamed, whereALinkOpens, type MessageLinks, type SourceNames } from './itemSource';
 
 /**
  * What a row says of the conversation its Item follows ("A Gmail starred
@@ -105,6 +105,27 @@ export function openLabel(conversation: Conversation, sourceName: string): strin
 export function conversationOpensAt(conversation: Conversation): string | null {
   if (!/^https?:\/\//i.test(conversation.link)) return null;
   return whereALinkOpens(conversation.link);
+}
+
+/**
+ * What an Item's *Open in …* entry names and opens, in its row's menu and in its
+ * form ("Open the LinkedIn conversation from the row menu and the form", issue
+ * 1795): the LinkedIn conversation it follows, by the name *LinkedIn* and the
+ * conversation's own link, which is where the row's *Open ↗* goes; otherwise
+ * `openableAtSource`, as before. A Gmail or Outlook conversation keeps its
+ * source link here, since the Item's own link already is that conversation.
+ */
+export function openEntryFor(
+  item: Item,
+  conversation: Conversation | null | undefined,
+  names: SourceNames,
+  messageLinks?: MessageLinks,
+): { name: string; link: string } | null {
+  if (conversation && isLinkedInConversation(conversation)) {
+    const link = conversationOpensAt(conversation);
+    if (link !== null) return { name: 'LinkedIn', link };
+  }
+  return openableAtSource(item, names, messageLinks);
 }
 
 /**
