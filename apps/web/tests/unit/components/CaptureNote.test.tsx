@@ -9,7 +9,7 @@ import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/
 import {
   CaptureNote,
   KEEP_BOUND_MS,
-  NOT_KEPT_IN_TIME,
+  notKeptInTime,
   NO_WORKSPACE,
   STILL_LISTED,
   pasteKeyFor,
@@ -637,7 +637,7 @@ describe('Capture', () => {
         expect(screen.queryByRole('alert')).toBeNull();
         await act(() => vi.advanceTimersByTimeAsync(1));
 
-        expect(screen.getByRole('alert')).toHaveTextContent(NOT_KEPT_IN_TIME);
+        expect(screen.getByRole('alert')).toHaveTextContent(notKeptInTime('store'));
         expect(box()).toHaveValue('The first one');
         expect(writes).toHaveLength(1);
       });
@@ -654,7 +654,7 @@ describe('Capture', () => {
 
         expect(writes).toHaveLength(2);
         expect(writes[1]!.entry.id).toBe(writes[0]!.entry.id);
-        expect(screen.getByRole('alert')).toHaveTextContent(NOT_KEPT_IN_TIME);
+        expect(screen.getByRole('alert')).toHaveTextContent(notKeptInTime('store'));
         expect(box()).toHaveValue('The first one');
       });
 

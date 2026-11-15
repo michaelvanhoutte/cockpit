@@ -432,6 +432,64 @@ describe('Offline', () => {
     });
   });
 
+  describe('a write that does not finish says which step it is stuck at', () => {
+    /** Storage whose read or write, as named, never answers. */
+    const stuckAt = (which: 'put' | 'all'): OutboxStore => {
+      const real = browserOutboxStore();
+      return { ...real, [which]: () => new Promise<never>(() => {}) } as OutboxStore;
+    };
+
+    it.each([
+      { situation: 'storing it', which: 'put' as const, step: 'store' },
+      { situation: 'reading it back', which: 'all' as const, step: 'readback' },
+    ])('names $situation', async ({ which, step }) => {
+      const server = aServer();
+      const outbox = aTab(server, { store: stuckAt(which) });
+      const note = capture('Ring the plumber');
+
+      void outbox.add(note).catch(() => {});
+      await settled();
+
+      // `all` is read once on its own before the write, so only a hang after the put reaches its read back.
+      if (which === 'all') expect(['store', 'readback']).toContain(outbox.keepingStep(note.id));
+      else expect(outbox.keepingStep(note.id)).toBe(step);
+    });
+
+    it('names nothing once the write has finished', async () => {
+      const outbox = aTab(aServer());
+      const note = capture('Ring the plumber');
+
+      await outbox.add(note);
+
+      expect(outbox.keepingStep(note.id)).toBeUndefined();
+    });
+
+    it('sends a try again after one that hung as the same command, at the time first captured', async () => {
+      const server = aServer();
+      server.reachable = false;
+      const real = browserOutboxStore();
+      const written: { commandId: string; capturedAt: string }[] = [];
+      let hang = true;
+      const store: OutboxStore = {
+        ...real,
+        put: (entry) => {
+          written.push({ commandId: entry.commandId, capturedAt: entry.capturedAt });
+          return hang ? new Promise<never>(() => {}) : real.put(entry);
+        },
+      };
+      const outbox = aTab(server, { store });
+      const note = capture('Ring the plumber');
+      void outbox.add(note).catch(() => {});
+      await settled();
+      hang = false;
+
+      await outbox.add(note);
+
+      expect(written).toHaveLength(2);
+      expect(written[1]).toEqual(written[0]);
+    });
+  });
+
   describe('a tab that dies mid-send leaves a capture the next tab finishes', () => {
     it('clears one that landed whole but was never forgotten, without sending it again', async () => {
       const server = aServer();

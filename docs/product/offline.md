@@ -20,6 +20,6 @@
 - **The Capture tab carries a count** while anything has not landed, a refused one included.
 - **A waiting capture belongs to whoever captured it.** It is sent and shown only while they are signed in, an expired sign-in loses nothing, and only signing out deletes it — after asking, when anything is waiting ("2 captures haven't been sent and will be lost"). A recording Write could not transcribe is theirs on the same terms, offered with Retry only to them, and counted in the same question ("1 recording hasn't been transcribed and will be lost").
 - **Where the browser cannot keep it** — a private window, storage refused — capture sends at once, and with no connection says so and leaves the note in the box.
-- **A write the browser never finishes** is not left silent: after a few seconds Capture says the note did not get kept, leaves it in the box, and the next press tries again under the same entry, so it is never kept twice.
+- **A write the browser never finishes** is not left silent: after a few seconds Capture says the note did not get kept and at which step it is stuck, leaves it in the box, and the next press tries again under the same entry, so it is never kept twice.
 
 A Panel's **+** (*Add an item to <Panel>*) opens Capture, so an Item added from it waits offline with its Panel like any capture. Every other change still needs the connection; queuing those, and reconciling the local copy once a source exists to reconcile against, are not built.

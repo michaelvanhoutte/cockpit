@@ -21,7 +21,7 @@ import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQ
 import { browserStore, workspaceToCaptureFrom } from '../lastVisited';
 import { useCapture } from '../capture';
 import { stateOf, whatGoesBack, type OutboxEntry } from '../captureOutbox';
-import { fileOf, useOutbox, useWaitingCaptures } from '../captureOutboxSender';
+import { fileOf, useOutbox, type KeepingStep, useWaitingCaptures } from '../captureOutboxSender';
 import { useDockedItem, useOpenItem } from '../itemForm';
 import { possibleDuplicatesOf, whenCaptured } from '../duplicates';
 import type { Arrived } from '../shares';
@@ -46,9 +46,15 @@ const FollowSentEmail = lazy(() => import('./FollowSentEmail').then((one) => ({ 
  */
 export const KEEP_BOUND_MS = 8000;
 
-/** Said under the strip when the note was not kept in time; it is still in the box. */
-export const NOT_KEPT_IN_TIME =
-  'That note did not get kept on this device in time. It is still in the box - press Capture to try again.';
+const WHERE_STUCK: Record<KeepingStep, string> = {
+  files: ' (stuck reading its files)',
+  store: ' (stuck storing it)',
+  readback: ' (stuck reading it back)',
+};
+
+/** Said under the strip when the note was not kept in time, naming the step it is stuck at; it is still in the box. */
+export const notKeptInTime = (step?: KeepingStep) =>
+  `That note did not get kept on this device in time${step ? WHERE_STUCK[step] : ''}. It is still in the box - press Capture to try again.`;
 
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
@@ -345,7 +351,7 @@ export function CaptureNote({
       if (keeping.current !== turn) return;
       keeping.current = null;
       unkept.current = { note, id };
-      setRefused(NOT_KEPT_IN_TIME);
+      setRefused(notKeptInTime(outbox.keepingStep(id)));
     }, KEEP_BOUND_MS);
     return {
       id,

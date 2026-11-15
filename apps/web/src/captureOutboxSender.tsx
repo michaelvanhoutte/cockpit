@@ -195,7 +195,18 @@ type PassResult = 'clear' | 'waits';
 /** What sending one entry came to: done with for now, the connection gone, or its words not to be had yet. */
 type EntryResult = 'done' | 'waits' | 'skipped';
 
+/** Where a write to the outbox is, for saying where one is stuck: its files read, the entry stored, or what is stored read back. */
+export type KeepingStep = 'files' | 'store' | 'readback';
+
 export class CaptureOutbox {
+  /** The step each write in progress is on; gone once it settles. */
+  private readonly steps = new Map<string, KeepingStep>();
+  /**
+   * The command and time a write was first given, kept while it has not
+   * finished, so a try again after one that hung is the same command to the
+   * server rather than a second one.
+   */
+  private readonly firstTries = new Map<string, { commandId: string; capturedAt: string }>();
   private entries: OutboxEntry[] = [];
   private shown: OutboxEntry[] = [];
   private owner: string | null = null;
@@ -317,6 +328,23 @@ export class CaptureOutbox {
   async add(capture: NewCapture): Promise<void> {
     const owner = this.owner;
     if (owner === null) throw new Error('nobody is signed in to keep a capture for');
+    this.steps.set(capture.id, 'files');
+    try {
+      await this.keep(capture, owner);
+      this.firstTries.delete(capture.id);
+    } finally {
+      this.steps.delete(capture.id);
+    }
+  }
+
+  /** The step a write of this capture is on, while it has not settled. */
+  keepingStep(id: string): KeepingStep | undefined {
+    return this.steps.get(id);
+  }
+
+  private async keep(capture: NewCapture, owner: string): Promise<void> {
+    const first = this.firstTries.get(capture.id) ?? { commandId: uuidv7(), capturedAt: new Date().toISOString() };
+    this.firstTries.set(capture.id, first);
     const files: WaitingFile[] = await Promise.all(
       capture.files.map(async ({ id, file }) => ({
         id,
@@ -333,8 +361,8 @@ export class CaptureOutbox {
       id: capture.id,
       ...(capture.appendTo ? { appendTo: capture.appendTo } : {}),
       owner,
-      commandId: uuidv7(),
-      capturedAt: new Date().toISOString(),
+      commandId: first.commandId,
+      capturedAt: first.capturedAt,
       workspaceId: capture.workspaceId,
       decided: capture.decided,
       message: capture.message,
@@ -347,7 +375,9 @@ export class CaptureOutbox {
       landed: false,
       refused: null,
     };
+    this.steps.set(capture.id, 'store');
     await this.deps.store.put(entry);
+    this.steps.set(capture.id, 'readback');
     await this.changedHere();
     void this.send();
   }
