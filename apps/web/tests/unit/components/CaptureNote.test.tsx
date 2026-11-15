@@ -687,9 +687,22 @@ describe('Capture', () => {
         expect(new Set(ids).size).toBe(3);
       });
 
-      it('says a note stuck at reading back is stored, and keeps one entry across the try again', () => {
-        expect(notKeptInTime('readback')).toMatch(/stored on this device/);
-        expect(notKeptInTime('readback')).not.toMatch(/did not get kept/);
+      it.each([
+        { situation: 'the identical capture', change: () => {}, same: true },
+        { situation: 'a different priority', change: () => fireEvent.click(screen.getByRole('button', { name: /^High/ })), same: false },
+      ])('tries again under $situation as the same entry only when it is $same', async ({ change, same }) => {
+        const { store, writes } = hangingStore();
+        await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+
+        change();
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(10));
+
+        expect(writes).toHaveLength(2);
+        expect(writes[1]!.entry.id === writes[0]!.entry.id).toBe(same);
       });
 
       it('takes the note out of the box, and the line away, when the write does finish late', async () => {

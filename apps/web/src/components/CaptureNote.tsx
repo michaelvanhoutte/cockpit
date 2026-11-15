@@ -46,20 +46,14 @@ const FollowSentEmail = lazy(() => import('./FollowSentEmail').then((one) => ({ 
  */
 export const KEEP_BOUND_MS = 8000;
 
-const WHERE_STUCK: Record<Exclude<KeepingStep, 'readback'>, string> = {
+const WHERE_STUCK: Record<KeepingStep, string> = {
   files: ' (stuck reading its files)',
   store: ' (stuck storing it)',
 };
 
-/**
- * Said under the strip when a write outlasts the bound, naming the step it is
- * stuck at. Past storing, the note is on this device, so it is not said to be
- * unkept; pressing Capture again overwrites the same entry.
- */
+/** Said under the strip when a write outlasts the bound, naming the step it is stuck at; the note is still in the box. */
 export const notKeptInTime = (step?: KeepingStep) =>
-  step === 'readback'
-    ? 'That note is stored on this device, but Cockpit got stuck reading it back. Press Capture to finish.'
-    : `That note did not get kept on this device in time${step ? WHERE_STUCK[step] : ''}. It is still in the box - press Capture to try again.`;
+  `That note did not get kept on this device in time${step ? WHERE_STUCK[step] : ''}. It is still in the box - press Capture to try again.`;
 
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
@@ -339,24 +333,26 @@ export function CaptureNote({
   /** The write Capture is waiting on, while it is writing to the outbox. */
   const keeping = useRef<object | null>(null);
   /**
-   * The note whose write outlasted `KEEP_BOUND_MS`, with the id it was given. A
-   * press of the same note tries again under that id, so the stuck write, if it
-   * does land late, is the same entry and not a second one.
+   * The write that outlasted `KEEP_BOUND_MS`: what it was (`what`) and the id it
+   * was given. A press of the identical capture - same note, same kind and
+   * target, workspace, priority, due date, Panels and files - tries again under
+   * that id, so the stuck write, if it does land late, overwrites the same entry
+   * and is not a second one. Anything different is a new id.
    */
-  const unkept = useRef<{ note: string; kind: string; id: string } | null>(null);
+  const unkept = useRef<{ what: string; id: string } | null>(null);
   /**
    * Takes the one write at a time, and gives it up with a word once it has
    * outlasted the bound, so the next press is an answer rather than a silence.
    */
-  function startKeeping(note: string, kind: string) {
+  function startKeeping(what: string) {
     const turn = {};
-    const same = unkept.current?.note === note && unkept.current.kind === kind;
-    const id = same ? unkept.current!.id : uuidv7();
+    const stuck = unkept.current;
+    const id = stuck?.what === what ? stuck.id : uuidv7();
     keeping.current = turn;
     const timer = setTimeout(() => {
       if (keeping.current !== turn) return;
       keeping.current = null;
-      unkept.current = { note, kind, id };
+      unkept.current = { what, id };
       setRefused(notKeptInTime(outbox.keepingStep(id)));
     }, KEEP_BOUND_MS);
     return {
@@ -765,7 +761,9 @@ export function CaptureNote({
     // One write at a time, so a second press during it cannot keep the same
     // note twice.
     if (keeping.current) return;
-    const { id, over, kept } = startKeeping(trimmed, 'capture');
+    const { id, over, kept } = startKeeping(
+      JSON.stringify(['capture', trimmed, targetWorkspace, belongsTo !== null, priorityAtSubmit, dueAtSubmit, panelIds, queuedAtSubmit.map((one) => one.id)]),
+    );
     // Before the write, since sending starts behind it and can land first.
     madeHere.current.add(id);
     // Said as it is pressed, not as it lands: the share has done its work then,
@@ -826,7 +824,9 @@ export function CaptureNote({
    */
   function addToLast(target: Captured, trimmed: string) {
     if (keeping.current) return;
-    const { id: additionId, over, kept } = startKeeping(trimmed, `addition to ${target.id}`);
+    const { id: additionId, over, kept } = startKeeping(
+      JSON.stringify(['addition', target.id, trimmed, queued.map((one) => one.id), priority, due]),
+    );
     const queuedAtSubmit = queued;
     const priorityAtSubmit = priority;
     const dueAtSubmit = due;

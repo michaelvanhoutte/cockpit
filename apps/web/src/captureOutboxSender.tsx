@@ -195,8 +195,8 @@ type PassResult = 'clear' | 'waits';
 /** What sending one entry came to: done with for now, the connection gone, or its words not to be had yet. */
 type EntryResult = 'done' | 'waits' | 'skipped';
 
-/** Where a write to the outbox is, for saying where one is stuck: its files read, the entry stored, or what is stored read back. */
-export type KeepingStep = 'files' | 'store' | 'readback';
+/** Where a write to the outbox is, for saying where one is stuck: its files read, or the entry stored. */
+export type KeepingStep = 'files' | 'store';
 
 export class CaptureOutbox {
   /** The step each write in progress is on; gone once it settles. */
@@ -326,7 +326,7 @@ export class CaptureOutbox {
     const turn = {};
     const at = (step: KeepingStep) => {
       const now = this.steps.get(capture.id);
-      if (!now || now.turn === turn) this.steps.set(capture.id, { turn, step });
+      if (now?.turn === turn) this.steps.set(capture.id, { turn, step });
     };
     this.steps.set(capture.id, { turn, step: 'files' });
     try {
@@ -374,8 +374,8 @@ export class CaptureOutbox {
     };
     at('store');
     await this.deps.store.put(entry);
-    at('readback');
-    await this.changedHere();
+    // Stored is kept: drawing it, and sending it, are never waited for, so storage that stalls after the write cannot hold the box.
+    void this.changedHere().catch(() => {});
     void this.send();
   }
 

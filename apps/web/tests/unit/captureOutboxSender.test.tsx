@@ -433,36 +433,26 @@ describe('Offline', () => {
   });
 
   describe('a write that does not finish says which step it is stuck at', () => {
-    /** Storage whose write, or its reads once `hang()` is called, never answers. */
-    function stuckStore(which: 'put' | 'all') {
+    it('names storing it', async () => {
       const real = browserOutboxStore();
-      let hanging = which === 'put';
-      return {
-        hang: () => {
-          hanging = true;
-        },
-        store: {
-          ...real,
-          [which]: (...args: never[]) =>
-            hanging ? new Promise<never>(() => {}) : (real[which] as (...a: never[]) => Promise<unknown>)(...args),
-        } as OutboxStore,
-      };
-    }
-
-    it.each([
-      { situation: 'storing it', which: 'put' as const, step: 'store' },
-      { situation: 'reading it back', which: 'all' as const, step: 'readback' },
-    ])('names $situation', async ({ which, step }) => {
-      const stuck = stuckStore(which);
-      const outbox = aTab(aServer(), { store: stuck.store });
-      await settled();
-      stuck.hang();
+      const outbox = aTab(aServer(), { store: { ...real, put: () => new Promise<never>(() => {}) } });
       const note = capture('Ring the plumber');
 
       void outbox.add(note).catch(() => {});
       await settled();
 
-      expect(outbox.keepingStep(note.id)).toBe(step);
+      expect(outbox.keepingStep(note.id)).toBe('store');
+    });
+
+    it('is kept once stored, however long reading it back takes', async () => {
+      const real = browserOutboxStore();
+      let hanging = false;
+      const outbox = aTab(aServer(), { store: { ...real, all: () => (hanging ? new Promise<never>(() => {}) : real.all()) } });
+      await settled();
+      hanging = true;
+      const note = capture('Ring the plumber');
+
+      await expect(outbox.add(note)).resolves.toBeUndefined();
     });
 
     it('names nothing once the write has finished', async () => {
