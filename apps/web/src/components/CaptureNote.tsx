@@ -39,6 +39,17 @@ import { sentEmailsAvailable } from '../api/sentEmails';
 /** *Follow a sent email…* is a chunk of its own, fetched when its entry is first pressed ("Follow a sent email… in Capture", issue 1710). */
 const FollowSentEmail = lazy(() => import('./FollowSentEmail').then((one) => ({ default: one.FollowSentEmail })));
 
+/**
+ * How long Capture waits for the outbox to keep a note before it says so. A write
+ * that never finishes - the browser's storage hanging - used to leave the press
+ * looking like nothing happened and every later press returning silently.
+ */
+export const KEEP_BOUND_MS = 8000;
+
+/** Said under the strip when the note was not kept in time; it is still in the box. */
+export const NOT_KEPT_IN_TIME =
+  'That note did not get kept on this device in time. It is still in the box - press Capture to try again.';
+
 /** Said where that recording could not be kept under the strip, so it stays listed to put back again. */
 export const RECORDING_NOT_PUT_BACK = 'The recording could not be kept here to retry, so it stays listed.';
 
@@ -314,8 +325,41 @@ export function CaptureNote({
   const [queueError, setQueueError] = useState<string | null>(null);
   /** A file being dragged over the form anywhere a drop would queue it. */
   const [filesOver, setFilesOver] = useState(false);
-  /** True while Capture is writing to the outbox. */
-  const keeping = useRef(false);
+  /** The write Capture is waiting on, while it is writing to the outbox. */
+  const keeping = useRef<object | null>(null);
+  /**
+   * The note whose write outlasted `KEEP_BOUND_MS`, with the id it was given. A
+   * press of the same note tries again under that id, so the stuck write, if it
+   * does land late, is the same entry and not a second one.
+   */
+  const unkept = useRef<{ note: string; id: string } | null>(null);
+  /**
+   * Takes the one write at a time, and gives it up with a word once it has
+   * outlasted the bound, so the next press is an answer rather than a silence.
+   */
+  function startKeeping(note: string) {
+    const turn = {};
+    const id = unkept.current?.note === note ? unkept.current.id : uuidv7();
+    keeping.current = turn;
+    const timer = setTimeout(() => {
+      if (keeping.current !== turn) return;
+      keeping.current = null;
+      unkept.current = { note, id };
+      setRefused(NOT_KEPT_IN_TIME);
+    }, KEEP_BOUND_MS);
+    return {
+      id,
+      /** The write is over, however it ended. */
+      over: () => {
+        clearTimeout(timer);
+        if (keeping.current === turn) keeping.current = null;
+      },
+      /** The note is kept, so a press of it again is a new note. */
+      kept: () => {
+        if (unkept.current?.id === id) unkept.current = null;
+      },
+    };
+  }
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
@@ -709,8 +753,7 @@ export function CaptureNote({
     // One write at a time, so a second press during it cannot keep the same
     // note twice.
     if (keeping.current) return;
-    keeping.current = true;
-    const id = uuidv7();
+    const { id, over, kept } = startKeeping(trimmed);
     // Before the write, since sending starts behind it and can land first.
     madeHere.current.add(id);
     // Said as it is pressed, not as it lands: the share has done its work then,
@@ -721,6 +764,7 @@ export function CaptureNote({
       .then(
         () => {
           // Only now, with the note kept: a write that never finished leaves it in the box.
+          kept();
           for (const file of queuedAtSubmit) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
           emptied();
           setLast(captured(id));
@@ -733,9 +777,7 @@ export function CaptureNote({
           sendDirectly();
         },
       )
-      .finally(() => {
-        keeping.current = false;
-      });
+      .finally(over);
 
     /** Where the outbox cannot be written: sent at once, and refused offline, as before it existed. */
     function sendDirectly() {
@@ -772,11 +814,10 @@ export function CaptureNote({
    */
   function addToLast(target: Captured, trimmed: string) {
     if (keeping.current) return;
-    keeping.current = true;
+    const { id: additionId, over, kept } = startKeeping(trimmed);
     const queuedAtSubmit = queued;
     const priorityAtSubmit = priority;
     const dueAtSubmit = due;
-    const additionId = uuidv7();
     const what = {
       message: trimmed,
       workspaceId: target.workspaceId,
@@ -811,6 +852,7 @@ export function CaptureNote({
       })
       .then(
         () => {
+          kept();
           for (const file of queuedAtSubmit) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
           emptied();
           added();
@@ -848,9 +890,7 @@ export function CaptureNote({
           );
         },
       )
-      .finally(() => {
-        keeping.current = false;
-      });
+      .finally(over);
   }
 
   /**
