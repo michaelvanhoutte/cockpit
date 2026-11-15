@@ -8,6 +8,8 @@ import { MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
 import { CommandRefused, sendCommand, uploadAttachment } from '../../../src/api/client';
 import {
   CaptureNote,
+  KEEP_BOUND_MS,
+  notKeptInTime,
   NO_WORKSPACE,
   STILL_LISTED,
   pasteKeyFor,
@@ -181,6 +183,7 @@ async function thePage({
   startsOn = null,
   heldMutation = false,
   store = browserOutboxStore(),
+  online = true,
   dictating,
   arrived,
   onPutOn,
@@ -221,6 +224,8 @@ async function thePage({
   heldMutation?: boolean;
   /** Where the outbox is kept: the fake IndexedDB, unless a case says storage is unavailable. */
   store?: OutboxStore;
+  /** Whether the outbox may try to send: false for working offline, so what is captured waits. */
+  online?: boolean;
   /** What the browser records with and the Worker transcribes with; no recorder, as in a browser that cannot record. */
   dictating?: {
     record?: StartRecording | null;
@@ -266,7 +271,7 @@ async function thePage({
     store,
     sender: serverSender,
     lock: inTabLock(),
-    online: () => true,
+    online: () => online,
     timeoutMs: 500,
   });
   outbox.signedInAs('user-michael');
@@ -565,6 +570,166 @@ describe('Capture', () => {
 
       await waitFor(() => expect(box()).toHaveValue(''));
       await waitFor(() => expect(screen.getByText('2 waiting to send')).toBeVisible());
+    });
+
+    it('keeps a second capture made while the first still waits, with no connection, and reads 2 waiting to send', async () => {
+      const user = await thePage({ online: false });
+
+      await user.type(box(), 'The first one');
+      await user.click(chip('Capture'));
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await user.type(box(), 'The second one');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(box()).toHaveValue(''));
+      await waitFor(() => expect(screen.getByText('2 waiting to send')).toBeVisible());
+      expect(sendCommand).not.toHaveBeenCalled();
+    });
+
+    it('keeps a capture made on a page opened again over a note already waiting, with no connection', async () => {
+      const first = await thePage({ online: false });
+      await first.type(box(), 'The first one');
+      await first.click(chip('Capture'));
+      await screen.findByText('1 waiting to send');
+
+      const user = await reloaded(first, { online: false });
+      await user.type(box(), 'The second one');
+      await user.click(chip('Capture'));
+
+      await waitFor(() => expect(box()).toHaveValue(''));
+      expect(await screen.findByText('2 waiting to send', {}, { timeout: 2_000 })).toBeVisible();
+    });
+
+    /**
+     * A write the browser's storage never answers used to leave every press
+     * returning without a word.
+     */
+    describe('a note the outbox does not keep in time is said not to be, and stays in the box', () => {
+      /** Storage whose writes hang until `release` lets them through. */
+      function hangingStore() {
+        const real = browserOutboxStore();
+        const writes: { entry: Parameters<OutboxStore['put']>[0]; let: () => void }[] = [];
+        return {
+          writes,
+          store: {
+            ...real,
+            put: (entry) =>
+              new Promise<void>((resolve) => {
+                writes.push({ entry, let: () => void real.put(entry).then(resolve) });
+              }),
+          } satisfies OutboxStore,
+        };
+      }
+      const pressed = (note: string) => {
+        fireEvent.change(box(), { target: { value: note } });
+        fireEvent.submit(box().closest('form')!);
+      };
+
+      afterEach(() => vi.useRealTimers());
+
+      it('says so once the write has outlasted the bound, with the note still in the box', async () => {
+        const { store, writes } = hangingStore();
+        const user = await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        pressed('The first one');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS - 1));
+        expect(screen.queryByRole('alert')).toBeNull();
+        await act(() => vi.advanceTimersByTimeAsync(1));
+
+        expect(screen.getByRole('alert')).toHaveTextContent(notKeptInTime('store'));
+        expect(box()).toHaveValue('The first one');
+        expect(writes).toHaveLength(1);
+      });
+
+      it('answers a press made after that with another try, under the same entry, never a second note', async () => {
+        const { store, writes } = hangingStore();
+        const user = await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        pressed('The first one');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+        pressed('The first one');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+
+        expect(writes).toHaveLength(2);
+        expect(writes[1]!.entry.id).toBe(writes[0]!.entry.id);
+        expect(screen.getByRole('alert')).toHaveTextContent(notKeptInTime('store'));
+        expect(box()).toHaveValue('The first one');
+      });
+
+      it('gives an Add to this a new entry of its own, never the hung capture\'s', async () => {
+        const real = browserOutboxStore();
+        const ids: string[] = [];
+        let hangNext = false;
+        const store: OutboxStore = {
+          ...real,
+          put: (entry) => {
+            ids.push(entry.id);
+            return hangNext ? new Promise<never>(() => {}) : real.put(entry);
+          },
+        };
+        const user = await thePage({ store });
+        await user.type(box(), 'First');
+        await user.click(chip('Capture'));
+        await screen.findByText(/^Captured “/);
+        hangNext = true;
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+        vi.useRealTimers();
+        fireEvent.click(screen.getByRole('button', { name: /Add to this/ }));
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        fireEvent.submit(box().closest('form')!);
+        await act(() => vi.advanceTimersByTimeAsync(10));
+
+        // The first capture, the capture of X that hung, and the addition: three entries (the first is written again as it lands).
+        expect(new Set(ids).size).toBe(3);
+      });
+
+      it.each([
+        { situation: 'the identical capture', change: () => {}, same: true },
+        { situation: 'a different priority', change: () => fireEvent.click(screen.getByRole('button', { name: /^High/ })), same: false },
+      ])('tries again under $situation as the same entry only when it is $same', async ({ change, same }) => {
+        const { store, writes } = hangingStore();
+        await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+
+        change();
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(10));
+
+        expect(writes).toHaveLength(2);
+        expect(writes[1]!.entry.id === writes[0]!.entry.id).toBe(same);
+      });
+
+      it('takes the note out of the box, and the line away, when the write does finish late', async () => {
+        const { store, writes } = hangingStore();
+        const user = await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        pressed('The first one');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+        vi.useRealTimers();
+        writes[0]!.let();
+
+        await waitFor(() => expect(box()).toHaveValue(''));
+        expect(screen.queryByRole('alert')).toBeNull();
+      });
+
+      it('ignores a second press before the bound, so the one note is not kept twice', async () => {
+        const { store, writes } = hangingStore();
+        const user = await thePage({ store });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        pressed('The first one');
+        pressed('The first one');
+        await act(() => vi.advanceTimersByTimeAsync(10));
+
+        expect(writes).toHaveLength(1);
+      });
     });
 
     /** Inferred: a private window, or storage refused, still captures - the old way. */

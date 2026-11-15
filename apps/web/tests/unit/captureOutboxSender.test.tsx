@@ -432,6 +432,64 @@ describe('Offline', () => {
     });
   });
 
+  describe('a write that does not finish says which step it is stuck at', () => {
+    it('names storing it', async () => {
+      const real = browserOutboxStore();
+      const outbox = aTab(aServer(), { store: { ...real, put: () => new Promise<never>(() => {}) } });
+      const note = capture('Ring the plumber');
+
+      void outbox.add(note).catch(() => {});
+      await settled();
+
+      expect(outbox.keepingStep(note.id)).toBe('store');
+    });
+
+    it('is kept once stored, however long reading it back takes', async () => {
+      const real = browserOutboxStore();
+      let hanging = false;
+      const outbox = aTab(aServer(), { store: { ...real, all: () => (hanging ? new Promise<never>(() => {}) : real.all()) } });
+      await settled();
+      hanging = true;
+      const note = capture('Ring the plumber');
+
+      await expect(outbox.add(note)).resolves.toBeUndefined();
+    });
+
+    it('names nothing once the write has finished', async () => {
+      const outbox = aTab(aServer());
+      const note = capture('Ring the plumber');
+
+      await outbox.add(note);
+
+      expect(outbox.keepingStep(note.id)).toBeUndefined();
+    });
+
+    it('keeps a try again\'s step when the write it replaced settles later', async () => {
+      const real = browserOutboxStore();
+      const release: (() => void)[] = [];
+      let first = true;
+      const store: OutboxStore = {
+        ...real,
+        put: (entry) => {
+          if (!first) return new Promise<never>(() => {});
+          first = false;
+          return new Promise<void>((resolve) => release.push(() => void real.put(entry).then(resolve)));
+        },
+      };
+      const outbox = aTab(aServer(), { store });
+      const note = capture('Ring the plumber');
+      void outbox.add(note).catch(() => {});
+      await settled();
+      void outbox.add(note).catch(() => {});
+      await settled();
+
+      release[0]!();
+      await settled();
+
+      expect(outbox.keepingStep(note.id)).toBe('store');
+    });
+  });
+
   describe('a tab that dies mid-send leaves a capture the next tab finishes', () => {
     it('clears one that landed whole but was never forgotten, without sending it again', async () => {
       const server = aServer();

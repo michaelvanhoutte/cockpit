@@ -195,7 +195,12 @@ type PassResult = 'clear' | 'waits';
 /** What sending one entry came to: done with for now, the connection gone, or its words not to be had yet. */
 type EntryResult = 'done' | 'waits' | 'skipped';
 
+/** Where a write to the outbox is, for saying where one is stuck: its files read, or the entry stored. */
+export type KeepingStep = 'files' | 'store';
+
 export class CaptureOutbox {
+  /** The step each write in progress is on; gone once it settles. */
+  private readonly steps = new Map<string, { turn: object; step: KeepingStep }>();
   private entries: OutboxEntry[] = [];
   private shown: OutboxEntry[] = [];
   private owner: string | null = null;
@@ -317,6 +322,26 @@ export class CaptureOutbox {
   async add(capture: NewCapture): Promise<void> {
     const owner = this.owner;
     if (owner === null) throw new Error('nobody is signed in to keep a capture for');
+    // A hung write and its retry share an id, so each only moves or ends its own step.
+    const turn = {};
+    const at = (step: KeepingStep) => {
+      const now = this.steps.get(capture.id);
+      if (now?.turn === turn) this.steps.set(capture.id, { turn, step });
+    };
+    this.steps.set(capture.id, { turn, step: 'files' });
+    try {
+      await this.keep(capture, owner, at);
+    } finally {
+      if (this.steps.get(capture.id)?.turn === turn) this.steps.delete(capture.id);
+    }
+  }
+
+  /** The step a write of this capture is on, while it has not settled. */
+  keepingStep(id: string): KeepingStep | undefined {
+    return this.steps.get(id)?.step;
+  }
+
+  private async keep(capture: NewCapture, owner: string, at: (step: KeepingStep) => void): Promise<void> {
     const files: WaitingFile[] = await Promise.all(
       capture.files.map(async ({ id, file }) => ({
         id,
@@ -347,8 +372,10 @@ export class CaptureOutbox {
       landed: false,
       refused: null,
     };
+    at('store');
     await this.deps.store.put(entry);
-    await this.changedHere();
+    // Stored is kept: drawing it, and sending it, are never waited for, so storage that stalls after the write cannot hold the box.
+    void this.changedHere().catch(() => {});
     void this.send();
   }
 
