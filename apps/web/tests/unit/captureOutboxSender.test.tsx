@@ -433,26 +433,36 @@ describe('Offline', () => {
   });
 
   describe('a write that does not finish says which step it is stuck at', () => {
-    /** Storage whose read or write, as named, never answers. */
-    const stuckAt = (which: 'put' | 'all'): OutboxStore => {
+    /** Storage whose write, or its reads once `hang()` is called, never answers. */
+    function stuckStore(which: 'put' | 'all') {
       const real = browserOutboxStore();
-      return { ...real, [which]: () => new Promise<never>(() => {}) } as OutboxStore;
-    };
+      let hanging = which === 'put';
+      return {
+        hang: () => {
+          hanging = true;
+        },
+        store: {
+          ...real,
+          [which]: (...args: never[]) =>
+            hanging ? new Promise<never>(() => {}) : (real[which] as (...a: never[]) => Promise<unknown>)(...args),
+        } as OutboxStore,
+      };
+    }
 
     it.each([
       { situation: 'storing it', which: 'put' as const, step: 'store' },
       { situation: 'reading it back', which: 'all' as const, step: 'readback' },
     ])('names $situation', async ({ which, step }) => {
-      const server = aServer();
-      const outbox = aTab(server, { store: stuckAt(which) });
+      const stuck = stuckStore(which);
+      const outbox = aTab(aServer(), { store: stuck.store });
+      await settled();
+      stuck.hang();
       const note = capture('Ring the plumber');
 
       void outbox.add(note).catch(() => {});
       await settled();
 
-      // `all` is read once on its own before the write, so only a hang after the put reaches its read back.
-      if (which === 'all') expect(['store', 'readback']).toContain(outbox.keepingStep(note.id));
-      else expect(outbox.keepingStep(note.id)).toBe(step);
+      expect(outbox.keepingStep(note.id)).toBe(step);
     });
 
     it('names nothing once the write has finished', async () => {
@@ -464,29 +474,29 @@ describe('Offline', () => {
       expect(outbox.keepingStep(note.id)).toBeUndefined();
     });
 
-    it('sends a try again after one that hung as the same command, at the time first captured', async () => {
-      const server = aServer();
-      server.reachable = false;
+    it('keeps a try again\'s step when the write it replaced settles later', async () => {
       const real = browserOutboxStore();
-      const written: { commandId: string; capturedAt: string }[] = [];
-      let hang = true;
+      const release: (() => void)[] = [];
+      let first = true;
       const store: OutboxStore = {
         ...real,
         put: (entry) => {
-          written.push({ commandId: entry.commandId, capturedAt: entry.capturedAt });
-          return hang ? new Promise<never>(() => {}) : real.put(entry);
+          if (!first) return new Promise<never>(() => {});
+          first = false;
+          return new Promise<void>((resolve) => release.push(() => void real.put(entry).then(resolve)));
         },
       };
-      const outbox = aTab(server, { store });
+      const outbox = aTab(aServer(), { store });
       const note = capture('Ring the plumber');
       void outbox.add(note).catch(() => {});
       await settled();
-      hang = false;
+      void outbox.add(note).catch(() => {});
+      await settled();
 
-      await outbox.add(note);
+      release[0]!();
+      await settled();
 
-      expect(written).toHaveLength(2);
-      expect(written[1]).toEqual(written[0]);
+      expect(outbox.keepingStep(note.id)).toBe('store');
     });
   });
 

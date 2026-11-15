@@ -658,6 +658,40 @@ describe('Capture', () => {
         expect(box()).toHaveValue('The first one');
       });
 
+      it('gives an Add to this a new entry of its own, never the hung capture\'s', async () => {
+        const real = browserOutboxStore();
+        const ids: string[] = [];
+        let hangNext = false;
+        const store: OutboxStore = {
+          ...real,
+          put: (entry) => {
+            ids.push(entry.id);
+            return hangNext ? new Promise<never>(() => {}) : real.put(entry);
+          },
+        };
+        const user = await thePage({ store });
+        await user.type(box(), 'First');
+        await user.click(chip('Capture'));
+        await screen.findByText(/^Captured “/);
+        hangNext = true;
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        pressed('X');
+        await act(() => vi.advanceTimersByTimeAsync(KEEP_BOUND_MS));
+        vi.useRealTimers();
+        fireEvent.click(screen.getByRole('button', { name: /Add to this/ }));
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        fireEvent.submit(box().closest('form')!);
+        await act(() => vi.advanceTimersByTimeAsync(10));
+
+        // The first capture, the capture of X that hung, and the addition: three entries (the first is written again as it lands).
+        expect(new Set(ids).size).toBe(3);
+      });
+
+      it('says a note stuck at reading back is stored, and keeps one entry across the try again', () => {
+        expect(notKeptInTime('readback')).toMatch(/stored on this device/);
+        expect(notKeptInTime('readback')).not.toMatch(/did not get kept/);
+      });
+
       it('takes the note out of the box, and the line away, when the write does finish late', async () => {
         const { store, writes } = hangingStore();
         const user = await thePage({ store });
