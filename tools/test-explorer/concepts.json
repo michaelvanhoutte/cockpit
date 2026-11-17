@@ -681,7 +681,8 @@
         "apps/web/src/components/OfflineMark.tsx",
         "apps/web/src/opening.tsx",
         "apps/web/src/captureOutbox.ts",
-        "apps/web/src/captureOutboxSender.tsx"
+        "apps/web/src/captureOutboxSender.tsx",
+        "apps/web/src/onDeviceStore.ts"
       ]
     },
     {

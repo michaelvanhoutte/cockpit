@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { createStore, del, set, values, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
 import { ACCOUNT_WIDE, uuidv7, type CommandResult, type Priority } from '@cockpit/shared';
 import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
 import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
+import { createDeviceStore, del, onPage, pageIsFrozen, set, values } from './onDeviceStore';
 import { currentStanding, onStandingChange } from './offline';
 import {
   ADDITION_ENTRY_VERSION,
@@ -62,7 +63,7 @@ export interface OutboxStore {
  */
 export function browserOutboxStore(): OutboxStore {
   let store: UseStore | null = null;
-  const open = () => (store ??= createStore('cockpit-capture-outbox', 'entries'));
+  const open = () => (store ??= createDeviceStore('cockpit-capture-outbox', 'entries'));
   return {
     all: async () => values(open()),
     put: async (entry) => set(entry.id, entry, open()),
@@ -100,8 +101,11 @@ export const serverSender: Sender = {
     (await import('./api/transcription')).transcribeRecording(recording, signal),
 };
 
-/** Runs a pass with no other tab's pass running at the same time. */
-export type Lock = <T>(work: () => Promise<T>) => Promise<T>;
+/**
+ * Runs a pass with no other tab's pass running at the same time. A `signal` ends a request still
+ * waiting for its turn, so a page about to be frozen is not granted it.
+ */
+export type Lock = <T>(work: () => Promise<T>, signal?: AbortSignal) => Promise<T>;
 
 /** One at a time within this tab alone: what a browser without Web Locks gets. */
 export function inTabLock(): Lock {
@@ -117,7 +121,8 @@ export function inTabLock(): Lock {
 export function browserLock(name = 'cockpit-capture-outbox'): Lock {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return inTabLock();
-  return <T,>(work: () => Promise<T>) => locks.request(name, work) as Promise<T>;
+  return <T,>(work: () => Promise<T>, signal?: AbortSignal) =>
+    locks.request(name, signal ? { signal } : {}, work) as Promise<T>;
 }
 
 /**
@@ -208,12 +213,16 @@ export class CaptureOutbox {
   private readonly landings = new Set<(landing: Landing) => void>();
   private running: Promise<void> | null = null;
   private again = false;
+  /** Whether a pass in progress was cut short by the page being frozen. */
+  private interrupted = false;
   private wait: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the last pass waited on a server that answered (429, 5xx and the like) rather than on no answer at all. */
   private waitedOnAnAnswer = false;
+  /** Every request for the turn to send still waiting, so a page about to be frozen can withdraw them. */
+  private readonly turnRequests = new Set<AbortController>();
   /** Every send in flight, so a confirmed sign-out can stop them. */
-  private readonly inFlight = new Set<AbortController>();
+  private readonly inFlight = new Map<AbortController, () => void>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
   private reads = 0;
   /** The entry whose note is on its way to the server in this tab right now. */
@@ -231,6 +240,8 @@ export class CaptureOutbox {
       /** Told whenever this tab changed what is stored or landed a capture, for the other tabs. */
       announce?: (news: OutboxNews) => void;
       timeoutMs?: number;
+      /** Whether this page is frozen or leaving, when nothing is sent ("Capture stops keeping notes while Cockpit is also open in a frozen background tab on Android: let go of the phone's storage when hidden, and pick it up on return", issue 1804).  A page only hidden keeps sending. */
+      frozen?: () => boolean;
     },
   ) {}
 
@@ -311,7 +322,27 @@ export class CaptureOutbox {
   }
 
   private abortInFlight(): void {
-    for (const sending of this.inFlight) sending.abort();
+    for (const sending of this.inFlight.keys()) sending.abort();
+  }
+
+  /**
+   * The page is about to be frozen or discarded (not merely hidden): whatever is being
+   * sent is given up on and its turn to send released, so a capture kept in
+   * the copy in front is not held behind this one's lock. Given up on as
+   * waiting, never refused - the capture goes out when the page is
+   * running again, which `send` then does.
+   */
+  freeze(): void {
+    this.interrupted = this.running !== null;
+    this.clearTimer();
+    // A request still waiting for its turn must not be granted to a page that is frozen.
+    for (const asking of this.turnRequests) asking.abort();
+    // Ended, not only aborted: a send that does not look at its signal must not keep the turn to send.
+    for (const giveUp of [...this.inFlight.values()]) giveUp();
+  }
+
+  private away(): boolean {
+    return this.deps.frozen?.() ?? false;
   }
 
   /**
@@ -482,6 +513,8 @@ export class CaptureOutbox {
    * the meantime is not left for the timer.
    */
   send(): Promise<void> {
+    // Nothing starts while frozen; running again sends.
+    if (this.away()) return this.running ?? Promise.resolve();
     if (this.running) {
       this.again = true;
       return this.running;
@@ -494,14 +527,24 @@ export class CaptureOutbox {
         // through, when another try at once would only fail the same way.
         do {
           this.again = false;
-          result = await this.deps.lock(() => this.pass());
+          const asking = new AbortController();
+          this.turnRequests.add(asking);
+          try {
+            result = await this.deps.lock(() => this.pass(), asking.signal);
+          } finally {
+            this.turnRequests.delete(asking);
+          }
         } while (this.again && result !== 'waits');
       } catch {
         result = 'waits';
       } finally {
         this.running = null;
       }
-      if (result === 'waits' && this.owner !== null) this.tryAgainLater();
+      const cutShort = this.interrupted;
+      this.interrupted = false;
+      // Running again while the pass cut short by the freeze was still ending: its retry is now, not on the backoff.
+      if (result === 'waits' && cutShort && this.again && !this.away()) void this.send();
+      else if (result === 'waits' && this.owner !== null) this.tryAgainLater();
       else {
         this.wait = null;
         this.waitedOnAnAnswer = false;
@@ -676,14 +719,17 @@ export class CaptureOutbox {
 
   /** Runs one send, aborting it and giving up once it has taken `ms`. */
   private timed<T>(send: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+    // Frozen: not started, and kept waiting like one that timed out.
+    if (this.away()) return Promise.reject(new TimedOut());
     const sending = new AbortController();
-    this.inFlight.add(sending);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
+      const giveUp = () => {
         reject(new TimedOut());
         sending.abort();
-      }, ms);
+      };
+      this.inFlight.set(sending, giveUp);
+      timer = setTimeout(giveUp, ms);
     });
     return Promise.race([send(sending.signal), late]).finally(() => {
       clearTimeout(timer);
@@ -693,6 +739,8 @@ export class CaptureOutbox {
 
   private tryAgainLater(): void {
     this.clearTimer();
+    // Frozen, nothing is timed, and the wait is not lengthened by it; running again sends.
+    if (this.away()) return;
     this.wait = nextWait(this.wait);
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -750,6 +798,7 @@ function theAppWideOutbox(): CaptureOutbox {
     sender: serverSender,
     lock: browserLock(),
     online: mayReachServer,
+    frozen: pageIsFrozen,
     announce: (news) => channel?.postMessage(news),
   });
   channel?.addEventListener('message', (event: MessageEvent<OutboxNews>) => outbox.heard(event.data));
@@ -804,9 +853,8 @@ export function useSendingCaptures(owner: string | null): void {
 
   useEffect(() => {
     const kick = () => void outbox.send();
-    const backInView = () => {
-      if (document.visibilityState === 'visible') kick();
-    };
+    // About to be frozen or discarded: let go of the turn to send; send again once running (or shown).
+    const stopWatching = onPage((frozen) => (frozen ? outbox.freeze() : kick()));
     // Something of the app's own got through, so the connection is back
     // whatever the browser said - the lie-fi case. Not after the server
     // itself answered and asked for patience, which the backoff waits out. A
@@ -824,7 +872,6 @@ export function useSendingCaptures(owner: string | null): void {
       if (wasChosen.now && !chosen) kick();
       wasChosen.now = chosen;
     });
-    document.addEventListener('visibilitychange', backInView);
     const fromQueries = queryClient.getQueryCache().subscribe(succeeded);
     const fromChanges = queryClient.getMutationCache().subscribe(succeeded);
     // What a landed capture changes is read once per tab, the way an announcement
@@ -841,7 +888,7 @@ export function useSendingCaptures(owner: string | null): void {
     return () => {
       window.removeEventListener('online', kick);
       goneOnline();
-      document.removeEventListener('visibilitychange', backInView);
+      stopWatching();
       fromQueries();
       fromChanges();
       landed();

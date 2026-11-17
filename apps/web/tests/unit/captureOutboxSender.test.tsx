@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
@@ -19,6 +19,7 @@ import {
   type OutboxStore,
   type Sender,
 } from '../../src/captureOutboxSender';
+import { pageIsFrozen } from '../../src/onDeviceStore';
 import { deviceIsIn } from './support/timeZone';
 
 /**
@@ -144,6 +145,7 @@ function aTab(
     store = browserOutboxStore(),
     announce = undefined as ((news: OutboxNews) => void) | undefined,
     sender = server.sender,
+    frozen = undefined as (() => boolean) | undefined,
   } = {},
 ) {
   const outbox = new CaptureOutbox({
@@ -153,6 +155,7 @@ function aTab(
     online: () => server.online,
     timeoutMs: 1_000,
     ...(announce ? { announce } : {}),
+    ...(frozen ? { frozen } : {}),
   });
   outbox.signedInAs(owner);
   return outbox;
@@ -1179,6 +1182,235 @@ describe('Offline', () => {
       expect(next.getShown()).toEqual([]);
       expect(await browserOutboxStore().all()).toEqual([]);
       next.stop();
+    });
+  });
+
+  describe('a copy of Cockpit about to be frozen does not hold up sending, and one merely hidden keeps sending', () => {
+    const tab = (event: 'hidden' | 'visible' | 'freeze' | 'pagehide' | 'resume' | 'pageshow') => {
+      if (event === 'hidden' || event === 'visible') {
+        Object.defineProperty(document, 'visibilityState', { value: event, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      } else if (event === 'pagehide' || event === 'pageshow') window.dispatchEvent(new Event(event));
+      else document.dispatchEvent(new Event(event));
+    };
+    afterEach(() => {
+      // Unmounted first, so putting the page back kicks no outbox into the next case.
+      cleanup();
+      tab('visible');
+    });
+
+    /** A lock that says whether its turn is held, as another tab would find out by waiting. */
+    function aLockWatched() {
+      const inner = inTabLock();
+      const watched = { held: false, lock: null as unknown as Lock };
+      watched.lock = <T,>(work: () => Promise<T>) =>
+        inner(async () => {
+          watched.held = true;
+          try {
+            return await work();
+          } finally {
+            watched.held = false;
+          }
+        });
+      return watched;
+    }
+
+    it.each([
+      { situation: 'the page is about to be frozen', going: () => tab('freeze') },
+      { situation: 'the page is leaving', going: () => tab('pagehide') },
+    ])('stops a send in progress when $situation, lets go of its turn, and keeps the capture waiting, never refused', async ({ going }) => {
+      const server = aServer();
+      // A send that never answers and ignores being aborted: only the outbox itself can end it.
+      let hangs = true;
+      const sender: Sender = {
+        ...server.sender,
+        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
+      };
+      const watched = aLockWatched();
+      const outbox = aTab(server, { lock: watched.lock, sender, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(watched.held).toBe(true);
+
+      await act(async () => {
+        going();
+        await settled();
+      });
+
+      expect(watched.held).toBe(false);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      expect(messages(server)).toEqual([]);
+
+      hangs = false;
+      await act(async () => {
+        tab('resume');
+        await settled();
+      });
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it.each([
+      { situation: 'the page resumes', back: () => tab('resume') },
+      { situation: 'the page is shown again', back: () => tab('pageshow') },
+      { situation: 'the page becomes visible', back: () => tab('visible') },
+    ])('sends what waited when $situation', async ({ back }) => {
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      tab('freeze');
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(messages(server)).toEqual([]);
+
+      await act(async () => {
+        back();
+        await settled();
+      });
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it('withdraws its wait for the turn to send when the page is about to be frozen, and the capture stays waiting', async () => {
+      const server = aServer();
+      // Another tab holds the turn: this one's request queues behind it.
+      const signals: (AbortSignal | undefined)[] = [];
+      const queued: Lock = (work, signal) => {
+        signals.push(signal);
+        return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+      };
+      const outbox = aTab(server, { lock: queued, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(signals[0]?.aborted).toBe(false);
+
+      await act(async () => {
+        tab('freeze');
+        await settled();
+      });
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      outbox.stop();
+    });
+
+    it('sends at once on resuming while the pass the freeze cut short is still ending', async () => {
+      const server = aServer();
+      let hangs = true;
+      const sender: Sender = {
+        ...server.sender,
+        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
+      };
+      const outbox = aTab(server, { sender, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      await act(async () => {
+        tab('freeze');
+        hangs = false;
+        tab('resume');
+        await settled();
+      });
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it('does not lengthen the wait to the next try because a freeze cut a send short', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      const sender: Sender = { ...server.sender, capture: () => new Promise(() => {}) };
+      const outbox = aTab(server, { sender, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      await act(async () => {
+        tab('freeze');
+        await settled();
+      });
+      server.reachable = false;
+      sender.capture = server.sender.capture;
+      await act(async () => {
+        tab('resume');
+        await settled();
+      });
+      const attempted = server.captureCalls;
+
+      // The first wait, as if nothing had been cut short.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await settled();
+
+      expect(server.captureCalls).toBe(attempted + 1);
+      outbox.stop();
+    });
+
+    it('keeps sending while the page is only hidden', async () => {
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await act(async () => tab('hidden'));
+
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it.each([
+      {
+        situation: 'was already counting down when the page was frozen',
+        arrange: async (outbox: CaptureOutbox) => {
+          await outbox.add(capture('Ring the plumber'));
+          await settled();
+          tab('freeze');
+        },
+      },
+      {
+        situation: 'would have been started by a capture kept while frozen',
+        arrange: async (outbox: CaptureOutbox) => {
+          tab('freeze');
+          await outbox.add(capture('Ring the plumber'));
+          await settled();
+        },
+      },
+    ])('starts no send when the retry $situation', async ({ arrange }) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      server.reachable = false;
+      await arrange(outbox);
+      const attempted = server.captureCalls;
+
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      await settled();
+
+      expect(server.captureCalls).toBe(attempted);
+      outbox.stop();
+    });
+
+    it('sends what waited, oldest first, once running again', async () => {
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      tab('freeze');
+      await outbox.add(capture('First'));
+      await outbox.add(capture('Second'));
+      await settled();
+      expect(messages(server)).toEqual([]);
+
+      await act(async () => {
+        tab('resume');
+        await settled();
+      });
+
+      expect(server.captureOrder).toEqual(['First', 'Second']);
+      outbox.stop();
     });
   });
 });

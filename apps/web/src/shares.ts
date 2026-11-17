@@ -1,4 +1,5 @@
-import { createStore, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
+import { createDeviceStore, settled } from './onDeviceStore';
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
 
 /**
@@ -39,10 +40,17 @@ export interface HoldingArea {
 }
 
 
+/** The page's one connection to the holding area, so each claim does not leave another behind. */
+let heldShares: UseStore | null = null;
+
+/** For a test that swaps the browser's IndexedDB: the next use opens against the new one. */
+export function forgetHeldSharesStore(): void {
+  heldShares = null;
+}
+
 /** The browser's own, opened on first use so a browser with no IndexedDB fails on the read. */
 export function browserHoldingArea(): HoldingArea {
-  let store: UseStore | null = null;
-  const open = () => (store ??= createStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
+  const open = () => (heldShares ??= createDeviceStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
   return {
     // Both settle on the transaction, not on the request: a clear that aborted
     // must not hand over shares that are still held.
@@ -58,14 +66,6 @@ export function browserHoldingArea(): HoldingArea {
         return settled(held.transaction, () => undefined);
       }),
   };
-}
-
-function settled<T>(transaction: IDBTransaction, answer: () => T): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    transaction.oncomplete = () => resolve(answer());
-    transaction.onabort = () => reject(transaction.error ?? new Error('The holding area was not emptied.'));
-    transaction.onerror = () => reject(transaction.error);
-  });
 }
 
 /** Whatever Capture is to put on the note: the words, and the files to queue as chips. */

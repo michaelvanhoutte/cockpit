@@ -1,5 +1,6 @@
 import { hashKey, type Query, type QueryClient } from '@tanstack/react-query';
-import { clear, createStore, del, entries, set, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
+import { clear, createDeviceStore, del, entries, set } from './onDeviceStore';
 import { checkSavedRead, hasCheck } from './savedReads';
 
 /**
@@ -17,10 +18,12 @@ const DATABASE = 'cockpit-saved-reads';
 const STORE = 'reads';
 
 let store: UseStore | undefined;
-const savedReads = () => (store ??= createStore(DATABASE, STORE));
+const savedReads = () => (store ??= createDeviceStore(DATABASE, STORE));
 
 /** The single whole-cache record earlier builds wrote, in idb-keyval's own default database. */
 const OLD_SINGLE_RECORD = 'cockpit-query-cache-v1';
+let oldHome: UseStore | undefined;
+const oldStore = () => (oldHome ??= createDeviceStore('keyval-store', 'keyval'));
 
 /** How long a saved read stays readable offline, counted from when it was saved. */
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -65,7 +68,7 @@ export function savedReadUnusable(queryKey: readonly unknown[]): boolean {
  */
 async function readSaved(now: number): Promise<SavedRead[]> {
   try {
-    await del(OLD_SINGLE_RECORD);
+    await del(OLD_SINGLE_RECORD, oldStore());
   } catch {
     // No usable IndexedDB: nothing was saved, so nothing to remove.
   }

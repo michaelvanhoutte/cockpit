@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { clear, createStore, del, entries, get, set } from 'idb-keyval';
+import { clear,  del, entries, get, set, createDeviceStore } from '../../src/onDeviceStore';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import {
   CACHE_MAX_AGE_MS,
@@ -35,8 +35,10 @@ const WORK = ['snapshot', 'ws-work'];
 const HOME = ['snapshot', 'ws-home'];
 const DAY = 24 * 60 * 60 * 1000;
 
-const savedReads = createStore('cockpit-saved-reads', 'reads');
-const outbox = createStore('cockpit-capture-outbox', 'entries');
+const savedReads = createDeviceStore('cockpit-saved-reads', 'reads');
+/** Where earlier builds kept the single whole-cache record. */
+const oldRecord = createDeviceStore('keyval-store', 'keyval');
+const outbox = createDeviceStore('cockpit-capture-outbox', 'entries');
 
 const titled = (title: string) => aWorkspace([anItem(1, { title })]);
 
@@ -85,7 +87,7 @@ async function open(
 beforeEach(async () => {
   await clear(savedReads);
   await clear(outbox);
-  await del('cockpit-query-cache-v1');
+  await del('cockpit-query-cache-v1', oldRecord);
 });
 
 /** The Workspace as the app draws it: the server's copy with this tab's unanswered changes over it. */
@@ -220,26 +222,26 @@ describe('Offline', () => {
 
   describe('an open that goes to the server still clears out what can no longer be read', () => {
     it('deletes the old single copy and a read saved over a week ago, and draws nothing', async () => {
-      await set('cockpit-query-cache-v1', { clientState: { queries: [] } });
+      await set('cockpit-query-cache-v1', { clientState: { queries: [] } }, oldRecord);
       await saveRead({ queryKey: WORK, data: titled('last month'), savedAt: Date.now() - CACHE_MAX_AGE_MS - DAY });
       await saveRead({ queryKey: HOME, data: titled('yesterday'), savedAt: Date.now() - DAY });
 
       await tidySavedReads();
 
-      expect(await get('cockpit-query-cache-v1')).toBeUndefined();
+      expect(await get('cockpit-query-cache-v1', oldRecord)).toBeUndefined();
       expect(await savedKeys()).toEqual(['snapshot']);
     });
   });
 
   describe('captures waiting to send survive a new version', () => {
     it('deletes the one saved copy earlier versions kept, and leaves the outbox as it was', async () => {
-      await set('cockpit-query-cache-v1', { clientState: { queries: [] } });
+      await set('cockpit-query-cache-v1', { clientState: { queries: [] } }, oldRecord);
       await set('capture-1', { text: 'Call Ann' }, outbox);
 
       await open(offline);
       await screen.findByText('could not reach the server');
 
-      expect(await get('cockpit-query-cache-v1')).toBeUndefined();
+      expect(await get('cockpit-query-cache-v1', oldRecord)).toBeUndefined();
       expect(await get('capture-1', outbox)).toEqual({ text: 'Call Ann' });
     });
   });
