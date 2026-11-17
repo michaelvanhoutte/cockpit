@@ -1,5 +1,8 @@
 import type {
   AgentRun,
+  CommandName,
+  CommandPayload,
+  CommandResult,
   Association,
   Dashboard,
   Filing,
@@ -69,3 +72,18 @@ export type Answer<T> =
   | { status: 'refused'; what: string }
   | { status: 'not-up-to-date'; failure: string }
   | { status: 'allowance-spent' };
+
+/** One command and its payload, as `applyChanges` takes a list of them. */
+export type CommandToRun = { [N in CommandName]: { name: N; payload: CommandPayload<N> } }[CommandName];
+
+/**
+ * What `applyChanges` ran: the result of each command that was applied, in
+ * order, and - where a command was refused partway - which one stopped the
+ * rest and why. **What applied before it stays applied**: each command is its
+ * own transaction, as when a tab sends them one by one.
+ */
+export interface ChangesApplied {
+  results: CommandResult[];
+  /** The command that stopped the call, by its place in the list, and why; absent where every command ran. */
+  stopped?: { at: number; because: 'missing' | 'conflict' | 'refused' | 'unavailable'; what: string };
+}

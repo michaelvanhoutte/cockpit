@@ -29,7 +29,7 @@ import {
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, Answer, CommandToRun, ChangesApplied } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -341,7 +341,7 @@ export interface Account {
   sealedCredential(
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
-  /** An app connected to this account calling `create_item`, `report_run`, `delete_item` or `restore_item`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
+  /** An app connected to this account calling `create_item`, `report_run`, `update_item`, `delete_item` or `restore_item`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** An app connected to this account calling `find_items`, counted apart from capture's: 10 a minute and 500 a day per grant (issue 1242). */
   appFindArrived(grantId: string, at: string): Promise<'admitted' | 'too-many-this-minute' | 'too-many-today'>;
@@ -370,6 +370,13 @@ export interface Account {
     name: N,
     payload: CommandPayload<N>,
   ): Promise<CommandResult>;
+  /**
+   * Several commands run back to back in one call to the store, each as
+   * `applyChange` runs it, stopping at the first one refused and keeping what
+   * applied before it - a connected app's `update_item` (issue 1811). A refusal
+   * partway is in the answer's `stopped`, not thrown.
+   */
+  applyChanges(changes: readonly CommandToRun[]): Promise<ChangesApplied>;
   /**
    * A delivered check of one pulled connection taking its lease, or learning
    * it does nothing ("Check a pulled connector on its cadence through the
@@ -548,6 +555,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     newestChange: async () => unwrap(await store.newestChange(accountName)),
     changesSince: async (since) => unwrap(await store.changesSince(accountName, since)),
     applyChange: async (name, payload) => unwrap(await store.applyChange(accountName, name, payload)),
+    applyChanges: async (changes) => unwrap(await store.applyChanges(accountName, changes)),
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
     checkNow: async (workspaceId, sourceAccountId) =>
       unwrap(await store.checkPulledConnectionNow(accountName, workspaceId, sourceAccountId)),

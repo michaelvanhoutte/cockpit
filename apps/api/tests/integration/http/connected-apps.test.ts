@@ -68,7 +68,7 @@ async function listedTool(token: string): Promise<ListedTool> {
   const answer = await mcp(token, 'tools/list');
   expect(answer.status).toBe(200);
   const { tools } = ((await answer.json()) as { result: { tools: ListedTool[] } }).result;
-  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run', 'find_items', 'delete_item', 'restore_item']);
+  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run', 'find_items', 'update_item', 'delete_item', 'restore_item']);
   return tools[0]!;
 }
 
@@ -206,13 +206,14 @@ describe('MCP connections', () => {
       const { path } = await attempt(app);
       const shown = await SELF.fetch(`${ORIGIN}${path}`, { headers: { cookie: await signInAs(USER_ID) } });
       const page = await shown.text();
-      expect(page).toContain('Allow Claude to create and read items in your Cockpit?');
+      expect(page).toContain('Allow Claude to create, read and change items in your Cockpit?');
       // What it will be able to see, said plainly: the names it is told.
       expect(page).toContain('see the names of your workspaces and types');
       expect(page).not.toContain('cannot read');
       // And that it can read the items themselves, which it once said it could not.
       expect(page).toContain('read your items in every workspace');
-      expect(page).toContain('It can dismiss your items, as a swipe does');
+      expect(page).toContain('It can change your items: their title, next action, description, priority, due date and status');
+      expect(page).toContain('It can also dismiss your items, as a swipe does');
       expect(page).not.toContain('delete');
       expect(page).toContain('its attached files, which it is given links to open for an hour');
       expect(page).not.toContain('cannot see your items');
@@ -281,7 +282,7 @@ describe('MCP connections', () => {
       const session = cookiesFrom(signedIn).find((c) => c.startsWith('cockpit_session='))!;
       const shown = await SELF.fetch(`${ORIGIN}${signedIn.headers.get('location')}`, { headers: { cookie: session } });
       expect(shown.status).toBe(200);
-      expect(await shown.text()).toContain('Allow Claude to create and read items in your Cockpit?');
+      expect(await shown.text()).toContain('Allow Claude to create, read and change items in your Cockpit?');
     });
 
     it('asks somebody not signed in to sign in first, where the request is too long to bring back', async () => {

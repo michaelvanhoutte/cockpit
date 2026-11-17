@@ -20,6 +20,14 @@ import {
   readItemId,
   restoreItemTool,
 } from './delete-item.js';
+import {
+  UPDATE_ITEM,
+  describeUpdate,
+  planUpdate,
+  readUpdate,
+  updateItemTool,
+  waitTimeZone,
+} from './update-item.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -37,11 +45,12 @@ import type { FoundPage } from '../domain/item-search.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Five tools, `create_item`, `report_run` (issue 1160), `find_items`
- * (issue 1242, the only one that reads), and `delete_item` with `restore_item`
- * (issue 1810, which dismiss and bring back), and no resources or prompts: the
- * server declares the tools capability alone, so a client never asks for the
- * others.
+ * Six tools, `create_item`, `report_run` (issue 1160), `find_items`
+ * (issue 1242, the only one that reads), `update_item` (issue 1811, which
+ * changes an Item's texts, priority, due date and status), and `delete_item`
+ * with `restore_item` (issue 1810, which dismiss and bring back), and no
+ * resources or prompts: the server declares the tools capability alone, so a
+ * client never asks for the others.
  */
 
 /** What the library hands a protected handler, narrowed to what is read here. */
@@ -94,7 +103,14 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
     try {
       const workspaces = await account.workspaces();
       return {
-        tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces), deleteItemTool(), restoreItemTool()],
+        tools: [
+          createItemTool(workspaces),
+          reportRunTool(),
+          findItemsTool(workspaces),
+          updateItemTool(),
+          deleteItemTool(),
+          restoreItemTool(),
+        ],
       };
     } catch (error) {
       logged(error);
@@ -102,7 +118,7 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    const known = [CREATE_ITEM, REPORT_RUN, FIND_ITEMS, DELETE_ITEM, RESTORE_ITEM];
+    const known = [CREATE_ITEM, REPORT_RUN, FIND_ITEMS, UPDATE_ITEM, DELETE_ITEM, RESTORE_ITEM];
     if (!known.includes(params.name)) {
       return toolError(`There is no tool called ${params.name}.`);
     }
@@ -112,9 +128,11 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
           ? await reportRun(account, app, params.arguments)
           : params.name === FIND_ITEMS
             ? await find(env, account, holder.accountName, app, params.arguments)
-            : params.name === DELETE_ITEM || params.name === RESTORE_ITEM
-              ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments)
-              : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+            : params.name === UPDATE_ITEM
+              ? await update(env, account, app, params.arguments)
+              : params.name === DELETE_ITEM || params.name === RESTORE_ITEM
+                ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments)
+                : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -307,6 +325,64 @@ async function reportRun(
     throw error;
   }
   return { reply: 'Reported. Cockpit now shows this on the item.' };
+}
+
+/**
+ * Said for a dismissed Item, which the form could not be opened on either: the
+ * model brings it back first rather than changing what nobody can see.
+ */
+const DISMISSED_ITEM = 'That item is dismissed. Restore it with restore_item first, then change it.';
+
+/**
+ * One `update_item` call ("MCP changes and deletes: add update_item", issue
+ * 1811): admitted at the rate capture is - the count shared with `create_item`,
+ * `report_run`, `delete_item` and `restore_item` - and every argument read
+ * before the Item is looked at, so a call refused for what it says writes
+ * nothing.
+ *
+ * **One call to the account's store runs the commands** (`applyChanges`), each
+ * the command the form sends for its field, so a tab hears of the change once
+ * and nothing else runs between them. A command refused partway keeps what
+ * applied before it, and the reply names which fields changed and which did
+ * not. **One refusal for an id nobody has and for another account's**: the
+ * store opened is this account's alone (see `dismiss`).
+ */
+async function update(
+  env: Env,
+  account: Account,
+  app: { grantId: string },
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  if ((await account.appCaptureArrived(app.grantId, new Date().toISOString())) === 'too-many') {
+    return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
+  }
+  const read = readUpdate(args);
+  if (!read.ok) return { refusal: read.refusal };
+
+  const item = await account.item(read.itemId);
+  if (!item) return { refusal: NO_SUCH_ITEM };
+  if (item.deletedAt !== null) return { refusal: DISMISSED_ITEM };
+
+  const now = new Date();
+  // A wait counts its days on the calendar of the account's latest capture, so
+  // the zones are read only where a wait is asked for.
+  const timeZone =
+    read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
+  const plan = planUpdate(item, read.fields, now, timeZone);
+
+  const title = item.title.trim() || UNTITLED;
+  const link = new URL(`/w/${encodeURIComponent(item.workspaceId)}`, env.APP_ORIGIN);
+  link.searchParams.set('item', item.id);
+  if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, link.href);
+
+  try {
+    const applied = await account.applyChanges(plan.steps.map((step) => step.change));
+    return describeUpdate(title, read.fields, plan, applied, link.href);
+  } catch (error) {
+    // Gone between the read and the write, before anything was written.
+    if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };
+    throw error;
+  }
 }
 
 /**

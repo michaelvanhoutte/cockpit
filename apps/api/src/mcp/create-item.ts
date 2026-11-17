@@ -21,11 +21,14 @@ export const CREATE_ITEM = 'create_item';
  * the check before capturing something already there ("Find items in Cockpit
  * by text and condition, over MCP", issue 1242). `delete_item` is named for
  * what the person says, delete or remove, and `restore_item` for undoing it
- * ("MCP changes and deletes: add delete_item and restore_item", issue 1810).
+ * ("MCP changes and deletes: add delete_item and restore_item", issue 1810),
+ * and `update_item` for changing one ("MCP changes and deletes: add update_item",
+ * issue 1811).
  */
 export const SERVER_INSTRUCTIONS = [
   'Use create_item when the user asks to capture, note or remember something in Cockpit.',
   'Use find_items when the user asks what is in Cockpit, and before capturing something that may already be there.',
+  'Use update_item when the user asks to change an item in Cockpit: its title, next action, description, priority, due date or status.',
   'Use delete_item when the user asks to delete or remove something in Cockpit, and restore_item to undo it.',
 ].join(' ');
 
