@@ -32,6 +32,7 @@ import {
   type ItemFormPresentation,
   type ItemStatus,
   type Priority,
+  type StatusState,
   filingsThatFile,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
@@ -60,7 +61,6 @@ import {
   fieldWrites,
   type Draft,
   type Field,
-  type StatusState,
   type Wait,
   type WaitPutBack,
 } from '../itemFieldCommands';

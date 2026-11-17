@@ -68,8 +68,8 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
     })}`,
   );
   await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
-  await expect(page.getByRole('heading', { name: 'Allow Claude to create and read items in your Cockpit?' })).toBeVisible();
-  await expect(page.getByText('It can dismiss your items, as a swipe does')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Allow Claude to create, read and change items in your Cockpit?' })).toBeVisible();
+  await expect(page.getByText('It can change your items: their title, next action, description, priority, due date and status')).toBeVisible();
   const sentBack = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
   await press(page.getByRole('button', { name: 'Allow' }), isMobile);
   const code = new URL((await sentBack).url()).searchParams.get('code');
@@ -137,6 +137,26 @@ test.describe('MCP connections', () => {
       await dismiss('restore_item');
       await expect(row).toBeVisible();
 
+      // Claude changes its title and priority, and the row shows both with no
+      // reload ("MCP changes and deletes: add update_item", issue 1811). What
+      // is written, the limits and the refusals are proved in update-item.test.ts;
+      // what only a browser shows is the open Inbox following it. The new title
+      // still holds the old words, so `row` still finds it.
+      const renamed = `${said} on Friday`;
+      const changed = await page.request.post('/mcp', {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+        data: {
+          jsonrpc: '2.0',
+          id: 6,
+          method: 'tools/call',
+          params: { name: 'update_item', arguments: { id: itemId, title: renamed, priority: 'high' } },
+        },
+      });
+      expect(changed.status()).toBe(200);
+      expect(((await changed.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
+      await expect(row).toContainText('on Friday');
+      await expect(row.getByLabel('High priority')).toBeVisible();
+
       // A phone has no Send to Claude entry, and its Settings has no window.
       if (isMobile) return;
 
@@ -148,7 +168,7 @@ test.describe('MCP connections', () => {
       // shows is the row changing without a reload and the arrow opening the result.
       await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
       await press(page.getByRole('menuitem', { name: 'Send to Claude…' }), isMobile);
-      const review = page.getByRole('dialog', { name: `Send “${said}” to Claude` });
+      const review = page.getByRole('dialog', { name: `Send “${renamed}” to Claude` });
       // The prompt names the Run, as it does for Claude. The window fills it in
       // once the Item's files have loaded, so wait for the closing before reading.
       const naming = /report back to Cockpit through its connection, naming this run: (\S+)/;

@@ -33,6 +33,7 @@ export * from './domain/sorting.js';
 export * from './domain/connection-history.js';
 export * from './domain/source-account.js';
 export * from './domain/starting.js';
+export * from './domain/status-steps.js';
 export * from './domain/text-learning-rules.js';
 export * from './domain/workspace-themes.js';
 export * from './domain/workspace-shell.js';

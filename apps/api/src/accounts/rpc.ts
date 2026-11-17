@@ -16,7 +16,7 @@ import type {
   Workspace,
   RememberedSentenceList,
 } from '@cockpit/shared';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, Answer, CommandToRun, ChangesApplied } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
@@ -367,6 +367,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     name: N,
     payload: CommandPayload<N>,
   ): Awaitable<Answer<CommandResult>>;
+  /** Several commands run back to back in one call, stopping at the first refused and keeping what applied before it (issue 1811). */
+  applyChanges(accountName: string, changes: readonly CommandToRun[]): Awaitable<Answer<ChangesApplied>>;
   /**
    * The store as it stands, for a backup.
    *

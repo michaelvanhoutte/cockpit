@@ -1,7 +1,7 @@
-import { itemLabel, itemStatus, type Item, type ItemStatus, type Priority } from '@cockpit/shared';
+import { itemLabel, itemStatus, type Item, type ItemStatus, type Priority, type StatusState } from '@cockpit/shared';
 import { CommandRefused } from './api/client';
 import type { CommandArgs } from './api/queries';
-import { fieldWrites, type StatusState } from './itemFieldCommands';
+import { fieldWrites } from './itemFieldCommands';
 
 /**
  * Changing one field of everything a selection holds ("Change the priority, due

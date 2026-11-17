@@ -27,7 +27,7 @@ import { derivedUuid } from '../domain/derived-uuid.js';
 import { occurrenceDueAt, type SeriesRow } from '../domain/series.js';
 import { nextOccurrenceDueAt, occurrenceNotBroughtBack } from './occurrences.js';
 import type { Env } from '../env.js';
-import type { AccountSnapshot, Answer } from './answer.js';
+import type { AccountSnapshot, Answer, CommandToRun, ChangesApplied } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
@@ -1155,6 +1155,48 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       await this.#arm(accountName);
     }
     return answer;
+  }
+
+  /**
+   * Several commands run back to back in one call - what a connected app's
+   * `update_item` is made of ("MCP changes and deletes: add update_item",
+   * issue 1811) - so it waits on one round trip to the store and the tabs hear
+   * of it as one change.
+   *
+   * **Each command is `applyChange` itself**, so each keeps its own rules, its
+   * own transaction and its own line in the command log, and the alarm and the
+   * pulled-check bring-forward are decided per command exactly as for a tab's.
+   * Nothing else runs on the object between them: what is awaited between two
+   * commands is the object's own storage, which holds every other call until
+   * it is done.
+   *
+   * **A command refused partway stops the list and keeps what applied before
+   * it** (`ChangesApplied.stopped`), which is a value rather than an
+   * exception for the reason `Answer` is one. A command that is logged but not
+   * applied (older than what the Item already reflects) ends the list the same
+   * way, since what follows would be stale by the same clock.
+   */
+  async applyChanges(accountName: string, changes: readonly CommandToRun[]): Promise<Answer<ChangesApplied>> {
+    const results: ChangesApplied['results'] = [];
+    for (const [at, change] of changes.entries()) {
+      const answer = await this.applyChange(accountName, change.name, change.payload);
+      if (answer.status === 'ok') {
+        results.push(answer.value);
+        if (answer.value.applied) continue;
+        return {
+          status: 'ok',
+          value: { results, stopped: { at, because: 'conflict', what: 'it was changed a moment ago' } },
+        };
+      }
+      if (answer.status === 'missing' || answer.status === 'conflict' || answer.status === 'refused') {
+        return { status: 'ok', value: { results, stopped: { at, because: answer.status, what: answer.what } } };
+      }
+      // The store could not be used at all. Before anything applied that is the
+      // call's own answer; after, the caller is told what applied.
+      if (results.length === 0) return answer;
+      return { status: 'ok', value: { results, stopped: { at, because: 'unavailable', what: 'Cockpit could not go on' } } };
+    }
+    return { status: 'ok', value: { results } };
   }
 
   /**
