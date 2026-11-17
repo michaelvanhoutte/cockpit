@@ -6,12 +6,20 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ACCOUNT_WIDE, textsFromCapture, uuidv7 } from '@cockpit/shared';
+import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
+import {
+  DELETE_ITEM,
+  NO_SUCH_ITEM,
+  RESTORE_ITEM,
+  deleteItemTool,
+  readItemId,
+  restoreItemTool,
+} from './delete-item.js';
 import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
@@ -29,8 +37,9 @@ import type { FoundPage } from '../domain/item-search.js';
  * the account as it is now: a workspace renamed a moment ago is listed by its
  * new name on the next `tools/list`, with nothing to invalidate.
  *
- * Three tools, `create_item`, `report_run` (issue 1160) and `find_items`
- * (issue 1242, the only one that reads), and no resources or prompts: the
+ * Five tools, `create_item`, `report_run` (issue 1160), `find_items`
+ * (issue 1242, the only one that reads), and `delete_item` with `restore_item`
+ * (issue 1810, which dismiss and bring back), and no resources or prompts: the
  * server declares the tools capability alone, so a client never asks for the
  * others.
  */
@@ -84,14 +93,17 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
       const workspaces = await account.workspaces();
-      return { tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces)] };
+      return {
+        tools: [createItemTool(workspaces), reportRunTool(), findItemsTool(workspaces), deleteItemTool(), restoreItemTool()],
+      };
     } catch (error) {
       logged(error);
       throw new McpError(ErrorCode.InternalError, SOMETHING_BROKE);
     }
   });
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    if (params.name !== CREATE_ITEM && params.name !== REPORT_RUN && params.name !== FIND_ITEMS) {
+    const known = [CREATE_ITEM, REPORT_RUN, FIND_ITEMS, DELETE_ITEM, RESTORE_ITEM];
+    if (!known.includes(params.name)) {
       return toolError(`There is no tool called ${params.name}.`);
     }
     try {
@@ -100,7 +112,9 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
           ? await reportRun(account, app, params.arguments)
           : params.name === FIND_ITEMS
             ? await find(env, account, holder.accountName, app, params.arguments)
-            : await capture(env, ctx, account, holder.accountName, app, params.arguments);
+            : params.name === DELETE_ITEM || params.name === RESTORE_ITEM
+              ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments)
+              : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
       logged(error);
@@ -293,6 +307,63 @@ async function reportRun(
     throw error;
   }
   return { reply: 'Reported. Cockpit now shows this on the item.' };
+}
+
+/**
+ * One `delete_item` or `restore_item` call (issue 1810): admitted at the rate
+ * capture is - the count shared with `create_item` and `report_run` - and
+ * written through `set_dismissed` by `applyChange`, which is what a swipe
+ * sends, so the pulled check that takes a Gmail or Outlook label off is
+ * brought forward by the same code and open tabs hear of it the same way.
+ *
+ * **One refusal for an id nobody has and for another account's**: the store
+ * opened is this account's alone, so an Item of another account is simply not
+ * there. An Item already in the state asked for is answered as done and
+ * nothing is written, since `set_dismissed` would otherwise stamp it again.
+ */
+async function dismiss(
+  account: Account,
+  app: { grantId: string },
+  dismissed: boolean,
+  args: unknown,
+): Promise<{ reply: string } | { refusal: string }> {
+  if ((await account.appCaptureArrived(app.grantId, new Date().toISOString())) === 'too-many') {
+    return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
+  }
+  const read = readItemId(args);
+  if (!read.ok) return { refusal: read.refusal };
+
+  const item = await account.item(read.itemId);
+  if (!item) return { refusal: NO_SUCH_ITEM };
+  const title = item.title.trim() || UNTITLED;
+  const already = (item.deletedAt !== null) === dismissed;
+  if (!already) {
+    try {
+      const result = await account.applyChange('set_dismissed', {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        // The Item's own, where open tabs listen for it; an Item no workspace
+        // has been chosen for is told to every one of them where it is written.
+        workspaceId: item.workspaceId,
+        itemId: item.id,
+        dismissed,
+      });
+      // Logged but not applied: the Item changed after this call read it, so
+      // it must not be reported as done.
+      if (!result.applied) {
+        return { refusal: 'Cockpit could not change that item just now because it was changed a moment ago. Try again.' };
+      }
+    } catch (error) {
+      // Gone between the read and the write.
+      if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };
+      throw error;
+    }
+  }
+  return {
+    reply: dismissed
+      ? `${already ? 'Already dismissed' : 'Dismissed'} "${title}" (id ${item.id}). Bring it back with restore_item.`
+      : `${already ? 'Already open' : 'Restored'} "${title}" (id ${item.id}).`,
+  };
 }
 
 /**

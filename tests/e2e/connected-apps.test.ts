@@ -69,6 +69,7 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
   );
   await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
   await expect(page.getByRole('heading', { name: 'Allow Claude to create and read items in your Cockpit?' })).toBeVisible();
+  await expect(page.getByText('It can dismiss your items, as a swipe does')).toBeVisible();
   const sentBack = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
   await press(page.getByRole('button', { name: 'Allow' }), isMobile);
   const code = new URL((await sentBack).url()).searchParams.get('code');
@@ -116,6 +117,25 @@ test.describe('MCP connections', () => {
       const row = inbox(page).getByRole('listitem').filter({ hasText: said });
       await expect(row).toBeVisible();
       await expect(row.getByText(/Claude/)).toBeVisible();
+
+      // Claude deletes what it captured, and the row leaves the open Inbox with
+      // no reload; restoring it brings the row back ("MCP changes and deletes:
+      // add delete_item and restore_item", issue 1810). Which Item is touched
+      // and the refusals are proved in delete-item.test.ts; what only a browser
+      // shows is the live row going and returning.
+      const itemId = new URL(/Open it: (\S+)/.exec(result.content[0]!.text)![1]!).searchParams.get('item')!;
+      const dismiss = async (tool: 'delete_item' | 'restore_item') => {
+        const answer = await page.request.post('/mcp', {
+          headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+          data: { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: tool, arguments: { id: itemId } } },
+        });
+        expect(answer.status()).toBe(200);
+        expect(((await answer.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
+      };
+      await dismiss('delete_item');
+      await expect(row).toHaveCount(0);
+      await dismiss('restore_item');
+      await expect(row).toBeVisible();
 
       // A phone has no Send to Claude entry, and its Settings has no window.
       if (isMobile) return;
