@@ -1,4 +1,5 @@
-import { createStore, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
+import { createDeviceStore } from './onDeviceStore';
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
 
 /**
@@ -42,7 +43,7 @@ export interface HoldingArea {
 /** The browser's own, opened on first use so a browser with no IndexedDB fails on the read. */
 export function browserHoldingArea(): HoldingArea {
   let store: UseStore | null = null;
-  const open = () => (store ??= createStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
+  const open = () => (store ??= createDeviceStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
   return {
     // Both settle on the transaction, not on the request: a clear that aborted
     // must not hand over shares that are still held.

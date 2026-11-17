@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
-import { createStore, del, get, set, values, type UseStore } from 'idb-keyval';
+import { del, get, set, values, type UseStore } from 'idb-keyval';
 import { browserLock, type Lock } from './captureOutboxSender';
+import { createDeviceStore } from './onDeviceStore';
 
 /**
  * The recordings Write could not transcribe, kept on this device until their
@@ -69,7 +70,7 @@ export interface RecordingStore {
 /** The browser's own, opened on first use so a browser with no IndexedDB fails on the write rather than on load. */
 export function browserRecordingStore(): RecordingStore {
   let store: UseStore | null = null;
-  const open = () => (store ??= createStore('cockpit-kept-recordings', 'recordings'));
+  const open = () => (store ??= createDeviceStore('cockpit-kept-recordings', 'recordings'));
   return {
     all: async () => values(open()),
     has: async (id) => (await get(id, open())) !== undefined,

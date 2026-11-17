@@ -19,6 +19,7 @@ import {
   type OutboxStore,
   type Sender,
 } from '../../src/captureOutboxSender';
+import { pageIsAway } from '../../src/onDeviceStore';
 import { deviceIsIn } from './support/timeZone';
 
 /**
@@ -144,6 +145,7 @@ function aTab(
     store = browserOutboxStore(),
     announce = undefined as ((news: OutboxNews) => void) | undefined,
     sender = server.sender,
+    hidden = undefined as (() => boolean) | undefined,
   } = {},
 ) {
   const outbox = new CaptureOutbox({
@@ -153,6 +155,7 @@ function aTab(
     online: () => server.online,
     timeoutMs: 1_000,
     ...(announce ? { announce } : {}),
+    ...(hidden ? { hidden } : {}),
   });
   outbox.signedInAs(owner);
   return outbox;
@@ -1179,6 +1182,115 @@ describe('Offline', () => {
       expect(next.getShown()).toEqual([]);
       expect(await browserOutboxStore().all()).toEqual([]);
       next.stop();
+    });
+  });
+
+  describe('a copy of Cockpit out of view does not hold up sending', () => {
+    const tab = (state: 'hidden' | 'visible') => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    afterEach(() => tab('visible'));
+
+    /** A lock that says whether its turn is held, as another tab would find out by waiting. */
+    function aLockWatched() {
+      const inner = inTabLock();
+      const watched = { held: false, lock: null as unknown as Lock };
+      watched.lock = <T,>(work: () => Promise<T>) =>
+        inner(async () => {
+          watched.held = true;
+          try {
+            return await work();
+          } finally {
+            watched.held = false;
+          }
+        });
+      return watched;
+    }
+
+    it('stops a send in progress when hidden, lets go of its turn, and keeps the capture waiting, never refused', async () => {
+      const server = aServer();
+      // A send that never answers and ignores being aborted: only the outbox itself can end it.
+      let hangs = true;
+      const sender: Sender = {
+        ...server.sender,
+        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
+      };
+      const watched = aLockWatched();
+      const outbox = aTab(server, { lock: watched.lock, sender, hidden: pageIsAway });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(watched.held).toBe(true);
+
+      await act(async () => {
+        tab('hidden');
+        await settled();
+      });
+
+      expect(watched.held).toBe(false);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      expect(messages(server)).toEqual([]);
+
+      hangs = false;
+      await act(async () => {
+        tab('visible');
+        await settled();
+      });
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it.each([
+      {
+        situation: 'was already counting down when the page was hidden',
+        arrange: async (outbox: CaptureOutbox) => {
+          await outbox.add(capture('Ring the plumber'));
+          await settled();
+          tab('hidden');
+        },
+      },
+      {
+        situation: 'would have been started by a capture kept while hidden',
+        arrange: async (outbox: CaptureOutbox) => {
+          tab('hidden');
+          await outbox.add(capture('Ring the plumber'));
+          await settled();
+        },
+      },
+    ])('starts no send when the retry $situation', async ({ arrange }) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      const outbox = aTab(server, { hidden: pageIsAway });
+      anOpenApp(outbox);
+      server.reachable = false;
+      await arrange(outbox);
+      const attempted = server.captureCalls;
+
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      await settled();
+
+      expect(server.captureCalls).toBe(attempted);
+      outbox.stop();
+    });
+
+    it('sends what waited, oldest first, once back in view', async () => {
+      const server = aServer();
+      const outbox = aTab(server, { hidden: pageIsAway });
+      anOpenApp(outbox);
+      tab('hidden');
+      await outbox.add(capture('First'));
+      await outbox.add(capture('Second'));
+      await settled();
+      expect(messages(server)).toEqual([]);
+
+      await act(async () => {
+        tab('visible');
+        await settled();
+      });
+
+      expect(server.captureOrder).toEqual(['First', 'Second']);
+      outbox.stop();
     });
   });
 });

@@ -101,4 +101,55 @@ test.describe('Offline', () => {
       await expect(page.getByRole('dialog').getByRole('img', { name: 'receipt.png' })).toBeVisible();
     });
   });
+
+  test.describe('a capture is kept in the copy in front while another copy of Cockpit is in the background', () => {
+    test('three notes are kept and sent although the other copy was mid-send when it went to the background', async ({
+      page,
+      context,
+      isMobile,
+    }) => {
+      // The copy behind is sending a capture that never gets an answer, so it holds the turn to send: the lock a frozen
+      // copy keeps for as long as it lives.
+      const behind = await context.newPage();
+      let sending!: () => void;
+      const sendStarted = new Promise<void>((resolve) => (sending = resolve));
+      await behind.route('**/v1/commands/capture_item', () => sending());
+      await openInbox(behind, isMobile);
+      await openCapture(behind, isMobile);
+      await captureBox(behind).fill(uniqueTitle('Held by the copy behind'));
+      await press(behind.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+      await sendStarted;
+
+      // Out of view, then frozen as Chrome does it. Headless Chromium leaves every page "visible" and sends no `freeze`
+      // event on the lifecycle command, so the copy is told it is hidden the way the browser tells it, ahead of the
+      // freeze. The freeze is asked for and does not hold: this Chromium wakes the page again within seconds, so the walk
+      // proves the copy lets go of its turn to send when hidden, not that a frozen page keeps it.
+      await behind.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      const lifecycle = await context.newCDPSession(behind);
+      await lifecycle.send('Page.setWebLifecycleState', { state: 'frozen' });
+      await page.bringToFront();
+
+      await openInbox(page, isMobile);
+      const turnHeld = () => page.evaluate(async () => ((await navigator.locks.query()).held ?? []).length);
+      await expect.poll(turnHeld, { timeout: 5_000 }).toBe(0);
+      await openCapture(page, isMobile);
+      const notes = ['one', 'two', 'three'].map((word) => uniqueTitle(`Kept in front, ${word}`));
+      for (const note of notes) {
+        await captureBox(page).fill(note);
+        await press(page.getByRole('button', { name: 'Capture', exact: true }), isMobile);
+        await expect(captureBox(page)).toHaveValue('');
+        await expect(page.getByText(/did not get kept on this device/)).toHaveCount(0);
+      }
+
+      // Sent as well as kept: the frozen copy let go of its turn to send.
+      await expect(page.getByText(/waiting to send/)).toHaveCount(0, { timeout: 15_000 });
+      await closeCapture(page, isMobile);
+      for (const note of notes) await expect(itemRow(page, note)).toBeVisible();
+
+      await lifecycle.send('Page.setWebLifecycleState', { state: 'active' });
+    });
+  });
 });
