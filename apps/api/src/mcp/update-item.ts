@@ -26,7 +26,7 @@ import { captureDay } from '../domain/capture-day.js';
 import { foldName } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
 import { readItemId } from './delete-item.js';
-import { describePanels, findPanel, panelNamesAllowed, type PanelChoice } from './panels.js';
+import { describePanels, findPanel, namesLeftOut, PANEL_GIVEN_MAX_LENGTH, panelNamesAllowed, type PanelChoice } from './panels.js';
 
 /**
  * The tool an app connected to Cockpit changes an Item with ("MCP changes and
@@ -179,7 +179,8 @@ export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): To
         },
         move_to_panel: {
           type: ['string', 'null'],
-          ...(names.length ? { enum: [...names, INBOX] } : { enum: [INBOX] }),
+          // Null is no move, as for `priority`; a Panel called Inbox is not listed twice, since "Inbox" always means the Inbox.
+          ...(namesLeftOut(catalogue) ? {} : { enum: [...new Set([...names.filter((name) => foldName(name) !== foldName(INBOX)), INBOX]), null] }),
           description: 'One Panel to move the item to, by name, off every Panel it is on and on top of this one; "Inbox" takes it off them all.',
         },
       },
@@ -368,7 +369,7 @@ function readPanelArgs(
   if (!remove.ok) return remove;
   let moveTo: string | undefined;
   if (arg.move_to_panel !== undefined && arg.move_to_panel !== null && arg.move_to_panel !== '') {
-    if (typeof arg.move_to_panel !== 'string' || arg.move_to_panel.trim() === '' || arg.move_to_panel.length > NAME_MAX_LENGTH) {
+    if (typeof arg.move_to_panel !== 'string' || arg.move_to_panel.trim() === '' || arg.move_to_panel.length > PANEL_GIVEN_MAX_LENGTH) {
       return { ok: false, refusal: 'move_to_panel must be the name of one Panel, or "Inbox".' };
     }
     moveTo = arg.move_to_panel.trim();

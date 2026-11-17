@@ -40,6 +40,9 @@ interface Candidate extends PanelChoice {
   kind: 'items' | 'filter' | 'text';
 }
 
+/** The longest a given Panel name may be: the three names of `Workspace ▸ Dashboard ▸ Panel` and their separators. */
+export const PANEL_GIVEN_MAX_LENGTH = 3 * NAME_MAX_LENGTH + 8;
+
 /** The most Panels a list names, so an account with a great many is not told every one. */
 export const MOST_PANELS_LISTED = 100;
 
@@ -88,7 +91,7 @@ function labelsOf(panels: readonly Candidate[]): string[] {
 /** The listed Panels as text: `"Admin", "Day to day ▸ Calls"`, and under every Workspace, each Workspace's own. */
 function listed(panels: readonly Candidate[], byWorkspace: boolean): string {
   const shown = panels.slice(0, MOST_PANELS_LISTED);
-  const labels = labelsOf(shown);
+  const labels = labelsOf(panels).slice(0, MOST_PANELS_LISTED);
   const more = panels.length - shown.length;
   const tail = more > 0 ? ` and ${more} more` : '';
   if (!byWorkspace) return labels.map(quoted).join(', ') + tail;
@@ -111,15 +114,21 @@ export function describePanels(catalogue: readonly ReadableWorkspace[]): string 
   return [full, ...empty].join('; ');
 }
 
+/** Whether there are more Panels than a list names, so an `enum` of them would leave some out and a validating client would refuse a Panel the call accepts. */
+export function namesLeftOut(catalogue: readonly ReadableWorkspace[]): boolean {
+  return taking(candidates(catalogue, null)).length > MOST_PANELS_LISTED;
+}
+
 /**
  * The names a validating client may be allowed for a Panel: each Panel as it is
  * listed, and, where a listed name is shared by Panels of different Workspaces
  * (which only an Item on *Any workspace* can meet), each of those in full as
- * `Workspace ▸ Dashboard ▸ Panel`. Empty with no Panel, so a tool leaves the
- * `enum` out rather than state an empty one.
+ * `Workspace ▸ Dashboard ▸ Panel`. Empty with no Panel or with `namesLeftOut`, so a tool leaves the
+ * `enum` out rather than state an empty or a partial one.
  */
 export function panelNamesAllowed(catalogue: readonly ReadableWorkspace[]): string[] {
-  const panels = taking(candidates(catalogue, null)).slice(0, MOST_PANELS_LISTED);
+  const panels = taking(candidates(catalogue, null));
+  if (namesLeftOut(catalogue)) return [];
   const labels = labelsOf(panels);
   const workspacesOf = new Map<string, Set<string>>();
   panels.forEach((panel, i) => {
@@ -163,8 +172,8 @@ export function findPanel(
   const all = candidates(catalogue, workspaceId);
   const scope = workspaceId === null ? null : { name: catalogue.find((one) => one.workspace.id === workspaceId)?.workspace.name ?? '' };
   const there = whatThereIs(all, scope);
-  if (name === '' || name.length > NAME_MAX_LENGTH) {
-    return refused(`A Panel is named by at most ${NAME_MAX_LENGTH} characters of its name. ${there}`);
+  if (name === '' || name.length > PANEL_GIVEN_MAX_LENGTH) {
+    return refused(`A Panel is named by its name, at most ${PANEL_GIVEN_MAX_LENGTH} characters with its Dashboard and Workspace. ${there}`);
   }
 
   const bare = all.filter((panel) => foldName(panel.name) === foldName(name));
@@ -203,7 +212,7 @@ export function findPanel(
     const place = panelPlace(panel.dashboard, panel.name);
     return several ? `${panel.workspace} ▸ ${place}` : place;
   });
-  const asked = qualified
+  const asked = qualified && !several
     ? 'Panels of that name sit on one Dashboard, so they cannot be told apart; rename one in Cockpit'
     : `Name one as ${several ? 'Workspace ▸ Dashboard ▸ Panel' : 'Dashboard ▸ Panel'}`;
   return refused(`Several Panels are called ${quoted(name)}: ${forms.join('; ')}. ${asked}.`);

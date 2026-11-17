@@ -3,6 +3,7 @@ import {
   NEXT_ACTION_LENGTH,
   TITLE_LENGTH,
   captureItemSchema,
+  panelPlace,
   cutTo,
   prioritySchema,
   statusSteps,
@@ -240,7 +241,7 @@ export function readCapture(args: unknown, catalogue: readonly ReadableWorkspace
     if (!panels.some((panel) => panel.id === found.panel.id)) {
       panels.push({
         id: found.panel.id,
-        place: `${found.panel.dashboard} ▸ ${found.panel.name}`,
+        place: panelPlace(found.panel.dashboard, found.panel.name),
         workspace: workspaces.find((one) => one.id === found.panel.workspaceId)!,
       });
     }

@@ -9,7 +9,7 @@ import {
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
+import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import {
@@ -246,10 +246,10 @@ async function capture(
   // The title it was written with is the message's mechanical one
   // (`textsFromCapture`), so that is the answer where the read back fails.
   const title = await account.item(itemId).then(
-    (item) => item?.title ?? textsFromCapture(read.message).title,
+    (item) => item?.title ?? read.title ?? textsFromCapture(read.message).title,
     (error: unknown) => {
       logged(error);
-      return textsFromCapture(read.message).title;
+      return read.title ?? textsFromCapture(read.message).title;
     },
   );
   const workspaceName = workspaces.find((w) => w.id === read.workspaceId)?.name ?? '';
@@ -430,8 +430,18 @@ async function update(
   );
   if (wroteTexts) {
     ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, item.id));
-    ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
   }
+  // A filing queues what the Panel routes' filings do ("Re-propose the rest of
+  // the inbox the moment you file one", issue 300): the rest of the Inbox
+  // where it settled a routing, and Claude's proposal, made from the Panel the
+  // Item sits on, once for any change to it.
+  const filed = plan.steps.flatMap((step, i) => (step.field === 'panels' && applied.results[i]?.applied ? [i] : []));
+  for (const i of filed) {
+    if (applied.results[i]?.settledRouting) {
+      ctx.waitUntil(enqueueRepropose(env, accountName, plan.steps[i]!.change.payload.workspaceId));
+    }
+  }
+  if (wroteTexts || filed.length) ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
   return describeUpdate(title, read.fields, plan, applied, link.href);
 }
 

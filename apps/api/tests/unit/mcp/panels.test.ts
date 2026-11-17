@@ -89,6 +89,37 @@ describe('MCP connections', () => {
       expect(said).toContain('Workspace ▸ Dashboard ▸ Panel');
     });
 
+    it('finds a Panel by the full Workspace ▸ Dashboard ▸ Panel form even where it is over 60 characters', () => {
+      const long = (name: string) => `${name}${'A'.repeat(40)}`;
+      const catalogue: ReadableWorkspace[] = [
+        {
+          workspace: workspace('ws-long', long('Workspace ')),
+          dashboards: [dashboard('ws-long', 'd-long', long('Dashboard '))],
+          panels: [panel('d-long', 'p-long', 'Admin')],
+          layouts: [],
+        },
+      ];
+      const full = `${long('Workspace ')} ▸ ${long('Dashboard ')} ▸ Admin`;
+      expect(full.length).toBeGreaterThan(60);
+      expect(idOf(findPanel(catalogue, null, full))).toBe('p-long');
+    });
+
+    it('tells a name Workspaces share through a Dashboard to be named in full, not to rename a Panel', () => {
+      const said = saidOf(
+        findPanel(
+          [
+            { ...CATALOGUE[0]!, dashboards: [dashboard('ws-home', 'd-day', 'Work')] },
+            { ...CATALOGUE[1]!, panels: CATALOGUE[1]!.panels.filter((p) => p.id === 'p-work-admin') },
+          ],
+          null,
+          'Work ▸ Admin',
+        ),
+      );
+      expect(said).toContain('Home ▸ Work ▸ Admin; Work ▸ Work ▸ Admin');
+      expect(said).toContain('Name one as Workspace ▸ Dashboard ▸ Panel');
+      expect(said).not.toContain('rename');
+    });
+
     it('refuses a name no Panel in the Workspace has, listing the Panels there', () => {
       const said = saidOf(findPanel(CATALOGUE, 'ws-home', 'Garden'));
       expect(said).toContain('No Panel is called "Garden"');
@@ -137,6 +168,13 @@ describe('MCP connections', () => {
         'Work ▸ Work ▸ Admin',
         'Quotes',
       ]);
+    });
+
+    it('allows no name at all where there are more Panels than a list names, so none a call accepts is refused', () => {
+      const many: ReadableWorkspace[] = [
+        { ...CATALOGUE[0]!, panels: Array.from({ length: 101 }, (_, i) => panel('d-day', `p-${i}`, `Panel ${i}`)) },
+      ];
+      expect(panelNamesAllowed(many)).toEqual([]);
     });
 
     it('says none yet, and allows no name at all, for an account with no Panel', () => {

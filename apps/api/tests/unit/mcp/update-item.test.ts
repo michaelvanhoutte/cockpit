@@ -465,14 +465,20 @@ describe('MCP connections', () => {
       expect(tool.description).toContain('Panels that take items: Work: "Work ▸ Admin", "Sales ▸ Admin"; Home: "Garden"');
       const { add_panels, move_to_panel } = tool.inputSchema.properties as Record<string, any>;
       expect(add_panels.items.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden']);
-      expect(move_to_panel.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden', 'Inbox']);
+      expect(move_to_panel.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden', 'Inbox', null]);
+    });
+
+    it('lists Inbox once where a Panel is called Inbox', () => {
+      const tool = updateItemTool(PANELS.map((one, i) => (i === 0 ? { ...one, panels: [{ ...one.panels[0]!, name: 'Inbox' }] } : one)));
+      const { enum: names } = tool.inputSchema.properties.move_to_panel as { enum: unknown[] };
+      expect(names.filter((name) => name === 'Inbox')).toHaveLength(1);
     });
 
     it('says none yet and offers no empty list of Panels for an account with none', () => {
       const tool = updateItemTool(PANELS.map((one) => ({ ...one, panels: [] })));
       expect(tool.description).toContain('Panels that take items: none yet');
       expect(tool.inputSchema.properties.add_panels).not.toHaveProperty('items.enum');
-      expect(tool.inputSchema.properties.move_to_panel).toMatchObject({ enum: ['Inbox'] });
+      expect(tool.inputSchema.properties.move_to_panel).toMatchObject({ enum: ['Inbox', null] });
     });
 
     it('tells the model in the server instructions to use update_item to change an item', () => {
