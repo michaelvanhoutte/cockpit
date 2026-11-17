@@ -339,7 +339,7 @@ async function dismiss(
   const already = (item.deletedAt !== null) === dismissed;
   if (!already) {
     try {
-      await account.applyChange('set_dismissed', {
+      const result = await account.applyChange('set_dismissed', {
         commandId: uuidv7(),
         issuedAt: new Date().toISOString(),
         // The Item's own, where open tabs listen for it; an Item no workspace
@@ -348,6 +348,11 @@ async function dismiss(
         itemId: item.id,
         dismissed,
       });
+      // Logged but not applied: the Item changed after this call read it, so
+      // it must not be reported as done.
+      if (!result.applied) {
+        return { refusal: 'Cockpit could not change that item just now because it was changed a moment ago. Try again.' };
+      }
     } catch (error) {
       // Gone between the read and the write.
       if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };
