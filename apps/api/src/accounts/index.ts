@@ -29,7 +29,7 @@ import {
 import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
-import type { AccountSnapshot, Answer, CommandToRun, ChangesApplied } from './answer.js';
+import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
@@ -376,7 +376,7 @@ export interface Account {
    * applied before it - a connected app's `update_item` (issue 1811). A refusal
    * partway is in the answer's `stopped`, not thrown.
    */
-  applyChanges(changes: readonly CommandToRun[]): Promise<ChangesApplied>;
+  applyChanges(changes: readonly ChangeToRun[]): Promise<ChangesApplied>;
   /**
    * A delivered check of one pulled connection taking its lease, or learning
    * it does nothing ("Check a pulled connector on its cadence through the

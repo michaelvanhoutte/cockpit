@@ -27,7 +27,7 @@ import { derivedUuid } from '../domain/derived-uuid.js';
 import { occurrenceDueAt, type SeriesRow } from '../domain/series.js';
 import { nextOccurrenceDueAt, occurrenceNotBroughtBack } from './occurrences.js';
 import type { Env } from '../env.js';
-import type { AccountSnapshot, Answer, CommandToRun, ChangesApplied } from './answer.js';
+import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
 import { inGroupsOf } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
@@ -133,6 +133,7 @@ import {
   WorkspaceNameTakenError,
   WorkspaceNotFoundError,
   WorkspaceOrderStaleError,
+  orderWithItemOnTop,
   runCommand,
 } from './command-service.js';
 import {
@@ -1176,10 +1177,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    * applied (older than what the Item already reflects) ends the list the same
    * way, since what follows would be stale by the same clock.
    */
-  async applyChanges(accountName: string, changes: readonly CommandToRun[]): Promise<Answer<ChangesApplied>> {
+  async applyChanges(accountName: string, changes: readonly ChangeToRun[]): Promise<Answer<ChangesApplied>> {
     const results: ChangesApplied['results'] = [];
     for (const [at, change] of changes.entries()) {
-      const answer = await this.applyChange(accountName, change.name, change.payload);
+      const answer = await this.#applyOne(accountName, change);
       if (answer.status === 'ok') {
         results.push(answer.value);
         if (answer.value.applied) continue;
@@ -1197,6 +1198,23 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       return { status: 'ok', value: { results, stopped: { at, because: 'unavailable', what: 'Cockpit could not go on' } } };
     }
     return { status: 'ok', value: { results } };
+  }
+
+  /**
+   * One change of `applyChanges`. **A filing on top has its order built here, in
+   * the same turn it is applied**: nothing is awaited between reading the Panel
+   * and the command reading it again to check the order, so no other change can
+   * land between them (issue 1812).
+   */
+  #applyOne(accountName: string, change: ChangeToRun): Promise<Answer<CommandResult>> | Answer<CommandResult> {
+    if (!('onTop' in change)) return this.applyChange(accountName, change.name, change.payload);
+    const built = this.#answer(accountName, (db) =>
+      orderWithItemOnTop(db, accountName, change.payload.panelId, change.payload.itemId),
+    );
+    if (built.status !== 'ok') return built;
+    return change.name === 'add_item_to_panel'
+      ? this.applyChange(accountName, change.name, { ...change.payload, order: built.value })
+      : this.applyChange(accountName, change.name, { ...change.payload, order: built.value });
   }
 
   /**

@@ -181,7 +181,7 @@ describe('MCP connections', () => {
       };
       env.ACCOUNT = {
         idFromName: (name: string) => realStores.idFromName(name),
-        get: () => ({ workspaces: broken, appCaptureArrived: broken }),
+        get: () => ({ panelCatalogue: broken, appCaptureArrived: broken }),
       } as unknown as typeof env.ACCOUNT;
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {
@@ -212,7 +212,7 @@ describe('MCP connections', () => {
       expect(page).not.toContain('cannot read');
       // And that it can read the items themselves, which it once said it could not.
       expect(page).toContain('read your items in every workspace');
-      expect(page).toContain('It can change your items: their title, next action, description, priority, due date and status');
+      expect(page).toContain('It can change your items: their title, next action, description, priority, due date, status and the Panels they are filed on');
       expect(page).toContain('It can also dismiss your items, as a swipe does');
       expect(page).not.toContain('delete');
       expect(page).toContain('its attached files, which it is given links to open for an hour');

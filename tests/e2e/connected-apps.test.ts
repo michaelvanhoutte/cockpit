@@ -4,7 +4,10 @@ import {
   addressOf,
   expect,
   inbox,
+  itemsOn,
   MICHAEL,
+  openDashboard,
+  openFirstWorkspace,
   openInbox,
   press,
   STARTING_WORKSPACE,
@@ -13,7 +16,7 @@ import {
   closeSettings,
   openSettings,
 } from './support/app';
-import { arrange, giveToTheInbox } from './support/arrange';
+import { arrange, giveADashboard, giveAPanel, giveToAPanel, giveToTheInbox } from './support/arrange';
 
 /**
  * F3, and the one walk this capability gets: an app connecting to Cockpit and
@@ -69,7 +72,7 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
   );
   await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
   await expect(page.getByRole('heading', { name: 'Allow Claude to create, read and change items in your Cockpit?' })).toBeVisible();
-  await expect(page.getByText('It can change your items: their title, next action, description, priority, due date and status')).toBeVisible();
+  await expect(page.getByText('It can change your items: their title, next action, description, priority, due date, status and the Panels they are filed on')).toBeVisible();
   const sentBack = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
   await press(page.getByRole('button', { name: 'Allow' }), isMobile);
   const code = new URL((await sentBack).url()).searchParams.get('code');
@@ -224,6 +227,52 @@ test.describe('MCP connections', () => {
       expect(refused.status()).toBe(401);
       await closeSettings(page, isMobile);
       await expect(row).toBeVisible();
+    });
+  });
+});
+
+/**
+ * F3, the one walk issue 1812 gets: an Item Claude creates on a Panel of the
+ * Dashboard that is open shows on top of that Panel with no reload. How a Panel
+ * is named, what each field lands as and the order built in the store are proved
+ * below this (panels.test.ts, update-item.test.ts); what only a browser shows is
+ * the open Panel taking the new row on top. The app is played by the walk, as above.
+ */
+test.describe('MCP connections', () => {
+  test.describe('an item Claude creates on a Panel shows on that Panel in an open tab', () => {
+    test('puts the new row on top of the Panel of the open Dashboard, above the one already there, with no reload', async ({
+      page,
+      context,
+      isMobile,
+    }) => {
+      const { token } = await connectClaude(page, context, isMobile);
+      await openFirstWorkspace(page, isMobile);
+      const board = await giveADashboard(page, uniqueTitle('Claude files'), []);
+      const panelName = uniqueTitle('Admin');
+      const panel = await giveAPanel(page, board, panelName);
+      const already = uniqueTitle('Already on the Panel');
+      await giveToAPanel(page, panel, [already]);
+      await page.reload();
+      await openDashboard(page, board.name, isMobile);
+      await expect.poll(() => itemsOn(page, panelName)).toEqual([already]);
+
+      const created = uniqueTitle('Send Bart the quote');
+      const answer = await page.request.post('/mcp', {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+        data: {
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'tools/call',
+          params: {
+            name: 'create_item',
+            arguments: { message: created, workspace: STARTING_WORKSPACE, panels: [`${board.name} ▸ ${panelName}`], priority: 'high' },
+          },
+        },
+      });
+      expect(answer.status()).toBe(200);
+      expect(((await answer.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
+
+      await expect.poll(() => itemsOn(page, panelName)).toEqual([created, already]);
     });
   });
 });

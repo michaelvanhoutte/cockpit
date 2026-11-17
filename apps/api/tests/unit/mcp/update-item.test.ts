@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { itemSchema, type Item } from '@cockpit/shared';
+import { itemSchema, panelSchema, type Item, type ReadableWorkspace } from '@cockpit/shared';
 import type { ChangesApplied } from '../../../src/accounts/answer.js';
 import { SERVER_INSTRUCTIONS } from '../../../src/mcp/create-item.js';
 import {
   describeUpdate,
   planUpdate,
   readUpdate,
+  resolveUpdatePanels,
   updateItemTool,
   waitTimeZone,
   type UpdateFields,
@@ -81,6 +82,46 @@ const writes = (item: Item, args: Record<string, unknown>, timeZone = 'UTC') =>
     const { commandId: _c, issuedAt: _i, workspaceId: _w, itemId: _it, ...rest } = payload;
     return `${name} ${JSON.stringify(rest)}`;
   });
+
+/** Work, with Admin on its Work Dashboard and again on Sales, and Quotes. */
+const WORK_WS = { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5', bar: '#594e91', ground: '#e2e2df', header: '#2d2e35' };
+const HOME_WS = { ...WORK_WS, id: 'ws-home', name: 'Home' };
+const PANELS: ReadableWorkspace[] = [
+  {
+    workspace: WORK_WS,
+    dashboards: [
+      { id: 'd-work', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Work' },
+      { id: 'd-sales', tenantId: 'tenant', workspaceId: 'ws-work', name: 'Sales' },
+    ],
+    panels: [
+      panelSchema.parse({ id: 'p-admin', tenantId: 'tenant', dashboardId: 'd-work', name: 'Admin', kind: 'items' }),
+      panelSchema.parse({ id: 'p-sales-admin', tenantId: 'tenant', dashboardId: 'd-sales', name: 'Admin', kind: 'items' }),
+    ],
+    layouts: [],
+  },
+  {
+    workspace: HOME_WS,
+    dashboards: [{ id: 'd-day', tenantId: 'tenant', workspaceId: 'ws-home', name: 'Day to day' }],
+    panels: [panelSchema.parse({ id: 'p-garden', tenantId: 'tenant', dashboardId: 'd-day', name: 'Garden', kind: 'items' })],
+    layouts: [],
+  },
+];
+
+/** What a plan with Panels writes: each command and the Panel it is for. */
+const filed = (item: Item, args: Record<string, unknown>) => {
+  const read = readUpdate({ id: ID, ...args });
+  if (!read.ok) throw new Error(read.refusal);
+  const resolved = resolveUpdatePanels(item, PANELS, read.fields.panels!);
+  if (!resolved.ok) throw new Error(resolved.refusal);
+  const plan = planUpdate(item, read.fields, NOON_UTC, 'UTC', resolved.panels);
+  return {
+    plan,
+    commands: plan.steps.map(({ change }) => {
+      const p = change.payload as { panelId?: string | null; workspaceId: string };
+      return `${change.name}${'onTop' in change ? ' on top' : ''} ${p.panelId === undefined ? '' : (p.panelId ?? 'inbox')} in ${p.workspaceId}`.replace(/ +/g, ' ');
+    }),
+  };
+};
 
 describe('MCP connections', () => {
   describe('an app changes an item within the form’s own limits, and is refused before anything is written', () => {
@@ -331,6 +372,69 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an app files an item by naming Panels', () => {
+    it.each([
+      { situation: 'add_panels', args: { add_panels: ['work ▸ admin', 'Sales ▸ Admin'] }, says: ['add_item_to_panel on top p-admin in ws-work', 'add_item_to_panel on top p-sales-admin in ws-work'] },
+      { situation: 'remove_panels', args: { remove_panels: ['Work ▸ Admin'] }, says: ['remove_item_from_panel p-admin in ws-work'] },
+      { situation: 'move_to_panel', args: { move_to_panel: 'sales ▸ admin' }, says: ['move_item_to_panel on top p-sales-admin in ws-work'] },
+      { situation: 'move_to_panel Inbox, in any case', args: { move_to_panel: 'inbox' }, says: ['move_item_to_panel inbox in ws-work'] },
+      { situation: 'remove_panels then add_panels, in that order', args: { add_panels: ['Sales ▸ Admin'], remove_panels: ['Work ▸ Admin'] }, says: ['remove_item_from_panel p-admin in ws-work', 'add_item_to_panel on top p-sales-admin in ws-work'] },
+    ])('writes the form’s own filing commands for $situation, each on top', ({ args, says }) => {
+      expect(filed(anItem(), args).commands).toEqual(says);
+    });
+
+    it('files a status given beside them first, so the item is filed in the status it ends with', () => {
+      const { commands } = filed(anItem(), { status: 'in_progress', add_panels: ['Work ▸ Admin'] });
+      expect(commands).toEqual(['set_started in ws-work', 'add_item_to_panel on top p-admin in ws-work']);
+    });
+
+    it('settles an item no workspace has been chosen for in the workspace of the Panel, naming a Panel of any', () => {
+      const undecided = anItem({ workspaceDecided: false, workspaceId: 'ws-work' });
+      expect(filed(undecided, { move_to_panel: 'Garden' }).commands).toEqual(['move_item_to_panel on top p-garden in ws-home']);
+    });
+
+    it('has nothing to do to move an item no workspace has been chosen for to the Inbox, and says so', () => {
+      const { plan } = filed(anItem({ workspaceDecided: false }), { move_to_panel: 'Inbox' });
+      expect(plan.steps).toEqual([]);
+      expect(plan.alreadySo).toEqual(['panels']);
+    });
+
+    it.each([
+      { situation: 'move_to_panel beside add_panels', args: { move_to_panel: 'Garden', add_panels: ['Garden'] }, says: ['move_to_panel cannot be combined'] },
+      { situation: 'Panels that are not a list', args: { add_panels: 'Garden' }, says: ['add_panels must be a list of Panel names'] },
+      { situation: 'a Panel that is not a name', args: { remove_panels: [7] }, says: ['remove_panels must be a list of Panel names'] },
+      { situation: 'move_to_panel that is a list', args: { move_to_panel: ['A'] }, says: ['move_to_panel must be the name of one Panel'] },
+    ])('refuses $situation before anything is looked up', ({ args, says }) => {
+      const said = refusal({ id: ID, ...args });
+      for (const words of says) expect(said).toContain(words);
+    });
+
+    it.each([
+      { situation: 'a shared name written bare', item: anItem(), args: { add_panels: ['Admin'] }, says: ['Several Panels are called "Admin"', 'Work ▸ Admin; Sales ▸ Admin'] },
+      { situation: 'a Panel of another workspace, for an item that has one', item: anItem(), args: { move_to_panel: 'Garden' }, says: ['No Panel is called "Garden"', 'in the workspace "Work"'] },
+      { situation: 'a Panel in both lists', item: anItem(), args: { add_panels: ['Work ▸ Admin'], remove_panels: ['work ▸ admin'] }, says: ['both add_panels and remove_panels'] },
+      { situation: 'Panels of two workspaces', item: anItem({ workspaceDecided: false }), args: { add_panels: ['Work ▸ Admin', 'Garden'] }, says: ['different workspaces ("Work", "Home")'] },
+      { situation: 'remove_panels on an item no workspace has been chosen for', item: anItem({ workspaceDecided: false }), args: { remove_panels: ['Garden'] }, says: ['on no Panel yet'] },
+    ])('refuses $situation, with what would do', ({ item, args, says }) => {
+      const read = readUpdate({ id: ID, ...args });
+      if (!read.ok) throw new Error(read.refusal);
+      const resolved = resolveUpdatePanels(item, PANELS, read.fields.panels!);
+      expect(resolved.ok).toBe(false);
+      for (const words of says) expect(resolved.ok ? '' : resolved.refusal).toContain(words);
+    });
+
+    it('tells the model where the item went', () => {
+      const { plan } = filed(anItem(), { add_panels: ['Work ▸ Admin'], remove_panels: ['Sales ▸ Admin'] });
+      const read = readUpdate({ id: ID, add_panels: ['Work ▸ Admin'], remove_panels: ['Sales ▸ Admin'] });
+      if (!read.ok) throw new Error(read.refusal);
+      const ran: ChangesApplied = { results: plan.steps.map(() => ({ applied: true }) as ChangesApplied['results'][number]) };
+      const told = describeUpdate('Send the quote', read.fields, plan, ran, 'https://cockpit.test/w/ws-work?item=1');
+      expect(told).toEqual({
+        reply: 'Changed Panels: taken off Sales ▸ Admin; filed on top of Work ▸ Admin on "Send the quote". Open it: https://cockpit.test/w/ws-work?item=1',
+      });
+    });
+  });
+
   describe('the tool is listed, and says what it does', () => {
     it('lists update_item with an id required and every other field optional, and no argument beyond them', () => {
       const tool = updateItemTool();
@@ -339,6 +443,7 @@ describe('MCP connections', () => {
       expect(tool.inputSchema.required).toEqual(['id']);
       expect(Object.keys(tool.inputSchema.properties)).toEqual([
         'id', 'title', 'next_action', 'description', 'priority', 'due_date', 'status', 'days',
+        'add_panels', 'remove_panels', 'move_to_panel',
       ]);
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(tool.description).toContain('only the fields you give change');
@@ -353,6 +458,21 @@ describe('MCP connections', () => {
       expect(properties.next_action).toMatchObject({ maxLength: 200 });
       expect(properties.description).toMatchObject({ maxLength: 60_000 });
       expect(properties.days).toMatchObject({ minimum: 1, maximum: 365 });
+    });
+
+    it('names every workspace’s Panels that take items, the shared ones as Dashboard ▸ Panel, and offers the Inbox', () => {
+      const tool = updateItemTool(PANELS);
+      expect(tool.description).toContain('Panels that take items: Work: "Work ▸ Admin", "Sales ▸ Admin"; Home: "Garden"');
+      const { add_panels, move_to_panel } = tool.inputSchema.properties as Record<string, any>;
+      expect(add_panels.items.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden']);
+      expect(move_to_panel.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden', 'Inbox']);
+    });
+
+    it('says none yet and offers no empty list of Panels for an account with none', () => {
+      const tool = updateItemTool(PANELS.map((one) => ({ ...one, panels: [] })));
+      expect(tool.description).toContain('Panels that take items: none yet');
+      expect(tool.inputSchema.properties.add_panels).not.toHaveProperty('items.enum');
+      expect(tool.inputSchema.properties.move_to_panel).toMatchObject({ enum: ['Inbox'] });
     });
 
     it('tells the model in the server instructions to use update_item to change an item', () => {
