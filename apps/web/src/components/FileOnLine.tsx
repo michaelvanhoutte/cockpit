@@ -21,7 +21,9 @@ const FIELD =
  * 1101). Nothing chosen means the Inbox, which the line says.
  *
  * **Only the placeholder is drawn until it is first focused**, which is what
- * fetches the search, so Capture opens without paying for it.
+ * fetches the search, so Capture opens without paying for it. A click on it opens the list
+ * at once; reaching it by Tab only fetches the search, and the list opens on a
+ * click or a typed character, as it does after a pick.
  */
 export function FileOnLine({
   where,
@@ -56,7 +58,13 @@ export function FileOnLine({
    */
   offered?: readonly MostUsedPanel[];
 }) {
-  const [armed, setArmed] = useState(false);
+  /** Set once the search is wanted: whether its list is to be open, which a click asks for even where focus already loaded it. */
+  const [armed, setArmed] = useState<{ opened: boolean } | null>(null);
+  /** A click asks for the list open, over a search that focus alone loaded closed; never while disabled, which a pointer can still press. */
+  const openIt = () => {
+    if (!disabled) setArmed({ opened: true });
+  };
+  const placeholder = filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…';
   const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
   return (
     <div
@@ -97,7 +105,18 @@ export function FileOnLine({
             </span>
           ))}
           {armed ? (
-            <Suspense fallback={<input readOnly aria-label="Find a Panel to file on" placeholder="Find a Panel…" className={FIELD} />}>
+            <Suspense
+              fallback={
+                <input
+                  readOnly
+                  disabled={disabled}
+                  onClick={openIt}
+                  aria-label="Find a Panel to file on"
+                  placeholder="Find a Panel…"
+                  className={FIELD}
+                />
+              }
+            >
               <FileOnSearch
                 where={where}
                 from={from}
@@ -105,16 +124,21 @@ export function FileOnLine({
                 chosen={filed.map((one) => one.panelId)}
                 instantly={inTheItemForm}
                 onPick={onAdd}
+                opened={armed.opened}
+                disabled={disabled}
+                closedPlaceholder={placeholder}
               />
             </Suspense>
           ) : (
             <input
               readOnly
               disabled={disabled}
-              onFocus={() => setArmed(true)}
-              onClick={() => setArmed(true)}
+              onFocus={() => setArmed((was) => was ?? { opened: false })}
+              // A mouse press arms before the focus does, which would swap this field away ahead of the click; a touch that scrolls fires none.
+              onMouseDown={openIt}
+              onClick={openIt}
               aria-label="Find a Panel to file on"
-              placeholder={filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…'}
+              placeholder={placeholder}
               className={`${FIELD} sm:w-72`}
             />
           )}
