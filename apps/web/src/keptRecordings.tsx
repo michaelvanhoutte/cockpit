@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
-import { del, get, set, values, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
 import { browserLock, type Lock } from './captureOutboxSender';
-import { createDeviceStore } from './onDeviceStore';
+import { createDeviceStore, del, get, set, values } from './onDeviceStore';
 
 /**
  * The recordings Write could not transcribe, kept on this device until their

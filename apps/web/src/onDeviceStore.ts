@@ -18,14 +18,14 @@ import type { UseStore } from 'idb-keyval';
  */
 
 /** Everything this device has open, so one listener serves them all. */
-const stores = new Set<{ leave(): void }>();
+const stores = new Set<() => void>();
 
 /** Set by `freeze` and `pagehide`, cleared on coming back: a frozen page may still report itself visible. */
 let frozen = false;
 
 /** Whether this page is out of view or frozen, when a store keeps nothing open. Always false where there is no document. */
 export function pageIsAway(): boolean {
-  return typeof document !== 'undefined' && (frozen || document.visibilityState === 'hidden');
+  return frozen || globalThis.document?.visibilityState === 'hidden';
 }
 
 /** Whether this page is about to be, or is, frozen or discarded: when sending stops. Hidden alone is not. */
@@ -33,44 +33,37 @@ export function pageIsFrozen(): boolean {
   return frozen;
 }
 
-const frozenListeners = new Set<() => void>();
-const runningListeners = new Set<() => void>();
+const listeners = new Set<(frozen: boolean) => void>();
 
-/** Told, after the page counts as frozen, when it is about to be frozen or leaves (`freeze`, `pagehide`). */
-export function onPageFrozen(listener: () => void): () => void {
-  frozenListeners.add(listener);
-  return () => frozenListeners.delete(listener);
-}
-
-/** Told, after the page counts as running again, when it resumes, is shown from the cache or becomes visible. */
-export function onPageRunning(listener: () => void): () => void {
-  runningListeners.add(listener);
-  return () => runningListeners.delete(listener);
+/**
+ * Told, after the page counts as frozen (`freeze`, `pagehide`) or as running again (`resume`, `pageshow`,
+ * visible), so what is read inside the listener is already up to date.
+ */
+export function onPage(listener: (frozen: boolean) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 // At load, so a page frozen before any store is used is still known.
-if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+if (typeof window !== 'undefined') {
   const leaveAll = () => {
-    for (const store of stores) store.leave();
+    for (const leave of stores) leave();
   };
-  const freezing = () => {
-    frozen = true;
-    leaveAll();
-    for (const listener of [...frozenListeners]) listener();
+  const change = (to: boolean) => () => {
+    frozen = to;
+    if (to) leaveAll();
+    for (const listener of [...listeners]) listener(to);
   };
-  const running = () => {
-    frozen = false;
-    for (const listener of [...runningListeners]) listener();
-  };
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') leaveAll();
-    else running();
-  });
+  const [freezing, running] = [change(true), change(false)];
   // A page going into the back/forward cache, or about to be frozen, may not be told it is hidden first.
-  window.addEventListener('pagehide', freezing);
-  document.addEventListener('freeze', freezing);
-  document.addEventListener('resume', running);
-  window.addEventListener('pageshow', running);
+  for (const [target, event, then] of [
+    [document, 'freeze', freezing],
+    [window, 'pagehide', freezing],
+    [document, 'resume', running],
+    [window, 'pageshow', running],
+    [document, 'visibilitychange', () => (document.visibilityState === 'hidden' ? leaveAll() : running())],
+  ] as const)
+    target.addEventListener(event, then);
 }
 
 export function createDeviceStore(database: string, storeName: string): UseStore {
@@ -79,73 +72,63 @@ export function createDeviceStore(database: string, storeName: string): UseStore
   let using = 0;
 
   const close = () => {
-    const closing = connection;
-    connection = null;
     // `close()` lets transactions already started complete, then closes.
-    void closing?.then((db) => db.close(), () => undefined);
+    void connection?.then((db) => db.close());
+    connection = null;
   };
+  stores.add(close);
 
-  const connect = (): Promise<IDBDatabase> => {
-    if (connection) return connection;
-    const opening: Promise<IDBDatabase> = new Promise((resolve, reject) => {
-      const request = indexedDB.open(database);
-      request.onupgradeneeded = () => request.result.createObjectStore(storeName);
-      request.onsuccess = () => {
-        const db = request.result;
-        const gone = () => {
-          if (connection === opening) connection = null;
-        };
-        // The browser closing it (storage cleared, or the like), or another copy asking to change it.
-        db.onclose = gone;
-        db.onversionchange = () => {
-          gone();
-          db.close();
-        };
-        resolve(db);
-      };
-      request.onerror = () => reject(request.error);
-    });
-    connection = opening;
-    // A failed open is not kept: the next use tries again.
-    opening.catch(() => {
-      if (connection === opening) connection = null;
-    });
-    return opening;
-  };
-
-  const transact = async <T>(
-    mode: IDBTransactionMode,
-    callback: (store: IDBObjectStore) => T | PromiseLike<T>,
-  ): Promise<T> => {
-    for (let attempt = 0; ; attempt += 1) {
-      const db = await connect();
-      let transaction: IDBTransaction;
-      try {
-        transaction = db.transaction(storeName, mode);
-      } catch (error) {
-        // Closed under us, by the browser or by the page going away: open afresh, once.
-        if (attempt === 0 && error instanceof DOMException && error.name === 'InvalidStateError') {
-          if ((await connection?.catch(() => null)) === db) connection = null;
-          continue;
-        }
-        throw error;
-      }
-      return callback(transaction.objectStore(storeName));
-    }
-  };
-
-  const handle = { leave: close };
-
-  const store: UseStore = async (mode, callback) => {
-    stores.add(handle);
+  return async (mode, callback) => {
     using += 1;
     try {
-      return await transact(mode, callback);
+      // A failed open is not kept: the next use tries again.
+      connection ??= new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(database);
+        request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+        request.onsuccess = () => {
+          // The browser closing it (storage cleared, or the like) is not told to anyone else.
+          request.result.onclose = () => (connection = null);
+          resolve(request.result);
+        };
+        request.onerror = () => {
+          connection = null;
+          reject(request.error);
+        };
+      });
+      // Nothing can close it between its opening and this, which are one run of microtasks.
+      const db = await connection;
+      return await callback(db.transaction(storeName, mode).objectStore(storeName));
     } finally {
       using -= 1;
       // A write made while hidden is the only thing that may hold the store open, and only until it is done.
       if (using === 0 && pageIsAway()) close();
     }
   };
-  return store;
 }
+
+// The few reads and writes the app makes, replacing idb-keyval's, whose default store keeps a connection open for good.
+const answer = <T>(request: IDBRequest<T>) =>
+  new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+/** Settles on the transaction, not the request: a write that aborted must not look kept. */
+const kept = (things: IDBObjectStore) =>
+  new Promise<void>((resolve, reject) => {
+    things.transaction.oncomplete = () => resolve();
+    things.transaction.onabort = () => reject(things.transaction.error);
+  });
+
+export const get = (key: IDBValidKey, store: UseStore) => store('readonly', (things) => answer(things.get(key)));
+export const values = (store: UseStore) => store('readonly', (things) => answer(things.getAll()));
+export const entries = <K extends IDBValidKey, V>(store: UseStore) =>
+  store('readonly', async (things) => {
+    const [keys, found] = await Promise.all([answer(things.getAllKeys()), answer(things.getAll())]);
+    return keys.map((key, at): [K, V] => [key as K, found[at] as V]);
+  });
+export const set = (key: IDBValidKey, value: unknown, store: UseStore) =>
+  store('readwrite', (things) => (things.put(value, key), kept(things)));
+export const del = (key: IDBValidKey, store: UseStore) =>
+  store('readwrite', (things) => (things.delete(key), kept(things)));
+export const clear = (store: UseStore) => store('readwrite', (things) => (things.clear(), kept(things)));

@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { del, set, values, type UseStore } from 'idb-keyval';
+import type { UseStore } from 'idb-keyval';
 import { ACCOUNT_WIDE, uuidv7, type CommandResult, type Priority } from '@cockpit/shared';
 import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
 import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
-import { createDeviceStore, onPageFrozen, onPageRunning, pageIsFrozen } from './onDeviceStore';
+import { createDeviceStore, del, onPage, pageIsFrozen, set, values } from './onDeviceStore';
 import { currentStanding, onStandingChange } from './offline';
 import {
   ADDITION_ENTRY_VERSION,
@@ -213,8 +213,6 @@ export class CaptureOutbox {
   private readonly landings = new Set<(landing: Landing) => void>();
   private running: Promise<void> | null = null;
   private again = false;
-  /** Whether a pass in progress was cut short by the page going out of view. */
-  private interrupted = false;
   private wait: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the last pass waited on a server that answered (429, 5xx and the like) rather than on no answer at all. */
@@ -222,7 +220,7 @@ export class CaptureOutbox {
   /** Every request for the turn to send still waiting, so a page about to be frozen can withdraw them. */
   private readonly turnRequests = new Set<AbortController>();
   /** Every send in flight, so a confirmed sign-out can stop them. */
-  private readonly inFlight = new Map<AbortController, () => void>();
+  private readonly inFlight = new Set<AbortController>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
   private reads = 0;
   /** The entry whose note is on its way to the server in this tab right now. */
@@ -322,7 +320,7 @@ export class CaptureOutbox {
   }
 
   private abortInFlight(): void {
-    for (const sending of this.inFlight.keys()) sending.abort();
+    for (const sending of this.inFlight) sending.abort();
   }
 
   /**
@@ -333,11 +331,10 @@ export class CaptureOutbox {
    * running again, which `send` then does.
    */
   freeze(): void {
-    this.interrupted = this.running !== null;
     this.clearTimer();
     // A request still waiting for its turn must not be granted to a page that is frozen.
     for (const asking of this.turnRequests) asking.abort();
-    for (const giveUp of [...this.inFlight.values()]) giveUp();
+    this.abortInFlight();
   }
 
   private away(): boolean {
@@ -539,11 +536,7 @@ export class CaptureOutbox {
       } finally {
         this.running = null;
       }
-      const cutShort = this.interrupted;
-      this.interrupted = false;
-      // Running again while the pass cut short by the freeze was still ending: its retry is now, not on the backoff.
-      if (result === 'waits' && cutShort && this.again && !this.away()) void this.send();
-      else if (result === 'waits' && this.owner !== null) this.tryAgainLater();
+      if (result === 'waits' && this.owner !== null) this.tryAgainLater();
       else {
         this.wait = null;
         this.waitedOnAnAnswer = false;
@@ -560,7 +553,6 @@ export class CaptureOutbox {
   private async pass(): Promise<PassResult> {
     const owner = this.owner;
     if (owner === null) return 'clear';
-    if (this.away()) return 'waits';
     // Read again inside the lock: another tab may have sent some of these.
     const due = toSend(await this.refresh(), owner);
     if (due.length === 0) return 'clear';
@@ -723,13 +715,12 @@ export class CaptureOutbox {
     if (this.away()) return Promise.reject(new TimedOut());
     const sending = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    this.inFlight.add(sending);
     const late = new Promise<never>((_, reject) => {
-      const giveUp = () => {
+      timer = setTimeout(() => {
         reject(new TimedOut());
         sending.abort();
-      };
-      this.inFlight.set(sending, giveUp);
-      timer = setTimeout(giveUp, ms);
+      }, ms);
     });
     return Promise.race([send(sending.signal), late]).finally(() => {
       clearTimeout(timer);
@@ -739,8 +730,6 @@ export class CaptureOutbox {
 
   private tryAgainLater(): void {
     this.clearTimer();
-    // Frozen, nothing is timed; running again sends.
-    if (this.away()) return;
     this.wait = nextWait(this.wait);
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -854,8 +843,7 @@ export function useSendingCaptures(owner: string | null): void {
   useEffect(() => {
     const kick = () => void outbox.send();
     // About to be frozen or discarded: let go of the turn to send; send again once running (or shown).
-    const stopFrozen = onPageFrozen(() => outbox.freeze());
-    const stopRunning = onPageRunning(kick);
+    const stopWatching = onPage((frozen) => (frozen ? outbox.freeze() : kick()));
     // Something of the app's own got through, so the connection is back
     // whatever the browser said - the lie-fi case. Not after the server
     // itself answered and asked for patience, which the backoff waits out. A
@@ -889,8 +877,7 @@ export function useSendingCaptures(owner: string | null): void {
     return () => {
       window.removeEventListener('online', kick);
       goneOnline();
-      stopFrozen();
-      stopRunning();
+      stopWatching();
       fromQueries();
       fromChanges();
       landed();

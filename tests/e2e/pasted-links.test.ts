@@ -1,6 +1,8 @@
 import {
-  capture,
+  captureBox,
+  capturedLine,
   chooseRowAction,
+  closeCapture,
   closeSettings,
   dashboardBar,
   deleteWorkspace,
@@ -8,6 +10,7 @@ import {
   inbox,
   itemRow,
   makeWorkspace,
+  openCapture,
   openFirstWorkspace,
   openSettings,
   press,
@@ -61,7 +64,13 @@ test.describe('Capture', () => {
       await expect(inbox(page)).toBeVisible();
 
       const yours = uniqueTitle('ring Els back');
-      await capture(page, `${CHAT_LINK} ${yours}`, isMobile);
+      // Not `capture()`, which waits for the row under the words as typed: the server may have read the link
+      // and retitled the row before that is looked for, and the row is then found by what is still in it, `yours`.
+      await openCapture(page, isMobile);
+      await captureBox(page).fill(`${CHAT_LINK} ${yours}`);
+      await captureBox(page).press('ControlOrMeta+Enter');
+      await expect(capturedLine(page, CHAT_LINK)).toBeVisible();
+      await closeCapture(page, isMobile);
 
       const row = itemRow(page, yours);
       await expect(row.getByText(/Microsoft Teams/)).toBeVisible({ timeout: 10_000 });

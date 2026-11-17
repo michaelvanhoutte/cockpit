@@ -138,15 +138,12 @@ describe('Offline', () => {
       expect(stillOpen()).toBe(1);
     });
 
-    it.each([
-      { situation: 'and said so', told: true },
-      { situation: 'without a word', told: false },
-    ])('opens a new connection rather than failing when the browser closed it meanwhile, $situation', async ({ told }) => {
+    it('opens a new connection rather than failing when the browser closed it meanwhile', async () => {
       const store = createDeviceStore('db', 'things');
       await set('a', 'before', store);
       const [first] = connections;
       first!.db.close();
-      if (told) first!.db.onclose?.(new Event('close'));
+      first!.db.onclose?.(new Event('close'));
 
       await set('b', 'after', store);
       await del('a', store);

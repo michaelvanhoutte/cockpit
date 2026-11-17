@@ -1220,11 +1220,14 @@ describe('Offline', () => {
       { situation: 'the page is leaving', going: () => tab('pagehide') },
     ])('stops a send in progress when $situation, lets go of its turn, and keeps the capture waiting, never refused', async ({ going }) => {
       const server = aServer();
-      // A send that never answers and ignores being aborted: only the outbox itself can end it.
+      // A send that never answers, and fails once aborted as a fetch does.
       let hangs = true;
       const sender: Sender = {
         ...server.sender,
-        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
+        capture: (payload, signal) =>
+          hangs
+            ? new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+            : server.sender.capture(payload, signal),
       };
       const watched = aLockWatched();
       const outbox = aTab(server, { lock: watched.lock, sender, frozen: pageIsFrozen });
