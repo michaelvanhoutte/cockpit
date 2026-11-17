@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { uuidv7, type Workspace } from '@cockpit/shared';
 import { refusalFrom, snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
@@ -64,7 +64,7 @@ export default function FileOnSearch({
    */
   instantly?: boolean;
   onPick: (option: FileOnOption) => void;
-  /** Whether the list is open from the start, and opens it where it turns true later: a click loaded the search, where focus alone (Tab) did not. */
+  /** Whether the list is open from the start: a click loaded the search, where focus alone (Tab) did not. */
   opened?: boolean;
   /** Disables the closed field and the options, as Capture does while it is pending or the form is saving. */
   disabled?: boolean;
@@ -73,9 +73,6 @@ export default function FileOnSearch({
 }) {
   const [typed, setTyped] = useState('');
   const [open, setOpen] = useState(opened);
-  useEffect(() => {
-    if (opened) setOpen(true);
-  }, [opened]);
   const field = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   /** What the screen holds now, for an answer that arrives later. */
@@ -158,11 +155,14 @@ export default function FileOnSearch({
         pick({ ...option, made });
       } else {
         await made;
-        pick(option);
+        // Left, reopened or edited since it was sent: the Panel is still chipped, and the screen is left as it is.
+        if (live.current.open && live.current.typed === sentText) pick(option);
+        else onPick(option);
       }
     } catch (error) {
-      // The text stays, so the name can be edited and tried again; an answer for a list since closed or text since changed is not shown.
+      // The text stays, so the name can be edited and tried again; where the list was left or the text changed since, the undo bar says it was never made.
       if (live.current.open && live.current.typed === sentText) setRefusal(refusalFrom({ error }));
+      else offerToUndo({ what: `The panel “${option.name}” was not added. ${whyNotDone(error)}` });
     } finally {
       makingNow.current = false;
       setMaking(false);
@@ -184,7 +184,7 @@ export default function FileOnSearch({
     >
       <input
         ref={field}
-        type={open ? 'search' : 'text'}
+        type="search"
         disabled={!open && disabled}
         autoFocus
         value={typed}
@@ -224,9 +224,10 @@ export default function FileOnSearch({
           <li key={option.panelId}>
             <button
               type="button"
-              disabled={disabled}
-              onClick={() => pick(option)}
-              className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none"
+              // Not `disabled`: that would blur a focused option and close the list as Capture goes busy.
+              aria-disabled={disabled || undefined}
+              onClick={() => !disabled && pick(option)}
+              className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none aria-disabled:opacity-60"
             >
               <span className="min-w-0 flex-1 truncate">{option.name}</span>
               <span className="shrink-0 text-xs text-ink-faint">

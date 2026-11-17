@@ -60,7 +60,10 @@ export function FileOnLine({
 }) {
   /** Set once the search is wanted: whether its list is to be open, which a click asks for even where focus already loaded it. */
   const [armed, setArmed] = useState<{ opened: boolean } | null>(null);
-  const openIt = () => setArmed({ opened: true });
+  /** A click asks for the list open, over a search that focus alone loaded closed; never while disabled, which a pointer can still press. */
+  const openIt = () => {
+    if (!disabled) setArmed({ opened: true });
+  };
   const placeholder = filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…';
   const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
   return (
@@ -106,7 +109,7 @@ export function FileOnLine({
               fallback={
                 <input
                   readOnly
-                  onPointerDown={openIt}
+                  disabled={disabled}
                   onClick={openIt}
                   aria-label="Find a Panel to file on"
                   placeholder="Find a Panel…"
@@ -131,7 +134,8 @@ export function FileOnLine({
               readOnly
               disabled={disabled}
               onFocus={() => setArmed((was) => was ?? { opened: false })}
-              onPointerDown={openIt}
+              // A mouse press arms before the focus does, which would swap this field away ahead of the click; a touch that scrolls fires none.
+              onMouseDown={openIt}
               onClick={openIt}
               aria-label="Find a Panel to file on"
               placeholder={placeholder}

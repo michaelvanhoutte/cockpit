@@ -490,7 +490,7 @@ describe('Panels', () => {
       expect(forms().getByRole('button', { name: 'Remove from Waiting on' })).toBeVisible();
       // The list closes at the click, ahead of the answer.
       expect(forms().queryByRole('list', { name: 'Panels to file on' })).toBeNull();
-      expect(forms().getByRole('textbox', { name: 'Find a Panel to file on' })).toHaveFocus();
+      expect(forms().getByLabelText('Find a Panel to file on')).toHaveFocus();
       expect(titlesIn('Waiting on')).toEqual([expect.stringContaining('Reply to Bart')]);
       expect(waiting.map((request) => request.name)).toEqual(['add_panel']);
       await answerNext();

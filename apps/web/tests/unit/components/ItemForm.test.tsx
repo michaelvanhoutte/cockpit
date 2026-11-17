@@ -1372,7 +1372,7 @@ describe('Item editing', () => {
       await pick(user, 'atl', /Atlas/);
 
       expect(screen.queryByRole('list', { name: 'Panels to file on' })).toBeNull();
-      const field = screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+      const field = screen.getByLabelText('Find a Panel to file on');
       expect(field).toHaveAttribute('placeholder', 'Add another Panel…');
       expect(field).toHaveFocus();
       await user.keyboard('f');
