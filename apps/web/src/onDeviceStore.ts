@@ -33,29 +33,44 @@ export function pageIsFrozen(): boolean {
   return frozen;
 }
 
+const frozenListeners = new Set<() => void>();
+const runningListeners = new Set<() => void>();
+
+/** Told, after the page counts as frozen, when it is about to be frozen or leaves (`freeze`, `pagehide`). */
+export function onPageFrozen(listener: () => void): () => void {
+  frozenListeners.add(listener);
+  return () => frozenListeners.delete(listener);
+}
+
+/** Told, after the page counts as running again, when it resumes, is shown from the cache or becomes visible. */
+export function onPageRunning(listener: () => void): () => void {
+  runningListeners.add(listener);
+  return () => runningListeners.delete(listener);
+}
+
 // At load, so a page frozen before any store is used is still known.
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   const leaveAll = () => {
     for (const store of stores) store.leave();
   };
+  const freezing = () => {
+    frozen = true;
+    leaveAll();
+    for (const listener of [...frozenListeners]) listener();
+  };
+  const running = () => {
+    frozen = false;
+    for (const listener of [...runningListeners]) listener();
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') leaveAll();
-    else frozen = false;
+    else running();
   });
   // A page going into the back/forward cache, or about to be frozen, may not be told it is hidden first.
-  window.addEventListener('pagehide', () => {
-    frozen = true;
-    leaveAll();
-  });
-  document.addEventListener('freeze', () => {
-    frozen = true;
-    leaveAll();
-  });
-  for (const back of ['resume', 'pageshow']) {
-    (back === 'resume' ? document : window).addEventListener(back, () => {
-      frozen = false;
-    });
-  }
+  window.addEventListener('pagehide', freezing);
+  document.addEventListener('freeze', freezing);
+  document.addEventListener('resume', running);
+  window.addEventListener('pageshow', running);
 }
 
 export function createDeviceStore(database: string, storeName: string): UseStore {
@@ -70,13 +85,8 @@ export function createDeviceStore(database: string, storeName: string): UseStore
     void closing?.then((db) => db.close(), () => undefined);
   };
 
-  /** The factory the connection came from: a different one (a test's fresh browser) is a different database. */
-  let from: IDBFactory | null = null;
-
   const connect = (): Promise<IDBDatabase> => {
-    if (connection && from !== indexedDB) close();
     if (connection) return connection;
-    from = indexedDB;
     const opening: Promise<IDBDatabase> = new Promise((resolve, reject) => {
       const request = indexedDB.open(database);
       request.onupgradeneeded = () => request.result.createObjectStore(storeName);

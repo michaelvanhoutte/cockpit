@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import { forgetHeldSharesStore } from '../../../src/shares';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect } from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
@@ -124,6 +125,7 @@ const opened = (pathname: string, state: Record<string, unknown> = {}, search: R
 };
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory();
+  forgetHeldSharesStore();
   session.signedIn = true;
 });
 const writeSide = () => screen.getByRole('link', { name: 'Write' });

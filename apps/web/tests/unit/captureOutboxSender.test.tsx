@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
@@ -1186,16 +1186,17 @@ describe('Offline', () => {
   });
 
   describe('a copy of Cockpit about to be frozen does not hold up sending, and one merely hidden keeps sending', () => {
-    const tab = (event: 'hidden' | 'visible' | 'freeze' | 'pagehide' | 'resume') => {
+    const tab = (event: 'hidden' | 'visible' | 'freeze' | 'pagehide' | 'resume' | 'pageshow') => {
       if (event === 'hidden' || event === 'visible') {
         Object.defineProperty(document, 'visibilityState', { value: event, configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));
-      } else if (event === 'pagehide') window.dispatchEvent(new Event('pagehide'));
+      } else if (event === 'pagehide' || event === 'pageshow') window.dispatchEvent(new Event(event));
       else document.dispatchEvent(new Event(event));
     };
     afterEach(() => {
+      // Unmounted first, so putting the page back kicks no outbox into the next case.
+      cleanup();
       tab('visible');
-      tab('resume');
     });
 
     /** A lock that says whether its turn is held, as another tab would find out by waiting. */
@@ -1247,6 +1248,52 @@ describe('Offline', () => {
         await settled();
       });
       expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it.each([
+      { situation: 'the page resumes', back: () => tab('resume') },
+      { situation: 'the page is shown again', back: () => tab('pageshow') },
+      { situation: 'the page becomes visible', back: () => tab('visible') },
+    ])('sends what waited when $situation', async ({ back }) => {
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      tab('freeze');
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(messages(server)).toEqual([]);
+
+      await act(async () => {
+        back();
+        await settled();
+      });
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it('withdraws its wait for the turn to send when the page is about to be frozen, and the capture stays waiting', async () => {
+      const server = aServer();
+      // Another tab holds the turn: this one's request queues behind it.
+      const signals: (AbortSignal | undefined)[] = [];
+      const queued: Lock = (work, signal) => {
+        signals.push(signal);
+        return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+      };
+      const outbox = aTab(server, { lock: queued, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      expect(signals[0]?.aborted).toBe(false);
+
+      await act(async () => {
+        tab('freeze');
+        await settled();
+      });
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
       outbox.stop();
     });
 

@@ -1,5 +1,6 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import { forgetHeldSharesStore } from '../../../src/shares';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -224,6 +225,7 @@ function onA(screen: 'desk' | 'phone') {
 beforeEach(() => {
   // A browser of its own for every case: nothing kept by the last one.
   globalThis.indexedDB = new IDBFactory();
+  forgetHeldSharesStore();
 });
 
 afterEach(() => {

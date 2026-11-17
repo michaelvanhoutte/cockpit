@@ -6,7 +6,7 @@ import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
 import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
-import { createDeviceStore, pageIsFrozen } from './onDeviceStore';
+import { createDeviceStore, onPageFrozen, onPageRunning, pageIsFrozen } from './onDeviceStore';
 import { currentStanding, onStandingChange } from './offline';
 import {
   ADDITION_ENTRY_VERSION,
@@ -101,8 +101,11 @@ export const serverSender: Sender = {
     (await import('./api/transcription')).transcribeRecording(recording, signal),
 };
 
-/** Runs a pass with no other tab's pass running at the same time. */
-export type Lock = <T>(work: () => Promise<T>) => Promise<T>;
+/**
+ * Runs a pass with no other tab's pass running at the same time. A `signal` ends a request still
+ * waiting for its turn, so a page about to be frozen is not granted it.
+ */
+export type Lock = <T>(work: () => Promise<T>, signal?: AbortSignal) => Promise<T>;
 
 /** One at a time within this tab alone: what a browser without Web Locks gets. */
 export function inTabLock(): Lock {
@@ -118,7 +121,8 @@ export function inTabLock(): Lock {
 export function browserLock(name = 'cockpit-capture-outbox'): Lock {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) return inTabLock();
-  return <T,>(work: () => Promise<T>) => locks.request(name, work) as Promise<T>;
+  return <T,>(work: () => Promise<T>, signal?: AbortSignal) =>
+    locks.request(name, signal ? { signal } : {}, work) as Promise<T>;
 }
 
 /**
@@ -215,6 +219,8 @@ export class CaptureOutbox {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the last pass waited on a server that answered (429, 5xx and the like) rather than on no answer at all. */
   private waitedOnAnAnswer = false;
+  /** Every request for the turn to send still waiting, so a page about to be frozen can withdraw them. */
+  private readonly turnRequests = new Set<AbortController>();
   /** Every send in flight, so a confirmed sign-out can stop them. */
   private readonly inFlight = new Map<AbortController, () => void>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
@@ -329,6 +335,8 @@ export class CaptureOutbox {
   freeze(): void {
     this.interrupted = this.running !== null;
     this.clearTimer();
+    // A request still waiting for its turn must not be granted to a page that is frozen.
+    for (const asking of this.turnRequests) asking.abort();
     for (const giveUp of [...this.inFlight.values()]) giveUp();
   }
 
@@ -518,7 +526,13 @@ export class CaptureOutbox {
         // through, when another try at once would only fail the same way.
         do {
           this.again = false;
-          result = await this.deps.lock(() => this.pass());
+          const asking = new AbortController();
+          this.turnRequests.add(asking);
+          try {
+            result = await this.deps.lock(() => this.pass(), asking.signal);
+          } finally {
+            this.turnRequests.delete(asking);
+          }
         } while (this.again && result !== 'waits');
       } catch {
         result = 'waits';
@@ -527,7 +541,7 @@ export class CaptureOutbox {
       }
       const cutShort = this.interrupted;
       this.interrupted = false;
-      // Back in view while that pass was still ending: its retry is now, not on the backoff.
+      // Running again while the pass cut short by the freeze was still ending: its retry is now, not on the backoff.
       if (result === 'waits' && cutShort && this.again && !this.away()) void this.send();
       else if (result === 'waits' && this.owner !== null) this.tryAgainLater();
       else {
@@ -839,11 +853,9 @@ export function useSendingCaptures(owner: string | null): void {
 
   useEffect(() => {
     const kick = () => void outbox.send();
-    const backInView = () => {
-      if (document.visibilityState === 'visible') kick();
-    };
-    // About to be frozen or discarded: let go of the turn to send, and send again once running.
-    const goingAway = () => outbox.freeze();
+    // About to be frozen or discarded: let go of the turn to send; send again once running (or shown).
+    const stopFrozen = onPageFrozen(() => outbox.freeze());
+    const stopRunning = onPageRunning(kick);
     // Something of the app's own got through, so the connection is back
     // whatever the browser said - the lie-fi case. Not after the server
     // itself answered and asked for patience, which the backoff waits out. A
@@ -861,11 +873,6 @@ export function useSendingCaptures(owner: string | null): void {
       if (wasChosen.now && !chosen) kick();
       wasChosen.now = chosen;
     });
-    document.addEventListener('visibilitychange', backInView);
-    window.addEventListener('pagehide', goingAway);
-    document.addEventListener('freeze', goingAway);
-    document.addEventListener('resume', kick);
-    window.addEventListener('pageshow', kick);
     const fromQueries = queryClient.getQueryCache().subscribe(succeeded);
     const fromChanges = queryClient.getMutationCache().subscribe(succeeded);
     // What a landed capture changes is read once per tab, the way an announcement
@@ -882,11 +889,8 @@ export function useSendingCaptures(owner: string | null): void {
     return () => {
       window.removeEventListener('online', kick);
       goneOnline();
-      document.removeEventListener('visibilitychange', backInView);
-      window.removeEventListener('pagehide', goingAway);
-      document.removeEventListener('freeze', goingAway);
-      document.removeEventListener('resume', kick);
-      window.removeEventListener('pageshow', kick);
+      stopFrozen();
+      stopRunning();
       fromQueries();
       fromChanges();
       landed();
