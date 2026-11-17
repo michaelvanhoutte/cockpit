@@ -79,6 +79,8 @@ const held = vi.hoisted(() => ({
   workspaces: [] as unknown[],
   /** The snapshot each workspace answers with; one left out is a workspace never read, which fails as offline does. */
   snapshots: {} as Record<string, unknown>,
+  /** Each Workspace snapshot read asked for, in order. */
+  snapshotReads: [] as string[],
   /** What a capture is refused with, if it is. */
   refuses: null as Error | null,
   /**
@@ -122,8 +124,10 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
   },
   snapshotQuery: (workspaceId: string) => ({
     queryKey: ['snapshot', workspaceId],
-    queryFn: () =>
-      held.snapshots[workspaceId] ? Promise.resolve(held.snapshots[workspaceId]) : Promise.reject(new Error('offline')),
+    queryFn: () => {
+      held.snapshotReads.push(workspaceId);
+      return held.snapshots[workspaceId] ? Promise.resolve(held.snapshots[workspaceId]) : Promise.reject(new Error('offline'));
+    },
   }),
 }));
 
@@ -241,6 +245,7 @@ async function thePage({
 } = {}) {
   held.workspaces = [WORK, HOME];
   held.snapshots = { 'ws-work': WORK_SNAPSHOT, 'ws-home': HOME_SNAPSHOT };
+  held.snapshotReads = [];
   held.refuses = null;
   held.pending = false;
   held.settle = () => {};
@@ -2329,8 +2334,9 @@ describe('Capture', () => {
 
       expect(chip('Home')).toHaveAttribute('aria-pressed', 'true');
       expect(chip('Any workspace')).toHaveAttribute('aria-pressed', 'false');
-      await waitFor(() => expect(offered()).toEqual([]));
       expect(screen.getByRole('button', { name: 'Do not file on Garden' })).toBeVisible();
+      await searching(user);
+      await waitFor(() => expect(offered()).toEqual([]));
     });
 
     it('adds the top match as a chip on Enter with text typed, and several may be added', async () => {
@@ -2376,8 +2382,8 @@ describe('Capture', () => {
       const user = await thePage();
       await user.click(chip('Work'));
       if (picks.length > 0) {
-        await searching(user);
         for (const name of picks) {
+          await searching(user);
           await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: new RegExp(name) }));
         }
       }
@@ -2398,6 +2404,7 @@ describe('Capture', () => {
       await user.click(screen.getByRole('button', { name: 'Do not file on Falcon' }));
       expect(screen.queryByRole('button', { name: 'Do not file on Falcon' })).toBeNull();
 
+      await searching(user);
       await user.click(within(screen.getByRole('list', { name: 'Panels to file on' })).getByRole('button', { name: /Reading list/ }));
       await user.click(chip('Home'));
 
@@ -2529,6 +2536,223 @@ describe('Capture', () => {
       await user.click(screen.getByRole('button', { name: 'Put back' }));
 
       expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+    });
+  });
+
+  describe('File on closes its list once a Panel is picked, and opens it again on a click or a letter', () => {
+    const field = () => screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+    const openList = async (user: Awaited<ReturnType<typeof thePage>>) => {
+      await user.click(field());
+      return screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+    };
+    const list = () => screen.queryByRole('list', { name: 'Panels to file on' });
+    const pickFrom = async (user: Awaited<ReturnType<typeof thePage>>, name: RegExp) => {
+      await user.click(within(await screen.findByRole('list', { name: 'Panels to file on' })).getByRole('button', { name }));
+    };
+    const closedOnAFiledPanel = async () => {
+      const user = await thePage();
+      await user.click(chip('Work'));
+      await openList(user);
+      await pickFrom(user, /Falcon/);
+      return user;
+    };
+
+    describe('picking a Panel closes the list and leaves the cursor on Add another Panel…', () => {
+      it('closes on a click on a Panel', async () => {
+        await closedOnAFiledPanel();
+
+        expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+        expect(list()).toBeNull();
+        expect(field()).toHaveAttribute('placeholder', 'Add another Panel…');
+        expect(field()).toHaveFocus();
+      });
+
+      it('closes on Enter on the top match', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+
+        await user.type(search, 'falc{Enter}');
+
+        expect(screen.getByRole('button', { name: 'Do not file on Falcon' })).toBeVisible();
+        expect(list()).toBeNull();
+        expect(field()).toHaveFocus();
+      });
+
+      it('closes once + New panel has made the Panel, and not before', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 'Invoices');
+
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+
+        expect(await screen.findByRole('button', { name: 'Do not file on Invoices' })).toBeVisible();
+        expect(list()).toBeNull();
+        expect(field()).toHaveFocus();
+      });
+
+      it('stays open with the text and the refusal where + New panel is refused', async () => {
+        vi.mocked(sendCommand).mockRejectedValueOnce(new CommandRefused(409, 'A panel called Invoices is already on Today'));
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 'Invoices');
+
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('A panel called Invoices is already on Today');
+        expect(list()).not.toBeNull();
+        expect(search).toHaveValue('Invoices');
+      });
+    });
+
+    describe('the closed field opens on a click or a typed letter, and focus alone does not open it', () => {
+      it('opens on a click, with nothing typed yet', async () => {
+        const user = await closedOnAFiledPanel();
+
+        const search = await openList(user);
+
+        expect(search).toHaveValue('');
+        await waitFor(() => expect(within(list()!).getAllByRole('button').length).toBeGreaterThan(0));
+      });
+
+      it('opens on a letter, which starts the search and filters the list', async () => {
+        const user = await closedOnAFiledPanel();
+
+        await user.keyboard('r');
+
+        const search = await screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
+        expect(search).toHaveValue('r');
+        const options = within(list()!).getAllByRole('button').map((button) => button.textContent);
+        expect(options).toContain('Reading listLater');
+        expect(options).not.toContain('FalconToday');
+      });
+
+      it('stays closed when the field is reached by Tab', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        await user.click(box());
+
+        for (let presses = 0; presses < 20 && document.activeElement !== field(); presses++) await user.tab();
+        expect(field()).toHaveFocus();
+        await settled();
+
+        expect(list()).toBeNull();
+        expect(field()).toHaveAttribute('readonly');
+      });
+
+      it('leaves Enter on the closed field to capture, as it does today', async () => {
+        const user = await closedOnAFiledPanel();
+        await user.type(box(), 'Send the invoice');
+        field().focus();
+
+        await user.keyboard('{Enter}');
+
+        const { payload } = await captured();
+        expect(payload.panelIds).toEqual(['p-falcon']);
+      });
+    });
+
+    describe('leaving the list without a pick closes it and drops what was typed', () => {
+      it('closes on a click outside, and reopens empty', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 're');
+
+        await user.click(box());
+
+        expect(list()).toBeNull();
+        expect(screen.queryByRole('button', { name: /^Do not file on/ })).toBeNull();
+        expect(await openList(user)).toHaveValue('');
+      });
+
+      it('closes on Tab past the last option', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 'a');
+        await waitFor(() => expect(within(list()!).getAllByRole('button').length).toBeGreaterThan(0));
+        const options = within(list()!).getAllByRole('button');
+
+        options[options.length - 1]!.focus();
+        await user.tab();
+
+        expect(list()).toBeNull();
+      });
+
+      it('stays open while focus moves from the search into its own options', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 'a');
+        await waitFor(() => expect(within(list()!).getAllByRole('button').length).toBeGreaterThan(0));
+
+        await user.tab();
+
+        expect(within(list()!).getAllByRole('button')[0]).toHaveFocus();
+        expect(list()).not.toBeNull();
+      });
+    });
+
+    describe('Escape works as it did', () => {
+      const whenEscapeReachesTheWindow = () => {
+        const reached = vi.fn();
+        document.addEventListener('keydown', reached);
+        return { reached, stop: () => document.removeEventListener('keydown', reached) };
+      };
+
+      it('clears the typed text first, and does not close Capture', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 're');
+        const window = whenEscapeReachesTheWindow();
+        try {
+          await user.keyboard('{Escape}');
+
+          expect(search).toHaveValue('');
+          expect(window.reached).not.toHaveBeenCalled();
+        } finally {
+          window.stop();
+        }
+      });
+
+      it('is left to Capture, which closes, where the search is empty', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        await openList(user);
+        const window = whenEscapeReachesTheWindow();
+        try {
+          await user.keyboard('{Escape}');
+
+          expect(window.reached).toHaveBeenCalledTimes(1);
+        } finally {
+          window.stop();
+        }
+      });
+    });
+
+    it('reopening the list reads no Workspace again, under Any workspace past the time a read is fresh', async () => {
+      const user = await thePage();
+      await openList(user);
+      await waitFor(() => expect(held.snapshotReads.sort()).toEqual(['ws-home', 'ws-work']));
+      const readsBefore = held.snapshotReads.length;
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(Date.now() + 16_000); // clock-ok: moved on from the real time, past the 15 s a read stays fresh
+        await pickFrom(user, /Garden/);
+
+        await openList(user);
+        await user.keyboard('x');
+        await user.click(box());
+        await openList(user);
+
+        expect(held.snapshotReads.length).toBe(readsBefore);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

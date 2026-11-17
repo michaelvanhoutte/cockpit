@@ -21,7 +21,9 @@ const FIELD =
  * 1101). Nothing chosen means the Inbox, which the line says.
  *
  * **Only the placeholder is drawn until it is first focused**, which is what
- * fetches the search, so Capture opens without paying for it.
+ * fetches the search, so Capture opens without paying for it. A click on it opens the list
+ * at once; reaching it by Tab only fetches the search, and the list opens on a
+ * click or a typed letter, as it does after a pick.
  */
 export function FileOnLine({
   where,
@@ -56,7 +58,8 @@ export function FileOnLine({
    */
   offered?: readonly MostUsedPanel[];
 }) {
-  const [armed, setArmed] = useState(false);
+  /** Set once the search is wanted: whether its list starts open, and the letter that opened it. */
+  const [armed, setArmed] = useState<{ opened: boolean; seed: string } | null>(null);
   const label = labelled ?? (inTheItemForm ? 'On panels' : 'File on');
   return (
     <div
@@ -105,14 +108,19 @@ export function FileOnLine({
                 chosen={filed.map((one) => one.panelId)}
                 instantly={inTheItemForm}
                 onPick={onAdd}
+                opened={armed.opened}
+                seed={armed.seed}
+                disabled={disabled}
+                closedPlaceholder={filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…'}
               />
             </Suspense>
           ) : (
             <input
               readOnly
               disabled={disabled}
-              onFocus={() => setArmed(true)}
-              onClick={() => setArmed(true)}
+              onFocus={() => setArmed((was) => was ?? { opened: false, seed: '' })}
+              onPointerDown={() => setArmed((was) => was ?? { opened: true, seed: '' })}
+              onClick={() => setArmed((was) => was ?? { opened: true, seed: '' })}
               aria-label="Find a Panel to file on"
               placeholder={filed.length === 0 ? 'Inbox — or find a Panel…' : 'Add another Panel…'}
               className={`${FIELD} sm:w-72`}

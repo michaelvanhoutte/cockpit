@@ -1365,6 +1365,20 @@ describe('Item editing', () => {
       expect(offered.queryByText('Due soon')).toBeNull();
     });
 
+    it('closes the list once a Panel is picked, leaving the cursor on Add another Panel…, and a letter opens it again', async () => {
+      filedOn('p-falcon');
+      const user = await theForm();
+
+      await pick(user, 'atl', /Atlas/);
+
+      expect(screen.queryByRole('list', { name: 'Panels to file on' })).toBeNull();
+      const field = screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+      expect(field).toHaveAttribute('placeholder', 'Add another Panel…');
+      expect(field).toHaveFocus();
+      await user.keyboard('f');
+      expect(await screen.findByRole('searchbox', { name: 'Find a Panel to file on' })).toHaveValue('f');
+    });
+
     describe('docked, each change is written at once and offered back', () => {
       it('files the Item on a Panel the moment it is picked, and Undo takes it off', async () => {
         filedOn('p-falcon');

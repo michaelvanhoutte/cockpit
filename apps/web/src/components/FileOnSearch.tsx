@@ -32,6 +32,13 @@ const subscribeToConnection = (notify: () => void) => {
  * issue 1103): **+ New panel “…”**, where `newPanelOffer` says, made when chosen
  * with the command **Move to…**'s + sends and then picked like any other, so a
  * capture later undone leaves it standing. Offline it is shown and unavailable.
+ *
+ * **Picking a Panel closes the list** and leaves the cursor on the field, which
+ * then reads *Add another Panel…*; a click or a typed letter (which starts the
+ * search) opens it again, focus alone does not, and leaving it without a pick
+ * (a click outside, Tab past it) closes it and drops what was typed. **Closing
+ * only hides the list**: the search stays mounted, so reopening never reads a
+ * Workspace snapshot again.
  */
 export default function FileOnSearch({
   where,
@@ -40,6 +47,10 @@ export default function FileOnSearch({
   chosen,
   instantly = false,
   onPick,
+  opened = true,
+  seed = '',
+  disabled = false,
+  closedPlaceholder = 'Add another Panel…',
 }: {
   where: string | null;
   /** The Workspace Capture was opened from, whose Dashboard a plain name is made on under *Any workspace*. */
@@ -54,8 +65,18 @@ export default function FileOnSearch({
    */
   instantly?: boolean;
   onPick: (option: FileOnOption) => void;
+  /** Whether the list starts open: a click or a typed letter loaded the search, where focus alone (Tab) did not. */
+  opened?: boolean;
+  /** The letter typed on the closed field that loaded the search, which starts the search. */
+  seed?: string;
+  /** Disables the closed field, as Capture does while it is pending. */
+  disabled?: boolean;
+  /** What the closed field reads. */
+  closedPlaceholder?: string;
 }) {
-  const [typed, setTyped] = useState('');
+  const [typed, setTyped] = useState(seed);
+  const [open, setOpen] = useState(opened);
+  const field = useRef<HTMLInputElement>(null);
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const online = useSyncExternalStore(
@@ -84,10 +105,18 @@ export default function FileOnSearch({
     return dashboards.find((dashboard) => dashboard.id === remembered)?.id ?? null;
   });
 
-  const pick = (option: FileOnOption) => {
-    onPick(option);
+  /** Hides the list and drops what was typed. The search itself stays, so reopening reads nothing again. */
+  const close = () => {
+    setOpen(false);
     setTyped('');
     setRefusal(null);
+  };
+
+  const pick = (option: FileOnOption) => {
+    onPick(option);
+    close();
+    // A pick from an option button would otherwise leave the cursor nowhere once the button is gone.
+    field.current?.focus();
   };
 
   const makePanel = async () => {
@@ -136,17 +165,37 @@ export default function FileOnSearch({
   };
 
   return (
-    <div className="relative w-full min-w-0 sm:w-72">
+    <div
+      className="relative w-full min-w-0 sm:w-72"
+      onBlur={(event) => {
+        // Leaving the field and its list closes it; moving between its own parts does not.
+        if (open && !event.currentTarget.contains(event.relatedTarget as Node | null)) close();
+      }}
+    >
       <input
-        type="search"
+        ref={field}
+        type={open ? 'search' : 'text'}
+        readOnly={!open}
+        disabled={!open && disabled}
         autoFocus
         value={typed}
+        onClick={() => setOpen(true)}
         onChange={(event) => {
           setTyped(event.target.value);
           // A refusal is about the text it was given.
           setRefusal(null);
         }}
         onKeyDown={(event) => {
+          if (!open) {
+            // A letter typed on the closed field opens the list and starts the search; Enter and the rest are the field's own.
+            if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              setTyped(event.key);
+              setRefusal(null);
+              setOpen(true);
+            }
+            return;
+          }
           // Never the form's: Enter here adds a Panel, it does not capture.
           if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
@@ -158,12 +207,15 @@ export default function FileOnSearch({
             setTyped('');
           }
         }}
-        placeholder="Find a Panel…"
+        placeholder={open ? 'Find a Panel…' : closedPlaceholder}
         aria-label="Find a Panel to file on"
         autoComplete="off"
         className="min-h-9 w-full rounded-md border border-shade/10 bg-field px-3 text-sm placeholder:text-ink-faint focus:border-accent focus:outline-none sm:min-h-0 sm:py-1 sm:text-[13px]"
       />
+      {open && (
       <ul
+        // Keeps the cursor on the field when an option is pressed, so pressing one is not leaving the list.
+        onMouseDown={(event) => event.preventDefault()}
         aria-label="Panels to file on"
         className="mt-1 max-h-56 overflow-y-auto rounded-md border border-shade/10 bg-surface text-sm shadow-field empty:hidden"
       >
@@ -207,15 +259,16 @@ export default function FileOnSearch({
           </li>
         )}
       </ul>
-      {refusal && (
+      )}
+      {open && refusal && (
         <p role="alert" className="pt-1 text-sm text-over-ink">
           {refusal}
         </p>
       )}
-      {matches.length === 0 && !offer && typed.trim() !== '' && !reading && (
+      {open && matches.length === 0 && !offer && typed.trim() !== '' && !reading && (
         <p className="pt-1 text-xs text-ink-faint">Nothing called “{typed.trim()}”.</p>
       )}
-      {leftOut.length > 0 && !reading && (
+      {open && leftOut.length > 0 && !reading && (
         <p role="status" className="pt-1 text-xs text-ink-faint">
           Not read yet, so left out: {leftOut.join(', ')}.
         </p>
