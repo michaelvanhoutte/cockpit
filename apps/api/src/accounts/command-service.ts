@@ -782,6 +782,25 @@ function filingFactsFor(
   };
 }
 
+/**
+ * A Panel's whole order with `itemId` on top and every other filing below it as
+ * the Panel holds them now, except the rows an order may leave out (an Item
+ * finished more than a day ago, which keeps its place: `heldOutOfTheRead`). Built
+ * from the Panel's rows as they are at the moment of writing, which is what
+ * makes a connected app's filing never stale ("MCP changes and deletes: name
+ * Panels in update_item and create_item", issue 1812); Capture's *File on* puts
+ * an Item at the top the same way (`decideCaptureFiling`).
+ */
+export function orderWithItemOnTop(db: AccountDb, tenantId: string, panelId: string, itemId: string): string[] {
+  const leftOut = new Set(
+    listFilingsOnPanelOutOfTheRead(db, tenantId, panelId, finishedKeptAfter(new Date())).map((row) => row.itemId),
+  );
+  const below = listFilingsOnPanel(db, tenantId, panelId)
+    .map((filing) => filing.itemId)
+    .filter((id) => id !== itemId && !leftOut.has(id));
+  return [itemId, ...below];
+}
+
 /** A filing the domain accepted as it is, or the error its refusal is. */
 function refusedOrFiling(decision: FilingRefusal | FilingDecided): FilingDecided {
   switch (decision.refusal) {

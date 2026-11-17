@@ -15,13 +15,17 @@ import {
   type Item,
   type ItemStatus,
   type Priority,
+  panelPlace,
+  type ReadableWorkspace,
   type StatusState,
   type StatusStep,
 } from '@cockpit/shared';
-import type { CommandToRun, ChangesApplied } from '../accounts/answer.js';
+import type { ChangeToRun, ChangesApplied } from '../accounts/answer.js';
 import { captureDay } from '../domain/capture-day.js';
+import { foldName } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
 import { readItemId } from './delete-item.js';
+import { describePanels, findPanel, namesLeftOut, PANEL_GIVEN_MAX_LENGTH, panelNamesAllowed, type PanelChoice } from './panels.js';
 
 /**
  * The tool an app connected to Cockpit changes an Item with ("MCP changes and
@@ -44,7 +48,7 @@ import { readItemId } from './delete-item.js';
 export const UPDATE_ITEM = 'update_item';
 
 /** The fields a call may change, in the order they are written. */
-export const UPDATE_FIELDS = ['title', 'nextAction', 'description', 'priority', 'status', 'dueDate'] as const;
+export const UPDATE_FIELDS = ['title', 'nextAction', 'description', 'priority', 'status', 'dueDate', 'panels'] as const;
 export type UpdateField = (typeof UPDATE_FIELDS)[number];
 
 /** What each field is called to the model: its argument's name, in words. */
@@ -55,10 +59,29 @@ const FIELD_NAMES: Record<UpdateField, string> = {
   priority: 'priority',
   status: 'status',
   dueDate: 'due date',
+  panels: 'Panels',
 };
 
 /** The arguments the tool takes, as the model writes them. */
-const ARGUMENTS = ['id', 'title', 'next_action', 'description', 'priority', 'due_date', 'status', 'days'] as const;
+const ARGUMENTS = [
+  'id',
+  'title',
+  'next_action',
+  'description',
+  'priority',
+  'due_date',
+  'status',
+  'days',
+  'add_panels',
+  'remove_panels',
+  'move_to_panel',
+] as const;
+
+/** What `move_to_panel` says to take an item off every Panel. */
+export const INBOX = 'Inbox';
+
+/** The most Panels one call names. */
+export const MOST_PANELS_NAMED = 50;
 
 const STATUS_VALUES = ['to_do', 'in_progress', 'done', 'waiting'] as const;
 
@@ -73,7 +96,19 @@ const STATUS_LABELS: Record<ItemStatus, string> = {
 /** The description's own limit, read off the contract rather than written again. */
 const DESCRIPTION_LIMIT = itemDescriptionSchema.maxLength ?? 60_000;
 
-export function updateItemTool(): ToolDefinition {
+/**
+ * The tool, naming every Workspace's Panels that take items as they are now:
+ * twice, in the description and as an `enum` on each Panel argument, for the
+ * reason `createItemTool` does - and with no `enum` where there is no Panel or
+ * more than a list names (`namesLeftOut`).
+ */
+export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): ToolDefinition {
+  const names = panelNamesAllowed(catalogue);
+  const panelNames = (about: string) => ({
+    type: 'string',
+    ...(names.length ? { enum: names } : {}),
+    description: about,
+  });
   return {
     name: UPDATE_ITEM,
     description: [
@@ -83,6 +118,8 @@ export function updateItemTool(): ToolDefinition {
       'Give a field empty or null to clear it, except status.',
       'A title, next action or description you set becomes the user\'s own text, and Cockpit stops proposing one.',
       'Setting a pulled Gmail or Outlook item to done or to do puts its label or star back or takes it off at the source.',
+      'Panels: add_panels files it on more Panels, remove_panels takes it off some, and move_to_panel takes it off every Panel and puts it on one, or on "Inbox" for none; each puts it on top. Do not combine move_to_panel with the other two.',
+      `Panels that take items: ${describePanels(catalogue)}. A Panel is named as above, in any case, within the item's workspace; where several share a name, write Dashboard ▸ Panel. An item no workspace has been chosen for may go on a Panel of any workspace, which then becomes its workspace.`,
       'A dismissed item must be restored with restore_item first.',
     ].join(' '),
     inputSchema: {
@@ -128,6 +165,24 @@ export function updateItemTool(): ToolDefinition {
           maximum: MOST_FOLLOW_UP_DAYS,
           description: `With status waiting only: how many days to wait for a reply, 1 to ${MOST_FOLLOW_UP_DAYS}. The item is due that many days from today.`,
         },
+        add_panels: {
+          type: ['array', 'null'],
+          items: panelNames('A Panel to file the item on as well, on top.'),
+          maxItems: MOST_PANELS_NAMED,
+          description: 'Panels to file the item on as well, by name; it goes on top of each.',
+        },
+        remove_panels: {
+          type: ['array', 'null'],
+          items: panelNames('A Panel to take the item off.'),
+          maxItems: MOST_PANELS_NAMED,
+          description: 'Panels to take the item off, by name. With none left it is in the Inbox.',
+        },
+        move_to_panel: {
+          type: ['string', 'null'],
+          // Null is no move, as for `priority`; a Panel called Inbox is not listed twice, since "Inbox" always means the Inbox.
+          ...(namesLeftOut(catalogue) ? {} : { enum: [...new Set([...names.filter((name) => foldName(name) !== foldName(INBOX)), INBOX]), null] }),
+          description: 'One Panel to move the item to, by name, off every Panel it is on and on top of this one; "Inbox" takes it off them all.',
+        },
       },
       required: ['id'],
       additionalProperties: false,
@@ -143,13 +198,14 @@ export interface UpdateFields {
   priority?: Priority | null;
   dueDate?: string | null;
   status?: { to: 'to_do' | 'in_progress' | 'done' } | { to: 'waiting'; days: number };
+  panels?: PanelsAsked;
 }
 
 /** What a call's arguments come to: the Item to name and what to change on it, or what to tell the model. */
 export type ReadUpdate = { ok: true; itemId: string; fields: UpdateFields } | { ok: false; refusal: string };
 
 const CAN_CHANGE =
-  'Give at least one field to change: title, next_action, description, priority, due_date, or status (with days for waiting).';
+  'Give at least one field to change: title, next_action, description, priority, due_date, status (with days for waiting), add_panels, remove_panels or move_to_panel.';
 
 /** Whether an argument was left out: absent, or null where the field may be cleared by null. */
 const given = (value: unknown) => value !== undefined;
@@ -179,6 +235,28 @@ export function readUpdate(args: unknown): ReadUpdate {
   const id = readItemId(arg);
   if (!id.ok) return id;
 
+  const read = readFieldArgs(arg);
+  if (!read.ok) return read;
+  const fields = read.fields;
+
+  const panels = readPanelArgs(arg);
+  if (!panels.ok) return panels;
+  if (panels.asked) fields.panels = panels.asked;
+
+  if (!Object.keys(fields).length) return { ok: false, refusal: CAN_CHANGE };
+  return { ok: true, itemId: id.itemId, fields };
+}
+
+/**
+ * The fields of a form that a call may set, read against the form's own limits
+ * (the contract's own schemas, so a limit is never written twice): shared by
+ * `update_item` and by `create_item`, which reads the same arguments (issue 1812).
+ * Each one given null or empty is a clear; the first that is wrong is refused,
+ * naming it and its limit.
+ */
+export function readFieldArgs(
+  arg: Record<string, unknown>,
+): { ok: true; fields: UpdateFields } | { ok: false; refusal: string } {
   const fields: UpdateFields = {};
 
   if (given(arg.title)) {
@@ -255,9 +333,52 @@ export function readUpdate(args: unknown): ReadUpdate {
   } else if (days !== undefined) {
     return { ok: false, refusal: 'days goes with status waiting only; leave it out.' };
   }
+  return { ok: true, fields };
+}
 
-  if (!Object.keys(fields).length) return { ok: false, refusal: CAN_CHANGE };
-  return { ok: true, itemId: id.itemId, fields };
+/** What the Panel arguments ask, by the names given: nothing resolved yet, which needs the Item's Workspace. */
+export interface PanelsAsked {
+  add: string[];
+  remove: string[];
+  /** A Panel's name, or `Inbox` to take it off every Panel; absent to leave where it is. */
+  moveTo?: string;
+}
+
+/** A list of Panel names: absent, null or empty is none, and anything but non-empty text is refused. */
+export function readPanelNames(
+  value: unknown,
+  name: string,
+): { ok: true; names: string[] } | { ok: false; refusal: string } {
+  if (value === undefined || value === null) return { ok: true, names: [] };
+  const wrong = { ok: false as const, refusal: `${name} must be a list of Panel names, at most ${MOST_PANELS_NAMED} of them.` };
+  if (!Array.isArray(value) || value.length > MOST_PANELS_NAMED) return wrong;
+  const names: string[] = [];
+  for (const one of value) {
+    if (typeof one !== 'string' || one.trim() === '') return wrong;
+    names.push(one.trim());
+  }
+  return { ok: true, names };
+}
+
+function readPanelArgs(
+  arg: Record<string, unknown>,
+): { ok: true; asked?: PanelsAsked } | { ok: false; refusal: string } {
+  const add = readPanelNames(arg.add_panels, 'add_panels');
+  if (!add.ok) return add;
+  const remove = readPanelNames(arg.remove_panels, 'remove_panels');
+  if (!remove.ok) return remove;
+  let moveTo: string | undefined;
+  if (arg.move_to_panel !== undefined && arg.move_to_panel !== null && arg.move_to_panel !== '') {
+    if (typeof arg.move_to_panel !== 'string' || arg.move_to_panel.trim() === '' || arg.move_to_panel.length > PANEL_GIVEN_MAX_LENGTH) {
+      return { ok: false, refusal: 'move_to_panel must be the name of one Panel, or "Inbox".' };
+    }
+    moveTo = arg.move_to_panel.trim();
+  }
+  if (moveTo !== undefined && (add.names.length || remove.names.length)) {
+    return { ok: false, refusal: 'move_to_panel cannot be combined with add_panels or remove_panels; give one or the other.' };
+  }
+  if (!add.names.length && !remove.names.length && moveTo === undefined) return { ok: true };
+  return { ok: true, asked: { add: add.names, remove: remove.names, ...(moveTo !== undefined ? { moveTo } : {}) } };
 }
 
 /** A text argument: text, or null, which is the same as empty. */
@@ -269,6 +390,70 @@ function asText(
   if (value === null) return { ok: true, text: '' };
   if (typeof value !== 'string') return { ok: false, refusal: `${name} must be text, ${limit}, or null to clear it.` };
   return { ok: true, text: value };
+}
+
+/** The Panels a call names, found: the Item's own Workspace's, or any Workspace's for one no Workspace has been chosen for. */
+export interface PanelsResolved {
+  add: PanelChoice[];
+  remove: PanelChoice[];
+  /** One Panel, or `inbox` to take it off every one; absent to leave it be. */
+  moveTo?: PanelChoice | 'inbox';
+}
+
+/**
+ * Finds each Panel a call names (`findPanel`) in the Workspace the Item has, or
+ * in every one where none has been chosen for it, and refuses the first it
+ * cannot with what would do. **An Item belongs to one Workspace**, so the Panels
+ * it is to be filed on must all be of one, and a Panel to take it off is one of
+ * its own: an Item no Workspace has been chosen for is on none.
+ */
+export function resolveUpdatePanels(
+  item: Item,
+  catalogue: readonly ReadableWorkspace[],
+  asked: PanelsAsked,
+): { ok: true; panels: PanelsResolved } | { ok: false; refusal: string } {
+  const scope = item.workspaceDecided ? item.workspaceId : null;
+  const found = (names: readonly string[]) => {
+    const panels: PanelChoice[] = [];
+    for (const name of names) {
+      const one = findPanel(catalogue, scope, name);
+      if (!one.ok) return one;
+      if (!panels.some((panel) => panel.id === one.panel.id)) panels.push(one.panel);
+    }
+    return { ok: true as const, panels };
+  };
+
+  if (asked.remove.length && scope === null) {
+    return { ok: false, refusal: 'That item is on no Panel yet, and no workspace has been chosen for it, so remove_panels has nothing to take it off.' };
+  }
+  const add = found(asked.add);
+  if (!add.ok) return add;
+  const remove = found(asked.remove);
+  if (!remove.ok) return remove;
+  const both = add.panels.find((panel) => remove.panels.some((one) => one.id === panel.id));
+  if (both) {
+    return { ok: false, refusal: `${JSON.stringify(both.name)} is in both add_panels and remove_panels; name it in one.` };
+  }
+
+  let moveTo: PanelChoice | 'inbox' | undefined;
+  if (asked.moveTo !== undefined) {
+    if (foldName(asked.moveTo) === foldName(INBOX)) moveTo = 'inbox';
+    else {
+      const one = findPanel(catalogue, scope, asked.moveTo);
+      if (!one.ok) return one;
+      moveTo = one.panel;
+    }
+  }
+
+  const landing = [...add.panels, ...(moveTo && moveTo !== 'inbox' ? [moveTo] : [])];
+  const workspaces = [...new Set(landing.map((panel) => panel.workspace))];
+  if (workspaces.length > 1) {
+    return {
+      ok: false,
+      refusal: `Those Panels are in different workspaces (${workspaces.map((name) => JSON.stringify(name)).join(', ')}), and an item belongs to one; name Panels of one workspace.`,
+    };
+  }
+  return { ok: true, panels: { add: add.panels, remove: remove.panels, ...(moveTo !== undefined ? { moveTo } : {}) } };
 }
 
 /**
@@ -284,7 +469,7 @@ export function waitTimeZone(zones: readonly string[], at: Date): string {
 /** One command of the call, and the field it belongs to: a status is up to three. */
 export interface PlannedStep {
   field: UpdateField;
-  change: CommandToRun;
+  change: ChangeToRun;
 }
 
 /** What a call comes to against the Item as it stands: the commands to run, and the fields that already are so. */
@@ -294,6 +479,8 @@ export interface UpdatePlan {
   alreadySo: UpdateField[];
   /** The due date a wait gives, where one is asked for. */
   waitDue: string | null;
+  /** What was done about the Panels, in words, where the call asked about them. */
+  panelsSaid: string | null;
 }
 
 /** Where an Item stands, for the status steps. */
@@ -313,12 +500,18 @@ function standing(item: Item): StatusState {
  * is compared on its result: waiting again moves nothing where the Item
  * already waits and is already due the day it would be.
  */
-export function planUpdate(item: Item, fields: UpdateFields, now: Date, timeZone: string): UpdatePlan {
+export function planUpdate(
+  item: Item,
+  fields: UpdateFields,
+  now: Date,
+  timeZone: string,
+  panels: PanelsResolved | null = null,
+): UpdatePlan {
   const issuedAt = now.toISOString();
   const envelope = () => ({ commandId: uuidv7(), issuedAt, workspaceId: item.workspaceId });
   const steps: PlannedStep[] = [];
   const alreadySo: UpdateField[] = [];
-  const write = (field: UpdateField, change: CommandToRun) => steps.push({ field, change });
+  const write = (field: UpdateField, change: ChangeToRun) => steps.push({ field, change });
   const same = (field: UpdateField) => alreadySo.push(field);
 
   if (fields.title !== undefined) {
@@ -370,7 +563,34 @@ export function planUpdate(item: Item, fields: UpdateFields, now: Date, timeZone
     else write('dueDate', { name: 'set_due_date', payload: { ...envelope(), itemId: item.id, dueDate: fields.dueDate } });
   }
 
-  return { steps, alreadySo, waitDue };
+  // Filed last, so a status given beside them is the one the Item is filed with.
+  let panelsSaid: string | null = null;
+  if (panels) {
+    const place = (panel: PanelChoice) => panelPlace(panel.dashboard, panel.name);
+    const said: string[] = [];
+    const own = (panel: PanelChoice) => ({ commandId: uuidv7(), issuedAt, workspaceId: panel.workspaceId, itemId: item.id });
+    for (const panel of panels.remove) {
+      write('panels', { name: 'remove_item_from_panel', payload: { ...own(panel), panelId: panel.id } });
+    }
+    if (panels.remove.length) said.push(`taken off ${list(panels.remove.map(place))}`);
+    if (panels.moveTo === 'inbox') {
+      // An Item no Workspace has been chosen for is on no Panel already.
+      if (item.workspaceDecided) {
+        write('panels', { name: 'move_item_to_panel', payload: { ...envelope(), itemId: item.id, panelId: null, order: [] } });
+        said.push('moved to the Inbox');
+      } else same('panels');
+    } else if (panels.moveTo) {
+      write('panels', { name: 'move_item_to_panel', onTop: true, payload: { ...own(panels.moveTo), panelId: panels.moveTo.id } });
+      said.push(`moved on top of ${place(panels.moveTo)}`);
+    }
+    for (const panel of panels.add) {
+      write('panels', { name: 'add_item_to_panel', onTop: true, payload: { ...own(panel), panelId: panel.id } });
+    }
+    if (panels.add.length) said.push(`filed on top of ${list(panels.add.map(place))}`);
+    panelsSaid = said.length ? said.join('; ') : null;
+  }
+
+  return { steps, alreadySo, waitDue, panelsSaid };
 }
 
 /** What the model is told a field now is. */
@@ -385,6 +605,8 @@ function said(field: UpdateField, fields: UpdateFields, plan: UpdatePlan): strin
       if (to !== 'waiting') return `status ${STATUS_LABELS[to]}`;
       return fields.dueDate === undefined ? `status Waiting for reply, due ${plan.waitDue}` : 'status Waiting for reply';
     }
+    case 'panels':
+      return plan.panelsSaid ? `Panels: ${plan.panelsSaid}` : FIELD_NAMES.panels;
     default:
       return FIELD_NAMES[field];
   }

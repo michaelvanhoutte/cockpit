@@ -9,7 +9,7 @@ import {
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning } from '../jobs/enrichment.js';
+import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import {
@@ -25,10 +25,18 @@ import {
   describeUpdate,
   planUpdate,
   readUpdate,
+  resolveUpdatePanels,
   updateItemTool,
   waitTimeZone,
 } from './update-item.js';
-import { CREATE_ITEM, SERVER_INSTRUCTIONS, createItemTool, readCapture, senderFrom } from './create-item.js';
+import {
+  CREATE_ITEM,
+  SERVER_INSTRUCTIONS,
+  createItemTool,
+  readCapture,
+  senderFrom,
+  stepsAfterCapture,
+} from './create-item.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
@@ -101,13 +109,15 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
-      const workspaces = await account.workspaces();
+      // The Workspaces with their Panels: what each write tool names them from.
+      const catalogue = await account.panelCatalogue();
+      const workspaces = catalogue.map((one) => one.workspace);
       return {
         tools: [
-          createItemTool(workspaces),
+          createItemTool(catalogue),
           reportRunTool(),
           findItemsTool(workspaces),
-          updateItemTool(),
+          updateItemTool(catalogue),
           deleteItemTool(),
           restoreItemTool(),
         ],
@@ -168,43 +178,62 @@ async function capture(
   // Asked together: the count is the store's memory and the two reads are its
   // tables, and a call refused for being one too many has simply read for
   // nothing. Every call is counted, refused ones included.
-  const [admitted, workspaces] = await Promise.all([
+  const [admitted, catalogue] = await Promise.all([
     account.appCaptureArrived(app.grantId, new Date().toISOString()),
-    account.workspaces(),
+    account.panelCatalogue(),
   ]);
   if (admitted === 'too-many') {
     return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
   }
 
-  const read = readCapture(args, workspaces);
+  const read = readCapture(args, catalogue);
   if (!read.ok) return { refusal: read.refusal };
+  const workspaces = catalogue.map((one) => one.workspace);
 
   const itemId = uuidv7();
   const sender = senderFrom(app.clientName);
-  try {
-    await account.applyChange('capture_item', {
-      commandId: uuidv7(),
-      issuedAt: new Date().toISOString(),
-      workspaceId: read.workspaceId,
-      itemId,
-      message: read.message,
-      ...(read.decided ? {} : { workspaceDecided: false }),
-      // Said by this route and by no client: the app's registered name is the
-      // sender a row shows ("Show which app captured an item", issue 598), and
-      // which app it was is the source's own id for it.
-      capturedFrom: {
-        source: 'mcp',
-        sourceId: app.clientId.slice(0, 500),
-        ...(sender ? { sender } : {}),
+  const now = new Date();
+  // A wait counts its days on the calendar of the account's latest capture.
+  const timeZone = read.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
+  // The capture, then the steps to its status, in one call to the store: a tab
+  // hears of the new item once, and what follows the capture cannot be seen
+  // without it.
+  const applied = await account.applyChanges([
+    {
+      name: 'capture_item',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: now.toISOString(),
+        workspaceId: read.workspaceId,
+        itemId,
+        message: read.message,
+        ...(read.decided ? {} : { workspaceDecided: false }),
+        ...(read.title ? { title: read.title } : {}),
+        ...(read.nextAction ? { nextAction: read.nextAction } : {}),
+        ...(read.priority ? { priority: read.priority } : {}),
+        ...(read.dueDate ? { dueDate: read.dueDate } : {}),
+        ...(read.panels.length ? { panelIds: read.panels.map((panel) => panel.id) } : {}),
+        // Said by this route and by no client: the app's registered name is the
+        // sender a row shows ("Show which app captured an item", issue 598), and
+        // which app it was is the source's own id for it.
+        capturedFrom: {
+          source: 'mcp',
+          sourceId: app.clientId.slice(0, 500),
+          ...(sender ? { sender } : {}),
+        },
       },
-    });
-  } catch (error) {
-    // A workspace deleted between the read above and the write: the
-    // same refusal a name that matched nothing gets, so the model can retry.
-    if (error instanceof NotFoundInAccountError) {
-      return { refusal: 'That workspace was just removed. List the tools again for the current names.' };
-    }
-    throw error;
+    },
+    ...stepsAfterCapture(read, itemId, now.toISOString(), timeZone),
+  ]);
+  // Nothing was captured: a workspace deleted between the read above and the
+  // write is the same refusal a name that matched nothing gets, so the model can retry.
+  if (applied.stopped?.at === 0) {
+    return {
+      refusal:
+        applied.stopped.because === 'missing'
+          ? 'That workspace was just removed. List the tools again for the current names.'
+          : applied.stopped.what,
+    };
   }
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId, 'mcp'));
@@ -217,18 +246,26 @@ async function capture(
   // The title it was written with is the message's mechanical one
   // (`textsFromCapture`), so that is the answer where the read back fails.
   const title = await account.item(itemId).then(
-    (item) => item?.title ?? textsFromCapture(read.message).title,
+    (item) => item?.title ?? read.title ?? textsFromCapture(read.message).title,
     (error: unknown) => {
       logged(error);
-      return textsFromCapture(read.message).title;
+      return read.title ?? textsFromCapture(read.message).title;
     },
   );
-  const where = read.decided
-    ? `the ${workspaces.find((w) => w.id === read.workspaceId)?.name ?? ''} Inbox`
-    : 'every Inbox, until a workspace is chosen for it';
+  const workspaceName = workspaces.find((w) => w.id === read.workspaceId)?.name ?? '';
+  const where = read.panels.length
+    ? `on top of ${read.panels.map((panel) => panel.place).join(' and ')} in ${workspaceName}`
+    : read.decided
+      ? `in the ${workspaceName} Inbox`
+      : 'in every Inbox, until a workspace is chosen for it';
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
-  return { reply: `Captured "${title}" in ${where}. Open it: ${link.href}` };
+  if (applied.stopped) {
+    return {
+      refusal: `Captured "${title}" ${where}, but its status could not be set: ${applied.stopped.what}. Open it: ${link.href}`,
+    };
+  }
+  return { reply: `Captured "${title}" ${where}. Open it: ${link.href}` };
 }
 
 /**
@@ -365,17 +402,28 @@ async function update(
   if (!item) return { refusal: NO_SUCH_ITEM };
   if (item.deletedAt !== null) return { refusal: DISMISSED_ITEM };
 
+  // The Panels are read only where the call names them, and found in the Item's
+  // Workspace as it is now (every Workspace, for an Item none has been chosen for).
+  let panels: ReturnType<typeof resolveUpdatePanels> | null = null;
+  if (read.fields.panels) {
+    panels = resolveUpdatePanels(item, await account.panelCatalogue(), read.fields.panels);
+    if (!panels.ok) return { refusal: panels.refusal };
+  }
+
   const now = new Date();
   // A wait counts its days on the calendar of the account's latest capture, so
   // the zones are read only where a wait is asked for.
   const timeZone =
     read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
-  const plan = planUpdate(item, read.fields, now, timeZone);
+  const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null);
 
   const title = item.title.trim() || UNTITLED;
-  const link = new URL(`/w/${encodeURIComponent(item.workspaceId)}`, env.APP_ORIGIN);
-  link.searchParams.set('item', item.id);
-  if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, link.href);
+  const linkTo = (workspaceId: string) => {
+    const link = new URL(`/w/${encodeURIComponent(workspaceId)}`, env.APP_ORIGIN);
+    link.searchParams.set('item', item.id);
+    return link.href;
+  };
+  if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, linkTo(item.workspaceId));
 
   const applied = await account.applyChanges(plan.steps.map((step) => step.change));
   // A text written here is queued for the same follow-up work the form's edit
@@ -385,9 +433,21 @@ async function update(
   );
   if (wroteTexts) {
     ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, item.id));
-    ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
   }
-  return describeUpdate(title, read.fields, plan, applied, link.href);
+  // A filing queues what the Panel routes' filings do ("Re-propose the rest of
+  // the inbox the moment you file one", issue 300): the rest of the Inbox
+  // where it settled a routing, and Claude's proposal, made from the Panel the
+  // Item sits on, once for any change to it.
+  const filed = plan.steps.flatMap((step, i) => (step.field === 'panels' && applied.results[i]?.applied ? [i] : []));
+  for (const i of filed) {
+    if (applied.results[i]?.settledRouting) {
+      ctx.waitUntil(enqueueRepropose(env, accountName, plan.steps[i]!.change.payload.workspaceId));
+    }
+  }
+  if (wroteTexts || filed.length) ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
+  // An Item no Workspace had been chosen for is in the Workspace of the Panel it was filed on now.
+  const settledIn = item.workspaceDecided ? undefined : filed.map((i) => plan.steps[i]!.change.payload.workspaceId)[0];
+  return describeUpdate(title, read.fields, plan, applied, linkTo(settledIn ?? item.workspaceId));
 }
 
 /**

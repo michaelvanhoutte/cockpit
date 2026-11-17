@@ -77,6 +77,22 @@ export type Answer<T> =
 export type CommandToRun = { [N in CommandName]: { name: N; payload: CommandPayload<N> } }[CommandName];
 
 /**
+ * A filing whose Panel order the store builds at the moment it is written
+ * ("MCP changes and deletes: name Panels in update_item and create_item",
+ * issue 1812): the Item on top and what the Panel holds then below it, read
+ * where the command is applied, so nothing the caller read earlier can have
+ * gone stale. An Item finished more than a day ago and left out of the Workspace's
+ * read keeps its place, as `move_item_to_panel`'s order allows. Never a move to
+ * the Inbox, whose order is empty: that is a plain `CommandToRun`.
+ */
+export type FilingOnTop =
+  | { name: 'add_item_to_panel'; onTop: true; payload: Omit<CommandPayload<'add_item_to_panel'>, 'order'> }
+  | { name: 'move_item_to_panel'; onTop: true; payload: Omit<CommandPayload<'move_item_to_panel'>, 'order'> & { panelId: string } };
+
+/** One change of `applyChanges`: a command as it is, or a filing whose order the store builds. */
+export type ChangeToRun = CommandToRun | FilingOnTop;
+
+/**
  * What `applyChanges` ran: the result of each command that was applied, in
  * order, and - where a command was refused partway - which one stopped the
  * rest and why. **What applied before it stays applied**: each command is its

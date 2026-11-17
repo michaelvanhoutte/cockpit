@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { env, applyD1Migrations } from 'cloudflare:test';
-import { itemHasOpenReadings, itemStatus, type FinishedItems, type Item, type ServerEvent } from '@cockpit/shared';
+import { itemHasOpenReadings, itemStatus, type Filing, type FinishedItems, type Item, type ServerEvent } from '@cockpit/shared';
 import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
@@ -9,6 +9,7 @@ import {
   USER_ID,
   WORKSPACE_ID,
   accountOf,
+  alsoWorkspaces,
   asUser,
   inStoreAsItIs,
   seedRegister,
@@ -83,8 +84,8 @@ async function aPanel(name: string): Promise<string> {
 }
 
 /** The Workspace as an open tab reads it. */
-async function snapshot(): Promise<{ items: Item[] }> {
-  return (await (await asUser(`${ORIGIN}/v1/workspaces/${WORKSPACE_ID}/snapshot`)).json()) as { items: Item[] };
+async function snapshot(workspaceId: string = WORKSPACE_ID): Promise<{ items: Item[]; filings: Filing[] }> {
+  return (await (await asUser(`${ORIGIN}/v1/workspaces/${workspaceId}/snapshot`)).json()) as { items: Item[]; filings: Filing[] };
 }
 
 /** The Item as a tab reads it back. */
@@ -382,6 +383,265 @@ describe('MCP connections', () => {
       expect(sixtyFirst.isError).toBe(true);
       expect(textOf(sixtyFirst)).toContain('Too many');
       expect((await read(itemId)).title).toBe('Title 30');
+    });
+  });
+});
+
+/** The Panel's Items, top first, as the Workspace's read carries them. */
+async function onPanel(panelId: string, workspaceId: string = WORKSPACE_ID): Promise<string[]> {
+  const { filings } = await snapshot(workspaceId);
+  return filings
+    .filter((filing) => filing.panelId === panelId)
+    .sort((a, b) => a.position - b.position)
+    .map((filing) => filing.itemId);
+}
+
+/** The Panels an Item is on, as the Workspace's read carries them. */
+async function panelsOf(itemId: string, workspaceId: string = WORKSPACE_ID): Promise<string[]> {
+  return (await snapshot(workspaceId)).filings.filter((filing) => filing.itemId === itemId).map((filing) => filing.panelId).sort();
+}
+
+const createItem = (token: string, args: Record<string, unknown>) => call(token, 'create_item', args);
+
+describe('MCP connections', () => {
+  describe('filing over MCP leaves the item exactly where Move to… or Add to would', () => {
+    it('adds it to another Panel, on top of that Panel and still on the one it was on', async () => {
+      const { token } = await connected();
+      const [admin, calls] = [await aPanel('Admin'), await aPanel('Calls')];
+      const waiting = await anItem('Already on Calls', { panelIds: [calls] });
+      const itemId = await anItem('Pay the invoice', { panelIds: [admin] });
+
+      const said = await updateItem(token, { id: itemId, add_panels: ['calls'] });
+
+      expect(said.isError).toBeFalsy();
+      expect(textOf(said)).toContain('Changed Panels: filed on top of Dashboard 1 ▸ Calls');
+      expect(await panelsOf(itemId)).toEqual([admin, calls].sort());
+      expect(await onPanel(calls)).toEqual([itemId, waiting]);
+      expect(await onPanel(admin)).toEqual([itemId]);
+    });
+
+    it('takes it off its only Panel and leaves it in the Inbox', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const itemId = await anItem('Pay the invoice', { panelIds: [admin] });
+
+      expect((await updateItem(token, { id: itemId, remove_panels: ['Admin'] })).isError).toBeFalsy();
+
+      expect(await panelsOf(itemId)).toEqual([]);
+      expect(await onPanel(admin)).toEqual([]);
+      expect((await read(itemId)).workspaceId).toBe(WORKSPACE_ID);
+    });
+
+    it('moves it to one Panel off all the others, on top', async () => {
+      const { token } = await connected();
+      const [a, b, c] = [await aPanel('A'), await aPanel('B'), await aPanel('C')];
+      const held = await anItem('Already on C', { panelIds: [c] });
+      const itemId = await anItem('Move me', { panelIds: [a, b] });
+      expect(await panelsOf(itemId)).toEqual([a, b].sort());
+
+      const said = await updateItem(token, { id: itemId, move_to_panel: 'c' });
+
+      expect(said.isError).toBeFalsy();
+      expect(await panelsOf(itemId)).toEqual([c]);
+      expect(await onPanel(c)).toEqual([itemId, held]);
+      expect(await onPanel(a)).toEqual([]);
+    });
+
+    it('moves it to the Inbox, off every Panel', async () => {
+      const { token } = await connected();
+      const [a, b] = [await aPanel('A'), await aPanel('B')];
+      const itemId = await anItem('Move me', { panelIds: [a, b] });
+
+      expect((await updateItem(token, { id: itemId, move_to_panel: 'Inbox' })).isError).toBeFalsy();
+
+      expect(await panelsOf(itemId)).toEqual([]);
+    });
+
+    it('leaves an item finished more than a day ago where it was on the Panel, so reopening it finds it there', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const old = await anItem('Finished long ago', { panelIds: [admin] });
+      const open = await anItem('Still open', { panelIds: [admin] });
+      expect((await send('set_done', { itemId: old, done: true })).status).toBe(200);
+      const before = await inStoreAsItIs(accountOf(USER_ID), (sql) =>
+        sql.exec('SELECT item_id, position FROM panel_items WHERE item_id = ?', old).one(),
+      );
+      const itemId = await anItem('Newcomer');
+
+      expect((await updateItem(token, { id: itemId, add_panels: ['Admin'] })).isError).toBeFalsy();
+
+      expect(await onPanel(admin)).toEqual([itemId, open]);
+      const kept = await inStoreAsItIs(accountOf(USER_ID), (sql) =>
+        sql.exec('SELECT item_id, position FROM panel_items WHERE item_id = ?', old).one(),
+      );
+      expect(kept).toEqual(before);
+      expect((await send('set_done', { itemId: old, done: false })).status).toBe(200);
+      expect(await panelsOf(old)).toEqual([admin]);
+    });
+
+    it('settles an item on Any workspace in the workspace of the Panel, and takes it out of the other Inboxes', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+      const itemId = await anItem('Waits everywhere', { workspaceDecided: false });
+      for (const workspaceId of [WORKSPACE_ID, 'ws-atlas', 'ws-personal']) {
+        expect((await snapshot(workspaceId)).items.map((item) => item.id), workspaceId).toContain(itemId);
+      }
+
+      const said = await updateItem(token, { id: itemId, move_to_panel: 'Atlas Copco ▸ Dashboard 1 ▸ Panel 1' });
+
+      expect(said.isError).toBeFalsy();
+      expect(textOf(said)).toContain(`/w/ws-atlas?item=${itemId}`);
+      expect(await onPanel('ws-atlas-panel-1', 'ws-atlas')).toEqual([itemId]);
+      expect((await snapshot('ws-atlas')).items.find((item) => item.id === itemId)).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true });
+      for (const workspaceId of [WORKSPACE_ID, 'ws-personal']) {
+        expect((await snapshot(workspaceId)).items.map((item) => item.id), workspaceId).not.toContain(itemId);
+      }
+    });
+
+    it('queues Claude\'s proposal for a filed item, and the Inbox refresh of the workspace where it settled a routing', async () => {
+      const { token } = await connected();
+      const panelId = await aPanel('Admin');
+      const itemId = await anItem('Pay the invoice');
+      const queued: { kind: string; workspaceId?: string; itemId?: string }[] = [];
+      const real = env.ENRICHMENT;
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      env.ENRICHMENT = {
+        send: async (body: { kind: string; workspaceId?: string; itemId?: string }) => void queued.push(body),
+        sendBatch: async () => undefined,
+      } as unknown as typeof env.ENRICHMENT;
+      try {
+        expect((await updateItem(token, { id: itemId, add_panels: ['Admin'] })).isError).toBeFalsy();
+        await vi.waitFor(() => expect(queued.map((job) => job.kind)).toContain('re-propose-panels'));
+        expect(queued).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ kind: 're-propose-panels', workspaceId: WORKSPACE_ID }),
+            expect.objectContaining({ itemId }),
+          ]),
+        );
+        expect(await panelsOf(itemId)).toEqual([panelId]);
+        queued.length = 0;
+        expect((await updateItem(token, { id: itemId, add_panels: ['Admin'] })).isError).toBeFalsy();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(queued.filter((job) => job.kind === 're-propose-panels')).toEqual([]);
+      } finally {
+        env.ENRICHMENT = real;
+        env.ANTHROPIC_API_KEY = '';
+      }
+    });
+
+    it('refuses a Panel name several share, naming each as Dashboard ▸ Panel, and files nothing', async () => {
+      const { token } = await connected();
+      const dashboardId = nextId();
+      expect((await send('add_dashboard', { dashboardId, panelId: nextId(), name: 'Sales' })).status).toBe(200);
+      const [one, two] = [nextId(), nextId()];
+      expect((await send('add_panel', { dashboardId: DASHBOARD_ID, panelId: one, name: 'Admin', kind: 'items' })).status).toBe(200);
+      expect((await send('add_panel', { dashboardId, panelId: two, name: 'Admin', kind: 'items' })).status).toBe(200);
+      const itemId = await anItem('Pay the invoice');
+
+      const shared = await updateItem(token, { id: itemId, add_panels: ['Admin'] });
+
+      expect(shared.isError).toBe(true);
+      expect(textOf(shared)).toContain('Dashboard 1 ▸ Admin; Sales ▸ Admin');
+      expect(await panelsOf(itemId)).toEqual([]);
+      expect((await updateItem(token, { id: itemId, add_panels: ['sales ▸ admin'] })).isError).toBeFalsy();
+      expect(await panelsOf(itemId)).toEqual([two]);
+    });
+
+    it('writes nothing for a call that names a Panel nobody has, and lists the ones there are', async () => {
+      const { token } = await connected();
+      await aPanel('Admin');
+      const itemId = await anItem('Pay the invoice');
+
+      const refused = await updateItem(token, { id: itemId, move_to_panel: 'Garden' });
+
+      expect(refused.isError).toBe(true);
+      expect(textOf(refused)).toContain('"Admin"');
+      expect(await panelsOf(itemId)).toEqual([]);
+      expect(await writtenByTheApp()).toBe(0);
+    });
+  });
+
+  describe('create_item sets every field a capture can, in one capture', () => {
+    it('captures a titled item on top of a Panel with a priority and a due date, the message as its description', async () => {
+      const { token } = await connected();
+      const admin = await aPanel('Admin');
+      const first = await anItem('Already on Admin', { panelIds: [admin] });
+
+      const said = await createItem(token, {
+        message: 'Send Bart the quote with the figures from Monday',
+        title: 'Quote for Bart',
+        panels: ['admin'],
+        priority: 'high',
+        due_date: '2026-11-06',
+      });
+
+      expect(said.isError).toBeFalsy();
+      expect(textOf(said)).toContain('Captured "Quote for Bart" on top of Dashboard 1 ▸ Admin in Workspace 1');
+      const [created] = await onPanel(admin);
+      expect(created).not.toBe(first);
+      expect(await onPanel(admin)).toEqual([created, first]);
+      expect(await read(created!)).toMatchObject({
+        title: 'Quote for Bart',
+        description: 'Send Bart the quote with the figures from Monday',
+        priority: 'high',
+        dueDate: '2026-11-06',
+        workspaceDecided: true,
+      });
+    });
+
+    it('starts it where the status says', async () => {
+      const { token } = await connected();
+      await createItem(token, { message: 'Started now', workspace: 'Workspace 1', status: 'in_progress' });
+
+      const started = (await snapshot()).items.find((item) => item.capturedMessage === 'Started now')!;
+      expect(itemStatus(started)).toBe('in_progress');
+      expect(started.startedAt).not.toBeNull();
+    });
+
+    it('sets Waiting for reply with the days, due that many days on', async () => {
+      const { token } = await connected();
+      const said = await createItem(token, { message: 'Waiting on Bart', workspace: 'Workspace 1', status: 'waiting', days: 3 });
+
+      expect(said.isError).toBeFalsy();
+      const waiting = (await snapshot()).items.find((item) => item.capturedMessage === 'Waiting on Bart')!;
+      expect(itemStatus(waiting)).toBe('waiting');
+      const due = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+      expect(waiting.dueDate).toBe(due);
+    });
+
+    it.each([
+      { situation: 'a Panel name that is refused', args: { panels: ['Garden'] }, says: '"Garden"' },
+      { situation: 'a next action over 200 characters', args: { next_action: 'x'.repeat(201) }, says: 'next_action' },
+    ])('captures nothing for $situation', async ({ args, says }) => {
+      const { token } = await connected();
+      await aPanel('Admin');
+
+      const refused = await createItem(token, { message: 'Should not exist', workspace: 'Workspace 1', ...args });
+
+      expect(refused.isError).toBe(true);
+      expect(textOf(refused)).toContain(says);
+      expect(textOf(await call(token, 'find_items', { text: 'Should not exist' }))).toBe('No item matches.');
+    });
+
+    it('proposes the title from the message as before when none is given', async () => {
+      const { token } = await connected();
+      const said = await createItem(token, { message: 'Ring the plumber about the boiler', workspace: 'Workspace 1' });
+
+      expect(said.isError).toBeFalsy();
+      const item = (await snapshot()).items.find((one) => one.capturedMessage === 'Ring the plumber about the boiler')!;
+      expect(item.title).toBe('Ring the plumber about the boiler');
+      expect(textOf(said)).toContain('in the Workspace 1 Inbox');
+    });
+
+    it('files an item with Panels and no workspace in the workspace of the Panels', async () => {
+      await alsoWorkspaces();
+      const { token } = await connected();
+
+      const said = await createItem(token, { message: 'Garden hose', panels: ['Personal ▸ Dashboard 1 ▸ Panel 1'] });
+
+      expect(said.isError).toBeFalsy();
+      expect(await onPanel('ws-personal-panel-1', 'ws-personal')).toHaveLength(1);
+      expect((await snapshot(WORKSPACE_ID)).items.some((item) => item.capturedMessage === 'Garden hose')).toBe(false);
     });
   });
 });
