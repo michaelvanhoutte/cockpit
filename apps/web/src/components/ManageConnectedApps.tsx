@@ -27,8 +27,8 @@ function whatItDid(app: ConnectedApp): string {
 /**
  * The apps allowed into your Cockpit, and the address to paste into claude.ai
  * ("See the apps connected to your Cockpit, and disconnect one", issue 600) -
- * each saying what it may do: capture items, or only read your Panels (issue
- * 1445).
+ * each saying what it may do: capture, read and dismiss items, or only read your Panels
+ * (issues 1445 and 1810).
  *
  * **Yours, not the account's**: an app somebody else allowed is not listed,
  * and Disconnect ends exactly the access you gave. The Items it captured stay.
@@ -97,7 +97,7 @@ export default function ManageConnectedApps({
   return (
     <ManageWindow title="Connected apps" open={open} onClose={close} returnFocusTo={returnFocusTo} ref={list}>
       <p className="mt-1 text-sm text-ink-soft">
-        Apps you allowed into your Cockpit: to capture items into it and read your items in every workspace, or
+        Apps you allowed into your Cockpit: to capture items into it, read your items in every workspace and dismiss them, or
         only to read your Panels.
       </p>
       <SettingsPanel name="Address" hint="Paste it into claude.ai to connect Claude.">

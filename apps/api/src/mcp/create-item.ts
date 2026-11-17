@@ -19,11 +19,14 @@ export const CREATE_ITEM = 'create_item';
  * the model decides when to call, and this is the one hint it needs.
  * `find_items` is said both for a question about what is in Cockpit and for
  * the check before capturing something already there ("Find items in Cockpit
- * by text and condition, over MCP", issue 1242).
+ * by text and condition, over MCP", issue 1242). `delete_item` is named for
+ * what the person says, delete or remove, and `restore_item` for undoing it
+ * ("MCP changes and deletes: add delete_item and restore_item", issue 1810).
  */
 export const SERVER_INSTRUCTIONS = [
   'Use create_item when the user asks to capture, note or remember something in Cockpit.',
   'Use find_items when the user asks what is in Cockpit, and before capturing something that may already be there.',
+  'Use delete_item when the user asks to delete or remove something in Cockpit, and restore_item to undo it.',
 ].join(' ');
 
 

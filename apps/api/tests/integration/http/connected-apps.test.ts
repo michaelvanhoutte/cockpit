@@ -68,7 +68,7 @@ async function listedTool(token: string): Promise<ListedTool> {
   const answer = await mcp(token, 'tools/list');
   expect(answer.status).toBe(200);
   const { tools } = ((await answer.json()) as { result: { tools: ListedTool[] } }).result;
-  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run', 'find_items']);
+  expect(tools.map((tool) => tool.name)).toEqual(['create_item', 'report_run', 'find_items', 'delete_item', 'restore_item']);
   return tools[0]!;
 }
 
@@ -212,6 +212,8 @@ describe('MCP connections', () => {
       expect(page).not.toContain('cannot read');
       // And that it can read the items themselves, which it once said it could not.
       expect(page).toContain('read your items in every workspace');
+      expect(page).toContain('It can dismiss your items, as a swipe does');
+      expect(page).not.toContain('delete');
       expect(page).toContain('its attached files, which it is given links to open for an hour');
       expect(page).not.toContain('cannot see your items');
 

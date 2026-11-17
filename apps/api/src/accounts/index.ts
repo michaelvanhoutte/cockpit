@@ -341,7 +341,7 @@ export interface Account {
   sealedCredential(
     sourceAccountId: string,
   ): Promise<{ sealedCredential: string; credentialNonce: string; externalAccountKey: string | null } | null>;
-  /** An app connected to this account calling `create_item` or `report_run`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
+  /** An app connected to this account calling `create_item`, `report_run`, `delete_item` or `restore_item`, or reading Panels (issue 1445), under one grant ("Connect Claude to Cockpit, and capture an item from it", issue 599). */
   appCaptureArrived(grantId: string, at: string): Promise<'admitted' | 'too-many'>;
   /** An app connected to this account calling `find_items`, counted apart from capture's: 10 a minute and 500 a day per grant (issue 1242). */
   appFindArrived(grantId: string, at: string): Promise<'admitted' | 'too-many-this-minute' | 'too-many-today'>;
