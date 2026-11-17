@@ -213,6 +213,8 @@ export class CaptureOutbox {
   private readonly landings = new Set<(landing: Landing) => void>();
   private running: Promise<void> | null = null;
   private again = false;
+  /** Whether a pass in progress was cut short by the page being frozen. */
+  private interrupted = false;
   private wait: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the last pass waited on a server that answered (429, 5xx and the like) rather than on no answer at all. */
@@ -220,7 +222,7 @@ export class CaptureOutbox {
   /** Every request for the turn to send still waiting, so a page about to be frozen can withdraw them. */
   private readonly turnRequests = new Set<AbortController>();
   /** Every send in flight, so a confirmed sign-out can stop them. */
-  private readonly inFlight = new Set<AbortController>();
+  private readonly inFlight = new Map<AbortController, () => void>();
   /** Which read of storage is the latest, so one that finishes late is not applied over it. */
   private reads = 0;
   /** The entry whose note is on its way to the server in this tab right now. */
@@ -320,7 +322,7 @@ export class CaptureOutbox {
   }
 
   private abortInFlight(): void {
-    for (const sending of this.inFlight) sending.abort();
+    for (const sending of this.inFlight.keys()) sending.abort();
   }
 
   /**
@@ -331,10 +333,12 @@ export class CaptureOutbox {
    * running again, which `send` then does.
    */
   freeze(): void {
+    this.interrupted = this.running !== null;
     this.clearTimer();
     // A request still waiting for its turn must not be granted to a page that is frozen.
     for (const asking of this.turnRequests) asking.abort();
-    this.abortInFlight();
+    // Ended, not only aborted: a send that does not look at its signal must not keep the turn to send.
+    for (const giveUp of [...this.inFlight.values()]) giveUp();
   }
 
   private away(): boolean {
@@ -536,7 +540,11 @@ export class CaptureOutbox {
       } finally {
         this.running = null;
       }
-      if (result === 'waits' && this.owner !== null) this.tryAgainLater();
+      const cutShort = this.interrupted;
+      this.interrupted = false;
+      // Running again while the pass cut short by the freeze was still ending: its retry is now, not on the backoff.
+      if (result === 'waits' && cutShort && this.again && !this.away()) void this.send();
+      else if (result === 'waits' && this.owner !== null) this.tryAgainLater();
       else {
         this.wait = null;
         this.waitedOnAnAnswer = false;
@@ -715,12 +723,13 @@ export class CaptureOutbox {
     if (this.away()) return Promise.reject(new TimedOut());
     const sending = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    this.inFlight.add(sending);
     const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
+      const giveUp = () => {
         reject(new TimedOut());
         sending.abort();
-      }, ms);
+      };
+      this.inFlight.set(sending, giveUp);
+      timer = setTimeout(giveUp, ms);
     });
     return Promise.race([send(sending.signal), late]).finally(() => {
       clearTimeout(timer);
@@ -730,6 +739,8 @@ export class CaptureOutbox {
 
   private tryAgainLater(): void {
     this.clearTimer();
+    // Frozen, nothing is timed, and the wait is not lengthened by it; running again sends.
+    if (this.away()) return;
     this.wait = nextWait(this.wait);
     this.timer = setTimeout(() => {
       this.timer = null;

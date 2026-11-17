@@ -1,5 +1,5 @@
 import type { UseStore } from 'idb-keyval';
-import { createDeviceStore } from './onDeviceStore';
+import { createDeviceStore, settled } from './onDeviceStore';
 import { SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE } from '@cockpit/shared';
 
 /**
@@ -66,14 +66,6 @@ export function browserHoldingArea(): HoldingArea {
         return settled(held.transaction, () => undefined);
       }),
   };
-}
-
-function settled<T>(transaction: IDBTransaction, answer: () => T): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    transaction.oncomplete = () => resolve(answer());
-    transaction.onabort = () => reject(transaction.error ?? new Error('The holding area was not emptied.'));
-    transaction.onerror = () => reject(transaction.error);
-  });
 }
 
 /** Whatever Capture is to put on the note: the words, and the files to queue as chips. */

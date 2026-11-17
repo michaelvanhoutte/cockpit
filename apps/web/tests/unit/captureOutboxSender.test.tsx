@@ -1220,14 +1220,11 @@ describe('Offline', () => {
       { situation: 'the page is leaving', going: () => tab('pagehide') },
     ])('stops a send in progress when $situation, lets go of its turn, and keeps the capture waiting, never refused', async ({ going }) => {
       const server = aServer();
-      // A send that never answers, and fails once aborted as a fetch does.
+      // A send that never answers and ignores being aborted: only the outbox itself can end it.
       let hangs = true;
       const sender: Sender = {
         ...server.sender,
-        capture: (payload, signal) =>
-          hangs
-            ? new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
-            : server.sender.capture(payload, signal),
+        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
       };
       const watched = aLockWatched();
       const outbox = aTab(server, { lock: watched.lock, sender, frozen: pageIsFrozen });
@@ -1297,6 +1294,57 @@ describe('Offline', () => {
 
       expect(signals[0]?.aborted).toBe(true);
       expect(stateOf(outbox.getShown()[0]!)).toEqual({ waiting: true });
+      outbox.stop();
+    });
+
+    it('sends at once on resuming while the pass the freeze cut short is still ending', async () => {
+      const server = aServer();
+      let hangs = true;
+      const sender: Sender = {
+        ...server.sender,
+        capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
+      };
+      const outbox = aTab(server, { sender, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      await act(async () => {
+        tab('freeze');
+        hangs = false;
+        tab('resume');
+        await settled();
+      });
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
+    it('does not lengthen the wait to the next try because a freeze cut a send short', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const server = aServer();
+      const sender: Sender = { ...server.sender, capture: () => new Promise(() => {}) };
+      const outbox = aTab(server, { sender, frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+      await act(async () => {
+        tab('freeze');
+        await settled();
+      });
+      server.reachable = false;
+      sender.capture = server.sender.capture;
+      await act(async () => {
+        tab('resume');
+        await settled();
+      });
+      const attempted = server.captureCalls;
+
+      // The first wait, as if nothing had been cut short.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await settled();
+
+      expect(server.captureCalls).toBe(attempted + 1);
       outbox.stop();
     });
 

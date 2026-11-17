@@ -22,7 +22,8 @@ const savedReads = () => (store ??= createDeviceStore(DATABASE, STORE));
 
 /** The single whole-cache record earlier builds wrote, in idb-keyval's own default database. */
 const OLD_SINGLE_RECORD = 'cockpit-query-cache-v1';
-const oldStore = () => createDeviceStore('keyval-store', 'keyval');
+let oldHome: UseStore | undefined;
+const oldStore = () => (oldHome ??= createDeviceStore('keyval-store', 'keyval'));
 
 /** How long a saved read stays readable offline, counted from when it was saved. */
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { createStore, entries, get, set } from 'idb-keyval';
+import { entries, get, set, createDeviceStore } from '../../../src/onDeviceStore';
 import { forgetEverything } from '../../../src/session/forget';
 import { saveRead } from '../../../src/persistence';
 import { aShare, holdAShare, howManyAreHeld } from '../support/shares';
@@ -21,9 +21,9 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
  * tests/e2e/sign-in.test.ts.
  */
 
-const savedReads = createStore('cockpit-saved-reads', 'reads');
-const outbox = createStore('cockpit-capture-outbox', 'entries');
-const recordings = createStore('cockpit-kept-recordings', 'recordings');
+const savedReads = createDeviceStore('cockpit-saved-reads', 'reads');
+const outbox = createDeviceStore('cockpit-capture-outbox', 'entries');
+const recordings = createDeviceStore('cockpit-kept-recordings', 'recordings');
 
 describe('Sign-in', () => {
   describe('signing out removes every saved read and nothing else', () => {
