@@ -10,10 +10,8 @@ import { browserHoldingArea } from '../../src/shares';
 
 /**
  * L1 over the one lifecycle every on-device store goes through, against an
- * in-memory IndexedDB with no page behind it ("A copy of Cockpit in the
- * background never holds up another copy", issue 1804). That a capture is kept
- * in the copy in front while another is frozen is tests/e2e/offline-capture.test.ts;
- * that sending lets go of its turn is tests/unit/captureOutboxSender.test.tsx.
+ * in-memory IndexedDB with no page behind it ("Capture stops keeping notes while Cockpit is also open in a frozen background tab on Android: let go of the phone's storage when hidden, and pick it up on return", issue 1804).
+ * That sending lets go of its turn is tests/unit/captureOutboxSender.test.tsx.
  */
 
 /** Every connection opened since the case began, and whether it has been closed. */
@@ -56,6 +54,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // A case that failed before its own `resume` must not leave the page frozen for the next.
+  document.dispatchEvent(new Event('resume'));
   Reflect.deleteProperty(document, 'visibilityState');
 });
 

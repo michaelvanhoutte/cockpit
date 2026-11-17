@@ -2,14 +2,13 @@ import type { UseStore } from 'idb-keyval';
 
 /**
  * The one way Cockpit opens an IndexedDB store on the device: the capture
- * outbox, kept recordings, saved reads and held shares ("A copy of Cockpit in
- * the background never holds up another copy", issue 1804). It is a drop-in
+ * outbox, kept recordings, saved reads and held shares ("Capture stops keeping notes while Cockpit is also open in a frozen background tab on Android: let go of the phone's storage when hidden, and pick it up on return", issue 1804). It is a drop-in
  * `UseStore` for idb-keyval's `get`/`set`/`values`/`del`, but where idb-keyval's
  * `createStore` keeps one connection for the life of the page, this one:
  *
  * - **opens on first use** and again on the next after it was closed - by the
  *   page being hidden, or by the browser;
- * - **closes when the page is hidden, or frozen**, letting writes in flight
+ * - **closes when the page is hidden, frozen or leaving**, letting writes in flight
  *   finish first (a closing connection waits for its transactions);
  * - **keeps no connection beyond a write made while hidden**.
  *
@@ -21,33 +20,42 @@ import type { UseStore } from 'idb-keyval';
 /** Everything this device has open, so one listener serves them all. */
 const stores = new Set<{ leave(): void }>();
 
-/** Set by `freeze`, cleared by `resume`: a frozen page may still report itself visible. */
+/** Set by `freeze` and `pagehide`, cleared on coming back: a frozen page may still report itself visible. */
 let frozen = false;
-let listening = false;
 
-/** Whether this page is out of view. Always false where there is no document. */
+/** Whether this page is out of view or frozen, when a store keeps nothing open. Always false where there is no document. */
 export function pageIsAway(): boolean {
   return typeof document !== 'undefined' && (frozen || document.visibilityState === 'hidden');
 }
 
-function listen(): void {
-  if (listening || typeof document === 'undefined') return;
-  listening = true;
+/** Whether this page is about to be, or is, frozen or discarded: when sending stops. Hidden alone is not. */
+export function pageIsFrozen(): boolean {
+  return frozen;
+}
+
+// At load, so a page frozen before any store is used is still known.
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   const leaveAll = () => {
     for (const store of stores) store.leave();
   };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') leaveAll();
+    else frozen = false;
   });
   // A page going into the back/forward cache, or about to be frozen, may not be told it is hidden first.
-  window.addEventListener('pagehide', leaveAll);
+  window.addEventListener('pagehide', () => {
+    frozen = true;
+    leaveAll();
+  });
   document.addEventListener('freeze', () => {
     frozen = true;
     leaveAll();
   });
-  document.addEventListener('resume', () => {
-    frozen = false;
-  });
+  for (const back of ['resume', 'pageshow']) {
+    (back === 'resume' ? document : window).addEventListener(back, () => {
+      frozen = false;
+    });
+  }
 }
 
 export function createDeviceStore(database: string, storeName: string): UseStore {
@@ -62,8 +70,13 @@ export function createDeviceStore(database: string, storeName: string): UseStore
     void closing?.then((db) => db.close(), () => undefined);
   };
 
+  /** The factory the connection came from: a different one (a test's fresh browser) is a different database. */
+  let from: IDBFactory | null = null;
+
   const connect = (): Promise<IDBDatabase> => {
+    if (connection && from !== indexedDB) close();
     if (connection) return connection;
+    from = indexedDB;
     const opening: Promise<IDBDatabase> = new Promise((resolve, reject) => {
       const request = indexedDB.open(database);
       request.onupgradeneeded = () => request.result.createObjectStore(storeName);
@@ -114,7 +127,6 @@ export function createDeviceStore(database: string, storeName: string): UseStore
   const handle = { leave: close };
 
   const store: UseStore = async (mode, callback) => {
-    listen();
     stores.add(handle);
     using += 1;
     try {

@@ -665,7 +665,7 @@
     {
       "key": "Offline",
       "label": "Offline",
-      "browserWalks": 6,
+      "browserWalks": 5,
       "sourcePatterns": [
         "apps/api/src/domain/items.ts",
         "apps/api/src/accounts/command-service.ts",

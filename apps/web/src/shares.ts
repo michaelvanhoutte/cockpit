@@ -41,9 +41,11 @@ export interface HoldingArea {
 
 
 /** The browser's own, opened on first use so a browser with no IndexedDB fails on the read. */
+let heldShares: UseStore | null = null;
+
 export function browserHoldingArea(): HoldingArea {
-  let store: UseStore | null = null;
-  const open = () => (store ??= createDeviceStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
+  // One for the page, so each claim does not leave another connection behind.
+  const open = () => (heldShares ??= createDeviceStore(SHARE_HOLDING_DATABASE, SHARE_HOLDING_STORE));
   return {
     // Both settle on the transaction, not on the request: a clear that aborted
     // must not hand over shares that are still held.

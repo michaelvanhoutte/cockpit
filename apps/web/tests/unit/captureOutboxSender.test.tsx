@@ -19,7 +19,7 @@ import {
   type OutboxStore,
   type Sender,
 } from '../../src/captureOutboxSender';
-import { pageIsAway } from '../../src/onDeviceStore';
+import { pageIsFrozen } from '../../src/onDeviceStore';
 import { deviceIsIn } from './support/timeZone';
 
 /**
@@ -145,7 +145,7 @@ function aTab(
     store = browserOutboxStore(),
     announce = undefined as ((news: OutboxNews) => void) | undefined,
     sender = server.sender,
-    hidden = undefined as (() => boolean) | undefined,
+    frozen = undefined as (() => boolean) | undefined,
   } = {},
 ) {
   const outbox = new CaptureOutbox({
@@ -155,7 +155,7 @@ function aTab(
     online: () => server.online,
     timeoutMs: 1_000,
     ...(announce ? { announce } : {}),
-    ...(hidden ? { hidden } : {}),
+    ...(frozen ? { frozen } : {}),
   });
   outbox.signedInAs(owner);
   return outbox;
@@ -1185,12 +1185,18 @@ describe('Offline', () => {
     });
   });
 
-  describe('a copy of Cockpit out of view does not hold up sending', () => {
-    const tab = (state: 'hidden' | 'visible') => {
-      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
-      document.dispatchEvent(new Event('visibilitychange'));
+  describe('a copy of Cockpit about to be frozen does not hold up sending, and one merely hidden keeps sending', () => {
+    const tab = (event: 'hidden' | 'visible' | 'freeze' | 'pagehide' | 'resume') => {
+      if (event === 'hidden' || event === 'visible') {
+        Object.defineProperty(document, 'visibilityState', { value: event, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      } else if (event === 'pagehide') window.dispatchEvent(new Event('pagehide'));
+      else document.dispatchEvent(new Event(event));
     };
-    afterEach(() => tab('visible'));
+    afterEach(() => {
+      tab('visible');
+      tab('resume');
+    });
 
     /** A lock that says whether its turn is held, as another tab would find out by waiting. */
     function aLockWatched() {
@@ -1208,7 +1214,10 @@ describe('Offline', () => {
       return watched;
     }
 
-    it('stops a send in progress when hidden, lets go of its turn, and keeps the capture waiting, never refused', async () => {
+    it.each([
+      { situation: 'the page is about to be frozen', going: () => tab('freeze') },
+      { situation: 'the page is leaving', going: () => tab('pagehide') },
+    ])('stops a send in progress when $situation, lets go of its turn, and keeps the capture waiting, never refused', async ({ going }) => {
       const server = aServer();
       // A send that never answers and ignores being aborted: only the outbox itself can end it.
       let hangs = true;
@@ -1217,14 +1226,14 @@ describe('Offline', () => {
         capture: (payload, signal) => (hangs ? new Promise(() => {}) : server.sender.capture(payload, signal)),
       };
       const watched = aLockWatched();
-      const outbox = aTab(server, { lock: watched.lock, sender, hidden: pageIsAway });
+      const outbox = aTab(server, { lock: watched.lock, sender, frozen: pageIsFrozen });
       anOpenApp(outbox);
       await outbox.add(capture('Ring the plumber'));
       await settled();
       expect(watched.held).toBe(true);
 
       await act(async () => {
-        tab('hidden');
+        going();
         await settled();
       });
 
@@ -1234,26 +1243,39 @@ describe('Offline', () => {
 
       hangs = false;
       await act(async () => {
-        tab('visible');
+        tab('resume');
         await settled();
       });
       expect(messages(server)).toEqual(['Ring the plumber']);
       outbox.stop();
     });
 
+    it('keeps sending while the page is only hidden', async () => {
+      const server = aServer();
+      const outbox = aTab(server, { frozen: pageIsFrozen });
+      anOpenApp(outbox);
+      await act(async () => tab('hidden'));
+
+      await outbox.add(capture('Ring the plumber'));
+      await settled();
+
+      expect(messages(server)).toEqual(['Ring the plumber']);
+      outbox.stop();
+    });
+
     it.each([
       {
-        situation: 'was already counting down when the page was hidden',
+        situation: 'was already counting down when the page was frozen',
         arrange: async (outbox: CaptureOutbox) => {
           await outbox.add(capture('Ring the plumber'));
           await settled();
-          tab('hidden');
+          tab('freeze');
         },
       },
       {
-        situation: 'would have been started by a capture kept while hidden',
+        situation: 'would have been started by a capture kept while frozen',
         arrange: async (outbox: CaptureOutbox) => {
-          tab('hidden');
+          tab('freeze');
           await outbox.add(capture('Ring the plumber'));
           await settled();
         },
@@ -1261,7 +1283,7 @@ describe('Offline', () => {
     ])('starts no send when the retry $situation', async ({ arrange }) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const server = aServer();
-      const outbox = aTab(server, { hidden: pageIsAway });
+      const outbox = aTab(server, { frozen: pageIsFrozen });
       anOpenApp(outbox);
       server.reachable = false;
       await arrange(outbox);
@@ -1274,18 +1296,18 @@ describe('Offline', () => {
       outbox.stop();
     });
 
-    it('sends what waited, oldest first, once back in view', async () => {
+    it('sends what waited, oldest first, once running again', async () => {
       const server = aServer();
-      const outbox = aTab(server, { hidden: pageIsAway });
+      const outbox = aTab(server, { frozen: pageIsFrozen });
       anOpenApp(outbox);
-      tab('hidden');
+      tab('freeze');
       await outbox.add(capture('First'));
       await outbox.add(capture('Second'));
       await settled();
       expect(messages(server)).toEqual([]);
 
       await act(async () => {
-        tab('visible');
+        tab('resume');
         await settled();
       });
 

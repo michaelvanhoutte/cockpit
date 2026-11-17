@@ -6,7 +6,7 @@ import { changes } from './api/changes';
 import { sendCommand, uploadAttachment } from './api/client';
 import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
-import { createDeviceStore, pageIsAway } from './onDeviceStore';
+import { createDeviceStore, pageIsFrozen } from './onDeviceStore';
 import { currentStanding, onStandingChange } from './offline';
 import {
   ADDITION_ENTRY_VERSION,
@@ -234,8 +234,8 @@ export class CaptureOutbox {
       /** Told whenever this tab changed what is stored or landed a capture, for the other tabs. */
       announce?: (news: OutboxNews) => void;
       timeoutMs?: number;
-      /** Whether this page is out of view, when nothing is sent ("A copy of Cockpit in the background never holds up another copy", issue 1804). */
-      hidden?: () => boolean;
+      /** Whether this page is frozen or leaving, when nothing is sent ("Capture stops keeping notes while Cockpit is also open in a frozen background tab on Android: let go of the phone's storage when hidden, and pick it up on return", issue 1804).  A page only hidden keeps sending. */
+      frozen?: () => boolean;
     },
   ) {}
 
@@ -320,20 +320,20 @@ export class CaptureOutbox {
   }
 
   /**
-   * The page went out of view, where Chrome may freeze it: whatever is being
+   * The page is about to be frozen or discarded (not merely hidden): whatever is being
    * sent is given up on and its turn to send released, so a capture kept in
    * the copy in front is not held behind this one's lock. Given up on as
-   * waiting, never refused - the capture goes out on coming back into view,
-   * which `send` then does.
+   * waiting, never refused - the capture goes out when the page is
+   * running again, which `send` then does.
    */
-  hide(): void {
+  freeze(): void {
     this.interrupted = this.running !== null;
     this.clearTimer();
     for (const giveUp of [...this.inFlight.values()]) giveUp();
   }
 
   private away(): boolean {
-    return this.deps.hidden?.() ?? false;
+    return this.deps.frozen?.() ?? false;
   }
 
   /**
@@ -504,7 +504,7 @@ export class CaptureOutbox {
    * the meantime is not left for the timer.
    */
   send(): Promise<void> {
-    // Nothing starts while out of view; coming back into view sends.
+    // Nothing starts while frozen; running again sends.
     if (this.away()) return this.running ?? Promise.resolve();
     if (this.running) {
       this.again = true;
@@ -705,7 +705,7 @@ export class CaptureOutbox {
 
   /** Runs one send, aborting it and giving up once it has taken `ms`. */
   private timed<T>(send: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
-    // Out of view: not started, and kept waiting like one that timed out.
+    // Frozen: not started, and kept waiting like one that timed out.
     if (this.away()) return Promise.reject(new TimedOut());
     const sending = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -725,7 +725,7 @@ export class CaptureOutbox {
 
   private tryAgainLater(): void {
     this.clearTimer();
-    // Out of view, nothing is timed; coming back into view sends.
+    // Frozen, nothing is timed; running again sends.
     if (this.away()) return;
     this.wait = nextWait(this.wait);
     this.timer = setTimeout(() => {
@@ -784,7 +784,7 @@ function theAppWideOutbox(): CaptureOutbox {
     sender: serverSender,
     lock: browserLock(),
     online: mayReachServer,
-    hidden: pageIsAway,
+    frozen: pageIsFrozen,
     announce: (news) => channel?.postMessage(news),
   });
   channel?.addEventListener('message', (event: MessageEvent<OutboxNews>) => outbox.heard(event.data));
@@ -839,12 +839,11 @@ export function useSendingCaptures(owner: string | null): void {
 
   useEffect(() => {
     const kick = () => void outbox.send();
-    // Out of view the page may be frozen: let go of the turn to send, and send again on coming back.
     const backInView = () => {
       if (document.visibilityState === 'visible') kick();
-      else outbox.hide();
     };
-    const goingAway = () => outbox.hide();
+    // About to be frozen or discarded: let go of the turn to send, and send again once running.
+    const goingAway = () => outbox.freeze();
     // Something of the app's own got through, so the connection is back
     // whatever the browser said - the lie-fi case. Not after the server
     // itself answered and asked for patience, which the backoff waits out. A
@@ -865,6 +864,8 @@ export function useSendingCaptures(owner: string | null): void {
     document.addEventListener('visibilitychange', backInView);
     window.addEventListener('pagehide', goingAway);
     document.addEventListener('freeze', goingAway);
+    document.addEventListener('resume', kick);
+    window.addEventListener('pageshow', kick);
     const fromQueries = queryClient.getQueryCache().subscribe(succeeded);
     const fromChanges = queryClient.getMutationCache().subscribe(succeeded);
     // What a landed capture changes is read once per tab, the way an announcement
@@ -884,6 +885,8 @@ export function useSendingCaptures(owner: string | null): void {
       document.removeEventListener('visibilitychange', backInView);
       window.removeEventListener('pagehide', goingAway);
       document.removeEventListener('freeze', goingAway);
+      document.removeEventListener('resume', kick);
+      window.removeEventListener('pageshow', kick);
       fromQueries();
       fromChanges();
       landed();
