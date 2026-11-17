@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { uuidv7, type Workspace } from '@cockpit/shared';
 import { refusalFrom, snapshotQuery, useSendCommand, whyNotDone } from '../api/queries';
@@ -34,7 +34,7 @@ const subscribeToConnection = (notify: () => void) => {
  * capture later undone leaves it standing. Offline it is shown and unavailable.
  *
  * **Picking a Panel closes the list** and leaves the cursor on the field, which
- * then reads *Add another Panel…*; a click or a typed letter (which starts the
+ * then reads *Add another Panel…*; a click or a typed character (which starts the
  * search) opens it again, focus alone does not, and leaving it without a pick
  * (a click outside, Tab past it) closes it and drops what was typed. **Closing
  * only hides the list**: the search stays mounted, so reopening never reads a
@@ -48,9 +48,8 @@ export default function FileOnSearch({
   instantly = false,
   onPick,
   opened = true,
-  seed = '',
   disabled = false,
-  closedPlaceholder = 'Add another Panel…',
+  closedPlaceholder,
 }: {
   where: string | null;
   /** The Workspace Capture was opened from, whose Dashboard a plain name is made on under *Any workspace*. */
@@ -65,18 +64,23 @@ export default function FileOnSearch({
    */
   instantly?: boolean;
   onPick: (option: FileOnOption) => void;
-  /** Whether the list starts open: a click or a typed letter loaded the search, where focus alone (Tab) did not. */
+  /** Whether the list is open from the start, and opens it where it turns true later: a click loaded the search, where focus alone (Tab) did not. */
   opened?: boolean;
-  /** The letter typed on the closed field that loaded the search, which starts the search. */
-  seed?: string;
-  /** Disables the closed field, as Capture does while it is pending. */
+  /** Disables the closed field and the options, as Capture does while it is pending or the form is saving. */
   disabled?: boolean;
-  /** What the closed field reads. */
-  closedPlaceholder?: string;
+  /** What the closed field reads, said by the line that knows whether a Panel is chosen. */
+  closedPlaceholder: string;
 }) {
-  const [typed, setTyped] = useState(seed);
+  const [typed, setTyped] = useState('');
   const [open, setOpen] = useState(opened);
+  useEffect(() => {
+    if (opened) setOpen(true);
+  }, [opened]);
   const field = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  /** What the screen holds now, for an answer that arrives later. */
+  const live = useRef({ open, typed });
+  live.current = { open, typed };
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const online = useSyncExternalStore(
@@ -115,15 +119,16 @@ export default function FileOnSearch({
   const pick = (option: FileOnOption) => {
     onPick(option);
     close();
-    // A pick from an option button would otherwise leave the cursor nowhere once the button is gone.
-    field.current?.focus();
+    // A pick from an option button would otherwise leave the cursor nowhere once the button is gone, but never pull it back from elsewhere.
+    if (root.current?.contains(document.activeElement)) field.current?.focus();
   };
 
   const makePanel = async () => {
-    if (offer?.kind !== 'make' || makingNow.current) return;
+    if (offer?.kind !== 'make' || makingNow.current || disabled) return;
     makingNow.current = true;
     setMaking(true);
     setRefusal(null);
+    const sentText = typed;
     const panelId = uuidv7();
     const option = {
       panelId,
@@ -156,8 +161,8 @@ export default function FileOnSearch({
         pick(option);
       }
     } catch (error) {
-      // The text stays, so the name can be edited and tried again.
-      setRefusal(refusalFrom({ error }));
+      // The text stays, so the name can be edited and tried again; an answer for a list since closed or text since changed is not shown.
+      if (live.current.open && live.current.typed === sentText) setRefusal(refusalFrom({ error }));
     } finally {
       makingNow.current = false;
       setMaking(false);
@@ -166,42 +171,40 @@ export default function FileOnSearch({
 
   return (
     <div
+      ref={root}
       className="relative w-full min-w-0 sm:w-72"
+      // Pressing anything here but the field keeps the cursor where it is, so pressing an option or its text is not leaving the list.
+      onMouseDown={(event) => {
+        if (event.target !== field.current) event.preventDefault();
+      }}
       onBlur={(event) => {
-        // Leaving the field and its list closes it; moving between its own parts does not.
-        if (open && !event.currentTarget.contains(event.relatedTarget as Node | null)) close();
+        // Leaving the field and its list closes it; moving between its own parts, or the window losing focus, does not.
+        if (open && document.hasFocus() && !event.currentTarget.contains(event.relatedTarget as Node | null)) close();
       }}
     >
       <input
         ref={field}
         type={open ? 'search' : 'text'}
-        readOnly={!open}
         disabled={!open && disabled}
         autoFocus
         value={typed}
         onClick={() => setOpen(true)}
         onChange={(event) => {
+          // A character typed on the closed field opens the list with it in the search.
+          setOpen(true);
           setTyped(event.target.value);
           // A refusal is about the text it was given.
           setRefusal(null);
         }}
         onKeyDown={(event) => {
-          if (!open) {
-            // A letter typed on the closed field opens the list and starts the search; Enter and the rest are the field's own.
-            if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              setTyped(event.key);
-              setRefusal(null);
-              setOpen(true);
-            }
-            return;
-          }
+          // Closed, Enter is the form's own.
+          if (!open) return;
           // Never the form's: Enter here adds a Panel, it does not capture.
           if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
             // Nothing typed is not a choice: the first of the list is no match.
             const top = typed.trim() === '' ? undefined : matches[0];
-            if (top) pick(top);
+            if (top && !disabled) pick(top);
           } else if (event.key === 'Escape' && typed !== '') {
             event.stopPropagation();
             setTyped('');
@@ -214,8 +217,6 @@ export default function FileOnSearch({
       />
       {open && (
       <ul
-        // Keeps the cursor on the field when an option is pressed, so pressing one is not leaving the list.
-        onMouseDown={(event) => event.preventDefault()}
         aria-label="Panels to file on"
         className="mt-1 max-h-56 overflow-y-auto rounded-md border border-shade/10 bg-surface text-sm shadow-field empty:hidden"
       >
@@ -223,6 +224,7 @@ export default function FileOnSearch({
           <li key={option.panelId}>
             <button
               type="button"
+              disabled={disabled}
               onClick={() => pick(option)}
               className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none"
             >
@@ -237,9 +239,11 @@ export default function FileOnSearch({
           <li>
             <button
               type="button"
-              disabled={offer.kind === 'ask' || !online || making}
+              disabled={offer.kind === 'ask' || !online}
+              // Not `disabled` while making: that would blur the focused option and close the list under its own refusal.
+              aria-disabled={making || disabled || undefined}
               onClick={() => void makePanel()}
-              className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none disabled:text-ink-faint disabled:hover:bg-transparent"
+              className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-accent-tint hover:text-accent-deep focus-visible:bg-accent-tint focus-visible:outline-none disabled:text-ink-faint disabled:hover:bg-transparent aria-disabled:opacity-60"
             >
               {offer.kind === 'ask' ? (
                 <span className="min-w-0 flex-1">+ New panel: {offer.reason}</span>

@@ -2541,6 +2541,12 @@ describe('Capture', () => {
 
   describe('File on closes its list once a Panel is picked, and opens it again on a click or a letter', () => {
     const field = () => screen.getByRole('textbox', { name: 'Find a Panel to file on' });
+    /** jsdom reports no window focus, which a blur is read against. */
+    let windowFocused: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      windowFocused = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    });
+    afterEach(() => windowFocused.mockRestore());
     const openList = async (user: Awaited<ReturnType<typeof thePage>>) => {
       await user.click(field());
       return screen.findByRole('searchbox', { name: 'Find a Panel to file on' });
@@ -2639,7 +2645,7 @@ describe('Capture', () => {
         await settled();
 
         expect(list()).toBeNull();
-        expect(field()).toHaveAttribute('readonly');
+        expect(screen.queryByRole('searchbox', { name: 'Find a Panel to file on' })).toBeNull();
       });
 
       it('leaves Enter on the closed field to capture, as it does today', async () => {
@@ -2693,6 +2699,119 @@ describe('Capture', () => {
 
         expect(within(list()!).getAllByRole('button')[0]).toHaveFocus();
         expect(list()).not.toBeNull();
+      });
+    });
+
+    describe('a pick or a refusal that arrives late does not disturb what is on screen', () => {
+      const typeAndMake = async (user: Awaited<ReturnType<typeof thePage>>, text: string) => {
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, text);
+        return search;
+      };
+
+      it('shows no refusal on a list reopened after the refused + New panel arrived late', async () => {
+        let refuse: (error: Error) => void = () => {};
+        vi.mocked(sendCommand).mockImplementationOnce(() => new Promise((_, reject) => (refuse = reject)));
+        const user = await thePage();
+        await typeAndMake(user, 'Invoices');
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+        await user.click(box());
+        expect(list()).toBeNull();
+
+        await act(async () => refuse(new CommandRefused(409, 'A panel called Invoices is already on Today')));
+        await openList(user);
+
+        expect(screen.queryByRole('alert')).toBeNull();
+      });
+
+      it('does not pull the cursor back from the note when the Panel is made after it was left', async () => {
+        let made: (value: { ok: true; applied: true }) => void = () => {};
+        vi.mocked(sendCommand).mockImplementationOnce(() => new Promise((resolve) => (made = resolve)));
+        const user = await thePage();
+        await typeAndMake(user, 'Invoices');
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+        await user.click(box());
+
+        await act(async () => made({ ok: true, applied: true }));
+
+        expect(await screen.findByRole('button', { name: 'Do not file on Invoices' })).toBeVisible();
+        expect(box()).toHaveFocus();
+      });
+
+      it('keeps the list and the text, and still shows the refusal, when + New panel is pressed from the keyboard', async () => {
+        vi.mocked(sendCommand).mockRejectedValueOnce(new CommandRefused(409, 'A panel called Invoices is already on Today'));
+        const user = await thePage();
+        const search = await typeAndMake(user, 'Invoices');
+        const option = await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ });
+        option.focus();
+
+        await user.keyboard('{Enter}');
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('already on Today');
+        expect(list()).not.toBeNull();
+        expect(search).toHaveValue('Invoices');
+      });
+    });
+
+    describe('the list stays open while the window loses focus or its own text is pressed', () => {
+      it('keeps the list and the typed text when the window loses focus', async () => {
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 're');
+
+        windowFocused.mockReturnValue(false);
+        act(() => search.blur());
+
+        expect(list()).not.toBeNull();
+        expect(search).toHaveValue('re');
+      });
+
+      it('keeps the list when the refusal under it is pressed', async () => {
+        vi.mocked(sendCommand).mockRejectedValueOnce(new CommandRefused(409, 'A panel called Invoices is already on Today'));
+        const user = await thePage();
+        await user.click(chip('Work'));
+        const search = await openList(user);
+        await user.type(search, 'Invoices');
+        await user.click(await screen.findByRole('button', { name: /^\+ New panel “Invoices”/ }));
+
+        await user.click(await screen.findByRole('alert'));
+
+        expect(list()).not.toBeNull();
+        expect(search).toHaveValue('Invoices');
+      });
+    });
+
+    describe('the closed field opens on a click without a pointer press, and a typed character, and the options wait while Capture is busy', () => {
+      it('opens on a click that came without a pointer press, as an assistive technology makes it', async () => {
+        const user = await closedOnAFiledPanel();
+
+        fireEvent.click(field());
+
+        expect(await screen.findByRole('searchbox', { name: 'Find a Panel to file on' })).toBeVisible();
+      });
+
+      it('opens on a character entered into the closed field, as a phone keyboard enters it', async () => {
+        const user = await closedOnAFiledPanel();
+
+        fireEvent.change(field(), { target: { value: 'r' } });
+
+        expect(await screen.findByRole('searchbox', { name: 'Find a Panel to file on' })).toHaveValue('r');
+        expect(user).toBeDefined();
+      });
+
+      it('leaves the Panels in the open list unavailable while Capture is busy', async () => {
+        const user = await thePage({ store: UNAVAILABLE, heldMutation: true });
+        await user.click(chip('Work'));
+        await openList(user);
+        await user.type(box(), 'Send the invoice');
+        await openList(user);
+        // Pressed without moving focus, so the list is still open when Capture goes busy.
+        fireEvent.click(chip('Capture'));
+
+        await waitFor(() => expect(within(list()!).getAllByRole('button')[0]).toBeDisabled());
+        act(() => held.settle());
       });
     });
 
