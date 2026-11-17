@@ -88,6 +88,7 @@ describe('MCP connections', () => {
       { situation: 'a title over the title limit', args: { title: 'x'.repeat(201) }, says: ['title', '200 characters'] },
       { situation: 'a title with a line break in it', args: { title: 'one\ntwo' }, says: ['title', 'one line'] },
       { situation: 'a next action over 200 characters', args: { next_action: 'x'.repeat(201) }, says: ['next_action', '200 characters'] },
+      { situation: 'a next action with a line break in it', args: { next_action: 'a\nb' }, says: ['next_action', 'one line'] },
       { situation: 'a description over 60,000 characters', args: { description: 'x'.repeat(60_001) }, says: ['description', '60,000 characters'] },
       { situation: 'a priority that is not offered', args: { priority: 'urgent' }, says: ['priority', 'low, normal or high'] },
       { situation: 'a due date that is not a calendar date', args: { due_date: '2026-02-30' }, says: ['due_date', 'YYYY-MM-DD'] },
@@ -195,6 +196,12 @@ describe('MCP connections', () => {
         'set_due_date {"dueDate":"2026-11-06"}',
       ]);
     });
+
+    it('does not write a due date that is the one the wait gives', () => {
+      expect(writes(anItem(), { due_date: '2026-10-26', status: 'waiting', days: 7 })).toEqual([
+        'wait_for_reply {"days":7,"timeZone":"UTC"}',
+      ]);
+    });
   });
 
   describe('a field the item already holds is not written again, so the same call sent twice changes nothing new', () => {
@@ -253,6 +260,14 @@ describe('MCP connections', () => {
     });
     const link = 'https://cockpit.test/w/ws-work?item=1';
     const plan = (args: Record<string, unknown>, item = anItem()) => planUpdate(item, fieldsOf(args), NOON_UTC, 'UTC');
+
+    it('names one due date where a wait is given beside its own', () => {
+      const args = { status: 'waiting', days: 3, due_date: '2026-11-01' };
+
+      expect(describeUpdate('Send the quote', fieldsOf(args), plan(args), ran(2), link)).toEqual({
+        reply: `Changed status Waiting for reply and due date 2026-11-01 on "Send the quote". Open it: ${link}`,
+      });
+    });
 
     it('names each field that changed, what it is now, and the link', () => {
       const args = { title: 'Send the revised quote', priority: 'high', status: 'waiting', days: 7 };

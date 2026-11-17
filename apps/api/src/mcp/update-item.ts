@@ -82,6 +82,7 @@ export function updateItemTool(): ToolDefinition {
       'Fields: title, next_action, description, priority (low, normal or high), due_date (YYYY-MM-DD) and status (to_do, in_progress, done, or waiting, which needs days: how many days to wait for a reply, so it is due that many days from today).',
       'Give a field empty or null to clear it, except status.',
       'A title, next action or description you set becomes the user\'s own text, and Cockpit stops proposing one.',
+      'Setting a pulled Gmail or Outlook item to done or to do puts its label or star back or takes it off at the source.',
       'A dismissed item must be restored with restore_item first.',
     ].join(' '),
     inputSchema: {
@@ -193,8 +194,8 @@ export function readUpdate(args: unknown): ReadUpdate {
   if (given(arg.next_action)) {
     const text = asText(arg.next_action, 'next_action', `one line of at most ${NEXT_ACTION_LENGTH} characters`);
     if (!text.ok) return text;
-    if (text.text.trim().length > NEXT_ACTION_LENGTH) {
-      return { ok: false, refusal: `next_action must be at most ${NEXT_ACTION_LENGTH} characters.` };
+    if (text.text.trim().length > NEXT_ACTION_LENGTH || /[\t\r\n]/.test(text.text.trim())) {
+      return { ok: false, refusal: `next_action must be one line of at most ${NEXT_ACTION_LENGTH} characters, without tabs or line breaks.` };
     }
     fields.nextAction = asNextAction(text.text) ?? '';
   }
@@ -365,6 +366,7 @@ export function planUpdate(item: Item, fields: UpdateFields, now: Date, timeZone
   if (fields.dueDate !== undefined) {
     // Beside a wait the date given is written over the wait's own, so it is never "already so".
     if (item.dueDate === fields.dueDate && waitDue === null) same('dueDate');
+    else if (waitDue !== null && fields.dueDate === waitDue) same('dueDate');
     else write('dueDate', { name: 'set_due_date', payload: { ...envelope(), itemId: item.id, dueDate: fields.dueDate } });
   }
 
@@ -380,7 +382,8 @@ function said(field: UpdateField, fields: UpdateFields, plan: UpdatePlan): strin
       return `due date ${fields.dueDate ?? 'none'}`;
     case 'status': {
       const to = fields.status?.to ?? 'to_do';
-      return to === 'waiting' ? `status Waiting for reply, due ${plan.waitDue}` : `status ${STATUS_LABELS[to]}`;
+      if (to !== 'waiting') return `status ${STATUS_LABELS[to]}`;
+      return fields.dueDate === undefined ? `status Waiting for reply, due ${plan.waitDue}` : 'status Waiting for reply';
     }
     default:
       return FIELD_NAMES[field];

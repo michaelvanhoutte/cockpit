@@ -129,7 +129,7 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
           : params.name === FIND_ITEMS
             ? await find(env, account, holder.accountName, app, params.arguments)
             : params.name === UPDATE_ITEM
-              ? await update(env, account, app, params.arguments)
+              ? await update(env, ctx, account, holder.accountName, app, params.arguments)
               : params.name === DELETE_ITEM || params.name === RESTORE_ITEM
                 ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments)
                 : await capture(env, ctx, account, holder.accountName, app, params.arguments);
@@ -349,7 +349,9 @@ const DISMISSED_ITEM = 'That item is dismissed. Restore it with restore_item fir
  */
 async function update(
   env: Env,
+  ctx: ProtectedContext,
   account: Account,
+  accountName: string,
   app: { grantId: string },
   args: unknown,
 ): Promise<{ reply: string } | { refusal: string }> {
@@ -375,14 +377,17 @@ async function update(
   link.searchParams.set('item', item.id);
   if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, link.href);
 
-  try {
-    const applied = await account.applyChanges(plan.steps.map((step) => step.change));
-    return describeUpdate(title, read.fields, plan, applied, link.href);
-  } catch (error) {
-    // Gone between the read and the write, before anything was written.
-    if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };
-    throw error;
+  const applied = await account.applyChanges(plan.steps.map((step) => step.change));
+  // A text written here is queued for the same follow-up work the form's edit
+  // queues (duplicate mark, meaning, Claude's proposal), once it was applied.
+  const wroteTexts = plan.steps.some(
+    (step, i) => (step.field === 'title' || step.field === 'description') && applied.results[i]?.applied,
+  );
+  if (wroteTexts) {
+    ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, item.id));
+    ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
   }
+  return describeUpdate(title, read.fields, plan, applied, link.href);
 }
 
 /**
