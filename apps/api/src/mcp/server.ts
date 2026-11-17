@@ -418,9 +418,12 @@ async function update(
   const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null);
 
   const title = item.title.trim() || UNTITLED;
-  const link = new URL(`/w/${encodeURIComponent(item.workspaceId)}`, env.APP_ORIGIN);
-  link.searchParams.set('item', item.id);
-  if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, link.href);
+  const linkTo = (workspaceId: string) => {
+    const link = new URL(`/w/${encodeURIComponent(workspaceId)}`, env.APP_ORIGIN);
+    link.searchParams.set('item', item.id);
+    return link.href;
+  };
+  if (!plan.steps.length) return describeUpdate(title, read.fields, plan, null, linkTo(item.workspaceId));
 
   const applied = await account.applyChanges(plan.steps.map((step) => step.change));
   // A text written here is queued for the same follow-up work the form's edit
@@ -442,7 +445,9 @@ async function update(
     }
   }
   if (wroteTexts || filed.length) ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
-  return describeUpdate(title, read.fields, plan, applied, link.href);
+  // An Item no Workspace had been chosen for is in the Workspace of the Panel it was filed on now.
+  const settledIn = item.workspaceDecided ? undefined : filed.map((i) => plan.steps[i]!.change.payload.workspaceId)[0];
+  return describeUpdate(title, read.fields, plan, applied, linkTo(settledIn ?? item.workspaceId));
 }
 
 /**

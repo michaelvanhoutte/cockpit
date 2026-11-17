@@ -468,10 +468,18 @@ describe('MCP connections', () => {
       expect(move_to_panel.enum).toEqual(['Work ▸ Admin', 'Sales ▸ Admin', 'Garden', 'Inbox', null]);
     });
 
-    it('lists Inbox once where a Panel is called Inbox', () => {
-      const tool = updateItemTool(PANELS.map((one, i) => (i === 0 ? { ...one, panels: [{ ...one.panels[0]!, name: 'Inbox' }] } : one)));
+    it('lists Inbox once where a Panel is called inbox, in any case', () => {
+      const tool = updateItemTool(PANELS.map((one, i) => (i === 0 ? { ...one, panels: [{ ...one.panels[0]!, name: 'inbox' }] } : one)));
       const { enum: names } = tool.inputSchema.properties.move_to_panel as { enum: unknown[] };
-      expect(names.filter((name) => name === 'Inbox')).toHaveLength(1);
+      expect(names.filter((name) => typeof name === 'string' && name.toLowerCase() === 'inbox')).toEqual(['Inbox']);
+    });
+
+    it('offers an enum at exactly 100 Panels and none at 101', () => {
+      const withPanels = (n: number) => [
+        { ...PANELS[0]!, panels: Array.from({ length: n }, (_, i) => ({ ...PANELS[0]!.panels[0]!, id: `p-${i}`, name: `Panel ${i}` })) },
+      ];
+      expect(updateItemTool(withPanels(100)).inputSchema.properties.move_to_panel).toHaveProperty('enum');
+      expect(updateItemTool(withPanels(101)).inputSchema.properties.move_to_panel).not.toHaveProperty('enum');
     });
 
     it('says none yet and offers no empty list of Panels for an account with none', () => {

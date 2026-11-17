@@ -1,6 +1,5 @@
 import {
   MOST_FOLLOW_UP_DAYS,
-  NAME_MAX_LENGTH,
   NEXT_ACTION_LENGTH,
   TITLE_LENGTH,
   asNextAction,
@@ -100,7 +99,8 @@ const DESCRIPTION_LIMIT = itemDescriptionSchema.maxLength ?? 60_000;
 /**
  * The tool, naming every Workspace's Panels that take items as they are now:
  * twice, in the description and as an `enum` on each Panel argument, for the
- * reason `createItemTool` does - and with no `enum` where there is no Panel.
+ * reason `createItemTool` does - and with no `enum` where there is no Panel or
+ * more than a list names (`namesLeftOut`).
  */
 export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): ToolDefinition {
   const names = panelNamesAllowed(catalogue);

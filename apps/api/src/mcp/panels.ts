@@ -40,7 +40,7 @@ interface Candidate extends PanelChoice {
   kind: 'items' | 'filter' | 'text';
 }
 
-/** The longest a given Panel name may be: the three names of `Workspace ▸ Dashboard ▸ Panel` and their separators. */
+/** The longest a given Panel name may be: the three names of `Workspace ▸ Dashboard ▸ Panel` and their ` ▸ ` separators, with a little over. */
 export const PANEL_GIVEN_MAX_LENGTH = 3 * NAME_MAX_LENGTH + 8;
 
 /** The most Panels a list names, so an account with a great many is not told every one. */

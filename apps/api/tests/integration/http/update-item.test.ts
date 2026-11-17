@@ -490,10 +490,42 @@ describe('MCP connections', () => {
       const said = await updateItem(token, { id: itemId, move_to_panel: 'Atlas Copco ▸ Dashboard 1 ▸ Panel 1' });
 
       expect(said.isError).toBeFalsy();
+      expect(textOf(said)).toContain(`/w/ws-atlas?item=${itemId}`);
       expect(await onPanel('ws-atlas-panel-1', 'ws-atlas')).toEqual([itemId]);
       expect((await snapshot('ws-atlas')).items.find((item) => item.id === itemId)).toMatchObject({ workspaceId: 'ws-atlas', workspaceDecided: true });
       for (const workspaceId of [WORKSPACE_ID, 'ws-personal']) {
         expect((await snapshot(workspaceId)).items.map((item) => item.id), workspaceId).not.toContain(itemId);
+      }
+    });
+
+    it('queues Claude\'s proposal for a filed item, and the Inbox refresh of the workspace where it settled a routing', async () => {
+      const { token } = await connected();
+      const panelId = await aPanel('Admin');
+      const itemId = await anItem('Pay the invoice');
+      const queued: { kind: string; workspaceId?: string; itemId?: string }[] = [];
+      const real = env.ENRICHMENT;
+      env.ANTHROPIC_API_KEY = 'a-key-that-proves-nothing-here';
+      env.ENRICHMENT = {
+        send: async (body: { kind: string; workspaceId?: string; itemId?: string }) => void queued.push(body),
+        sendBatch: async () => undefined,
+      } as unknown as typeof env.ENRICHMENT;
+      try {
+        expect((await updateItem(token, { id: itemId, add_panels: ['Admin'] })).isError).toBeFalsy();
+        await vi.waitFor(() => expect(queued.map((job) => job.kind)).toContain('re-propose-panels'));
+        expect(queued).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ kind: 're-propose-panels', workspaceId: WORKSPACE_ID }),
+            expect.objectContaining({ itemId }),
+          ]),
+        );
+        expect(await panelsOf(itemId)).toEqual([panelId]);
+        queued.length = 0;
+        expect((await updateItem(token, { id: itemId, add_panels: ['Admin'] })).isError).toBeFalsy();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(queued.filter((job) => job.kind === 're-propose-panels')).toEqual([]);
+      } finally {
+        env.ENRICHMENT = real;
+        env.ANTHROPIC_API_KEY = '';
       }
     });
 
