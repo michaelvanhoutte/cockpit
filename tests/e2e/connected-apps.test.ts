@@ -72,7 +72,7 @@ async function connectClaude(page: Page, context: BrowserContext, isMobile: bool
   );
   await press(page.getByRole('link', { name: addressOf(MICHAEL), exact: true }), isMobile);
   await expect(page.getByRole('heading', { name: 'Allow Claude to create, read and change items in your Cockpit?' })).toBeVisible();
-  await expect(page.getByText('It can change your items: their title, next action, description, priority, due date, status and the Panels they are filed on')).toBeVisible();
+  await expect(page.getByText('It can change your items: their title, next action, description, priority, due date, status, the Panels they are filed on and their files')).toBeVisible();
   const sentBack = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
   await press(page.getByRole('button', { name: 'Allow' }), isMobile);
   const code = new URL((await sentBack).url()).searchParams.get('code');
@@ -159,6 +159,44 @@ test.describe('MCP connections', () => {
       expect(((await changed.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
       await expect(row).toContainText('on Friday');
       await expect(row.getByLabel('High priority')).toBeVisible();
+
+      // Claude adds a small PDF to the Item while its form is open, and the
+      // chip appears on the form with no reload and opens the real file
+      // ("MCP changes and deletes: add and remove files in create_item and
+      // update_item", issue 1813). Reading the file against the form's types
+      // and the cap, putting it in R2 and recording it are proved in files.test.ts
+      // and update-item-files.test.ts; what only a browser shows is the open
+      // form taking the file and the chip opening it.
+      await press(row.getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Open' }), isMobile);
+      const form = page.getByRole('dialog');
+      await expect(form.getByRole('tab', { name: 'Attachments', exact: true })).toBeVisible();
+      const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n');
+      const attached = await page.request.post('/mcp', {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+        data: {
+          jsonrpc: '2.0',
+          id: 8,
+          method: 'tools/call',
+          params: {
+            name: 'update_item',
+            arguments: { id: itemId, add_files: [{ name: 'quote.pdf', content_type: 'application/pdf', content_base64: pdf.toString('base64') }] },
+          },
+        },
+      });
+      expect(attached.status()).toBe(200);
+      expect(((await attached.json()) as { result: { isError?: boolean } }).result.isError ?? false).toBe(false);
+      await expect(form.getByRole('tab', { name: 'Attachments 1' })).toBeVisible();
+      await press(form.getByRole('tab', { name: 'Attachments 1' }), isMobile);
+      const list = form.getByRole('tabpanel', { name: /^Attachments/ });
+      // A browser may hand a PDF to its viewer or to a download rather than a page, so the chip's own address is fetched.
+      const chip = list.getByRole('link', { name: /quote\.pdf/ });
+      await expect(chip).toHaveAttribute('href', /\/v1\/attachments\//);
+      const opened = await page.request.get((await chip.getAttribute('href'))!);
+      expect(opened.status()).toBe(200);
+      expect(await opened.body()).toEqual(pdf);
+      await page.keyboard.press('Escape');
+      await expect(form).toHaveCount(0);
 
       // Claude creates an Item on a Panel of the open Dashboard, and the row
       // shows on top of that Panel with no reload ("MCP changes and deletes:

@@ -77,7 +77,7 @@ consent.get(AUTHORIZE_PATH, async (c) => {
         }
       : {
           heading: `Allow ${name} to create, read and change items in your Cockpit?`,
-          what: `${name} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, or straight onto one of its Panels, and to see the names of your workspaces and types so it can say where each note goes. It can read your items in every workspace: what each says, its status, priority and due date, where it is filed, and its attached files, which it is given links to open for an hour. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It can change your items: their title, next action, description, priority, due date, status and the Panels they are filed on. It can also dismiss your items, as a swipe does, and bring one back. It cannot do anything else.`,
+          what: `${name} will be able to capture notes into the Inbox of <strong>${escape(visitor.name)}</strong>'s Cockpit, or straight onto one of its Panels, and to see the names of your workspaces and types so it can say where each note goes. It can read your items in every workspace: what each says, its status, priority and due date, where it is filed, and its attached files, which it is given links to open for an hour. It can also tell Cockpit how a task you send it from an item is going, which shows on that item. It can change your items: their title, next action, description, priority, due date, status, the Panels they are filed on and their files, which it can add and remove. It can also dismiss your items, as a swipe does, and bring one back. It cannot do anything else.`,
         };
   return new Response(
     page({

@@ -164,6 +164,7 @@ import {
   countFinishedLeftOut,
   listAssociationsForWorkspace,
   attachmentsOfItems,
+  listAttachmentsOfItem,
   listAttachmentsInWorkspace,
   listAdditionsInWorkspace,
   listConversationsInWorkspace,
@@ -587,6 +588,13 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   attachmentExists(accountName: string, attachmentId: string): Answer<boolean> {
     return this.#answer(accountName, (db) => getAttachment(db, accountName, attachmentId) !== null);
+  }
+
+  /** The files on one Item, oldest first: what `update_item` names a file to remove by (issue 1813). */
+  attachmentsOfItem(accountName: string, itemId: string): Answer<{ id: string; filename: string }[]> {
+    return this.#answer(accountName, (db) =>
+      listAttachmentsOfItem(db, accountName, itemId).map(({ id, filename }) => ({ id, filename })),
+    );
   }
 
   /**

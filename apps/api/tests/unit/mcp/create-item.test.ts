@@ -67,7 +67,7 @@ describe('Capture', () => {
         read: { ok: true, message: 'Something', workspaceId: HOME.id, decided: false },
       },
     ])('$situation', ({ args, workspaces, read }) => {
-      expect(readCapture(args, workspaces)).toEqual({ panels: [], ...read });
+      expect(readCapture(args, workspaces)).toEqual({ panels: [], files: [], ...read });
     });
 
     it.each([
@@ -118,12 +118,13 @@ describe('Capture', () => {
         priority: 'high',
         dueDate: '2026-11-06',
         panels: [{ id: 'p-quotes', place: 'Sales ▸ Quotes' }],
+        files: [],
       });
     });
 
     it('reads a field given empty as left out, since a new item has nothing to clear', () => {
       const read = readCapture({ message: 'x', title: '', next_action: null, priority: null, due_date: '', panels: [] }, bare(HOME));
-      expect(read).toEqual({ ok: true, message: 'x', workspaceId: HOME.id, decided: false, panels: [] });
+      expect(read).toEqual({ ok: true, message: 'x', workspaceId: HOME.id, decided: false, panels: [], files: [] });
     });
 
     it('keeps the workspace named and looks for Panels in it only', () => {

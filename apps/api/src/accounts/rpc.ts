@@ -102,6 +102,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * item", issue 441) - see `store.ts`'s own comment on why.
    */
   attachmentExists(accountName: string, attachmentId: string): Awaitable<Answer<boolean>>;
+  /** The files on one Item, oldest first, by id and name (issue 1813). */
+  attachmentsOfItem(accountName: string, itemId: string): Awaitable<Answer<{ id: string; filename: string }[]>>;
   /**
    * Every live Panel that takes items and is not flagged Never propose, in one
    * Workspace - what a routing proposal may choose from ("Propose where a

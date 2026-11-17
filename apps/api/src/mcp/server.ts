@@ -7,7 +7,7 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
-import { NotFoundInAccountError, RefusedByAccountError, openAccount, type Account } from '../accounts/index.js';
+import { NotFoundInAccountError, RefusedByAccountError, openAccount, putAttachment, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
@@ -37,6 +37,7 @@ import {
   senderFrom,
   stepsAfterCapture,
 } from './create-item.js';
+import { MOST_BODY_BYTES, bytesOf, describeAdded, recordFile, resolveRemovals, type FileStored, type FileToAdd } from './files.js';
 import { noteCapture } from './connected-apps.js';
 import { grantHolder } from './grant.js';
 import { MCP_PATH } from '../auth/mcp-paths.js';
@@ -151,7 +152,11 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
   });
 
   // No `sessionIdGenerator`, which is what makes the transport stateless.
-  const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    enableJsonResponse: true,
+    // Files ride in the call as base64, so the body may be well over the transport's 4 MiB default.
+    maxRequestBodySize: MOST_BODY_BYTES,
+  });
   await server.connect(transport);
   return transport.handleRequest(request);
 }
@@ -193,11 +198,14 @@ async function capture(
   const itemId = uuidv7();
   const sender = senderFrom(app.clientName);
   const now = new Date();
+  // Every argument is read by now, so the files are put before the store call and not before.
+  const stored = await putFiles(env, accountName, itemId, read.files);
   // A wait counts its days on the calendar of the account's latest capture.
   const timeZone = read.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
   // The capture, then the steps to its status, in one call to the store: a tab
   // hears of the new item once, and what follows the capture cannot be seen
   // without it.
+  const afterStatus = stepsAfterCapture(read, itemId, now.toISOString(), timeZone);
   const applied = await account.applyChanges([
     {
       name: 'capture_item',
@@ -223,7 +231,8 @@ async function capture(
         },
       },
     },
-    ...stepsAfterCapture(read, itemId, now.toISOString(), timeZone),
+    ...afterStatus,
+    ...stored.map((file) => recordFile(file, itemId, read.workspaceId, now.toISOString())),
   ]);
   // Nothing was captured: a workspace deleted between the read above and the
   // write is the same refusal a name that matched nothing gets, so the model can retry.
@@ -261,11 +270,13 @@ async function capture(
   const link = new URL(`/w/${encodeURIComponent(read.workspaceId)}`, env.APP_ORIGIN);
   link.searchParams.set('item', itemId);
   if (applied.stopped) {
+    const filesFrom = 1 + afterStatus.length;
+    const attached = applied.results.slice(filesFrom).filter((result) => result.applied).length;
     return {
-      refusal: `Captured "${title}" ${where}, but its status could not be set: ${applied.stopped.what}. Open it: ${link.href}`,
+      refusal: `Captured "${title}" ${where}, but ${applied.stopped.at >= filesFrom ? 'a file could not be attached' : 'its status could not be set'}: ${applied.stopped.what}.${stored.length ? ` ${attached} of ${stored.length} files were attached.` : ''} Open it: ${link.href}`,
     };
   }
-  return { reply: `Captured "${title}" ${where}. Open it: ${link.href}` };
+  return { reply: `Captured "${title}" ${where}${stored.length ? `, with ${describeAdded(stored)}` : ''}. Open it: ${link.href}` };
 }
 
 /**
@@ -410,12 +421,25 @@ async function update(
     if (!panels.ok) return { refusal: panels.refusal };
   }
 
+  // Files to take off are found by name among the Item's own, before anything is stored.
+  let removals: { id: string; filename: string }[] = [];
+  if (read.fields.files?.remove.length) {
+    const found = resolveRemovals(read.fields.files.remove, await account.attachmentsOfItem(item.id));
+    if (!found.ok) return { refusal: found.refusal };
+    removals = found.remove;
+  }
+
   const now = new Date();
   // A wait counts its days on the calendar of the account's latest capture, so
   // the zones are read only where a wait is asked for.
   const timeZone =
     read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
-  const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null);
+  // Every check is behind us: the bytes go into R2 now, and are recorded in the store call below.
+  const stored = await putFiles(env, accountName, item.id, read.fields.files?.add ?? []);
+  const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null, {
+    remove: removals,
+    add: stored,
+  });
 
   const title = item.title.trim() || UNTITLED;
   const linkTo = (workspaceId: string) => {
@@ -448,6 +472,23 @@ async function update(
   // An Item no Workspace had been chosen for is in the Workspace of the Panel it was filed on now.
   const settledIn = item.workspaceDecided ? undefined : filed.map((i) => plan.steps[i]!.change.payload.workspaceId)[0];
   return describeUpdate(title, read.fields, plan, applied, linkTo(settledIn ?? item.workspaceId));
+}
+
+/**
+ * Puts each file of a call into the attachments bucket under the Item's key,
+ * one at a time so only one is decoded at once, and answers what R2 says it
+ * stored. **Called only once every argument has been checked**, and before the
+ * store call: a store call refused after it leaves the objects orphaned, the
+ * cost the upload route already accepts (issue 1813).
+ */
+async function putFiles(env: Env, accountName: string, itemId: string, files: readonly FileToAdd[]): Promise<FileStored[]> {
+  const stored: FileStored[] = [];
+  for (const file of files) {
+    const attachmentId = uuidv7();
+    const size = await putAttachment(env, { accountName, itemId, attachmentId }, bytesOf(file.base64), file.contentType);
+    stored.push({ attachmentId, name: file.name, contentType: file.contentType, size });
+  }
+  return stored;
 }
 
 /**
