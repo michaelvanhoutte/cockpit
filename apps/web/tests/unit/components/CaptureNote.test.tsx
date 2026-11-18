@@ -3753,11 +3753,11 @@ describe('Capture', () => {
     });
 
     it.each([
-      { situation: 'the browser has no wake lock', screenLock: () => undefined },
-      { situation: 'the lock is refused, as under battery saver', screenLock: aWakeLock(true).api },
+      { situation: 'the browser has no wake lock', screenLock: () => () => undefined },
+      { situation: 'the lock is refused, as under battery saver', screenLock: () => aWakeLock(true).api },
     ])('dictates as before and says nothing about the screen when $situation', async ({ screenLock }) => {
       const { dictating, transcriber } = dictate();
-      const user = await thePage({ dictating, wakeLock: screenLock });
+      const user = await thePage({ dictating, wakeLock: screenLock() });
 
       await user.click(mic());
       expect(await screen.findByText(/^Listening/)).toBeInTheDocument();

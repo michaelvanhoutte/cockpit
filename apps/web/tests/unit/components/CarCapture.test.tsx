@@ -29,7 +29,7 @@ import { KeptRecordings, KeptRecordingsProvider, browserRecordingStore } from '.
 import type { StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
-import { aWakeLock, type FakeLock } from '../support/wakeLock';
+import { aWakeLock } from '../support/wakeLock';
 import { deviceIsIn } from '../support/timeZone';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
