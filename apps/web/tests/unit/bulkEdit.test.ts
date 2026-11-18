@@ -3,9 +3,13 @@ import type { Item } from '@cockpit/shared';
 import { CommandRefused } from '../../src/api/client';
 import type { CommandArgs } from '../../src/api/queries';
 import {
+  dismissSeveral,
   editSeveral,
   putBack,
   saysWhatWasNotChanged,
+  saysWhatWasNotDismissed,
+  undismissSeveral,
+  whatWasDismissed,
   sharedValue,
   whatWasChanged,
   type Sending,
@@ -259,4 +263,119 @@ describe('Selection', () => {
       expect(whatWasChanged('dueDate', null, changed)).toBe('Due date cleared on “Reply to Bart”');
     });
   });
+  describe('Dismiss on the bar sends one set_dismissed per picked Item, in list order, and its one Undo undismisses exactly those that were', () => {
+    const dismiss = (sending: Sending, items: Item[], onProgress: (at: number, of: number) => void = () => {}) =>
+      dismissSeveral(sending, { items, runOf: () => undefined, onProgress });
+
+    it('sends A, B, C in the order given, every one before any is answered', async () => {
+      const sent: string[] = [];
+      let answering = 0;
+      const sending: Sending = {
+        send: (args) => {
+          sent.push((args.payload as { itemId: string }).itemId);
+          return new Promise((resolve) => setTimeout(() => resolve({ applied: true }), 0)).then(() => {
+            answering += 1;
+            return { applied: true };
+          });
+        },
+        envelope: (itemId) => () => ({ commandId: 'c', issuedAt: '2026-10-08T09:00:00.000Z', workspaceId: 'ws', itemId }),
+      };
+
+      const run = dismiss(sending, [anItem('a'), anItem('b'), anItem('c')]);
+
+      expect(sent).toEqual(['a', 'b', 'c']);
+      expect(answering).toBe(0);
+      await run;
+    });
+
+    it('sends the command one row’s Dismiss sends, and counts the answers from one', async () => {
+      const { sent, sending } = aSender();
+      const progress: [number, number][] = [];
+
+      await dismiss(sending, [anItem('a'), anItem('b'), anItem('c')], (at, of) => progress.push([at, of]));
+
+      expect(sent.map((c) => [c.name, c.payload])).toMatchObject([
+        ['set_dismissed', { itemId: 'a', dismissed: true }],
+        ['set_dismissed', { itemId: 'b', dismissed: true }],
+        ['set_dismissed', { itemId: 'c', dismissed: true }],
+      ]);
+      expect(progress).toEqual([[1, 3], [2, 3], [3, 3]]);
+    });
+
+    it('says how many were dismissed, and Undo sends three undismissals', async () => {
+      const { sent, sending } = aSender();
+      const { changed } = await dismiss(sending, [anItem('a'), anItem('b'), anItem('c')]);
+      expect(whatWasDismissed(changed)).toBe('3 items dismissed');
+      sent.length = 0;
+
+      await undismissSeveral(sending, changed);
+
+      expect(sent.map((c) => [c.name, (c.payload as { itemId: string }).itemId, (c.payload as { dismissed: boolean }).dismissed])).toEqual([
+        ['set_dismissed', 'a', false],
+        ['set_dismissed', 'b', false],
+        ['set_dismissed', 'c', false],
+      ]);
+    });
+
+    it('names a single Item by its title, as a row’s Dismiss does', async () => {
+      const { sending } = aSender();
+      const { changed } = await dismiss(sending, [anItem('a', { title: 'Reply to Bart' })]);
+      expect(whatWasDismissed(changed)).toBe('“Reply to Bart” dismissed');
+    });
+
+    it('names the run each dismissal ended in its Undo, so the server reopens exactly that one', async () => {
+      const { sent, sending } = aSender();
+      const { changed } = await dismissSeveral(sending, {
+        items: [anItem('a'), anItem('b')],
+        runOf: (itemId) => (itemId === 'a' ? 'run-a' : undefined),
+        onProgress: () => {},
+      });
+      sent.length = 0;
+
+      await undismissSeveral(sending, changed);
+
+      expect(sent.map((c) => c.payload)).toMatchObject([
+        { itemId: 'a', dismissed: false, reopensRunId: 'run-a' },
+        { itemId: 'b', dismissed: false },
+      ]);
+      expect(sent[1]!.payload).not.toHaveProperty('reopensRunId');
+    });
+
+    it('carries on past a refused Item, which is the one left out of the changed, and its Undo brings back the other two alone', async () => {
+      const { sent, sending } = aSender({ b: 'refused' });
+
+      const { changed, refused } = await dismiss(sending, [anItem('a'), anItem('b'), anItem('c')]);
+
+      expect(changed.map(({ item }) => item.id)).toEqual(['a', 'c']);
+      expect(refused.map(({ item }) => item.id)).toEqual(['b']);
+      expect(saysWhatWasNotDismissed(refused)).toBe('1 not dismissed. That item is locked.');
+      sent.length = 0;
+      await undismissSeveral(sending, changed);
+      expect(sent.map((c) => (c.payload as { itemId: string }).itemId)).toEqual(['a', 'c']);
+    });
+
+    it('says a stale write, and offline, as the Item not dismissed, with the reason', async () => {
+      const { sending } = aSender({ a: 'stale', b: 'offline' });
+
+      const { changed, refused } = await dismiss(sending, [anItem('a'), anItem('b')]);
+
+      expect(changed).toEqual([]);
+      expect(saysWhatWasNotDismissed(refused)).toBe('2 not dismissed. That item changed somewhere else. Failed to fetch');
+    });
+
+    it('says nothing when none was refused', () => {
+      expect(saysWhatWasNotDismissed([])).toBeNull();
+    });
+
+    it('stops an Undo refused part way and says how far it got', async () => {
+      const { sending } = aSender();
+      const { changed } = await dismiss(sending, [anItem('a'), anItem('b'), anItem('c')]);
+      const { sending: refusing } = aSender({ b: 'refused' });
+
+      await expect(undismissSeveral(refusing, changed)).rejects.toThrow(
+        '1 of 3 put back, the rest still dismissed. That item is locked.',
+      );
+    });
+  });
+
 });

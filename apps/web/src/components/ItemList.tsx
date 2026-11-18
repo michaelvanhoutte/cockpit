@@ -327,7 +327,7 @@ export function ItemList({
   useHeldTo(onDashboard ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing });
+  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
@@ -1328,7 +1328,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several) && (
+      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}
@@ -1337,11 +1337,14 @@ export function ItemList({
           editMenu={editing.menu}
           dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
+          onDismiss={editing.askToDismiss}
           onClear={stopSelecting}
         />
       )}
 
       {filingSeveral.pickers}
+
+      {!onDashboard && editing.dismissQuestion}
 
       {askingSeveral && panelId && (
         <WhateverTheQuestionDoes onFailure={() => setAskingSeveral(null)}>

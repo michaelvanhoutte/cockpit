@@ -3,18 +3,27 @@ import { uuidv7, type Item } from '@cockpit/shared';
 import { useSendCommand } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import {
+  dismissSeveral,
   editSeveral,
   putBack,
   saysWhatWasNotChanged,
+  saysWhatWasNotDismissed,
+  undismissSeveral,
   whatWasChanged,
+  whatWasDismissed,
   type BulkField,
   type BulkValue,
   type Sending,
 } from '../bulkEdit';
 import { barEntryFor, endSeveral, reopenSeveral, targetsOf, whatWasEnded } from '../claudeRunEnd';
 import { dueDateLabel } from '../dueDate';
+import { pickAll, shownOn } from '../selection';
 import { useUndo } from '../undo';
+import { DeleteQuestion } from './DeleteQuestion';
 import { EditSeveralMenu } from './EditSeveralMenu';
+
+/** How long a refused dismissal waits to be picked again, for the Item to be drawn back. */
+const REPICK_WINDOW_MS = 10_000;
 
 /**
  * Changing one field of everything a selection holds, and the questions around
@@ -32,8 +41,11 @@ export function useEditingSeveral({
   workspaceId,
   picked,
   filing,
+  scope,
 }: {
   workspaceId: string;
+  /** Where the selection is held, which a dismissal the server refused is picked again in. */
+  scope: string;
   /** The Items picked, in the order the run takes them. */
   picked: readonly Item[];
   /** That a filing is going, which holds back a second kind of work. */
@@ -44,7 +56,12 @@ export function useEditingSeveral({
   const offerToUndo = useUndo();
 
   /** Which Item (counting from one) of how many is being sent, while a run is going. */
-  const [saving, setSaving] = useState<{ at: number; of: number } | null>(null);
+  const [saving, setSaving] = useState<{ at: number; of: number; doing?: string } | null>(null);
+  /** The question *Dismiss N items?*, and the button it was asked from, which gets the focus back. */
+  const [asking, setAsking] = useState(false);
+  const askedFrom = useRef<HTMLElement | null>(null);
+  /** The Items a run could not dismiss: drawn gone for the run, so the selection let go of them, and picked again once drawn back. */
+  const [refusedIds, setRefusedIds] = useState<string[]>([]);
   /** That a run is going, kept apart from `saving` so a second press in the same tick is refused too. */
   const running = useRef(false);
   /** How many a run could not change and why, if it could not change some. */
@@ -57,8 +74,26 @@ export function useEditingSeveral({
     if (picked.length === 0) {
       setRefusal(null);
       setPickingDate(false);
+      setAsking(false);
     }
   }, [picked.length]);
+
+  // A refused Item stays picked (issue 1819): it was drawn gone for the run and
+  // let go of by the selection, so it is picked again the moment a list shows it.
+  useEffect(() => {
+    if (refusedIds.length === 0) return;
+    const shown = shownOn(scope);
+    const back = refusedIds.filter((id) => shown.has(id));
+    if (back.length === 0) return;
+    pickAll(scope, back);
+    setRefusedIds((were) => were.filter((id) => !back.includes(id)));
+    // `data` is the held copy, which is what drawing a refused Item back changes.
+  }, [refusedIds, scope, data]);
+  useEffect(() => {
+    if (refusedIds.length === 0) return;
+    const forgetting = setTimeout(() => setRefusedIds([]), REPICK_WINDOW_MS);
+    return () => clearTimeout(forgetting);
+  }, [refusedIds]);
 
   const sending: Sending = {
     send,
@@ -131,6 +166,44 @@ export function useEditingSeveral({
     }
   };
 
+  /** *Dismiss*, pressed on the bar: asks first, and sends nothing until the question is answered. */
+  const askToDismiss = (from: HTMLElement) => {
+    if (running.current || filing || picked.length === 0) return;
+    askedFrom.current = from;
+    setPickingDate(false);
+    setAsking(true);
+  };
+
+  /** Dismisses everything picked, as one row's Dismiss does each, after the question was answered with Dismiss. */
+  const dismiss = async () => {
+    setAsking(false);
+    if (running.current || filing || picked.length === 0) return;
+    running.current = true;
+    setRefusal(null);
+    setRefusedIds([]);
+    try {
+      const run = dismissSeveral(sending, {
+        items: picked,
+        runOf: (itemId) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id,
+        onProgress: (at, of) => setSaving({ at, of, doing: 'Dismissing' }),
+        onStarted: (dismissing, answer) =>
+          offerToUndo({
+            what: whatWasDismissed(dismissing),
+            unlessRefused: answer.then(({ changed }) => {
+              if (changed.length === 0) throw new Error('every Item was refused');
+            }),
+            undo: async () => undismissSeveral(sending, (await answer).changed),
+          }),
+      });
+      const { refused } = await run;
+      setRefusal(saysWhatWasNotDismissed(refused));
+      setRefusedIds(refused.map(({ item }) => item.id));
+    } finally {
+      running.current = false;
+      setSaving(null);
+    }
+  };
+
   const applyDate = () => {
     if (!date || running.current || filing) return;
     void set('dueDate', date, dueDateLabel(date) ?? date);
@@ -142,6 +215,20 @@ export function useEditingSeveral({
     saving,
     /** How many the last run could not change, and why. */
     refusal,
+    /** Opens the question *Dismiss N items?*, from the button pressed. */
+    askToDismiss,
+    /** The question itself, drawn over the page. */
+    dismissQuestion: (
+      <DeleteQuestion
+        open={asking && picked.length > 0}
+        question={`Dismiss ${picked.length} ${picked.length === 1 ? 'item' : 'items'}?`}
+        confirmLabel={`Dismiss ${picked.length} ${picked.length === 1 ? 'item' : 'items'}`}
+        confirmText="Dismiss"
+        returnFocusTo={askedFrom.current}
+        onCancel={() => setAsking(false)}
+        onConfirm={() => void dismiss()}
+      />
+    ),
     /** Edit ▾, to sit among the bar's buttons. */
     menu: (
       <EditSeveralMenu

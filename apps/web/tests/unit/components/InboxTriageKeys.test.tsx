@@ -402,6 +402,17 @@ describe('Selection', () => {
 
       expect(sent().filter((command) => command.name === 'set_done')).toHaveLength(0);
     });
+
+    it('leaves X dismissing nothing while two rows are picked, so the bar’s Dismiss is the only way to dismiss a selection', async () => {
+      const user = await showInbox([anItem('A', FALCON.id), anItem('B', FALCON.id), anItem('C')]);
+      await user.click(screen.getByText('A'));
+      await user.keyboard('{Shift>}J{/Shift}');
+
+      await user.keyboard('x');
+
+      expect(sent().filter((command) => command.name === 'set_dismissed')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: 'Dismiss' })).toBeEnabled();
+    });
   });
 
   describe('Shift with J and K extends the selection from the focused row', () => {

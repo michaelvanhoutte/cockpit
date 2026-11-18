@@ -6,6 +6,7 @@ import type { AgentRun, Dashboard, Filing, Item, Panel, WorkspaceSnapshot } from
 import { PanelBoard } from '../../../src/components/PanelBoard';
 import { ItemList } from '../../../src/components/ItemList';
 import { UndoWhatJustHappened } from '../../../src/undo';
+import { CommandRefused } from '../../../src/api/client';
 import { useCommand, useSendCommand, type CommandArgs } from '../../../src/api/queries';
 
 /**
@@ -133,7 +134,7 @@ function screenFor(now: World) {
   );
 }
 
-function show(now: World, options: { hold?: boolean } = {}) {
+function show(now: World, options: { hold?: boolean; refusing?: string } = {}) {
   world = now;
   sent = [];
   landing = [];
@@ -143,6 +144,9 @@ function show(now: World, options: { hold?: boolean } = {}) {
   vi.mocked(useCommand).mockReturnValue({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null, variables: undefined } as never);
   vi.mocked(useSendCommand).mockReturnValue((args: CommandArgs) => {
     sent.push(args);
+    if (options.refusing && (args.payload as { itemId: string }).itemId === options.refusing) {
+      return Promise.reject(new CommandRefused(409, 'That item is locked.'));
+    }
     if (!holding) return Promise.resolve({ applied: true } as never);
     return new Promise((resolve) => landing.push(() => resolve({ applied: true } as never)));
   });
@@ -367,4 +371,145 @@ describe('Selection', () => {
       expect(within(document.body).getByText('2 selected')).toBeVisible();
     });
   });
+  describe('Dismiss, last on the bar, asks first and sends nothing until Dismiss is pressed', () => {
+    const THREE: World = {
+      items: [BART, RENEW, CHASE],
+      filings: [filedOn('falcon', BART.id), filedOn('falcon', RENEW.id, 1), filedOn('reading', CHASE.id)],
+    };
+
+    async function pickAllThree(user: ReturnType<typeof userEvent.setup>) {
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+      await tick(user, CHASE.title);
+    }
+
+    it('sits after Move to…, Edit ▾ and Clear', async () => {
+      const user = show(THREE);
+      await pickAllThree(user);
+
+      const bar = screen.getByRole('button', { name: 'Move to…' }).parentElement!;
+
+      expect([...bar.querySelectorAll('button')].map((button) => button.textContent)).toEqual([
+        'Move to…',
+        'Edit ▾',
+        'Clear',
+        'Dismiss',
+      ]);
+    });
+
+    it('asks Dismiss 3 items? with Cancel then Dismiss, and sends nothing', async () => {
+      const user = show(THREE);
+      await pickAllThree(user);
+
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+      const question = await screen.findByRole('alertdialog');
+      expect(within(question).getByText('Dismiss 3 items?')).toBeVisible();
+      expect(within(question).getAllByRole('button').map((button) => button.textContent)).toEqual(['Cancel', 'Dismiss']);
+      expect(within(question).getByRole('button', { name: 'Dismiss 3 items' })).toBeVisible();
+      expect(sent).toHaveLength(0);
+    });
+
+    it.each([
+      { how: 'Cancel', close: (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Cancel' })) },
+      { how: 'Escape', close: (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Escape}') },
+    ])('closes on $how with nothing sent and the three still picked', async ({ close }) => {
+      const user = show(THREE);
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await screen.findByRole('alertdialog');
+
+      await close(user);
+
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(sent).toHaveLength(0);
+      expect(screen.getByText('3 selected')).toBeVisible();
+    });
+
+    it('starts the run on Dismiss: one set_dismissed each in list order, the bar counting it with Move to…, Edit and Dismiss unavailable', async () => {
+      const user = show(THREE, { hold: true });
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+
+      expect(sent.map((c) => [c.name, (c.payload as { itemId: string }).itemId])).toEqual([
+        ['set_dismissed', BART.id],
+        ['set_dismissed', RENEW.id],
+        ['set_dismissed', CHASE.id],
+      ]);
+      expect(await screen.findByText('Dismissing 1 of 3…')).toBeVisible();
+      await act(async () => landing.shift()!());
+      expect(await screen.findByText('Dismissing 2 of 3…')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Move to…' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Edit ▾' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(sent).toHaveLength(3);
+
+      await act(async () => landing.shift()!());
+      await act(async () => landing.shift()!());
+    });
+
+    it('says how many were dismissed in the undo bar, whose one Undo undismisses them', async () => {
+      const user = show(THREE);
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+
+      expect(await screen.findByText('3 items dismissed')).toBeVisible();
+      sent.length = 0;
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() => expect(sent).toHaveLength(3));
+      expect(sent.map((c) => [c.name, (c.payload as { dismissed: boolean }).dismissed])).toEqual([
+        ['set_dismissed', false],
+        ['set_dismissed', false],
+        ['set_dismissed', false],
+      ]);
+    });
+
+    it('carries on past a refused Item, says how many were not dismissed and why, and keeps the other two undoable', async () => {
+      const user = show(THREE, { refusing: RENEW.id });
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+
+      expect(await screen.findByText('1 not dismissed. That item is locked.')).toBeVisible();
+      expect(sent).toHaveLength(3);
+      expect(await screen.findByText('3 items dismissed')).toBeVisible();
+    });
+
+    it('offers no Undo when every Item was refused', async () => {
+      const user = show({ ...THREE, items: [BART, RENEW], filings: THREE.filings.slice(0, 2) });
+      await tick(user, RENEW.title);
+      await tick(user, BART.title);
+      vi.mocked(useSendCommand).mockReturnValue((args: CommandArgs) => {
+        sent.push(args);
+        return Promise.reject(new CommandRefused(409, 'That item is locked.'));
+      });
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 2 items' }));
+
+      expect(await screen.findByText('2 not dismissed. That item is locked.')).toBeVisible();
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull());
+    });
+
+    it('offers the same Dismiss on the Inbox’s bar', async () => {
+      const user = show({ ...THREE, inbox: [INBOXED, ANOTHER] });
+      await tick(user, INBOXED.title);
+      await tick(user, ANOTHER.title);
+
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(within(await screen.findByRole('alertdialog')).getByText('Dismiss 2 items?')).toBeVisible();
+      await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Dismiss 2 items' }));
+
+      await waitFor(() => expect(sent.map((c) => [c.name, (c.payload as { itemId: string }).itemId])).toEqual([
+        ['set_dismissed', INBOXED.id],
+        ['set_dismissed', ANOTHER.id],
+      ]));
+    });
+  });
+
 });

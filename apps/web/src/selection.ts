@@ -126,8 +126,10 @@ export function showsABar(
   count: number,
   refusals: readonly (string | null | false | undefined)[],
   several = SEVERAL,
+  /** A run is going: its Items are already drawn gone, and the bar counts it to the end. */
+  running = false,
 ): boolean {
-  return count >= several || (count > 0 && refusals.some(Boolean));
+  return running || count >= several || (count > 0 && refusals.some(Boolean));
 }
 
 /** The selection a plain click leaves: this row alone, and what a shift-click reaches back to. */
