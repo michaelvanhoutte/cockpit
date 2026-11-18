@@ -29,6 +29,7 @@ import { LazyRichDescription, NewerVersionIfStale, WhateverTheEditorDoes } from 
 import { DueChips, LIT_BUTTON, PriorityFlags, QUIET_BUTTON, STRIP_BUTTON } from './StripChoices';
 import { appendPhrase } from '../dictation';
 import { clock, useRecordedDictation, type RecordedDictation, type StartRecording } from '../recording';
+import { browserWakeLock, useScreenWakeLock, type WakeLockApi } from '../wakeLock';
 import { transcriptionOfferedQuery } from '../api/transcription';
 import { useKeptRecordings } from '../keptRecordings';
 import { useIsOffline } from '../offline';
@@ -90,6 +91,7 @@ export function CaptureNote({
   onCaptured,
   onKept,
   dictating,
+  wakeLock = browserWakeLock,
   shownAs = 'page',
 }: {
   startsIn: string | null;
@@ -124,6 +126,8 @@ export function CaptureNote({
         limitSeconds?: number;
       }
     | undefined;
+  /** The browser's wake lock, or a fake: held only while the mic is recording (`wakeLock.ts`). */
+  wakeLock?: (() => WakeLockApi | undefined) | undefined;
 }) {
   const { data: list } = useWorkspaces();
   const workspaces = list?.workspaces ?? [];
@@ -171,6 +175,8 @@ export function CaptureNote({
     transcriber: dictating?.transcriber ?? transcribable.data ?? false,
     onWords: (words) => changeNote(appendPhrase(noteNow.current, words)),
   });
+  // The screen stays on exactly while recording: not while starting or transcribing.
+  useScreenWakeLock(wakeLock, dictation.listening);
   const shown = message;
   /**
    * Whether the note is written in the formatted editor ("Switch the Capture

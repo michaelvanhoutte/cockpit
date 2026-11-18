@@ -29,6 +29,7 @@ import { KeptRecordings, KeptRecordingsProvider, browserRecordingStore } from '.
 import type { StartRecording } from '../../../src/recording';
 import type { WakeLockApi } from '../../../src/wakeLock';
 import { aRecorder, aTranscriber } from '../support/recording';
+import { aWakeLock, type FakeLock } from '../support/wakeLock';
 import { deviceIsIn } from '../support/timeZone';
 
 vi.mock('../../../src/api/client', async (importOriginal) => ({
@@ -68,37 +69,6 @@ const HOME_AND_WORK = [
   { id: 'ws-home', tenantId: 'tenant', name: 'Home', color: '#3f8f78' },
   { id: 'ws-work', tenantId: 'tenant', name: 'Work', color: '#6f62b5' },
 ];
-
-/** The platform's wake lock: hands out locks the test can inspect and the browser can take back. */
-class FakeLock {
-  released = false;
-  private listeners: (() => void)[] = [];
-  release() {
-    this.released = true;
-    return Promise.resolve();
-  }
-  addEventListener(_type: 'release', listener: () => void) {
-    this.listeners.push(listener);
-  }
-  /** What the browser does when the page is hidden. */
-  takenBack() {
-    this.released = true;
-    act(() => this.listeners.forEach((listener) => listener()));
-  }
-}
-
-function aWakeLock(refuses = false) {
-  const taken: FakeLock[] = [];
-  const api: WakeLockApi = {
-    request: vi.fn(() => {
-      if (refuses) return Promise.reject(new Error('battery saver'));
-      const lock = new FakeLock();
-      taken.push(lock);
-      return Promise.resolve(lock);
-    }),
-  };
-  return { api: () => api, request: api.request as ReturnType<typeof vi.fn>, taken };
-}
 
 function pageIs(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
