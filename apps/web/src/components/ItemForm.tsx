@@ -36,6 +36,7 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
+import { askToSplit, openDashboardId } from '../poc/dialogs';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -1750,6 +1751,11 @@ function TheForm({
               <span className="text-base font-semibold text-ink">Item</span>
               {/* Copy link sits left of whichever of Edit and Save holds the corner. */}
               <div className="flex shrink-0 items-center gap-2">
+                {item && (
+                  <button type="button" onClick={() => askToSplit(item.id, openDashboardId())} className={headerButtonClass}>
+                    Split…
+                  </button>
+                )}
                 {filedOnAPanel && (
                   <button type="button" onClick={copyLink} className={headerButtonClass}>
                     Copy link
@@ -1778,6 +1784,11 @@ function TheForm({
             </div>
           ) : (
             <div className="flex shrink-0 items-center justify-end gap-2">
+              {item && (
+                <button type="button" onClick={() => askToSplit(item.id, openDashboardId())} className={headerButtonClass}>
+                  Split…
+                </button>
+              )}
               {filedOnAPanel && (
                 <button type="button" onClick={copyLink} className={headerButtonClass}>
                   Copy link

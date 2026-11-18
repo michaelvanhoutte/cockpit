@@ -14,6 +14,7 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { saysHowItIsSorted } from '../sorting';
 import { ItemList } from './ItemList';
+import { PocGroups } from '../poc/PocGroups';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';
 import { PanelText } from '../panels/PanelText';
@@ -567,6 +568,8 @@ export function PanelCard({
         {text ? (
           <PanelText panel={panel} workspaceId={workspaceId} />
         ) : (
+          <>
+          {!collapsed && <PocGroups workspaceId={workspaceId} panelId={panel.id} />}
           <ItemList
             workspaceId={workspaceId}
             items={items}
@@ -590,6 +593,7 @@ export function PanelCard({
                 : NOTHING_FILED_HERE
             }
           />
+          </>
         )}
       </div>
     </section>

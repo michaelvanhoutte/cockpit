@@ -26,6 +26,8 @@ const KeyboardShortcutsWindow = lazy(() => import('../components/KeyboardShortcu
 // The saving sign shows only once a change has waited half a second, so it is
 // fetched after the first paint; the queue and its leave-site guard stay in the bundle.
 const SavingMark = lazy(() => import('../components/SavingMark'));
+/** POC (throwaway): the Combine and Split dialogs. */
+const PocHost = lazy(() => import('../poc/PocHost'));
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
 import { goOnline, workOffline } from '../opening';
@@ -1202,6 +1204,11 @@ function TheShell() {
         <div data-drag-scroll="dashboard" className="min-w-0 flex-1 overflow-y-auto pb-[var(--edge-bottom)]">
           <Outlet />
         </div>
+        {params.workspaceId && (
+          <Suspense fallback={null}>
+            <PocHost workspaceId={params.workspaceId} />
+          </Suspense>
+        )}
         {showsPanelList && (
           <Suspense fallback={null}>
             <PanelList

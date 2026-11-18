@@ -3,6 +3,8 @@ import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
 import { itemsLeftOut } from '../persistence';
+import { DashboardViews } from '../poc/DashboardViews';
+import { groupsKey, hiddenKey, usePoc, type Group } from '../poc/store';
 
 /**
  * One dashboard of a workspace ("Add and switch dashboards", issue 32), holding
@@ -18,6 +20,9 @@ export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
   const { data, dataUpdatedAt, isLoading, error, refetch } = useSnapshot(workspaceId);
   const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
+  // POC (throwaway): merged Items are hidden, and a split one is drawn as a parent at the top of its Panel.
+  const [hidden] = usePoc<string[]>(hiddenKey(workspaceId), []);
+  const [groups] = usePoc<Group[]>(groupsKey(workspaceId), []);
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -29,7 +34,7 @@ export function DashboardPage() {
   const dashboard = data.dashboards.find((d) => d.id === dashboardId);
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex h-full min-w-0 flex-col gap-6">
       {/* No notice here when there is a read held to draw from: the shell
           says it once for the whole window (Layout.tsx), because a workspace
           that cannot be read is a fact about the workspace rather than about
@@ -45,6 +50,10 @@ export function DashboardPage() {
         // Keyed by the dashboard, so switching to another one starts clean: the
         // half-typed panel name, the open question and any arrangement not yet
         // saved all belong to the dashboard being left.
+        <DashboardViews
+          workspaceId={workspaceId}
+          dashboardId={dashboard.id}
+          panels={
         <PanelBoard
           key={dashboard.id}
           workspaceId={workspaceId}
@@ -56,10 +65,15 @@ export function DashboardPage() {
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).
           panelsInWorkspace={data.panels}
           layouts={data.layouts}
-          items={data.items}
+          items={data.items.filter(
+            (item) =>
+              !hidden.includes(item.id) && !groups.some((group) => group.kind === 'split' && group.parentItemId === item.id),
+          )}
           filings={data.filings}
           attachments={data.attachments}
           agentRuns={data.agentRuns}
+        />
+          }
         />
       )}
     </div>

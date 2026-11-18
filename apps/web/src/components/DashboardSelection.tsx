@@ -4,6 +4,7 @@ import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
 import { stillOpen } from '@cockpit/shared';
+import { askToCombine } from '../poc/dialogs';
 
 /**
  * What is picked across the Panels of the open Dashboard, and the one bar to act
@@ -60,6 +61,7 @@ export function DashboardSelection({
           dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
           onClear={() => endSelection(scope)}
+          onCombine={() => askToCombine(picked.map((item) => item.id), dashboardId)}
         />
       )}
       {filingSeveral.pickers}
