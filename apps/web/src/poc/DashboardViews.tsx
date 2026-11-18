@@ -25,7 +25,7 @@ export function DashboardViews({
   panels: ReactNode;
 }) {
   const [view] = usePoc<DashboardView>(viewKey(dashboardId), DEFAULT_VIEW);
-  const [split, setSplit] = usePoc<Split>(splitKey(dashboardId), { side: 360, stacked: 0.55 });
+  const [split, setSplit] = usePoc<Split>(splitKey(dashboardId), { side: 0.4, stacked: 0.55 });
   const [phoneTab, setPhoneTab] = useState<'panels' | 'board'>('panels');
   const phone = useScreenWidth() < PHONE_WIDTH;
   const box = useRef<HTMLDivElement>(null);
@@ -68,7 +68,7 @@ export function DashboardViews({
     if (!area) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const move = (at: PointerEvent) => {
-      if (view === 'side') setSplit((was) => ({ ...was, side: Math.max(240, Math.min(area.width - 240, at.clientX - area.left)) }));
+      if (view === 'side') setSplit((was) => ({ ...was, side: Math.max(0.15, Math.min(0.85, (at.clientX - area.left) / area.width)) }));
       else setSplit((was) => ({ ...was, stacked: Math.max(0.15, Math.min(0.85, (at.clientY - area.top) / area.height)) }));
     };
     const up = () => {
@@ -78,12 +78,12 @@ export function DashboardViews({
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
-  const reset = () => setSplit((was) => (view === 'side' ? { ...was, side: 360 } : { ...was, stacked: 0.55 }));
+  const reset = () => setSplit((was) => (view === 'side' ? { ...was, side: 0.4 } : { ...was, stacked: 0.55 }));
 
   if (view === 'side') {
     return (
       <div ref={box} className="flex h-full min-h-[480px]">
-        <div className="min-w-0 shrink-0 overflow-y-auto" style={{ width: split.side }} data-poc-pane="panels">
+        <div className="min-w-0 shrink-0 overflow-y-auto" style={{ width: split.side > 1 ? split.side : `${split.side * 100}%` }} data-poc-pane="panels">
           {panels}
         </div>
         <div

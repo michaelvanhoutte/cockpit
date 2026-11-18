@@ -34,6 +34,7 @@ import { NeedsYouChip } from './NeedsYouChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { PocChildren } from '../poc/PocChildren';
 import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTheAir';
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
@@ -1442,6 +1443,7 @@ export function ItemRow({
               <span className="font-semibold text-accent-deep">Next:</span> {nextAction}
             </span>
           )}
+          <PocChildren workspaceId={workspaceId} itemId={item.id} />
           {/* Where it came from, on one line under the title. Its own element,
               so it is a thing on the row rather than part of a sentence. */}
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">

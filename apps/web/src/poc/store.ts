@@ -70,6 +70,10 @@ export const boardKey = (dashboardId: string) => `poc:board:${dashboardId}`;
 export const kindsKey = (workspaceId: string) => `poc:kinds:${workspaceId}`;
 export const linksKey = (workspaceId: string) => `poc:links:${workspaceId}`;
 export const groupsKey = (workspaceId: string) => `poc:groups:${workspaceId}`;
+/** Parent Item id → its children's ids: the one relation the POC keeps itself. */
+export const relationsKey = (workspaceId: string) => `poc:relations:${workspaceId}`;
+/** A whiteboard asked to select and zoom to one of its nodes once it is drawn. */
+export const FOCUS_KEY = 'poc:focus';
 export const hiddenKey = (workspaceId: string) => `poc:hidden:${workspaceId}`;
 
 // ---- Shapes ---------------------------------------------------------------
@@ -77,10 +81,18 @@ export const hiddenKey = (workspaceId: string) => `poc:hidden:${workspaceId}`;
 export type DashboardView = 'side' | 'stacked' | 'panels' | 'board';
 export const DEFAULT_VIEW: DashboardView = 'panels';
 
+/**
+ * `card` is an Item and `panel` a Panel; either is drawn as a card, or, with
+ * `asBox`, as a box holding its children. `box` is a named frame that is no
+ * Item. A `sketch` lives only here.
+ */
 export type BoardNode =
-  | { id: string; kind: 'card'; itemId: string; x: number; y: number; parentId?: string | undefined }
+  | { id: string; kind: 'card'; itemId: string; x: number; y: number; parentId?: string | undefined; asBox?: boolean; w?: number; h?: number }
+  | { id: string; kind: 'panel'; panelId: string; x: number; y: number; parentId?: string | undefined; asBox?: boolean; w?: number; h?: number }
   | { id: string; kind: 'sketch'; title: string; x: number; y: number; parentId?: string | undefined; local?: 'merged' }
   | { id: string; kind: 'box'; name: string; x: number; y: number; w: number; h: number; parentId?: string | undefined };
+
+export type Relations = Record<string, string[]>;
 
 export interface FreeLine {
   id: string;

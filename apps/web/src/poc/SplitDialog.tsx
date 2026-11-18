@@ -4,7 +4,9 @@ import { additionsOf, itemLabel } from '@cockpit/shared';
 import { useSnapshot } from '../api/useSnapshot';
 import { attachmentUrl } from '../api/client';
 import { stopAsking } from './dialogs';
-import { groupsKey, newId, updatePoc, type Group } from './store';
+import { useSendCommand } from '../api/queries';
+import { addChildren, isUuid } from './relations';
+import { newId } from './store';
 
 /** POC (throwaway): the colours a proposed Item and its blocks share. */
 const TAGS = ['#6f62b5', '#0e7490', '#9a5b14', '#0b7a55', '#bf5d55', '#475569'];
@@ -31,6 +33,7 @@ const firstWords = (text: string) => {
 
 export function SplitDialog({ workspaceId, itemId }: { workspaceId: string; itemId: string }) {
   const { data } = useSnapshot(workspaceId);
+  const send = useSendCommand();
   const item = data?.items.find((one) => one.id === itemId);
 
   const [blocks] = useState<Block[]>(() => {
@@ -84,7 +87,7 @@ export function SplitDialog({ workspaceId, itemId }: { workspaceId: string; item
   if (!item) return null;
   const tagOf = (proposalId: string | null | undefined) => {
     const at = proposals.findIndex((proposal) => proposal.id === proposalId);
-    return at === -1 ? null : { n: at + 1, colour: TAGS[at % TAGS.length]! };
+    return at === -1 ? null : { n: at + 1, colour: TAGS[at % TAGS.length]!, name: proposals[at]!.title || `Item ${at + 1}` };
   };
   const making = proposals.filter((proposal) => proposal.on);
 
@@ -96,13 +99,18 @@ export function SplitDialog({ workspaceId, itemId }: { workspaceId: string; item
   };
 
   const split = () => {
-    const group: Group = {
-      id: newId(),
-      kind: 'split',
-      parentItemId: item.id,
-      children: making.map((proposal) => ({ id: proposal.id, title: proposal.title || 'Untitled', done: false })),
-    };
-    updatePoc<Group[]>(groupsKey(workspaceId), [], (was) => [...was, group]);
+    const envelope = () => ({ commandId: crypto.randomUUID(), issuedAt: new Date().toISOString(), workspaceId });
+    const panelIds = (data?.filings ?? []).filter((f) => f.itemId === item.id && isUuid(f.panelId)).map((f) => f.panelId);
+    const childIds = making.map((proposal) => {
+      const itemId = crypto.randomUUID();
+      const text = blocks.filter((block) => placed[block.id] === proposal.id).map((block) => block.text).join('\n\n');
+      void send({
+        name: 'capture_item',
+        payload: { ...envelope(), itemId, title: proposal.title.trim() || 'Untitled', message: text || proposal.title || 'Untitled', ...(panelIds.length ? { panelIds } : {}) },
+      });
+      return itemId;
+    });
+    addChildren(workspaceId, item.id, childIds);
     stopAsking();
   };
 
@@ -115,12 +123,11 @@ export function SplitDialog({ workspaceId, itemId }: { workspaceId: string; item
           className="fixed z-floating left-1/2 top-1/2 flex max-h-[90vh] w-[min(64rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="text-base font-semibold">Split “{itemLabel(item)}”</Dialog.Title>
+          <p className="-mt-2 text-sm text-ink-soft">
+            Claude proposes {proposals.length} new Items. Each colour is one Item. Drag a paragraph to another Item to move it, untick an Item to keep its text here.
+          </p>
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto md:grid-cols-2">
-            <section
-              className="well flex flex-col gap-2 p-3"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={dropOn(null)}
-            >
+            <section className="well flex flex-col gap-2 p-3">
               <h3 className="text-xs font-semibold tracking-[0.12em] text-accent-deep uppercase">What it holds</h3>
               {blocks.length === 0 && <p className="text-sm text-ink-faint">Nothing written in it to split.</p>}
               {blocks.map((block) => {
@@ -161,11 +168,11 @@ export function SplitDialog({ workspaceId, itemId }: { workspaceId: string; item
                     )}
                     {tag && (
                       <span
-                        className="shrink-0 rounded-full px-1.5 text-xs font-semibold text-white"
+                        className="max-w-36 shrink-0 truncate rounded-full px-2 text-xs font-semibold text-white"
                         style={{ background: tag.colour }}
-                        aria-label={`In Item ${tag.n}`}
+                        title={`In “${tag.name}”`}
                       >
-                        {tag.n}
+                        {tag.name}
                       </span>
                     )}
                   </div>

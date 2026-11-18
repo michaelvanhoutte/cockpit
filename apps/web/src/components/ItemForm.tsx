@@ -37,6 +37,7 @@ import {
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { askToSplit, openDashboardId } from '../poc/dialogs';
+import { PocRelations } from '../poc/PocRelations';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -2302,6 +2303,8 @@ function TheForm({
                           </p>
                         )}
                       </div>
+
+                      {item && <PocRelations workspaceId={workspaceId} itemId={item.id} />}
 
                       {/* A screenshot, a scan or a clip the note is really about
                         ("Attach a file to an item", issue 441) - added by button

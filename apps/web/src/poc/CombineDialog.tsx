@@ -5,9 +5,11 @@ import { useSnapshot } from '../api/useSnapshot';
 import { sourceOnARow } from '../itemSource';
 import { useUndo } from '../undo';
 import { dashboardScope, endSelection } from '../selection';
-import { addLocalCard, boxAround } from './board';
+import { useSendCommand } from '../api/queries';
+import { addCard, itemBoxAround } from './board';
 import { stopAsking } from './dialogs';
-import { groupsKey, hiddenKey, newId, updatePoc, type Group } from './store';
+import { addChildren, isUuid } from './relations';
+import { hiddenKey, updatePoc } from './store';
 
 type Choice = 'merge' | 'new-parent' | 'existing-parent';
 
@@ -54,7 +56,7 @@ export function CombineDialog({
   const [choice, setChoice] = useState<Choice>('new-parent');
   const [note, setNote] = useState('');
   const [search, setSearch] = useState('');
-  const [parentId, setParentId] = useState<string | null>(null);
+  const [chosenParent, setParentId] = useState<string | null>(null);
 
   const candidates = useMemo(() => {
     const words = search.trim().toLowerCase();
@@ -65,36 +67,37 @@ export function CombineDialog({
       .slice(0, 8);
   }, [data, itemIds, search]);
 
+  const send = useSendCommand();
   const combine = () => {
     if (!data) return;
     const { title, description } = cannedTexts(chosen, note);
     const panelId = panelOf(chosen[0]?.id, dashboardId, data.filings, data.panels);
+    const envelope = () => ({ commandId: crypto.randomUUID(), issuedAt: new Date().toISOString(), workspaceId });
+    const makeItem = (): string => {
+      const itemId = crypto.randomUUID();
+      void send({
+        name: 'capture_item',
+        payload: { ...envelope(), itemId, title, message: description, ...(panelId && isUuid(panelId) ? { panelIds: [panelId] } : {}) },
+      });
+      return itemId;
+    };
     if (choice === 'merge') {
-      const group: Group = { id: newId(), kind: 'merged', title, description, panelId, mergedIds: chosen.map((i) => i.id) };
-      updatePoc<Group[]>(groupsKey(workspaceId), [], (was) => [...was, group]);
-      updatePoc<string[]>(hiddenKey(workspaceId), [], (was) => [...new Set([...was, ...group.mergedIds])]);
-      const takeCardOff = dashboardId ? addLocalCard(dashboardId, title) : () => {};
+      const mergedIds = chosen.map((item) => item.id);
+      const newItemId = makeItem();
+      updatePoc<string[]>(hiddenKey(workspaceId), [], (was) => [...new Set([...was, ...mergedIds])]);
+      if (dashboardId) addCard(dashboardId, newItemId);
       offerToUndo({
         what: `Merged ${chosen.length} Items into “${title}”`,
         undo: async () => {
-          updatePoc<Group[]>(groupsKey(workspaceId), [], (was) => was.filter((one) => one.id !== group.id));
-          updatePoc<string[]>(hiddenKey(workspaceId), [], (was) => was.filter((id) => !group.mergedIds.includes(id)));
-          takeCardOff();
+          updatePoc<string[]>(hiddenKey(workspaceId), [], (was) => was.filter((id) => !mergedIds.includes(id)));
+          await send({ name: 'set_dismissed', payload: { ...envelope(), itemId: newItemId, dismissed: true } });
         },
       });
     } else {
-      const existing = choice === 'existing-parent' && parentId ? byId.get(parentId) : undefined;
-      const group: Group = {
-        id: newId(),
-        kind: 'parent',
-        title: existing ? itemLabel(existing) : title,
-        description,
-        panelId,
-        childIds: chosen.map((item) => item.id),
-        parentItemId: existing?.id,
-      };
-      updatePoc<Group[]>(groupsKey(workspaceId), [], (was) => [...was, group]);
-      if (dashboardId) boxAround(dashboardId, group.title, group.childIds, boardNodeIds);
+      const parentId = choice === 'existing-parent' && chosenParent ? chosenParent : makeItem();
+      const childIds = chosen.map((item) => item.id);
+      addChildren(workspaceId, parentId, childIds);
+      if (dashboardId) itemBoxAround(dashboardId, parentId, childIds, boardNodeIds);
     }
     if (dashboardId) endSelection(dashboardScope(dashboardId));
     stopAsking();
@@ -169,7 +172,7 @@ export function CombineDialog({
                         type="button"
                         onClick={() => setParentId(item.id)}
                         className={`w-full truncate px-3 py-1.5 text-left text-sm hover:bg-accent-tint ${
-                          parentId === item.id ? 'bg-accent-tint font-medium text-accent-deep' : 'text-ink'
+                          chosenParent === item.id ? 'bg-accent-tint font-medium text-accent-deep' : 'text-ink'
                         }`}
                       >
                         {itemLabel(item)}
@@ -199,7 +202,7 @@ export function CombineDialog({
             <button
               type="button"
               onClick={combine}
-              disabled={chosen.length < 2 || (choice === 'existing-parent' && !parentId)}
+              disabled={chosen.length < 2 || (choice === 'existing-parent' && !chosenParent)}
               className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
             >
               Combine
