@@ -209,11 +209,11 @@ export function whatWasChanged(
   return `${done} on ${on}`;
 }
 
-/** What the bar says of the Items a run could not change. */
-export function saysWhatWasNotChanged(refused: readonly Refused[]): string | null {
+/** What the bar says of the Items a run could not change (or `dismissed`, or whatever the run did): how many, and why. */
+export function saysWhatWasNot(verb: 'changed' | 'dismissed', refused: readonly Refused[]): string | null {
   if (refused.length === 0) return null;
   const reasons = [...new Set(refused.map(({ why }) => why))].join(' ');
-  return `${refused.length} not changed. ${reasons}`;
+  return `${refused.length} not ${verb}. ${reasons}`;
 }
 
 /** One Item the bar dismissed, and the agent run its dismissal ended, which the Undo names so the server reopens exactly that one. */
@@ -262,11 +262,12 @@ export function dismissSeveral(
 export async function undismissSeveral(sending: Sending, dismissed: readonly Dismissed[]): Promise<void> {
   for (const [at, { item, endedRunId }] of dismissed.entries()) {
     try {
-      const command = {
-        name: 'set_dismissed' as const,
-        payload: { ...sending.envelope(item.id)(), dismissed: false, ...(endedRunId && { reopensRunId: endedRunId }) },
-      };
-      if (!(await sending.send(command)).applied) throw new Error(CHANGED_ELSEWHERE);
+      await sendAll(sending, [
+        {
+          name: 'set_dismissed',
+          payload: { ...sending.envelope(item.id)(), dismissed: false, ...(endedRunId && { reopensRunId: endedRunId }) },
+        },
+      ]);
     } catch (error) {
       throw new Error(`${at} of ${dismissed.length} put back, the rest still dismissed. ${whyNot(error)}`);
     }
@@ -277,11 +278,4 @@ export async function undismissSeveral(sending: Sending, dismissed: readonly Dis
 export function whatWasDismissed(dismissed: readonly Dismissed[]): string {
   const only = dismissed.length === 1 ? dismissed[0]!.item : null;
   return only ? `“${itemLabel(only)}” dismissed` : `${dismissed.length} items dismissed`;
-}
-
-/** What the bar says of the Items a run could not dismiss. */
-export function saysWhatWasNotDismissed(refused: readonly Refused[]): string | null {
-  if (refused.length === 0) return null;
-  const reasons = [...new Set(refused.map(({ why }) => why))].join(' ');
-  return `${refused.length} not dismissed. ${reasons}`;
 }

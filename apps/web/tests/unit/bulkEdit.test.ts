@@ -6,8 +6,7 @@ import {
   dismissSeveral,
   editSeveral,
   putBack,
-  saysWhatWasNotChanged,
-  saysWhatWasNotDismissed,
+  saysWhatWasNot,
   undismissSeveral,
   whatWasDismissed,
   sharedValue,
@@ -162,7 +161,7 @@ describe('Selection', () => {
       expect(summary(sent)).toEqual(['set_priority:a', 'set_priority:b', 'set_priority:c']);
       expect(changed.map((c) => c.item.id)).toEqual(['a', 'c']);
       expect(refused.map((r) => r.item.id)).toEqual(['b']);
-      expect(saysWhatWasNotChanged(refused)).toBe('1 not changed. That item is locked.');
+      expect(saysWhatWasNot('changed', refused)).toBe('1 not changed. That item is locked.');
     });
 
     it('changes nothing when every Item is refused, so there is nothing to undo', async () => {
@@ -171,7 +170,7 @@ describe('Selection', () => {
       const { changed, refused } = await edit(sending, [anItem('a'), anItem('b')], 'priority', 'high');
 
       expect(changed).toEqual([]);
-      expect(saysWhatWasNotChanged(refused)).toBe('2 not changed. That item is locked.');
+      expect(saysWhatWasNot('changed', refused)).toBe('2 not changed. That item is locked.');
     });
 
     it.each([
@@ -348,7 +347,7 @@ describe('Selection', () => {
 
       expect(changed.map(({ item }) => item.id)).toEqual(['a', 'c']);
       expect(refused.map(({ item }) => item.id)).toEqual(['b']);
-      expect(saysWhatWasNotDismissed(refused)).toBe('1 not dismissed. That item is locked.');
+      expect(saysWhatWasNot('dismissed', refused)).toBe('1 not dismissed. That item is locked.');
       sent.length = 0;
       await undismissSeveral(sending, changed);
       expect(sent.map((c) => (c.payload as { itemId: string }).itemId)).toEqual(['a', 'c']);
@@ -360,11 +359,11 @@ describe('Selection', () => {
       const { changed, refused } = await dismiss(sending, [anItem('a'), anItem('b')]);
 
       expect(changed).toEqual([]);
-      expect(saysWhatWasNotDismissed(refused)).toBe('2 not dismissed. That item changed somewhere else. Failed to fetch');
+      expect(saysWhatWasNot('dismissed', refused)).toBe('2 not dismissed. That item changed somewhere else. Failed to fetch');
     });
 
     it('says nothing when none was refused', () => {
-      expect(saysWhatWasNotDismissed([])).toBeNull();
+      expect(saysWhatWasNot('dismissed', [])).toBeNull();
     });
 
     it('stops an Undo refused part way and says how far it got', async () => {

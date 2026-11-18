@@ -470,6 +470,27 @@ describe('Selection', () => {
       ]);
     });
 
+    it('sends in the order the Panels show the rows, not the order they were picked in', async () => {
+      const user = show(THREE);
+      await tick(user, CHASE.title);
+      await tick(user, BART.title);
+      await tick(user, RENEW.title);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+
+      expect(sent.map((c) => (c.payload as { itemId: string }).itemId)).toEqual([BART.id, RENEW.id, CHASE.id]);
+    });
+
+    it('puts the focus on the bar once the question closes, the Dismiss button being unavailable for the run', async () => {
+      const user = show(THREE, { hold: true });
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('data-selection-bar'));
+      await act(async () => landing.splice(0).forEach((land) => land()));
+    });
+
     it('carries on past a refused Item, says how many were not dismissed and why, and keeps the other two undoable', async () => {
       const user = show(THREE, { refusing: RENEW.id });
       await pickAllThree(user);
@@ -478,7 +499,10 @@ describe('Selection', () => {
 
       expect(await screen.findByText('1 not dismissed. That item is locked.')).toBeVisible();
       expect(sent).toHaveLength(3);
-      expect(await screen.findByText('3 items dismissed')).toBeVisible();
+      // Corrected to what was dismissed once the answers are in, and the refused Item is the one still picked.
+      expect(await screen.findByText('2 items dismissed')).toBeVisible();
+      expect(screen.getByText('1 selected')).toBeVisible();
+      expect(screen.getByText(RENEW.title).closest('li')).toHaveClass('row-picked');
     });
 
     it('offers no Undo when every Item was refused', async () => {

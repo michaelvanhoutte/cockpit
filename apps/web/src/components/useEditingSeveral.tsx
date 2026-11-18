@@ -6,24 +6,21 @@ import {
   dismissSeveral,
   editSeveral,
   putBack,
-  saysWhatWasNotChanged,
-  saysWhatWasNotDismissed,
+  saysWhatWasNot,
   undismissSeveral,
   whatWasChanged,
   whatWasDismissed,
   type BulkField,
   type BulkValue,
+  type Refused,
   type Sending,
 } from '../bulkEdit';
 import { barEntryFor, endSeveral, reopenSeveral, targetsOf, whatWasEnded } from '../claudeRunEnd';
 import { dueDateLabel } from '../dueDate';
-import { pickAll, shownOn } from '../selection';
+import { dropFromSelection, keepWhileUnanswered, stopKeeping } from '../selection';
 import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { EditSeveralMenu } from './EditSeveralMenu';
-
-/** How long a refused dismissal waits to be picked again, for the Item to be drawn back. */
-const REPICK_WINDOW_MS = 10_000;
 
 /**
  * Changing one field of everything a selection holds, and the questions around
@@ -44,7 +41,7 @@ export function useEditingSeveral({
   scope,
 }: {
   workspaceId: string;
-  /** Where the selection is held, which a dismissal the server refused is picked again in. */
+  /** Where the selection is held, which a dismissal takes the Items it applied out of. */
   scope: string;
   /** The Items picked, in the order the run takes them. */
   picked: readonly Item[];
@@ -60,40 +57,27 @@ export function useEditingSeveral({
   /** The question *Dismiss N items?*, and the button it was asked from, which gets the focus back. */
   const [asking, setAsking] = useState(false);
   const askedFrom = useRef<HTMLElement | null>(null);
-  /** The Items a run could not dismiss: drawn gone for the run, so the selection let go of them, and picked again once drawn back. */
-  const [refusedIds, setRefusedIds] = useState<string[]>([]);
   /** That a run is going, kept apart from `saving` so a second press in the same tick is refused too. */
   const running = useRef(false);
-  /** How many a run could not change and why, if it could not change some. */
-  const [refusal, setRefusal] = useState<string | null>(null);
+  /** What a run could not change and why, with the Items it is about. */
+  const [saidOf, setSaidOf] = useState<{ text: string; ids: ReadonlySet<string> } | null>(null);
   const [pickingDate, setPickingDate] = useState(false);
   const [date, setDate] = useState('');
 
-  // A refusal belongs to the selection it was about, as a filing's does.
+  /** Said only while an Item it is about is picked: a selection begun without them has nothing to say it to. */
+  const refusal = saidOf && picked.some((item) => saidOf.ids.has(item.id)) ? saidOf.text : null;
+  const refuse = (about: readonly Refused[], text: string | null) =>
+    setSaidOf(text ? { text, ids: new Set(about.map(({ item }) => item.id)) } : null);
+
   useEffect(() => {
     if (picked.length === 0) {
-      setRefusal(null);
       setPickingDate(false);
       setAsking(false);
-    }
-  }, [picked.length]);
+    } else if (saidOf && !refusal) setSaidOf(null);
+  }, [picked.length, saidOf, refusal]);
 
-  // A refused Item stays picked (issue 1819): it was drawn gone for the run and
-  // let go of by the selection, so it is picked again the moment a list shows it.
-  useEffect(() => {
-    if (refusedIds.length === 0) return;
-    const shown = shownOn(scope);
-    const back = refusedIds.filter((id) => shown.has(id));
-    if (back.length === 0) return;
-    pickAll(scope, back);
-    setRefusedIds((were) => were.filter((id) => !back.includes(id)));
-    // `data` is the held copy, which is what drawing a refused Item back changes.
-  }, [refusedIds, scope, data]);
-  useEffect(() => {
-    if (refusedIds.length === 0) return;
-    const forgetting = setTimeout(() => setRefusedIds([]), REPICK_WINDOW_MS);
-    return () => clearTimeout(forgetting);
-  }, [refusedIds]);
+  /** The open agent run of an Item, which Done and Dismiss end. */
+  const runOf = (itemId: string) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id;
 
   const sending: Sending = {
     send,
@@ -109,14 +93,14 @@ export function useEditingSeveral({
   const set = async (field: BulkField, value: BulkValue, name: string | null) => {
     if (running.current || filing || picked.length === 0) return;
     running.current = true;
-    setRefusal(null);
+    setSaidOf(null);
     setPickingDate(false);
     try {
       const run = editSeveral(sending, {
         items: picked,
         field,
         value,
-        runOf: (itemId) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id,
+        runOf,
         onProgress: (at, of) => setSaving({ at, of }),
         // Offered at the click, before any answer: the Undo waits for the run to
         // finish and then puts back exactly the Items that changed.
@@ -133,7 +117,7 @@ export function useEditingSeveral({
         },
       });
       const { refused } = await run;
-      setRefusal(saysWhatWasNotChanged(refused));
+      refuse(refused, saysWhatWasNot('changed', refused));
     } finally {
       running.current = false;
       setSaving(null);
@@ -145,7 +129,7 @@ export function useEditingSeveral({
   const endRuns = async () => {
     if (running.current || filing || targets.length === 0) return;
     running.current = true;
-    setRefusal(null);
+    setSaidOf(null);
     setPickingDate(false);
     try {
       const run = endSeveral(sending, {
@@ -160,7 +144,7 @@ export function useEditingSeveral({
           }),
       });
       const { refused } = await run;
-      setRefusal(saysWhatWasNotChanged(refused));
+      refuse(refused, saysWhatWasNot('changed', refused));
     } finally {
       running.current = false;
     }
@@ -174,17 +158,27 @@ export function useEditingSeveral({
     setAsking(true);
   };
 
-  /** Dismisses everything picked, as one row's Dismiss does each, after the question was answered with Dismiss. */
+  /**
+   * Dismisses everything picked, as one row's Dismiss does each, after the
+   * question was answered with Dismiss ("Selection: picked Items can be moved and
+   * edited but not dismissed - add Dismiss to the selection bar, asking first",
+   * issue 1819).
+   *
+   * **An Item is kept in the selection until its dismissal is answered**, though
+   * it is drawn gone the moment it is handed over, so one the server refuses is
+   * still picked when it is drawn back; one it applied is taken out.
+   */
   const dismiss = async () => {
     setAsking(false);
     if (running.current || filing || picked.length === 0) return;
     running.current = true;
-    setRefusal(null);
-    setRefusedIds([]);
+    setSaidOf(null);
+    const ids = picked.map((item) => item.id);
+    keepWhileUnanswered(ids);
     try {
       const run = dismissSeveral(sending, {
         items: picked,
-        runOf: (itemId) => data?.agentRuns?.find((run) => run.itemId === itemId)?.id,
+        runOf,
         onProgress: (at, of) => setSaving({ at, of, doing: 'Dismissing' }),
         onStarted: (dismissing, answer) =>
           offerToUndo({
@@ -192,17 +186,25 @@ export function useEditingSeveral({
             unlessRefused: answer.then(({ changed }) => {
               if (changed.length === 0) throw new Error('every Item was refused');
             }),
+            // Corrected to what was dismissed once the answers are in.
+            saidAfter: answer.then(({ changed }) =>
+              changed.length === dismissing.length ? undefined : { what: whatWasDismissed(changed) },
+            ),
             undo: async () => undismissSeveral(sending, (await answer).changed),
           }),
       });
-      const { refused } = await run;
-      setRefusal(saysWhatWasNotDismissed(refused));
-      setRefusedIds(refused.map(({ item }) => item.id));
+      const { changed, refused: notDismissed } = await run;
+      dropFromSelection(scope, changed.map(({ item }) => item.id));
+      refuse(notDismissed, saysWhatWasNot('dismissed', notDismissed));
     } finally {
+      stopKeeping(ids);
       running.current = false;
       setSaving(null);
     }
   };
+
+  /** How many are picked, as the question words it. */
+  const howMany = `${picked.length} ${picked.length === 1 ? 'item' : 'items'}`;
 
   const applyDate = () => {
     if (!date || running.current || filing) return;
@@ -221,10 +223,12 @@ export function useEditingSeveral({
     dismissQuestion: (
       <DeleteQuestion
         open={asking && picked.length > 0}
-        question={`Dismiss ${picked.length} ${picked.length === 1 ? 'item' : 'items'}?`}
-        confirmLabel={`Dismiss ${picked.length} ${picked.length === 1 ? 'item' : 'items'}`}
+        question={`Dismiss ${howMany}?`}
+        confirmLabel={`Dismiss ${howMany}`}
         confirmText="Dismiss"
         returnFocusTo={askedFrom.current}
+        // The bar's Dismiss is unavailable for the run, so the bar itself takes the focus.
+        focusInstead={() => document.querySelector<HTMLElement>('[data-selection-bar]')}
         onCancel={() => setAsking(false)}
         onConfirm={() => void dismiss()}
       />

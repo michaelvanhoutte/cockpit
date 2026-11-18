@@ -128,7 +128,10 @@ export function SelectionBar({
     >
       <div
         ref={bar}
-        className={`bg-accent-tint px-4 py-2 ${
+        // Where the focus goes once Dismiss is pressed and its question has closed, the button being unavailable for the run.
+        tabIndex={-1}
+        data-selection-bar=""
+        className={`bg-accent-tint px-4 py-2 outline-none ${
           pinned
             ? 'fixed inset-x-0 bottom-0 border-t border-shade/5 pr-[calc(1rem_+_var(--edge-right))] pb-[calc(0.5rem_+_var(--edge-bottom))] pl-[calc(1rem_+_var(--edge-left))] shadow-lg'
             : onBoard

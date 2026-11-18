@@ -259,6 +259,21 @@ let keptAcrossSwitch: string | null = null;
 export function keepAcrossSwitch(scope: string | null) {
   keptAcrossSwitch = scope;
 }
+/**
+ * Items whose dismissal from the selection bar has not been answered yet
+ * ("Selection: picked Items can be moved and edited but not dismissed - add
+ * Dismiss to the selection bar, asking first", issue 1819). They are drawn gone
+ * at once, so no list shows them, and pruning must not take them out of the
+ * selection meanwhile: one the server refuses is still picked when it is drawn
+ * back. It lasts only while a change is unanswered, and the caller ends it.
+ */
+const unanswered = new Set<string>();
+export function keepWhileUnanswered(ids: Iterable<string>) {
+  for (const id of ids) unanswered.add(id);
+}
+export function stopKeeping(ids: Iterable<string>) {
+  for (const id of ids) unanswered.delete(id);
+}
 const heldListeners = new Set<() => void>();
 const set = (next: Held) => {
   if (next === held) return;
@@ -339,6 +354,19 @@ export function endSelection(scope?: string) {
   set(afterEnding(held, scope));
 }
 
+/** Takes ids out of what `scope` holds, as an Item the bar dismissed leaves it. */
+export function dropFromSelection(scope: string, ids: Iterable<string>) {
+  const going = new Set(ids);
+  updateSelection(scope, (was) =>
+    [...was.picked].some((id) => going.has(id))
+      ? {
+          picked: new Set([...was.picked].filter((id) => !going.has(id))),
+          reachingFrom: was.reachingFrom && !going.has(was.reachingFrom) ? was.reachingFrom : null,
+        }
+      : was,
+  );
+}
+
 /** Adds ids to what `scope` holds. */
 export function pickAll(scope: string, ids: Iterable<string>) {
   set(afterPickingAll(held, scope, ids));
@@ -405,7 +433,7 @@ export function useHeldTo(scope: string | null) {
         // Its lists are leaving with the Dashboard, so they show nothing: not
         // a reason to let go of rows the drag is still carrying.
         if (keptAcrossSwitch === scope) return;
-        set(afterPruning(held, scope, shownOn(scope)));
+        set(afterPruning(held, scope, new Set([...shownOn(scope), ...unanswered])));
       });
     };
     listsListeners.add(prune);
