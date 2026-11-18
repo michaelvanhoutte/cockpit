@@ -199,7 +199,7 @@ async function capture(
   const sender = senderFrom(app.clientName);
   // A wait counts its days on the calendar of the account's latest capture.
   const timeZone = read.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), new Date()) : 'UTC';
-  // Every read is behind us, so the files are put just before the store call and not before; `now` is taken after, since an upload takes seconds and a command stamped before it could be stale.
+  // Every read is behind us, so the files are put just before the store call and not before; `now` is taken after, so the commands are stamped when they are sent and not before an upload that takes seconds.
   const stored = await putFiles(env, accountName, itemId, read.files);
   const now = new Date();
   // The capture, then the steps to its status, in one call to the store: a tab
@@ -433,7 +433,7 @@ async function update(
   // the zones are read only where a wait is asked for.
   const timeZone =
     read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), new Date()) : 'UTC';
-  // Every check is behind us: the bytes go into R2 now, and are recorded in the store call below. `now` is taken after, since an upload takes seconds and a command stamped before it could be stale.
+  // Every check is behind us: the bytes go into R2 now, and are recorded in the store call below. `now` is taken after, so the commands are stamped when they are sent and not before an upload that takes seconds.
   const stored = await putFiles(env, accountName, item.id, read.fields.files?.add ?? []);
   const now = new Date();
   const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null, {

@@ -66,10 +66,9 @@ const MEGABYTES = MOST_FILE_BYTES_PER_CALL / 1024 / 1024;
 
 /**
  * The decoded size of a base64 text, or null where it is not base64: standard
- * alphabet, with or without padding, whitespace ignored.
+ * alphabet, with or without padding, whitespace already removed.
  */
-function decodedSize(text: string): number | null {
-  const clean = text.replace(/\s+/g, '');
+function decodedSize(clean: string): number | null {
   if (!BASE64.test(clean)) return null;
   const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
   const unpadded = clean.length - padding;
@@ -115,7 +114,8 @@ export function readAddFiles(value: unknown): { ok: true; files: FileToAdd[] } |
         refusal: `${JSON.stringify(name.data)} is a kind of file Cockpit does not accept (${JSON.stringify(given.content_type.slice(0, 60))}). It accepts ${ATTACHMENT_CONTENT_TYPES.join(', ')}.`,
       };
     }
-    const size = decodedSize(given.content_base64);
+    const clean = given.content_base64.replace(/\s+/g, '');
+    const size = decodedSize(clean);
     if (size === null) return { ok: false, refusal: `The contents of ${JSON.stringify(name.data)} are not base64.` };
     if (size === 0) return { ok: false, refusal: `${JSON.stringify(name.data)} is empty; a file needs contents.` };
     total += size;
@@ -125,7 +125,7 @@ export function readAddFiles(value: unknown): { ok: true; files: FileToAdd[] } |
         refusal: `The files in one call may be at most ${MEGABYTES} MB together; these are more. Send fewer or smaller files, or add the rest in the app. Nothing was added.`,
       };
     }
-    files.push({ name: name.data, contentType: type.data, size, base64: given.content_base64.replace(/\s+/g, '') });
+    files.push({ name: name.data, contentType: type.data, size, base64: clean });
   }
   return { ok: true, files };
 }
@@ -214,7 +214,7 @@ export function recordFile(file: FileStored, itemId: string, workspaceId: string
 
 /** What the model is told of files added: names with sizes. */
 export function describeAdded(files: readonly FileStored[]): string {
-  return files.map((file) => `${JSON.stringify(file.name)} (${size(file.size)})`).join(', ');
+  return files.map((file) => `${JSON.stringify(oneLine(file.name))} (${size(file.size)})`).join(', ');
 }
 
 function size(bytes: number): string {

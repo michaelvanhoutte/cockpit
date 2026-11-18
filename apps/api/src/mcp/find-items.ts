@@ -291,7 +291,6 @@ export function whereOf(item: FoundItem, workspaces: readonly Workspace[]): stri
   return item.places.length > 0 ? item.places.map((place) => `${workspace} ▸ ${place}`).join('; ') : `${workspace} ▸ Inbox`;
 }
 
-
 /** The files of an item: each by name, and with the link that opens it where one could be made. */
 function attachmentsOf(item: FoundItem, links: Readonly<Record<string, string>>): string {
   if (item.attachments.length === 0) return 'Attachments: none';

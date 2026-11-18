@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readCapture } from '../../../src/mcp/create-item.js';
-import { MOST_FILE_BYTES_PER_CALL, bytesOf, readAddFiles, resolveRemovals } from '../../../src/mcp/files.js';
+import { MOST_FILE_BYTES_PER_CALL, bytesOf, readAddFiles, readRemoveFiles, resolveRemovals } from '../../../src/mcp/files.js';
 import { readUpdate } from '../../../src/mcp/update-item.js';
 
 /**
@@ -110,8 +110,12 @@ describe('MCP connections', () => {
     });
 
     it('finds a file by the name find_items shows, with its whitespace collapsed', () => {
-      const odd = [{ id: 'f9', filename: 'Screenshot at 10.00 AM.png' }, { id: 'f8', filename: 'my  report.pdf' }];
+      const odd = [{ id: 'f9', filename: 'Screenshot at 10.00\u202fAM.png' }, { id: 'f8', filename: 'my  report.pdf' }];
       expect(resolveRemovals(['Screenshot at 10.00 AM.png', 'my report.pdf'], odd)).toEqual({ ok: true, remove: odd });
+    });
+
+    it('reads names as find_items shows them, once each', () => {
+      expect(readRemoveFiles(['my  report.pdf', 'my report.pdf'])).toEqual({ ok: true, names: ['my report.pdf'] });
     });
 
     it('refuses a name the item has no file of, naming the files it has', () => {

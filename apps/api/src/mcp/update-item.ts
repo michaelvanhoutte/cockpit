@@ -25,7 +25,7 @@ import { captureDay } from '../domain/capture-day.js';
 import { foldName } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
 import { readItemId } from './delete-item.js';
-import { ADD_FILES_SCHEMA, MOST_FILES_REMOVED, describeAdded, readAddFiles, readRemoveFiles, recordFile, type FileStored, type FileToAdd } from './files.js';
+import { ADD_FILES_SCHEMA, oneLine, MOST_FILES_REMOVED, describeAdded, readAddFiles, readRemoveFiles, recordFile, type FileStored, type FileToAdd } from './files.js';
 import { describePanels, findPanel, namesLeftOut, PANEL_GIVEN_MAX_LENGTH, panelNamesAllowed, type PanelChoice } from './panels.js';
 
 /**
@@ -634,7 +634,7 @@ export function planUpdate(
         payload: { ...envelope(), itemId: item.id, attachmentId: file.id },
       });
     }
-    if (files.remove.length) said.push(`removed ${list(files.remove.map((file) => JSON.stringify(file.filename)))}`);
+    if (files.remove.length) said.push(`removed ${list(files.remove.map((file) => JSON.stringify(oneLine(file.filename))))}`);
     for (const file of files.add) write('files', recordFile(file, item.id, item.workspaceId, issuedAt));
     if (files.add.length) said.push(`added ${describeAdded(files.add)}`);
     filesSaid = said.join('; ');
