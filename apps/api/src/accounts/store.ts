@@ -590,7 +590,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     return this.#answer(accountName, (db) => getAttachment(db, accountName, attachmentId) !== null);
   }
 
-  /** The files on one Item, oldest first: what `update_item` names a file to remove by (issue 1813). */
+  /** The files on one Item, oldest first: what `update_item` names a file to remove by ("MCP changes and deletes: add and remove files in create_item and update_item", issue 1813). */
   attachmentsOfItem(accountName: string, itemId: string): Answer<{ id: string; filename: string }[]> {
     return this.#answer(accountName, (db) =>
       listAttachmentsOfItem(db, accountName, itemId).map(({ id, filename }) => ({ id, filename })),

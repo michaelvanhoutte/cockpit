@@ -197,11 +197,11 @@ async function capture(
 
   const itemId = uuidv7();
   const sender = senderFrom(app.clientName);
-  const now = new Date();
-  // Every argument is read by now, so the files are put before the store call and not before.
-  const stored = await putFiles(env, accountName, itemId, read.files);
   // A wait counts its days on the calendar of the account's latest capture.
-  const timeZone = read.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
+  const timeZone = read.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), new Date()) : 'UTC';
+  // Every read is behind us, so the files are put just before the store call and not before; `now` is taken after, since an upload takes seconds and a command stamped before it could be stale.
+  const stored = await putFiles(env, accountName, itemId, read.files);
+  const now = new Date();
   // The capture, then the steps to its status, in one call to the store: a tab
   // hears of the new item once, and what follows the capture cannot be seen
   // without it.
@@ -429,13 +429,13 @@ async function update(
     removals = found.remove;
   }
 
-  const now = new Date();
   // A wait counts its days on the calendar of the account's latest capture, so
   // the zones are read only where a wait is asked for.
   const timeZone =
-    read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), now) : 'UTC';
-  // Every check is behind us: the bytes go into R2 now, and are recorded in the store call below.
+    read.fields.status?.to === 'waiting' ? waitTimeZone(await account.recentCapturedTimeZones(), new Date()) : 'UTC';
+  // Every check is behind us: the bytes go into R2 now, and are recorded in the store call below. `now` is taken after, since an upload takes seconds and a command stamped before it could be stale.
   const stored = await putFiles(env, accountName, item.id, read.fields.files?.add ?? []);
+  const now = new Date();
   const plan = planUpdate(item, read.fields, now, timeZone, panels?.ok ? panels.panels : null, {
     remove: removals,
     add: stored,
@@ -479,12 +479,14 @@ async function update(
  * one at a time so only one is decoded at once, and answers what R2 says it
  * stored. **Called only once every argument has been checked**, and before the
  * store call: a store call refused after it leaves the objects orphaned, the
- * cost the upload route already accepts (issue 1813).
+ * cost the upload route already accepts ("MCP changes and deletes: add and remove files in create_item and update_item", issue 1813).
  */
 async function putFiles(env: Env, accountName: string, itemId: string, files: readonly FileToAdd[]): Promise<FileStored[]> {
   const stored: FileStored[] = [];
-  for (const file of files) {
-    const attachmentId = uuidv7();
+  const first = Date.now();
+  for (const [index, file] of files.entries()) {
+    // One millisecond apart, so the files list in the order they were sent.
+    const attachmentId = uuidv7(first + index);
     const size = await putAttachment(env, { accountName, itemId, attachmentId }, bytesOf(file.base64), file.contentType);
     stored.push({ attachmentId, name: file.name, contentType: file.contentType, size });
   }

@@ -109,6 +109,11 @@ describe('MCP connections', () => {
       expect(resolveRemovals(['quote.pdf'], files)).toEqual({ ok: true, remove: [{ id: 'f1', filename: 'quote.pdf' }] });
     });
 
+    it('finds a file by the name find_items shows, with its whitespace collapsed', () => {
+      const odd = [{ id: 'f9', filename: 'Screenshot at 10.00 AM.png' }, { id: 'f8', filename: 'my  report.pdf' }];
+      expect(resolveRemovals(['Screenshot at 10.00 AM.png', 'my report.pdf'], odd)).toEqual({ ok: true, remove: odd });
+    });
+
     it('refuses a name the item has no file of, naming the files it has', () => {
       const found = resolveRemovals(['missing.pdf'], files);
       expect(found).toMatchObject({ ok: false });

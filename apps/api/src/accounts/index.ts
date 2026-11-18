@@ -156,7 +156,7 @@ export interface Account {
    * item", issue 441).
    */
   attachmentExists(attachmentId: string): Promise<boolean>;
-  /** The files on one Item, oldest first, by id and name: what `update_item` removes a file by (issue 1813). */
+  /** The files on one Item, oldest first, by id and name: what `update_item` removes a file by ("MCP changes and deletes: add and remove files in create_item and update_item", issue 1813). */
   attachmentsOfItem(itemId: string): Promise<{ id: string; filename: string }[]>;
   /**
    * Every live Panel of one Workspace that takes items and is not flagged

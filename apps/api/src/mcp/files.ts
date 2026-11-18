@@ -16,6 +16,9 @@ import { ATTACHMENT_CONTENT_TYPES, attachmentContentTypeSchema, attachmentFilena
  * R2 and recording them is the Worker's (`mcp/server.ts`), proved at L2.
  */
 
+/** A file's name on one line (it is written by whoever sent the file, and a line break would pass for the next field), as `find_items` shows it and `remove_files` is matched against it: whitespace runs collapsed, a blank name called "unnamed". */
+export const oneLine = (filename: string) => filename.replace(/\s+/g, ' ').trim() || 'unnamed';
+
 /** The most decoded bytes of files one call may add. */
 export const MOST_FILE_BYTES_PER_CALL = 10 * 1024 * 1024;
 
@@ -68,7 +71,7 @@ const MEGABYTES = MOST_FILE_BYTES_PER_CALL / 1024 / 1024;
 function decodedSize(text: string): number | null {
   const clean = text.replace(/\s+/g, '');
   if (!BASE64.test(clean)) return null;
-  const padding = clean.length - clean.replace(/=+$/, '').length;
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
   const unpadded = clean.length - padding;
   // Padding, where written, completes a group of four; a lone leftover character holds no whole byte.
   if (padding > 0 && clean.length % 4 !== 0) return null;
@@ -135,7 +138,8 @@ export function readRemoveFiles(value: unknown): { ok: true; names: string[] } |
   const names: string[] = [];
   for (const one of value) {
     if (typeof one !== 'string' || one.trim() === '') return wrong;
-    if (!names.includes(one.trim())) names.push(one.trim());
+    const name = oneLine(one);
+    if (!names.includes(name)) names.push(name);
   }
   return { ok: true, names };
 }
@@ -162,12 +166,12 @@ export function resolveRemovals(
 ): { ok: true; remove: { id: string; filename: string }[] } | { ok: false; refusal: string } {
   const remove: { id: string; filename: string }[] = [];
   for (const name of names) {
-    const found = files.filter((file) => file.filename.trim() === name);
+    const found = files.filter((file) => oneLine(file.filename) === name);
     if (found.length === 0) {
       return {
         ok: false,
         refusal: files.length
-          ? `That item has no file called ${JSON.stringify(name)}. Its files are ${quoted(files.map((file) => file.filename))}.`
+          ? `That item has no file called ${JSON.stringify(name)}. Its files are ${quoted(files.map((file) => oneLine(file.filename)))}.`
           : `That item has no file called ${JSON.stringify(name)}: it has no files.`,
       };
     }
