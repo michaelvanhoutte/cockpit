@@ -16,6 +16,7 @@ import {
 } from '@cockpit/shared';
 import type { CommandToRun } from '../accounts/answer.js';
 import { namedTheSame } from '../domain/names.js';
+import { ADD_FILES_SCHEMA, readAddFiles, type FileToAdd } from './files.js';
 import { describePanels, findPanel, panelNamesAllowed } from './panels.js';
 import { MOST_PANELS_NAMED, readFieldArgs, readPanelNames, type UpdateFields } from './update-item.js';
 
@@ -44,9 +45,9 @@ export const CREATE_ITEM = 'create_item';
  * issue 1811).
  */
 export const SERVER_INSTRUCTIONS = [
-  'Use create_item when the user asks to capture, note or remember something in Cockpit, with the title, priority, due date, status or Panel they name.',
+  'Use create_item when the user asks to capture, note or remember something in Cockpit, with the title, priority, due date, status, Panel or files they name.',
   'Use find_items when the user asks what is in Cockpit, and before capturing something that may already be there.',
-  'Use update_item when the user asks to change an item in Cockpit: its title, next action, description, priority, due date, status or Panels.',
+  'Use update_item when the user asks to change an item in Cockpit: its title, next action, description, priority, due date, status, Panels or files.',
   'Use delete_item when the user asks to delete or remove something in Cockpit, and restore_item to undo it.',
 ].join(' ');
 
@@ -82,7 +83,7 @@ export function createItemTool(catalogue: readonly ReadableWorkspace[]): ToolDef
     description: [
       "Capture a note into the user's Cockpit, the way they would type it into its capture box.",
       'Cockpit proposes a title and a fuller description from the message itself; give title and the message becomes the description.',
-      'Every field the capture box sets can be given: title, next_action, priority (low, normal or high), due_date (YYYY-MM-DD), status (to_do, in_progress, done, or waiting, which needs days: how many days to wait for a reply) and panels.',
+      'Every field the capture box sets can be given: title, next_action, priority (low, normal or high), due_date (YYYY-MM-DD), status (to_do, in_progress, done, or waiting, which needs days: how many days to wait for a reply), panels and add_files (files to attach, as base64, at most 10 MB together).',
       `Workspaces: ${named(workspaceNames)}. Leave workspace out when it is unclear, and the item waits in every Inbox for the user to decide; with panels it is filed on them, on top, in the Panels' workspace.`,
       `Panels that take items: ${describePanels(catalogue)}. A Panel is named as above, in any case, within the workspace; where several share a name, write Dashboard ▸ Panel.`,
     ].join(' '),
@@ -129,6 +130,7 @@ export function createItemTool(catalogue: readonly ReadableWorkspace[]): ToolDef
           maxItems: MOST_PANELS_NAMED,
           description: 'Panels to file the item on, by name, instead of the Inbox; it goes on top of each.',
         },
+        add_files: ADD_FILES_SCHEMA,
       },
       required: ['message'],
       additionalProperties: false,
@@ -155,6 +157,8 @@ export type ReadCapture =
       status?: NonNullable<UpdateFields['status']>;
       /** The Panels to file it on, found: each of the one workspace. */
       panels: { id: string; place: string }[];
+      /** The files to attach, read and checked, not yet decoded. */
+      files: FileToAdd[];
     }
   | { ok: false; refusal: string };
 
@@ -168,6 +172,7 @@ const ARGUMENTS = [
   'status',
   'days',
   'panels',
+  'add_files',
 ] as const;
 
 /**
@@ -232,6 +237,9 @@ export function readCapture(args: unknown, catalogue: readonly ReadableWorkspace
   if (!form.ok) return form;
   const { title, nextAction, priority, dueDate, status } = form.fields;
 
+  const files = readAddFiles(given.add_files);
+  if (!files.ok) return files;
+
   const asked = readPanelNames(given.panels, 'panels');
   if (!asked.ok) return asked;
   const panels: { id: string; place: string; workspace: Workspace }[] = [];
@@ -274,6 +282,7 @@ export function readCapture(args: unknown, catalogue: readonly ReadableWorkspace
     ...(dueDate ? { dueDate } : {}),
     ...(status && status.to !== 'to_do' ? { status } : {}),
     panels: panels.map(({ id, place }) => ({ id, place })),
+    files: files.files,
   };
 }
 

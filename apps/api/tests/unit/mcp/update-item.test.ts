@@ -443,7 +443,7 @@ describe('MCP connections', () => {
       expect(tool.inputSchema.required).toEqual(['id']);
       expect(Object.keys(tool.inputSchema.properties)).toEqual([
         'id', 'title', 'next_action', 'description', 'priority', 'due_date', 'status', 'days',
-        'add_panels', 'remove_panels', 'move_to_panel',
+        'add_panels', 'remove_panels', 'move_to_panel', 'add_files', 'remove_files',
       ]);
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(tool.description).toContain('only the fields you give change');

@@ -12,6 +12,7 @@ import {
 import { FIND_PAGE, readCursor, type FoundItem, type FoundPage, type ItemSearch, type NoSuchPanel } from '../domain/item-search.js';
 import { namedTheSame } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
+import { oneLine } from './files.js';
 
 /**
  * The tool an app connected to Cockpit finds items with ("Find items in
@@ -289,9 +290,6 @@ export function whereOf(item: FoundItem, workspaces: readonly Workspace[]): stri
   const workspace = workspaces.find((w) => w.id === item.workspaceId)?.name ?? 'Unknown workspace';
   return item.places.length > 0 ? item.places.map((place) => `${workspace} ▸ ${place}`).join('; ') : `${workspace} ▸ Inbox`;
 }
-
-/** A file's name on one line, since it is written by whoever sent the file and a line break in it would pass for the next field. */
-const oneLine = (filename: string) => filename.replace(/\s+/g, ' ').trim() || 'unnamed';
 
 /** The files of an item: each by name, and with the link that opens it where one could be made. */
 function attachmentsOf(item: FoundItem, links: Readonly<Record<string, string>>): string {

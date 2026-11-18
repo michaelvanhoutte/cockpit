@@ -31,7 +31,7 @@ import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
 import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
-import type { AttachmentForDownload } from '../domain/attachments.js';
+import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { FindAnswer, ItemSearch } from '../domain/item-search.js';
 import type { PlaceTreeWorkspace } from '../domain/spoken-path.js';
@@ -156,6 +156,8 @@ export interface Account {
    * item", issue 441).
    */
   attachmentExists(attachmentId: string): Promise<boolean>;
+  /** The files on one Item, oldest first, by id and name: what `update_item` removes a file by ("MCP changes and deletes: add and remove files in create_item and update_item", issue 1813). */
+  attachmentsOfItem(itemId: string): Promise<{ id: string; filename: string }[]>;
   /**
    * Every live Panel of one Workspace that takes items and is not flagged
    * Never propose - what a routing proposal may choose from ("Propose where a
@@ -495,6 +497,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
       unwrap(await store.attachmentForDownload(accountName, attachmentId)),
     attachmentExists: async (attachmentId) =>
       unwrap(await store.attachmentExists(accountName, attachmentId)),
+    attachmentsOfItem: async (itemId) => unwrap(await store.attachmentsOfItem(accountName, itemId)),
     panelsThatTakeItems: async (workspaceId) =>
       unwrap(await store.panelsThatTakeItems(accountName, workspaceId)),
     placeTree: async (workspaceId) => unwrap(await store.placeTree(accountName, workspaceId)),
@@ -850,6 +853,26 @@ export async function accountOpened(env: Env, accountId: string, who: string): P
     );
     return false;
   }
+}
+
+/**
+ * Puts one file's bytes into the attachments bucket under the Item's key and
+ * answers the size R2 says it stored, which is what `add_attachment` records
+ * ("MCP changes and deletes: add and remove files in create_item and
+ * update_item", issue 1813). Called by the MCP endpoint before its store call,
+ * as the upload route puts its stream before its own: a store call refused
+ * afterwards leaves the object orphaned, the cost the upload route accepts.
+ */
+export async function putAttachment(
+  env: Env,
+  where: { accountName: string; itemId: string; attachmentId: string },
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<number> {
+  const object = await env.ATTACHMENTS.put(attachmentR2Key(where.accountName, where.itemId, where.attachmentId), bytes, {
+    httpMetadata: { contentType },
+  });
+  return object.size;
 }
 
 /**

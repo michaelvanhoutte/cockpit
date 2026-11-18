@@ -25,6 +25,7 @@ import { captureDay } from '../domain/capture-day.js';
 import { foldName } from '../domain/names.js';
 import type { ToolDefinition } from './create-item.js';
 import { readItemId } from './delete-item.js';
+import { ADD_FILES_SCHEMA, oneLine, MOST_FILES_REMOVED, describeAdded, readAddFiles, readRemoveFiles, recordFile, type FileStored, type FileToAdd } from './files.js';
 import { describePanels, findPanel, namesLeftOut, PANEL_GIVEN_MAX_LENGTH, panelNamesAllowed, type PanelChoice } from './panels.js';
 
 /**
@@ -48,7 +49,7 @@ import { describePanels, findPanel, namesLeftOut, PANEL_GIVEN_MAX_LENGTH, panelN
 export const UPDATE_ITEM = 'update_item';
 
 /** The fields a call may change, in the order they are written. */
-export const UPDATE_FIELDS = ['title', 'nextAction', 'description', 'priority', 'status', 'dueDate', 'panels'] as const;
+export const UPDATE_FIELDS = ['title', 'nextAction', 'description', 'priority', 'status', 'dueDate', 'panels', 'files'] as const;
 export type UpdateField = (typeof UPDATE_FIELDS)[number];
 
 /** What each field is called to the model: its argument's name, in words. */
@@ -60,6 +61,7 @@ const FIELD_NAMES: Record<UpdateField, string> = {
   status: 'status',
   dueDate: 'due date',
   panels: 'Panels',
+  files: 'files',
 };
 
 /** The arguments the tool takes, as the model writes them. */
@@ -75,6 +77,8 @@ const ARGUMENTS = [
   'add_panels',
   'remove_panels',
   'move_to_panel',
+  'add_files',
+  'remove_files',
 ] as const;
 
 /** What `move_to_panel` says to take an item off every Panel. */
@@ -120,6 +124,7 @@ export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): To
       'Setting a pulled Gmail or Outlook item to done or to do puts its label or star back or takes it off at the source.',
       'Panels: add_panels files it on more Panels, remove_panels takes it off some, and move_to_panel takes it off every Panel and puts it on one, or on "Inbox" for none; each puts it on top. Do not combine move_to_panel with the other two.',
       `Panels that take items: ${describePanels(catalogue)}. A Panel is named as above, in any case, within the item's workspace; where several share a name, write Dashboard ▸ Panel. An item no workspace has been chosen for may go on a Panel of any workspace, which then becomes its workspace.`,
+      'Files: add_files attaches files, each with its contents as base64 (at most 10 MB together per call), and remove_files takes files off by the names find_items shows; a name two files share is refused, and the user removes one in the app.',
       'A dismissed item must be restored with restore_item first.',
     ].join(' '),
     inputSchema: {
@@ -183,6 +188,13 @@ export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): To
           ...(namesLeftOut(catalogue) ? {} : { enum: [...new Set([...names.filter((name) => foldName(name) !== foldName(INBOX)), INBOX]), null] }),
           description: 'One Panel to move the item to, by name, off every Panel it is on and on top of this one; "Inbox" takes it off them all.',
         },
+        add_files: ADD_FILES_SCHEMA,
+        remove_files: {
+          type: ['array', 'null'],
+          items: { type: 'string', description: 'The name of a file on the item, as find_items shows it.' },
+          maxItems: MOST_FILES_REMOVED,
+          description: 'Files to take off the item, by name. A name the item has no file of is refused with the files it has.',
+        },
       },
       required: ['id'],
       additionalProperties: false,
@@ -199,13 +211,20 @@ export interface UpdateFields {
   dueDate?: string | null;
   status?: { to: 'to_do' | 'in_progress' | 'done' } | { to: 'waiting'; days: number };
   panels?: PanelsAsked;
+  files?: FilesAsked;
+}
+
+/** The files a call adds, read, and the names of the files it removes, not yet found on the Item. */
+export interface FilesAsked {
+  add: FileToAdd[];
+  remove: string[];
 }
 
 /** What a call's arguments come to: the Item to name and what to change on it, or what to tell the model. */
 export type ReadUpdate = { ok: true; itemId: string; fields: UpdateFields } | { ok: false; refusal: string };
 
 const CAN_CHANGE =
-  'Give at least one field to change: title, next_action, description, priority, due_date, status (with days for waiting), add_panels, remove_panels or move_to_panel.';
+  'Give at least one field to change: title, next_action, description, priority, due_date, status (with days for waiting), add_panels, remove_panels, move_to_panel, add_files or remove_files.';
 
 /** Whether an argument was left out: absent, or null where the field may be cleared by null. */
 const given = (value: unknown) => value !== undefined;
@@ -242,6 +261,12 @@ export function readUpdate(args: unknown): ReadUpdate {
   const panels = readPanelArgs(arg);
   if (!panels.ok) return panels;
   if (panels.asked) fields.panels = panels.asked;
+
+  const add = readAddFiles(arg.add_files);
+  if (!add.ok) return add;
+  const remove = readRemoveFiles(arg.remove_files);
+  if (!remove.ok) return remove;
+  if (add.files.length || remove.names.length) fields.files = { add: add.files, remove: remove.names };
 
   if (!Object.keys(fields).length) return { ok: false, refusal: CAN_CHANGE };
   return { ok: true, itemId: id.itemId, fields };
@@ -481,6 +506,14 @@ export interface UpdatePlan {
   waitDue: string | null;
   /** What was done about the Panels, in words, where the call asked about them. */
   panelsSaid: string | null;
+  /** What was done about the files, in words, where the call asked about them. */
+  filesSaid: string | null;
+}
+
+/** The files a call comes to once found and stored: those to take off the Item, and those already in R2 to record on it. */
+export interface FilesResolved {
+  remove: { id: string; filename: string }[];
+  add: FileStored[];
 }
 
 /** Where an Item stands, for the status steps. */
@@ -506,6 +539,7 @@ export function planUpdate(
   now: Date,
   timeZone: string,
   panels: PanelsResolved | null = null,
+  files: FilesResolved | null = null,
 ): UpdatePlan {
   const issuedAt = now.toISOString();
   const envelope = () => ({ commandId: uuidv7(), issuedAt, workspaceId: item.workspaceId });
@@ -590,7 +624,23 @@ export function planUpdate(
     panelsSaid = said.length ? said.join('; ') : null;
   }
 
-  return { steps, alreadySo, waitDue, panelsSaid };
+  // Last: files taken off, then files recorded, which are already in R2 under the Item's key.
+  let filesSaid: string | null = null;
+  if (files && (files.remove.length || files.add.length)) {
+    const said: string[] = [];
+    for (const file of files.remove) {
+      write('files', {
+        name: 'remove_attachment',
+        payload: { ...envelope(), itemId: item.id, attachmentId: file.id },
+      });
+    }
+    if (files.remove.length) said.push(`removed ${list(files.remove.map((file) => JSON.stringify(oneLine(file.filename))))}`);
+    for (const file of files.add) write('files', recordFile(file, item.id, item.workspaceId, issuedAt));
+    if (files.add.length) said.push(`added ${describeAdded(files.add)}`);
+    filesSaid = said.join('; ');
+  }
+
+  return { steps, alreadySo, waitDue, panelsSaid, filesSaid };
 }
 
 /** What the model is told a field now is. */
@@ -605,6 +655,8 @@ function said(field: UpdateField, fields: UpdateFields, plan: UpdatePlan): strin
       if (to !== 'waiting') return `status ${STATUS_LABELS[to]}`;
       return fields.dueDate === undefined ? `status Waiting for reply, due ${plan.waitDue}` : 'status Waiting for reply';
     }
+    case 'files':
+      return plan.filesSaid ? `files: ${plan.filesSaid}` : FIELD_NAMES.files;
     case 'panels':
       return plan.panelsSaid ? `Panels: ${plan.panelsSaid}` : FIELD_NAMES.panels;
     default:
