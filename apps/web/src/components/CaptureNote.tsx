@@ -126,7 +126,7 @@ export function CaptureNote({
         limitSeconds?: number;
       }
     | undefined;
-  /** The browser's wake lock, or a fake: held only while the mic is recording (`wakeLock.ts`). */
+  /** The browser's wake lock, or a fake. */
   wakeLock?: (() => WakeLockApi | undefined) | undefined;
 }) {
   const { data: list } = useWorkspaces();
@@ -175,7 +175,9 @@ export function CaptureNote({
     transcriber: dictating?.transcriber ?? transcribable.data ?? false,
     onWords: (words) => changeNote(appendPhrase(noteNow.current, words)),
   });
-  // The screen stays on exactly while recording: not while starting or transcribing.
+  // The screen stays on exactly while recording: not while starting or
+  // transcribing. A hidden page lets go of the lock and also ends the recording
+  // (`useRecordedDictation`), so nothing is taken again on coming back.
   useScreenWakeLock(wakeLock, dictation.listening);
   const shown = message;
   /**

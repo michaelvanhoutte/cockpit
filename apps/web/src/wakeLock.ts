@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 
 /**
  * Keeping the screen on while the Car view is shown ("Capture by voice in the
- * car", issue 730) and while Write's mic is recording, through the browser's
- * Screen Wake Lock.
+ * car", issue 730) and for Write's mic, each caller saying when it is active,
+ * through the browser's Screen Wake Lock.
  *
  * **Held for exactly as long as the caller is active, mounted and the page
  * visible.** The browser lets go of it whenever the page is hidden, so it is
