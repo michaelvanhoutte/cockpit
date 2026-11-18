@@ -125,9 +125,6 @@ export function editSeveral(
   const runs = needingTheChange(options.items, field, value).map((item) => {
     const writes = fieldWrites(field, sending.envelope(item.id), value, stateOf(item));
     const sends = writes.map((write) => sending.send(write.command));
-    // Awaited one Item at a time below: a refusal met while an earlier Item is
-    // still being waited on must not be reported as unhandled meanwhile.
-    sends.forEach((send) => send.catch(() => {}));
     const endedRunId = field === 'status' && value === 'done' ? options.runOf(item.id) : undefined;
     const changing: Changed = {
       item,
@@ -137,8 +134,24 @@ export function editSeveral(
     };
     return { changing, sends };
   });
-  const answer = answered(runs, options.onProgress);
-  options.onStarted?.(
+  return handedOver(runs, options.onProgress, options.onStarted);
+}
+
+/**
+ * What every run of Items shares: the changes are all handed over before any is
+ * awaited, then answered one Item at a time, and `onStarted` is told the moment
+ * the hand-over is done.
+ */
+function handedOver<T extends { item: Item }>(
+  runs: readonly { changing: T; sends: readonly Promise<{ applied: boolean }>[] }[],
+  onProgress: (at: number, of: number) => void,
+  onStarted?: (changing: T[], answer: Promise<{ changed: T[]; refused: Refused[] }>) => void,
+): Promise<{ changed: T[]; refused: Refused[] }> {
+  // Awaited one Item at a time below: a refusal met while an earlier Item is
+  // still being waited on must not be reported as unhandled meanwhile.
+  runs.forEach((run) => run.sends.forEach((send) => send.catch(() => {})));
+  const answer = answered(runs, onProgress);
+  onStarted?.(
     runs.map((run) => run.changing),
     answer,
   );
@@ -241,17 +254,11 @@ export function dismissSeveral(
 ): Promise<{ changed: Dismissed[]; refused: Refused[] }> {
   const runs = options.items.map((item) => {
     const send = sending.send({ name: 'set_dismissed', payload: { ...sending.envelope(item.id)(), dismissed: true } });
-    send.catch(() => {});
     const endedRunId = options.runOf(item.id);
     const changing: Dismissed = { item, ...(endedRunId && { endedRunId }) };
     return { changing, sends: [send] };
   });
-  const answer = answered(runs, options.onProgress);
-  options.onStarted?.(
-    runs.map((run) => run.changing),
-    answer,
-  );
-  return answer;
+  return handedOver(runs, options.onProgress, options.onStarted);
 }
 
 /**

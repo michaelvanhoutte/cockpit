@@ -8,6 +8,7 @@ import { fetchedChunk, filedOrderOnPanel } from '../filing';
 import { useFilteredDashboardIds } from '../dashboardFilter';
 import { browserStore } from '../lastVisited';
 import { recentPanelsIn } from '../recentPanels';
+import { inShownOrder } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo, type Undoable } from '../undo';
 import { FetchedPicker } from './FetchedPicker';
@@ -227,7 +228,7 @@ export function useFilingSeveral({
     }
     await loaded.fileOnto(filingSeveralDeps(), chosen, target, landing);
   };
-  const fileSeveral = (target: string | null) => fileOnto(picked, target);
+  const fileSeveral = (target: string | null) => fileOnto(inShownOrder(scope, picked), target);
 
   /** Adds everything a selection moved to one more panel, from the undo bar's Also show on… (`addSeveral` in `filingSeveral.ts`). */
   const addSeveral = async (items: readonly Item[], panelId: string) => {

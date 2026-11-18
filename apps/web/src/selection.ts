@@ -357,14 +357,9 @@ export function endSelection(scope?: string) {
 /** Takes ids out of what `scope` holds, as an Item the bar dismissed leaves it. */
 export function dropFromSelection(scope: string, ids: Iterable<string>) {
   const going = new Set(ids);
-  updateSelection(scope, (was) =>
-    [...was.picked].some((id) => going.has(id))
-      ? {
-          picked: new Set([...was.picked].filter((id) => !going.has(id))),
-          reachingFrom: was.reachingFrom && !going.has(was.reachingFrom) ? was.reachingFrom : null,
-        }
-      : was,
-  );
+  // Pruning to everything else held, which is what it already does for an anchor that does not survive.
+  const staying = new Set([...pickedNow(scope)].filter((id) => !going.has(id)));
+  set(afterPruning(held, scope, staying));
 }
 
 /** Adds ids to what `scope` holds. */
@@ -404,6 +399,16 @@ export function useShowing(scope: string, ids: readonly string[], hidden = false
     },
     [key],
   );
+}
+
+/**
+ * The Items in the order `scope`'s lists show them, as they are right now: read
+ * when a run starts, never while drawing, since the lists report from effects.
+ * Any not shown go last, in the order given.
+ */
+export function inShownOrder(scope: string, items: readonly Item[]): Item[] {
+  const at = new Map([...shownOn(scope)].map((id, index) => [id, index]));
+  return [...items].sort((a, b) => (at.get(a.id) ?? Infinity) - (at.get(b.id) ?? Infinity));
 }
 
 /** The distinct ids the lists show for `scope` right now; `onScreenOnly` leaves out a collapsed Panel's. */

@@ -17,7 +17,7 @@ import {
 } from '../bulkEdit';
 import { barEntryFor, endSeveral, reopenSeveral, targetsOf, whatWasEnded } from '../claudeRunEnd';
 import { dueDateLabel } from '../dueDate';
-import { dropFromSelection, keepWhileUnanswered, stopKeeping } from '../selection';
+import { dropFromSelection, inShownOrder, keepWhileUnanswered, stopKeeping, useSelection } from '../selection';
 import { useUndo } from '../undo';
 import { DeleteQuestion } from './DeleteQuestion';
 import { EditSeveralMenu } from './EditSeveralMenu';
@@ -69,6 +69,12 @@ export function useEditingSeveral({
   const refuse = (about: readonly Refused[], text: string | null) =>
     setSaidOf(text ? { text, ids: new Set(about.map(({ item }) => item.id)) } : null);
 
+  /** Whether the selection holds nothing at all, which is the end of what a refusal was said about. */
+  const selectionEmpty = useSelection(scope).picked.size === 0;
+  useEffect(() => {
+    if (selectionEmpty) setSaidOf(null);
+  }, [selectionEmpty]);
+
   useEffect(() => {
     if (picked.length === 0) {
       setPickingDate(false);
@@ -97,7 +103,7 @@ export function useEditingSeveral({
     setPickingDate(false);
     try {
       const run = editSeveral(sending, {
-        items: picked,
+        items: inShownOrder(scope, picked),
         field,
         value,
         runOf,
@@ -173,11 +179,12 @@ export function useEditingSeveral({
     if (running.current || filing || picked.length === 0) return;
     running.current = true;
     setSaidOf(null);
-    const ids = picked.map((item) => item.id);
+    const items = inShownOrder(scope, picked);
+    const ids = items.map((item) => item.id);
     keepWhileUnanswered(ids);
     try {
       const run = dismissSeveral(sending, {
-        items: picked,
+        items,
         runOf,
         onProgress: (at, of) => setSaving({ at, of, doing: 'Dismissing' }),
         onStarted: (dismissing, answer) =>
@@ -227,8 +234,8 @@ export function useEditingSeveral({
         confirmLabel={`Dismiss ${howMany}`}
         confirmText="Dismiss"
         returnFocusTo={askedFrom.current}
-        // The bar's Dismiss is unavailable for the run, so the bar itself takes the focus.
-        focusInstead={() => document.querySelector<HTMLElement>('[data-selection-bar]')}
+        // The bar's Dismiss is unavailable for the run and the bar leaves with the selection, so the list it was for takes the focus.
+        focusInstead={() => document.querySelector<HTMLElement>(`[data-selection-home="${scope}"]`)}
         onCancel={() => setAsking(false)}
         onConfirm={() => void dismiss()}
       />

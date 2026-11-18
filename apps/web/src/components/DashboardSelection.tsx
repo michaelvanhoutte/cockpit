@@ -1,5 +1,5 @@
 import { useSnapshot } from '../api/useSnapshot';
-import { dashboardScope, endSelection, shownOn, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
+import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSeveral } from '../selection';
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
@@ -38,11 +38,7 @@ export function DashboardSelection({
   // Read through the snapshot rather than through each Panel's rows, and left
   // out once finished, as pruning will in a moment.
   const byId = new Map((data?.items ?? []).filter(stillOpen).map((item) => [item.id, item]));
-  // Handed to every run in the order the Panels show them, not the order they were picked in.
-  const shownAt = new Map([...shownOn(scope)].map((id, at) => [id, at]));
-  const picked = [...selection.picked]
-    .flatMap((id) => byId.get(id) ?? [])
-    .sort((a, b) => (shownAt.get(a.id) ?? Infinity) - (shownAt.get(b.id) ?? Infinity));
+  const picked = [...selection.picked].flatMap((id) => byId.get(id) ?? []);
   const filingSeveral = useFilingSeveral({
     workspaceId,
     openDashboardId: dashboardId,

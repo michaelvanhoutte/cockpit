@@ -481,13 +481,13 @@ describe('Selection', () => {
       expect(sent.map((c) => (c.payload as { itemId: string }).itemId)).toEqual([BART.id, RENEW.id, CHASE.id]);
     });
 
-    it('puts the focus on the bar once the question closes, the Dismiss button being unavailable for the run', async () => {
+    it('puts the focus on the Dashboard’s board once the question closes, the Dismiss button being unavailable for the run', async () => {
       const user = show(THREE, { hold: true });
       await pickAllThree(user);
       await user.click(screen.getByRole('button', { name: 'Dismiss' }));
       await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
 
-      await waitFor(() => expect(document.activeElement).toHaveAttribute('data-selection-bar'));
+      await waitFor(() => expect(document.activeElement).toHaveAttribute('data-selection-home'));
       await act(async () => landing.splice(0).forEach((land) => land()));
     });
 
@@ -503,6 +503,20 @@ describe('Selection', () => {
       expect(await screen.findByText('2 items dismissed')).toBeVisible();
       expect(screen.getByText('1 selected')).toBeVisible();
       expect(screen.getByText(RENEW.title).closest('li')).toHaveClass('row-picked');
+    });
+
+    it('says nothing of a refusal once the selection has been cleared, when one of its Items is picked on its own again', async () => {
+      const user = show(THREE, { refusing: RENEW.id });
+      await pickAllThree(user);
+      await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+      await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Dismiss 3 items' }));
+      expect(await screen.findByText('1 not dismissed. That item is locked.')).toBeVisible();
+
+      await user.click(screen.getByRole('button', { name: 'Clear' }));
+      await user.click(screen.getByText(RENEW.title));
+
+      expect(screen.queryByText(/not dismissed/)).toBeNull();
+      expect(screen.queryByText(/ selected$/)).toBeNull();
     });
 
     it('offers no Undo when every Item was refused', async () => {

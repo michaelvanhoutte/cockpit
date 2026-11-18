@@ -1151,7 +1151,9 @@ export function ItemList({
         // text saying it is empty - and letting go anywhere in the space below
         // did nothing, which is most of the panel.
         ref={orientation}
-        className={fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'}
+        // Where the focus goes once the bar's Dismiss has run and the bar has left (`useEditingSeveral`); a Panel on a Dashboard has the board's.
+        {...(onDashboard ? {} : { tabIndex: -1, 'data-selection-home': scope })}
+        className={`${fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'} outline-none`}
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
           // its way to another panel, and a list that offered it a place would
