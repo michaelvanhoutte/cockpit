@@ -1,4 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
+import { NO_SUBJECT } from './messages.js';
 import { refreshTokenToRevoke } from './credential.js';
 import { findGmailDraft, makeGmailDraft, readGmailConversationForReply, rewriteGmailDraft } from './drafts.js';
 import { listGmailSent } from './sent.js';
@@ -26,7 +27,7 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
  * called on screen in every environment, whether or not this one can sign in
  * to Gmail.
  */
-export const GMAIL_IDENTITY = { id: 'gmail', displayName: 'Gmail' } as const;
+export const GMAIL_IDENTITY = { id: 'gmail', displayName: 'Gmail', titleIsSubject: { whenNone: NO_SUBJECT } } as const;
 
 export function createGmailConnector(config: GmailConnectorConfig): Connector {
   return {

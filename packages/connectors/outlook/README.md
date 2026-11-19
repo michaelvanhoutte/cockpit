@@ -154,6 +154,7 @@ Following the category is per message, as before.
   reopens the same Item. A message in a conversation already followed costs no
   call. The complete listing names `conversation:<id>` for such messages, so an
   Item closes when no message of its conversation is flagged.
+- **A phone's own signature never reaches an Item** ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): `withoutPhoneSignature` takes whole lines such as `Sent from my iPhone`, `Verzonden vanaf Outlook voor Android` and `Get Outlook for Android`, with an aka.ms link (plain, `<link>` or Markdown), out of the text before it is cut to the description limit. A message with nothing else is emitted with `titleIsAll`, so the host files it titled with the subject and leaves its texts alone. The phrase list is in each mail connector, and both connectors' tests run the one list in `packages/connectors/phone-signatures.json`.
 - **A turn is any message received since the last run**, one read of the whole
   mailbox, not per conversation: `GET /me/messages?$filter=receivedDateTime ge T&$orderby=receivedDateTime`
   with `$select` of the id, conversation, folder, sender, To, Cc, time and

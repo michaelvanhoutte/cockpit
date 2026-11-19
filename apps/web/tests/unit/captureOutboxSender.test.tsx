@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../src/api/changes';
 import { CommandRefused } from '../../src/api/client';
-import { NOTHING_HEARD, needsWords, stateOf, type OutboxEntry } from '../../src/captureOutbox';
+import { NOTHING_HEARD, needsWords, stateOf, whatGoesBack, type OutboxEntry } from '../../src/captureOutbox';
 import {
   CaptureOutbox,
   OutboxProvider,
@@ -1048,6 +1048,20 @@ describe('Offline', () => {
       ]);
       expect(server.transcribeCalls).toBe(0);
       expect(await store.all()).toEqual([]);
+    });
+
+    it('treats a recording the Worker refuses as empty as one in which nothing was heard, so putting it back keeps no recording', async () => {
+      const server = aServer();
+      server.transcriptionRefused = new CommandRefused(400, 'The recording could not be transcribed (400).');
+      const outbox = aTab(server);
+
+      expect(await outbox.addRecorded(spoken('anything'))).toBe('nothing');
+      await settled();
+
+      expect(server.captureCalls).toBe(0);
+      const [entry] = outbox.getShown();
+      expect(stateOf(entry!)).toEqual({ waiting: false, notSent: NOTHING_HEARD });
+      expect(whatGoesBack(entry!).recording).toBeNull();
     });
 
     it('is not sent with no words, and says nothing was heard, where the recording held none', async () => {

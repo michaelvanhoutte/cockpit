@@ -1,4 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
+import { NO_SUBJECT } from './messages.js';
 import { findOutlookDraft, makeOutlookDraft, readOutlookConversationForReply, rewriteOutlookDraft } from './drafts.js';
 import { listOutlookSent } from './sent.js';
 import type { OutlookConnectorConfig } from './graph.js';
@@ -20,7 +21,7 @@ import { syncMailbox } from './sync.js';
  */
 
 /** Who this connector is, needing no configuration. */
-export const OUTLOOK_IDENTITY = { id: 'outlook', displayName: 'Outlook' } as const;
+export const OUTLOOK_IDENTITY = { id: 'outlook', displayName: 'Outlook', titleIsSubject: { whenNone: NO_SUBJECT } } as const;
 
 export function createOutlookConnector(config: OutlookConnectorConfig): Connector {
   return {

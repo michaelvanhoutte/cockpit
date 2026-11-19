@@ -1,0 +1,40 @@
+{
+  "_about": "The lines a mail app adds to a message, read by the tests of both mail connectors (gmail, outlook) so their two copies of the phrase list cannot drift. Not imported by any source file.",
+  "removed": [
+    "Verzonden vanaf Outlook voor Android",
+    "Verzonden vanaf Outlook voor Android: [https://aka.ms/AAb9ysg](https://aka.ms/AAb9ysg)",
+    "Verzonden vanaf Outlook voor Android <https://aka.ms/AAb9ysg>",
+    "Verzonden vanaf Outlook voor Android https://aka.ms/AAb9ysg",
+    "Verzonden vanaf Outlook voor iOS",
+    "Verzonden vanaf Outlook voor iOS <https://aka.ms/o0ukef>",
+    "Sent from Outlook for Android",
+    "Sent from Outlook for Android <https://aka.ms/AAb9ysg>",
+    "Sent from Outlook for iOS",
+    "Sent from Outlook for iOS <https://aka.ms/o0ukef>",
+    "Get Outlook for Android",
+    "Get Outlook for Android<https://aka.ms/AAb9ysg>",
+    "Get Outlook for Android [https://aka.ms/AAb9ysg](https://aka.ms/AAb9ysg)",
+    "Get Outlook for iOS <https://aka.ms/o0ukef>",
+    "Download Outlook voor Android",
+    "Download Outlook voor Android <https://aka.ms/AAb9ysg>",
+    "Download Outlook voor iOS <https://aka.ms/o0ukef>",
+    "Haal Outlook voor Android op",
+    "Haal Outlook voor iOS op <https://aka.ms/o0ukef>",
+    "Sent from my iPhone",
+    "Sent from my iPad",
+    "Verzonden vanaf mijn iPhone",
+    "Verzonden vanaf mijn iPad",
+    "  sent from my iphone  ",
+    "Verstuurd vanaf mijn iPhone",
+    "Verstuurd vanaf mijn iPad",
+    "Sent from my Galaxy",
+    "Verzonden vanaf mijn Galaxy",
+    "Verstuurd vanaf mijn Galaxy",
+    "Sent from my Samsung Galaxy smartphone.",
+    "Verzonden vanaf mijn Samsung Galaxy smartphone"
+  ],
+  "keptInASentence": [
+    "I wrote this sent from my iPhone while walking, so forgive the typos",
+    "Please do not use Verzonden vanaf Outlook voor Android as a title"
+  ]
+}

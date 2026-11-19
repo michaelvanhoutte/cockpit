@@ -102,6 +102,15 @@ export const NOTE_MARKER_LINE = 'My note, typed when saving this message:';
 export const NOTE_FROM_TEAMS = `Some notes are a message somebody else wrote, saved from Microsoft Teams, followed by the person's own words about it. Then, after the message, comes a line reading exactly "${NOTE_MARKER_LINE}" and below it what the person typed. Everything above that line is the sender's, and everything below it is the person's own. Read both together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the person's words and the sender's disagree about a field - one says urgent and the other no rush, or each names a different day - the person's words decide it. Where the person's words say nothing about a field, the sender's words still decide it. The person's words are what to do about the sender's message, so write the work they ask for rather than quoting either, and never write the marker line in either text.`;
 
 /**
+ * An email's subject, handed as the first line of the note ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): the
+ * clean-up job puts it there for a Gmail or Outlook Item whose texts are not
+ * settled, and for no other note. Its own constant for the reason
+ * `STATED_PRIORITY` is.
+ */
+export const EMAIL_SUBJECT_MARKER = 'Email subject:';
+export const NOTE_FROM_EMAIL = `Some notes are an email, saved from a mailbox. Then the note begins with a line starting exactly "${EMAIL_SUBJECT_MARKER}", followed by the email's subject, which is the sender's own name for the email, then a blank line and the email's text. A note that does not begin with that marker has no subject. Read the subject and the text together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the text is only a few words or says nothing the subject does not, the subject is what the note is about, so keep its words. Never write the marker line in either text, and never copy the subject into the message where the title already says it.`;
+
+/**
  * Every word of the system prompt that is the same for every note and every
  * account - the rules and the worked examples - and nothing else.
  *
@@ -159,6 +168,8 @@ ${STATED_PLACE}
 ${STATED_NEXT_ACTION}
 
 ${NOTE_FROM_TEAMS}
+
+${NOTE_FROM_EMAIL}
 
 Further down, after the examples, you are given what is this account's own: the panels it has already set up, its decision history, and what else has been captured recently.
 
@@ -368,6 +379,10 @@ panel: Board meetings, closest, because the dinner is for the board, though it i
  * in the instructions, two worked examples, and an optional `nextAction` in the
  * schema, left out where the note states none. Whether it lands on the Item is
  * the store's to decide, together with the texts.
+ *
+ * **`v19` reads an email's subject** ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): `NOTE_FROM_EMAIL` in the
+ * instructions. Nothing is added to the schema; the subject arrives as the
+ * first line of the note, for an email Item only.
  */
 export function buildCleanUpANote(
   routing: RoutingInputs,
@@ -375,7 +390,7 @@ export function buildCleanUpANote(
   stood: WhatStood | null,
   day: CaptureDay | null,
 ): {
-  version: 'v18';
+  version: 'v19';
   model: string;
   effort: 'low';
   system: { instructions: string; stable: string; recent: string };
@@ -413,11 +428,11 @@ export function buildCleanUpANote(
   ].join('\n\n');
 
   return {
-    version: 'v18',
+    version: 'v19',
 
     /**
      * Sonnet 5.5, on the 20-capture comparison above, and held to the same
-     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v18.test.ts`).
+     * contract suite Opus 5 was (`tests/contract/clean-up-a-note.v19.test.ts`).
      * Haiku 5.5 was compared too and gave three titles of another note and
      * three rejected answers, so this is the cheapest model that held the
      * comparison, not the cheapest there is.

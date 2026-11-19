@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MAX_RECORDING_SECONDS, uuidv7 } from '@cockpit/shared';
+import { CommandRefused } from './api/client';
 import { TooManyTranscriptions, transcribeRecording } from './api/transcription';
 import { DICTATION_BLOCKED, DICTATION_FAILED, DICTATION_NO_MICROPHONE } from './dictation';
 import { soundOf, type KeptRecording, type KeptRecordings } from './keptRecordings';
@@ -134,6 +135,17 @@ export const DICTATION_TOO_MANY = 'Too many recordings were sent in a minute. Tr
 
 /** What is said after a recording stopped itself. */
 export const DICTATION_STOPPED_AT_THE_LIMIT = `Stopped at the ${MAX_RECORDING_SECONDS / 60}-minute limit. What was said up to then is in the note.`;
+
+/** What is said of a recording stopped under a second, or that came back with no sound: it is neither kept nor sent. */
+export const DICTATION_NOTHING_RECORDED = 'Nothing was recorded.';
+
+/** What is said of a kept recording the Worker refused as empty, which is deleted rather than offered for Retry again. */
+export const DICTATION_RECORDING_EMPTY = 'That recording was empty.';
+
+/** The Worker's answer to a recording with no sound in it (a 400): the only 400 the transcription route gives. */
+function refusedAsEmpty(failure: unknown): boolean {
+  return failure instanceof CommandRefused && failure.status === 400;
+}
 
 /** The line for a microphone that would not start, per the way the browser refused. */
 export function whyItCouldNotRecord(error: unknown): string {
@@ -332,6 +344,20 @@ export function useRecordedDictation({
   };
 
   /**
+   * Deletes a kept recording the Worker refused as empty and says so. Where
+   * storage fails the line is still said, and the recording is offered again
+   * on the next load.
+   */
+  const dropEmpty = async (id: string) => {
+    try {
+      await keeper.current?.discard(id);
+    } catch {
+      // Nothing more to do here: the recording stays to be refused again.
+    }
+    if (mounted.current) setNotice(DICTATION_RECORDING_EMPTY);
+  };
+
+  /**
    * Transcribes a recording and puts its words in the note; a kept one is
    * deleted only once they are in. True when there is nothing more to wait
    * for - including where another tab already put them in its own note -
@@ -362,13 +388,18 @@ export function useRecordedDictation({
     const ended = session.current;
     if (!ended) return Promise.resolve(true);
     session.current = null;
-    const length = Math.floor((Date.now() - startedAt.current) / 1000);
     stopTimers();
     setPhase('transcribing');
     const run = (async () => {
       let id: string | null = null;
       try {
         const sound = await ended.stop();
+        const length = Math.floor((Date.now() - startedAt.current) / 1000);
+        // Under a second, or without any sound, there is nothing to keep or send.
+        if (length < 1 || sound.size === 0) {
+          if (mounted.current) setNotice(DICTATION_NOTHING_RECORDED);
+          return true;
+        }
         // Handed over even where the view has gone meanwhile: it is the recording's keeper, not the view.
         if (handOver.current) {
           await handOver.current(sound, length);
@@ -379,6 +410,10 @@ export function useRecordedDictation({
         if (heard && atTheLimit && mounted.current) setNotice(DICTATION_STOPPED_AT_THE_LIMIT);
         return heard;
       } catch (failure) {
+        if (id !== null && refusedAsEmpty(failure)) {
+          await dropEmpty(id);
+          return true;
+        }
         if (mounted.current) setError(whyNotTranscribed(failure, id !== null));
         return false;
       } finally {
@@ -415,10 +450,18 @@ export function useRecordedDictation({
     setNotice(null);
     holding(id, 'retry');
     void (async () => {
+      // One kept before recordings under a second stopped being kept has
+      // nothing to send, whatever the Worker would answer of its few bytes.
+      if (one.seconds < 1) {
+        await dropEmpty(id);
+        holding(id, null);
+        return;
+      }
       try {
         await carryOver(soundOf(one), id);
       } catch (failure) {
-        if (mounted.current) setError(whyNotTranscribed(failure, true));
+        if (refusedAsEmpty(failure)) await dropEmpty(id);
+        else if (mounted.current) setError(whyNotTranscribed(failure, true));
       } finally {
         holding(id, null);
       }
@@ -449,7 +492,11 @@ export function useRecordedDictation({
     }
     if (!mounted.current || letGo.current) {
       started.cancel();
-      if (mounted.current) setPhase('idle');
+      if (mounted.current) {
+        setPhase('idle');
+        // Let go before it began, as by a double tap: nothing was recorded either.
+        if (letGo.current) setNotice(DICTATION_NOTHING_RECORDED);
+      }
       return;
     }
     session.current = started;
