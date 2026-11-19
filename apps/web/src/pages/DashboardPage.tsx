@@ -4,7 +4,7 @@ import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
 import { itemsLeftOut } from '../persistence';
 import { DashboardViews } from '../poc/DashboardViews';
-import { hiddenKey, usePoc } from '../poc/store';
+import { hiddenKey, panelParentsKey, usePoc } from '../poc/store';
 
 /**
  * One dashboard of a workspace ("Add and switch dashboards", issue 32), holding
@@ -22,6 +22,8 @@ export function DashboardPage() {
   const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
   // POC (throwaway): merged-away Items are hidden.
   const [hidden] = usePoc<string[]>(hiddenKey(workspaceId), []);
+  // POC (throwaway): a Panel inside another is drawn inside it, not as a Panel of its own.
+  const [panelParents] = usePoc<Record<string, string>>(panelParentsKey(workspaceId), {});
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -58,7 +60,11 @@ export function DashboardPage() {
           workspaceId={workspaceId}
           dashboard={dashboard}
           dashboards={data.dashboards}
-          panels={data.panels.filter((panel) => panel.dashboardId === dashboard.id)}
+          panels={data.panels.filter(
+            (panel) =>
+              panel.dashboardId === dashboard.id &&
+              !data.panels.some((outer) => outer.id === panelParents[panel.id] && outer.dashboardId === dashboard.id),
+          )}
           // Unfiltered, and deliberately beside the line above: whether a
           // filing files is a fact about the Panel it names rather than about
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).

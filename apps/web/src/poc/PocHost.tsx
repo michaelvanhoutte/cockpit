@@ -1,4 +1,5 @@
 import { CombineDialog } from './CombineDialog';
+import { PocColourTokens } from './colour';
 import { useAsking } from './dialogs';
 import { SplitDialog } from './SplitDialog';
 
@@ -7,6 +8,7 @@ export default function PocHost({ workspaceId }: { workspaceId: string }) {
   const asking = useAsking();
   return (
     <>
+      <PocColourTokens />
       {asking.combine && (
         <CombineDialog
           key={asking.combine.itemIds.join()}

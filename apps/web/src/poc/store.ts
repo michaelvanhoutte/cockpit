@@ -74,6 +74,13 @@ export const groupsKey = (workspaceId: string) => `poc:groups:${workspaceId}`;
 export const relationsKey = (workspaceId: string) => `poc:relations:${workspaceId}`;
 /** A whiteboard asked to select and zoom to one of its nodes once it is drawn. */
 export const FOCUS_KEY = 'poc:focus';
+export const coloursKey = (workspaceId: string) => `poc:colours:${workspaceId}`;
+/** Child Panel id → the Panel it sits inside, on the board and in the Panels pane. */
+export const panelParentsKey = (workspaceId: string) => `poc:panel-parents:${workspaceId}`;
+/** Which Item a Panel was made from ("Put inside" a card), so the box opens that Item. */
+export const panelItemsKey = (workspaceId: string) => `poc:panel-items:${workspaceId}`;
+/** Parent Item ids whose child rows are unfolded in the lists. */
+export const UNFOLDED_KEY = 'poc:unfolded';
 export const hiddenKey = (workspaceId: string) => `poc:hidden:${workspaceId}`;
 
 // ---- Shapes ---------------------------------------------------------------
@@ -108,6 +115,25 @@ export interface Board {
   lines: FreeLine[];
 }
 export const EMPTY_BOARD: Board = { nodes: [], lines: [] };
+
+/** Round 3: where things sit on a Dashboard's whiteboard. Boxes are its Panels; what a box holds is what the Panel holds. */
+export interface BoxPlace {
+  /** Relative to the box it sits in, if it is a child Panel. */
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+  collapsed?: boolean;
+}
+export interface Board3 {
+  open: { id: string; itemId: string; x: number; y: number }[];
+  sketches: { id: string; title: string; x: number; y: number }[];
+  boxes: Record<string, BoxPlace>;
+  inBox: Record<string, Record<string, { x: number; y: number }>>;
+  lines: FreeLine[];
+}
+export const EMPTY_BOARD3: Board3 = { open: [], sketches: [], boxes: {}, inBox: {}, lines: [] };
+export const board3Key = (dashboardId: string) => `poc:board3:${dashboardId}`;
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'double';
 export interface LineKind {

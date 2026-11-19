@@ -6,7 +6,6 @@ import { sourceOnARow } from '../itemSource';
 import { useUndo } from '../undo';
 import { dashboardScope, endSelection } from '../selection';
 import { useSendCommand } from '../api/queries';
-import { addCard, itemBoxAround } from './board';
 import { stopAsking } from './dialogs';
 import { addChildren, isUuid } from './relations';
 import { hiddenKey, updatePoc } from './store';
@@ -85,7 +84,6 @@ export function CombineDialog({
       const mergedIds = chosen.map((item) => item.id);
       const newItemId = makeItem();
       updatePoc<string[]>(hiddenKey(workspaceId), [], (was) => [...new Set([...was, ...mergedIds])]);
-      if (dashboardId) addCard(dashboardId, newItemId);
       offerToUndo({
         what: `Merged ${chosen.length} Items into “${title}”`,
         undo: async () => {
@@ -95,9 +93,14 @@ export function CombineDialog({
       });
     } else {
       const parentId = choice === 'existing-parent' && chosenParent ? chosenParent : makeItem();
+      const existingTitle = choice === 'existing-parent' && chosenParent ? itemLabel(byId.get(chosenParent)!) : null;
       const childIds = chosen.map((item) => item.id);
       addChildren(workspaceId, parentId, childIds);
-      if (dashboardId) itemBoxAround(dashboardId, parentId, childIds, boardNodeIds);
+      // Combined on the whiteboard: the board draws the new parent as a box (a Panel) holding them.
+      if (boardNodeIds.length)
+        window.dispatchEvent(
+          new CustomEvent('poc-combined', { detail: { parentId, title: existingTitle ?? title, childIds, nodeIds: boardNodeIds, made: !existingTitle } }),
+        );
     }
     if (dashboardId) endSelection(dashboardScope(dashboardId));
     stopAsking();

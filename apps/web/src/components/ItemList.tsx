@@ -70,6 +70,7 @@ import {
 } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo } from '../undo';
+import { PocChildRows } from '../poc/PocChildren';
 import { ItemRow } from './ItemRow';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
@@ -999,6 +1000,7 @@ export function ItemList({
     group?: readonly Item[],
     landing?: 'before' | 'after',
   ) => (
+    <>
     <ItemRow
       item={item}
       {...(landing ? { landing } : {})}
@@ -1070,6 +1072,9 @@ export function ItemList({
             onAcceptSelection: acceptSelection,
           })}
     />
+    {/* POC (throwaway): an Item's children, unfolded under its row. */}
+    <PocChildRows workspaceId={workspaceId} parentId={item.id} panelId={panelId} openDashboardId={openDashboardId} />
+    </>
   );
 
   /**

@@ -37,7 +37,7 @@ import {
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { askToSplit, openDashboardId } from '../poc/dialogs';
-import { PocRelations } from '../poc/PocRelations';
+import { PocRelations, usePocRelationCount } from '../poc/PocRelations';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -108,11 +108,12 @@ const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((l
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
-const TABS = ['item', 'attachments', 'details', 'changes'] as const;
+const TABS = ['item', 'attachments', 'details', 'relations', 'changes'] as const;
 const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   item: 'Item',
   attachments: 'Attachments',
   details: 'Details',
+  relations: 'Relations',
   changes: 'Suggestions',
 };
 
@@ -1023,6 +1024,7 @@ function TheForm({
    */
   const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
+  const pocRelationCount = usePocRelationCount(workspaceId, item?.id ?? '');
   /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
   const seeChanges = cockpit.markSeen;
   useEffect(() => {
@@ -1987,6 +1989,7 @@ function TheForm({
                       }`}
                     >
                       {TAB_NAMES[which]}
+                      {which === 'relations' && pocRelationCount > 0 && <span className="text-ink-faint"> · {pocRelationCount}</span>}
                       {which === 'attachments' && anyFiles && (
                         <>
                           {' '}
@@ -2304,8 +2307,6 @@ function TheForm({
                         )}
                       </div>
 
-                      {item && <PocRelations workspaceId={workspaceId} itemId={item.id} />}
-
                       {/* A screenshot, a scan or a clip the note is really about
                         ("Attach a file to an item", issue 441) - added by button
                         or drag-and-drop, drawn as a chip, opened or downloaded by
@@ -2410,6 +2411,17 @@ function TheForm({
                         {attachmentError}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {tab === 'relations' && item && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-relations`}
+                    aria-labelledby={`${formId}-relations-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <PocRelations workspaceId={workspaceId} itemId={item.id} />
                   </div>
                 )}
 
