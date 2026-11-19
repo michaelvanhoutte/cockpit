@@ -20,6 +20,7 @@ export * from './domain/find-item.js';
 export * from './domain/item.js';
 export * from './domain/item-children.js';
 export * from './domain/held-places.js';
+export * from './domain/combine.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/message-link.js';
 export * from './domain/phone-link.js';

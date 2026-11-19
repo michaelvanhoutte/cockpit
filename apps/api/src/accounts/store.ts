@@ -131,6 +131,7 @@ import {
   PanelNotFoundError,
   PanelOrderStaleError,
   ItemInsideItselfError,
+  MergeRefusedError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -150,6 +151,7 @@ import {
   getAttachment,
   getAttachmentForDownload,
   getItem,
+  mergedIntoTitle,
   getItemFormPresentation,
   getFollowUpDays,
   getEmailLocalPart,
@@ -565,6 +567,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   item(accountName: string, itemId: string): Answer<Item | null> {
     return this.#answer(accountName, (db) => getItem(db, accountName, itemId));
+  }
+
+  /** The title of the Item this one was merged into, or null where it was not merged away. */
+  mergedInto(accountName: string, itemId: string): Answer<string | null> {
+    return this.#answer(accountName, (db) => mergedIntoTitle(db, accountName, itemId));
   }
 
   /**
@@ -2081,7 +2088,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // request says, and what is wrong is that moving there is not a move.
         error instanceof PanelAlreadyOnDashboardError ||
         // Same again: every Item is there, and an Item cannot be its own ancestor.
-        error instanceof ItemInsideItselfError
+        error instanceof ItemInsideItselfError ||
+        // A 400 as well: every Item is there, and one from a source is finished at its source.
+        error instanceof MergeRefusedError
       ) {
         return { status: 'refused', what: error.message };
       }

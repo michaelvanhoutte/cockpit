@@ -196,6 +196,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_CHILDREN,
     PANELS_BECOME_ITEMS,
     FILINGS_COPIED_AGAIN,
+    MERGE_TRAIL,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1986,6 +1987,41 @@ function filingsCopiedAgain(): Statement[] {
     },
   ];
 }
+
+/**
+ * What Combine writes ("Brainstorming: related loose notes can't be brought
+ * together", issue 1826): the trail a Merge leaves on the rows, so `unmerge`
+ * can put every one of them back in one transaction (decision 11 of "Brainstorming in
+ * Cockpit: loose Items can't be grouped, split or laid out as a storyline",
+ * issue 1818), and the setting a parent made by Combine starts with.
+ *
+ * - **`items.merged_into_id`**: the Item an original was merged into, null
+ *   for every Item that never was.
+ * - **`items.keeps_story`**: whether Claude keeps this Item's description up
+ *   to date as children join or leave ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827), 0 for every Item there is.
+ * - **`attachments.moved_from_item_id`**: the Item a file was moved from.
+ * - **`item_additions.from_item_id`**: the original an Addition was made from.
+ *
+ * Four nullable or defaulted columns on tables that cannot be rebuilt, nothing
+ * written to an existing row and nothing read until a Merge writes one, so:
+ * - **Nothing is deleted, re-seeded, wiped or restored**.
+ * - **Stopping halfway:** one change is one transaction (store.ts), so an
+ *   interruption leaves the account as it was.
+ * - **Running a second time:** the store records the change as applied, so it
+ *   never runs twice.
+ * - **Rolled back after it has run:** an older release names none of the
+ *   columns and ignores them; a merged Item stays dismissed Items and one new
+ *   Item, which is what an older release shows of any Item.
+ */
+const MERGE_TRAIL: Change = {
+  name: '0111-merge-trail',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `merged_into_id` text' },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `keeps_story` integer DEFAULT 0 NOT NULL' },
+    { sql: 'ALTER TABLE `attachments` ADD COLUMN `moved_from_item_id` text' },
+    { sql: 'ALTER TABLE `item_additions` ADD COLUMN `from_item_id` text' },
+  ],
+};
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';

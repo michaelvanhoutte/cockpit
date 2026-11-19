@@ -144,6 +144,12 @@ export interface Account {
    */
   item(itemId: string): Promise<Item | null>;
   /**
+   * The title of the Item this one was merged into, or null where it was not
+   * merged away: what a dismissed Item is shown as *Merged into …* by
+   * ("Brainstorming: related loose notes can't be brought together", issue 1826).
+   */
+  mergedInto(itemId: string): Promise<string | null>;
+  /**
    * One attachment by its id, with the R2 key its bytes are stored under -
    * what the download route reads ("Attach a file to an item", issue 441).
    * Null where this account holds no such attachment, the same as `item`
@@ -495,6 +501,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     panelCatalogue: async () => unwrap(await store.panelCatalogue(accountName)),
     panelReadInputs: async (panelId) => unwrap(await store.panelReadInputs(accountName, panelId)),
     item: async (itemId) => unwrap(await store.item(accountName, itemId)),
+    mergedInto: async (itemId) => unwrap(await store.mergedInto(accountName, itemId)),
     attachmentForDownload: async (attachmentId) =>
       unwrap(await store.attachmentForDownload(accountName, attachmentId)),
     attachmentExists: async (attachmentId) =>

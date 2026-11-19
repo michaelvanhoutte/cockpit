@@ -4333,3 +4333,230 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Triage', () => {
+  /**
+   * "Brainstorming: related loose notes can't be brought together" (issue
+   * 1826): the dialog and the change it sends. What a Merge and its Undo do to
+   * the rows is proved against a real store
+   * (apps/api/tests/integration/http/combine.test.ts); picking several rows
+   * with the pointer only exists in a browser (tests/e2e/combine.test.ts).
+   */
+  describe('Combine offers the three actions, greys Merge with its reason, and sends one change', () => {
+    const CHAPTER = anItem('11111111-1111-7111-8111-000000000040', 'Chapter 3');
+    const FROM_MAIL: Item = { ...anItem('11111111-1111-7111-8111-000000000041', 'Mail from Anna'), source: 'gmail' };
+
+    /** The Dashboard open is the one in the address bar: the Inbox's own list names none. */
+    beforeEach(() => window.history.pushState({}, '', `/w/ws-work/d/${TODAY.id}`));
+    afterEach(() => window.history.pushState({}, '', '/'));
+
+    /** Two rows picked, Combine… chosen from the Edit menu, and the dialog it opens. */
+    /** `span` picks the first and shift-clicks the last, for a run of picks too long to click one by one. */
+    async function combining(items: Item[], picks: Item[] = items.slice(0, 2), span = false) {
+      held.items = items;
+      const user = await showList({ items, openDashboardId: TODAY.id });
+      if (span) {
+        await tick(user, picks[0]!);
+        await tick(user, picks.at(-1)!, true);
+      } else for (const item of picks) await tick(user, item);
+      await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine…' }));
+      return { user, dialog: await screen.findByRole('dialog') };
+    }
+
+    it('names the Items and the three actions as cards that fill a phone’s width', async () => {
+      const { dialog } = await combining([BART, LISA]);
+
+      expect(within(dialog).getByText('Combine 2 Items')).toBeInTheDocument();
+      expect(within(dialog).getAllByRole('radio').map((card) => card.closest('label')!.textContent)).toEqual([
+        'Merge into one new ItemThe originals are replaced by one new Item.',
+        'Combine under a new parentThey stay where they are. A new Item holds them.',
+        'Combine under an existing parentThey stay where they are. An Item you pick holds them.',
+      ]);
+      expect(within(dialog).getByRole('radio', { name: /Combine under a new parent/ })).toBeChecked();
+      expect(dialog.className).toContain('w-[min(34rem,calc(100vw-2rem))]');
+      expect(within(dialog).getByLabelText('Anything to add?')).toBeInTheDocument();
+    });
+
+    it('merges them into one new Item, stitched from the parts and your words, and offers Undo', async () => {
+      const { user, dialog } = await combining([BART, LISA]);
+
+      await user.click(within(dialog).getByRole('radio', { name: /Merge into one new Item/ }));
+      await user.type(within(dialog).getByLabelText('Anything to add?'), 'the crossing');
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      const sent = held.send.mock.calls.map(([args]) => args as { name: string; payload: Record<string, unknown> });
+      expect(sent).toEqual([
+        expect.objectContaining({
+          name: 'merge_items',
+          payload: expect.objectContaining({
+            originalIds: [BART.id, LISA.id],
+            title: 'Combined: Reply to Bart +1',
+            description: 'the crossing\n\nReply to Bart\n\nReply to Lisa',
+          }),
+        }),
+      ]);
+      const status = await screen.findByRole('status');
+      expect(status).toHaveTextContent('Merged 2 Items into “Combined: Reply to Bart +1”');
+      await user.click(within(status).getByRole('button', { name: 'Undo' }));
+      expect(held.send).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: 'unmerge_items',
+          payload: expect.objectContaining({ itemId: (sent[0]!.payload as { itemId: string }).itemId, originalIds: [BART.id, LISA.id] }),
+        }),
+      );
+    });
+
+    it('combines them under a new parent made as a Panel of the open Dashboard when they came from the Inbox', async () => {
+      const { user, dialog } = await combining([BART, LISA]);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: TODAY.id }),
+        }),
+      );
+    });
+
+    it('combines them under a new parent made as a child Panel of the Panel the first one is filed on', async () => {
+      held.dashboards = [TODAY];
+      held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const { user, dialog } = await combining([BART, LISA]);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: 'p-falcon', dashboardId: null }),
+        }),
+      );
+    });
+
+    it('puts them under the existing parent picked, and only once one is', async () => {
+      const { user, dialog } = await combining([BART, LISA, CHAPTER]);
+
+      await user.click(within(dialog).getByRole('radio', { name: /Combine under an existing parent/ }));
+      expect(within(dialog).getByRole('button', { name: 'Combine' })).toBeDisabled();
+      await user.click(within(dialog).getByRole('button', { name: 'Chapter 3' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id] }) }),
+      );
+    });
+
+    it('greys Merge, naming the Item and its source, when one comes from a source', async () => {
+      const { user, dialog } = await combining([BART, FROM_MAIL]);
+
+      expect(within(dialog).getByRole('radio', { name: /Merge into one new Item/ })).toBeDisabled();
+      expect(within(dialog).getByText(/Can't merge: Mail from Anna finishes from/)).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+      expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: 'combine_under_new_parent' }));
+    });
+
+    it('has every Workspace re-read when the Items combined were in no Workspace yet', async () => {
+      const waiting = [BART, LISA].map((item) => ({ ...item, workspaceDecided: false }));
+      const { user, dialog } = await combining(waiting);
+      const reread = vi.spyOn(theClient, 'invalidateQueries');
+
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      await waitFor(() => expect(reread).toHaveBeenCalledWith({ queryKey: ['snapshot'] }));
+    });
+
+    it('forgets the parent picked when another action is chosen, so Combine never sends under one unseen', async () => {
+      const { user, dialog } = await combining([BART, LISA, CHAPTER]);
+
+      await user.click(within(dialog).getByRole('radio', { name: /Combine under an existing parent/ }));
+      await user.click(within(dialog).getByRole('button', { name: 'Chapter 3' }));
+      await user.click(within(dialog).getByRole('radio', { name: /Merge into one new Item/ }));
+      await user.click(within(dialog).getByRole('radio', { name: /Combine under an existing parent/ }));
+
+      expect(within(dialog).getByRole('button', { name: 'Chapter 3' })).toHaveAttribute('aria-pressed', 'false');
+      expect(within(dialog).getByRole('button', { name: 'Combine' })).toBeDisabled();
+    });
+
+    it('forgets the parent picked when another Item is added to a Combine asked from a row', async () => {
+      held.items = [BART, LISA, MAGGIE, CHAPTER];
+      const user = await showList({ items: [BART, LISA, MAGGIE, CHAPTER] });
+      const row = screen.getByText('Reply to Lisa').closest('li')!;
+      await user.click(within(row).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Reply to Bart' }));
+      await user.click(within(dialog).getByRole('radio', { name: /Combine under an existing parent/ }));
+      await user.click(within(within(dialog).getByRole('list', { name: 'Items to add them to' })).getByRole('button', { name: 'Chapter 3' }));
+      expect(within(dialog).getByRole('button', { name: 'Combine' })).toBeEnabled();
+
+      await user.click(within(within(dialog).getByRole('list', { name: 'Items to combine with' })).getByRole('button', { name: 'Reply to Maggie' }));
+
+      expect(within(dialog).getByRole('button', { name: 'Combine' })).toBeDisabled();
+    });
+
+    it('falls back to a new parent when Merge is greyed under a choice of it, as a source Item is added', async () => {
+      held.items = [BART, LISA, FROM_MAIL];
+      const user = await showList({ items: [BART, LISA, FROM_MAIL] });
+      const row = screen.getByText('Reply to Lisa').closest('li')!;
+      await user.click(within(row).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Reply to Bart' }));
+      await user.click(within(dialog).getByRole('radio', { name: /Merge into one new Item/ }));
+
+      await user.click(within(dialog).getByRole('button', { name: 'Mail from Anna' }));
+
+      expect(within(dialog).getByRole('radio', { name: /Merge into one new Item/ })).toBeDisabled();
+      expect(within(dialog).getByRole('radio', { name: /Combine under a new parent/ })).toBeChecked();
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+      expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: 'combine_under_new_parent' }));
+      expect(held.send).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'merge_items' }));
+    });
+
+    it('offers neither Merge nor a new parent for more than 50 Items, which one command cannot hold', async () => {
+      const many = Array.from({ length: 51 }, (_, at) => anItem(`11111111-1111-7111-8111-0000000001${String(at).padStart(2, '0')}`, `Note ${at}`));
+      const { dialog } = await combining([...many, CHAPTER], many, true);
+
+      expect(within(dialog).getByRole('radio', { name: /Merge into one new Item/ })).toBeDisabled();
+      expect(within(dialog).getByRole('radio', { name: /Combine under a new parent/ })).toBeDisabled();
+      expect(within(dialog).getByRole('radio', { name: /Combine under an existing parent/ })).toBeChecked();
+    });
+
+    it('asks which Items to combine a row with, from its menu, and sends them with it', async () => {
+      held.items = [BART, LISA, MAGGIE];
+      const user = await showList({ items: [BART, LISA, MAGGIE] });
+
+      const row = screen.getByText('Reply to Lisa').closest('li')!;
+      await user.click(within(row).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Combine “Reply to Lisa” with…')).toBeInTheDocument();
+      // Nothing to combine yet: the row alone is not two.
+      expect(within(dialog).getByRole('button', { name: 'Combine' })).toBeDisabled();
+      await user.click(within(dialog).getByRole('button', { name: 'Reply to Bart' }));
+      expect(within(dialog).getByText('Combine 2 Items')).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'combine_under_new_parent', payload: expect.objectContaining({ childIds: [LISA.id, BART.id] }) }),
+      );
+    });
+
+    it('offers no Item waiting in every Inbox to combine a row with', async () => {
+      const waiting = { ...anItem('11111111-1111-7111-8111-000000000042', 'Somewhere'), workspaceDecided: false };
+      held.items = [BART, LISA, waiting];
+      const user = await showList({ items: [BART, LISA, waiting] });
+
+      const row = screen.getByText('Reply to Lisa').closest('li')!;
+      await user.click(within(row).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+
+      expect(within(dialog).getByRole('button', { name: 'Reply to Bart' })).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Somewhere' })).not.toBeInTheDocument();
+    });
+  });
+});

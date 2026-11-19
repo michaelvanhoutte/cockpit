@@ -131,8 +131,11 @@ export function ItemRow({
   conversation,
   mailboxes,
   onAddAsChildOf,
+  onCombine,
   takeOutOf,
 }: {
+  /** *Combine with…* ("Brainstorming: related loose notes can't be brought together", issue 1826): asks which Items to combine this one with. */
+  onCombine?: ((from: HTMLElement | null) => void) | undefined;
   /**
    * Asked to put this Item inside another one you pick ("Brainstorming: an Item
    * can't hold other Items", issue 1825): *Add as child of…*. The picker is the
@@ -924,6 +927,18 @@ export function ItemRow({
             }}
           >
             Add as child of…
+          </M.Item>
+        ),
+        onCombine && (
+          <M.Item
+            key="combine"
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onCombine(trigger.current);
+            }}
+          >
+            Combine with…
           </M.Item>
         ),
         takeOutOf && (

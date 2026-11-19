@@ -411,7 +411,15 @@ async function update(
 
   const item = await account.item(read.itemId);
   if (!item) return { refusal: NO_SUCH_ITEM };
-  if (item.deletedAt !== null) return { refusal: DISMISSED_ITEM };
+  if (item.deletedAt !== null) {
+    const into = await account.mergedInto(item.id);
+    return {
+      refusal:
+        into === null
+          ? DISMISSED_ITEM
+          : `That item was merged into "${into}" and is dismissed. Restore it with restore_item first, then change it.`,
+    };
+  }
 
   // The Panels are read only where the call names them, and found in the Item's
   // Workspace as it is now (every Workspace, for an Item none has been chosen for).
@@ -521,6 +529,9 @@ async function dismiss(
   if (!item) return { refusal: NO_SUCH_ITEM };
   const title = item.title.trim() || UNTITLED;
   const already = (item.deletedAt !== null) === dismissed;
+  // A dismissed original says where it went: *Merged into …* ("Brainstorming: related loose notes can't be brought together", issue 1826).
+  const into = item.deletedAt !== null ? await account.mergedInto(item.id) : null;
+  const mergedNote = into === null ? '' : ` It was merged into "${into}", which stays.`;
   if (!already) {
     try {
       const result = await account.applyChange('set_dismissed', {
@@ -545,8 +556,8 @@ async function dismiss(
   }
   return {
     reply: dismissed
-      ? `${already ? 'Already dismissed' : 'Dismissed'} "${title}" (id ${item.id}). Bring it back with restore_item.`
-      : `${already ? 'Already open' : 'Restored'} "${title}" (id ${item.id}).`,
+      ? `${already ? 'Already dismissed' : 'Dismissed'} "${title}" (id ${item.id}).${mergedNote} Bring it back with restore_item.`
+      : `${already ? 'Already open' : 'Restored'} "${title}" (id ${item.id}).${mergedNote}`,
   };
 }
 

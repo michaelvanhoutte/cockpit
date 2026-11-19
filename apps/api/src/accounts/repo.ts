@@ -972,6 +972,26 @@ export function countFinishedLeftOut(db: AccountDb, tenantId: string, workspaceI
 }
 
 /**
+ * The title of the Item this one was merged into, or null where it was not
+ * merged away ("Brainstorming: related loose notes can't be brought together",
+ * issue 1826): the *Merged into …* a dismissed original is shown with.
+ */
+export function mergedIntoTitle(db: AccountDb, tenantId: string, itemId: string): string | null {
+  const original = db
+    .select({ mergedIntoId: items.mergedIntoId })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+    .get();
+  if (!original?.mergedIntoId) return null;
+  const into = db
+    .select({ title: items.title })
+    .from(items)
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, original.mergedIntoId)))
+    .get();
+  return into ? into.title.trim() || 'Untitled' : null;
+}
+
+/**
  * The Workspace's finished Items: the ones `listOpenItems` returns that are
  * marked done ("Fetch a Workspace's finished Items the first time All items
  * opens", issue 1434), dismissed ones left out as there. **Every one, with no

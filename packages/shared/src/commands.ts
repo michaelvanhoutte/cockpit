@@ -23,6 +23,7 @@ import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
+import type { combineCommandSchemas } from './commands-combine.js';
 import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
@@ -1397,8 +1398,14 @@ export const commandSchemas = {
   delete_remembered_sentence: deleteRememberedSentenceSchema,
 } as const;
 
-export type CommandName = keyof typeof commandSchemas;
-export type CommandPayload<N extends CommandName> = z.infer<(typeof commandSchemas)[N]>;
+/**
+ * Every command there is: the registry above and the entries Combine adds
+ * (`commands-combine.ts`, its own entry point so the app does not carry their
+ * schemas in its initial bundle - the API mounts both, `apps/api/src/http/app.ts`).
+ */
+type Registered = typeof commandSchemas & typeof combineCommandSchemas;
+export type CommandName = keyof Registered;
+export type CommandPayload<N extends CommandName> = z.infer<Registered[N]>;
 
 /**
  * The commands Cockpit sends itself rather than taking from a client, and so

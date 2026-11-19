@@ -215,6 +215,23 @@ describe('MCP connections', () => {
     });
   });
 
+  describe('an original dismissed by a Merge says where it went', () => {
+    it('is told as merged into the new Item by delete_item and by update_item, and no longer once brought back', async () => {
+      const { token } = await connected();
+      const [first, second] = [await anItem('Storm over the ferry'), await anItem('Captain asleep')];
+      const merged = nextId();
+      expect((await send('merge_items', { itemId: merged, originalIds: [first, second], title: 'The crossing', description: 'Both' })).status).toBe(200);
+
+      expect(textOf(await deleteItem(token, first))).toContain('It was merged into "The crossing"');
+      const refused = await call(token, 'update_item', { id: first, title: 'Changed' });
+      expect(refused.isError).toBe(true);
+      expect(textOf(refused)).toContain('merged into "The crossing"');
+
+      expect(textOf(await restoreItem(token, first))).toContain('It was merged into "The crossing"');
+      expect(textOf(await deleteItem(token, first))).not.toContain('merged into');
+    });
+  });
+
   describe('delete and restore count against the 60 calls a minute an app shares with capture', () => {
     it('refuses the 61st call of a minute, mixing create_item and delete_item, and dismisses nothing for it', async () => {
       const { token } = await connected();
