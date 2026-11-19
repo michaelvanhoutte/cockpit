@@ -1006,6 +1006,7 @@ export function ItemList({
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
       messageLinks={data?.messageLinks}
+      phoneLinks={data?.phoneLinks}
       recurring={recurringOriginOf(item, data?.series)?.rule ?? null}
       workspaceId={workspaceId}
       inInbox={panelId === null}

@@ -3,6 +3,7 @@ import { GMAIL_IDENTITY, createGmailConnector } from '@cockpit/connector-gmail';
 import { OUTLOOK_IDENTITY, createOutlookConnector } from '@cockpit/connector-outlook';
 import { TEAMS_IDENTITY, createTeamsConnector } from '@cockpit/connector-teams';
 import { TWILIO_IDENTITY, createTwilioConnector } from '@cockpit/connector-twilio';
+import type { PhoneLinkDeclaration } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import { NAMED_SOURCES } from '../domain/named-sources.js';
 
@@ -146,6 +147,7 @@ const KNOWN_CONNECTORS: readonly {
   readonly displayName: string;
   readonly itemSourceName?: string;
   readonly messageLinks?: readonly { readonly host: string; readonly pathStart: string }[];
+  readonly phoneLink?: PhoneLinkDeclaration;
 }[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
@@ -186,6 +188,18 @@ export function messageLinks(env: Env): Record<string, { host: string; pathStart
   };
   for (const { id, messageLinks: links } of KNOWN_CONNECTORS) add(id, links);
   for (const { manifest } of connectors(env)) add(manifest.id, manifest.messageLinks);
+  return declared;
+}
+
+/**
+ * How each source's own website wants an address on a phone, by connector id
+ * ("Open a Gmail Item at its email on a phone", issue 1837), gathered as
+ * `messageLinks` is. A connector with none is absent.
+ */
+export function phoneLinks(env: Env): Record<string, PhoneLinkDeclaration> {
+  const declared: Record<string, PhoneLinkDeclaration> = {};
+  for (const { id, phoneLink } of KNOWN_CONNECTORS) if (phoneLink) declared[id] = { ...phoneLink };
+  for (const { manifest } of connectors(env)) if (manifest.phoneLink) declared[manifest.id] = { ...manifest.phoneLink };
   return declared;
 }
 

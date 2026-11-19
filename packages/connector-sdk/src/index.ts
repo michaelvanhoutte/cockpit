@@ -1,4 +1,4 @@
-import type { Item } from '@cockpit/shared';
+import type { Item, PhoneLinkDeclaration } from '@cockpit/shared';
 
 /**
  * The connector SPI (architecture §6.2). Two-sided contract:
@@ -68,6 +68,17 @@ export interface ConnectorManifest {
    * connectors declare here and names none. Absent: the source has none.
    */
   messageLinks?: readonly { host: string; pathStart: string }[];
+  /**
+   * How the source's own website wants an address on a phone, where the address
+   * stored with an Item opens only its inbox there ("Open a Gmail Item at its
+   * email on a phone", issue 1837). The app builds it for a phone and names no
+   * connector: `https://<host><path>` with the mailbox the stored link names
+   * under `mailboxParam`, then `#` and `conversationFragment` or
+   * `draftsFragment`; a conversation id follows the first, as one encoded path
+   * segment. `notAConversationPrefix` starts a source id that names one email,
+   * which that website cannot open. Absent: the stored link opens everywhere.
+   */
+  phoneLink?: PhoneLinkDeclaration;
   /**
    * Whether an Item a push files belongs to the Workspace of the connection it
    * arrived on. Absent is yes, as for every pushed Item so far. `false`: the

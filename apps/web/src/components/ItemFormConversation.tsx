@@ -2,7 +2,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { conversationOf, itemLabel, type Conversation, type Item, type Mailbox } from '@cockpit/shared';
 import { conversationSourceName } from '../conversationLine';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
-import type { SourceNames } from '../itemSource';
+import type { PhoneLinks, SourceNames } from '../itemSource';
+import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { useUndo } from '../undo';
 import { ConversationSection } from './ConversationSection';
 import { EmailButton } from './EmailButton';
@@ -22,6 +23,7 @@ export function ItemFormConversation({
   conversations,
   mailboxes,
   sourceNames,
+  phoneLinks,
 }: {
   item: Item | undefined;
   itemId: string;
@@ -29,6 +31,7 @@ export function ItemFormConversation({
   conversations: readonly Conversation[] | undefined;
   mailboxes: readonly Mailbox[] | undefined;
   sourceNames: SourceNames;
+  phoneLinks?: PhoneLinks;
 }) {
   const queryClient = useQueryClient();
   const offerToUndo = useUndo();
@@ -39,7 +42,7 @@ export function ItemFormConversation({
   /** *Email…* or *Reply…*, where a mailbox of the Workspace can make the draft. */
   const entry = item && !item.completedAt ? emailEntryFor(held, mailboxes, lastMailboxIn(workspaceId)) : null;
   const emailWith = (mailbox: Mailbox) => {
-    if (item) void emailFromItem(queryClient, { workspaceId, itemId, mailbox, label: itemLabel(item), followed: held }, offerToUndo);
+    if (item) void emailFromItem(queryClient, { workspaceId, itemId, mailbox, label: itemLabel(item), followed: held, ...(phoneLinks ? { phoneLinks } : {}) }, offerToUndo);
   };
   if (shown) {
     return (
@@ -47,6 +50,7 @@ export function ItemFormConversation({
         conversation={shown}
         sourceName={conversationSourceName(shown, sourceNames)}
         now={Date.now()}
+        phoneLinks={phoneLinksOnThisDevice(phoneLinks)}
         // Reply… in a followed conversation, or Email… again on one a click
         // left starting, which only a new draft mends.
         reply={entry && held && <EmailButton entry={entry} onEmail={emailWith} sourceNames={sourceNames} />}

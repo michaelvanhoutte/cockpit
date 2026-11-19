@@ -155,4 +155,26 @@ describe('Connector management', () => {
       }
     });
   });
+
+  /** "Open a Gmail Item at its email on a phone" (issue 1837): the declaration travels beside the message links, Gmail configured here or not. */
+  describe('the Workspace carries how a source’s own website wants an address on a phone, by connector id', () => {
+    it.each([
+      { situation: 'Gmail configured here', unset: null },
+      { situation: 'Gmail where its Google client is not configured', unset: 'GMAIL_CLIENT_ID' },
+    ])('$situation names Gmail’s phone address, and a source declaring none is absent', async ({ unset }) => {
+      env.TEST_CONNECTORS = [OUTLOOK];
+      const kept = unset ? settings[unset] : undefined;
+      if (unset) delete settings[unset];
+      try {
+        const snapshot = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+        const { phoneLinks } = workspaceSnapshotSchema.parse(await snapshot.json());
+        expect(phoneLinks?.gmail).toMatchObject({ host: 'mail.google.com', path: '/mail/mu/mp/', mailboxParam: 'authuser' });
+        expect(phoneLinks?.outlook).toBeUndefined();
+        expect(phoneLinks?.teams).toBeUndefined();
+      } finally {
+        delete env.TEST_CONNECTORS;
+        if (unset) settings[unset] = kept;
+      }
+    });
+  });
 });

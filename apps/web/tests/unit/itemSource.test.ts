@@ -192,3 +192,74 @@ describe('Connector management', () => {
     });
   });
 });
+
+/** What the Gmail connector declares for a phone (issue 1837); the app names no connector. */
+const PHONE = {
+  gmail: {
+    host: 'mail.google.com',
+    path: '/mail/mu/mp/',
+    mailboxParam: 'authuser',
+    conversationFragment: 'cv/All Mail/',
+    draftsFragment: 'tl/Drafts',
+    notAConversationPrefix: 'message:',
+  },
+};
+const STORED = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/18f3c0';
+const phoneAt = (id: string) => `https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/${id}`;
+const gmailItem = (sourceId: string | null, over: Partial<Item> = {}): Item =>
+  ({ source: 'gmail', sourceLink: STORED, sourceId, sender: 'Els Maes', description: null, capturedMessage: null, ...over }) as Item;
+
+describe('Open at the source', () => {
+  describe('on a phone a Gmail Item that knows its conversation opens that conversation, and on a computer the stored link', () => {
+    it.each([
+      { situation: 'brought in by the label, on a phone', item: gmailItem('18f3c0'), conversationId: null, phone: PHONE, link: phoneAt('18f3c0') },
+      { situation: 'brought in by the star, from its source id, on a phone', item: gmailItem('18f3c0'), conversationId: null, phone: PHONE, link: phoneAt('18f3c0') },
+      {
+        situation: 'following a conversation it started, on a phone',
+        item: gmailItem(null),
+        conversationId: '19aa11',
+        phone: PHONE,
+        link: phoneAt('19aa11'),
+      },
+      {
+        situation: 'whose followed conversation and source id differ, on a phone',
+        item: gmailItem('18f3c0'),
+        conversationId: '19aa11',
+        phone: PHONE,
+        link: phoneAt('19aa11'),
+      },
+      { situation: 'any of these on a computer', item: gmailItem('18f3c0'), conversationId: '19aa11', phone: undefined, link: STORED },
+      { situation: 'a held copy saved before the declaration, on a phone', item: gmailItem('18f3c0'), conversationId: null, phone: undefined, link: STORED },
+    ])('$situation', ({ item, conversationId, phone, link }) => {
+      expect(openableAtSource(item, NAMES, undefined, { links: phone, conversationId })).toEqual({ name: 'Gmail', link });
+    });
+  });
+
+  describe('a Gmail Item that knows no conversation opens its stored link, on a phone as on a computer', () => {
+    it.each([
+      { situation: 'an older Item whose source id names one email', item: gmailItem('message:18f3c0') },
+      { situation: 'an Item with no source id', item: gmailItem(null) },
+    ])('$situation', ({ item }) => {
+      expect(openableAtSource(item, NAMES, undefined, { links: PHONE, conversationId: null })).toEqual({ name: 'Gmail', link: STORED });
+    });
+  });
+
+  describe('only a source that declares a phone address gets one', () => {
+    it.each([
+      { situation: 'an Outlook Item', item: itemFrom('outlook', 'https://outlook.office.com/mail/id/AAA') },
+      { situation: 'a Teams Item', item: itemFrom('teams', WORK) },
+      { situation: 'a LinkedIn Item', item: itemFrom('inmail' as Source, INMAIL) },
+      { situation: 'an Own note opened at a pasted Teams link', item: withTexts('internal', null, { description: `see ${WORK}` }) },
+    ])('$situation, on a phone', ({ item }) => {
+      const link = item.source === 'internal' ? WORK : item.sourceLink;
+      expect(openableAtSource(item, NAMES, TWO_CONNECTORS, { links: PHONE, conversationId: 'x' })?.link).toBe(link);
+    });
+  });
+
+  describe('a stored link the guest demo translates is never turned into the source’s phone address', () => {
+    it('a demo Gmail address on a phone', () => {
+      const item = gmailItem('18f3c0', { sourceLink: 'https://demo.cockpit.invalid/gmail' });
+      expect(openableAtSource(item, NAMES, undefined, { links: PHONE, conversationId: '18f3c0' })).toEqual({ name: 'Gmail', link: '/demo/gmail' });
+    });
+  });
+});

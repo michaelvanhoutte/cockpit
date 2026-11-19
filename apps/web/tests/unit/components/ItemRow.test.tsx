@@ -2124,6 +2124,36 @@ describe('Capture', () => {
       expect(mutate).not.toHaveBeenCalled();
     });
 
+    describe('on a phone a Gmail Item opens at its conversation from the row and from its menu, and on a computer at its stored link (issue 1837)', () => {
+      const stored = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/18f3c0';
+      const phoneLinks = {
+        gmail: {
+          host: 'mail.google.com',
+          path: '/mail/mu/mp/',
+          mailboxParam: 'authuser',
+          conversationFragment: 'cv/All Mail/',
+          draftsFragment: 'tl/Drafts',
+          notAConversationPrefix: 'message:',
+        },
+      };
+
+      it.each([
+        { situation: 'on a phone', mobile: true, href: 'https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/18f3c0' },
+        { situation: 'on a computer', mobile: false, href: stored },
+      ])('$situation', async ({ mobile, href }) => {
+        const user = userEvent.setup();
+        if (mobile) {
+          vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Chrome/126.0 Mobile Safari/537.36');
+        }
+        aRow({ item: anItem({ source: 'gmail', sourceLink: stored, sourceId: '18f3c0' }), extra: { phoneLinks } });
+
+        expect(screen.getByRole('link', { name: 'Open in Gmail' })).toHaveAttribute('href', href);
+        await user.click(screen.getByLabelText('Item actions'));
+        expect(await screen.findByRole('menuitem', { name: 'Open in Gmail' })).toHaveAttribute('href', href);
+        vi.restoreAllMocks();
+      });
+    });
+
     it('does not also open the form when the menu\'s Open in the source is chosen', async () => {
       const user = userEvent.setup();
       const onOpen = vi.fn();
@@ -3077,6 +3107,53 @@ describe('Triage', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Email…' }));
 
       await waitFor(() => expect(opened.location.href).toBe('https://mail.google.com/mail/#drafts?compose=m-1'));
+    });
+
+    describe('on a phone a draft opens on the source’s phone website: a reply in its conversation, anything else in Drafts (issue 1837)', () => {
+      const PHONE_LINKS = {
+        gmail: {
+          host: 'mail.google.com',
+          path: '/mail/mu/mp/',
+          mailboxParam: 'authuser',
+          conversationFragment: 'cv/All Mail/',
+          draftsFragment: 'tl/Drafts',
+          notAConversationPrefix: 'message:',
+        },
+      };
+      const MADE = 'https://mail.google.com/mail/?authuser=michael%40work.example#drafts?compose=m-1';
+      const aPhone = () =>
+        vi
+          .spyOn(navigator, 'userAgent', 'get')
+          .mockReturnValue('Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36');
+
+      it.each([
+        {
+          situation: 'Reply… on an Item following a conversation, on a phone',
+          label: 'Reply…',
+          phone: true,
+          extra: { conversation: FOLLOWED },
+          opens: 'https://mail.google.com/mail/mu/mp/?authuser=michael%40work.example#cv/All%20Mail/t-1',
+        },
+        {
+          situation: 'Email…, on a phone',
+          label: 'Email…',
+          phone: true,
+          extra: {},
+          opens: 'https://mail.google.com/mail/mu/mp/?authuser=michael%40work.example#tl/Drafts',
+        },
+        { situation: 'Reply…, on a computer', label: 'Reply…', phone: false, extra: { conversation: FOLLOWED }, opens: MADE },
+        { situation: 'Email…, on a computer', label: 'Email…', phone: false, extra: {}, opens: MADE },
+      ])('$situation', async ({ label, phone, extra, opens }) => {
+        const user = userEvent.setup();
+        if (phone) aPhone();
+        mockMakeADraft.mockResolvedValue(MADE);
+        aRow({ extra: { mailboxes: [WORK], phoneLinks: PHONE_LINKS, ...extra } });
+
+        await user.click(screen.getByLabelText('Item actions'));
+        await user.click(await screen.findByRole('menuitem', { name: label }));
+
+        await waitFor(() => expect(opened.location.href).toBe(opens));
+      });
     });
 
     it('closes the tab, and says why beside the Item put back, where the draft was not made', async () => {

@@ -1,4 +1,13 @@
-import { demoPageOf, firstMessageLink, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
+import {
+  demoPageOf,
+  firstMessageLink,
+  isDraftStarting,
+  phoneAddress,
+  type Conversation,
+  type DeclaredPhoneLinks,
+  type Item,
+  type WorkspaceSnapshot,
+} from '@cockpit/shared';
 
 /**
  * What each source is called, by its connector id, as the Workspace's snapshot
@@ -12,6 +21,32 @@ export type SourceNames = WorkspaceSnapshot['sourceNames'];
  * snapshot carries them; possibly absent, as `SourceNames` is.
  */
 export type MessageLinks = WorkspaceSnapshot['messageLinks'];
+
+/**
+ * How each source's own website wants an address on a phone, by connector id,
+ * as the snapshot carries them, and only where the device is a phone
+ * (`phoneLinksOnThisDevice`): undefined opens every stored link as it was.
+ */
+export type PhoneLinks = DeclaredPhoneLinks;
+
+/**
+ * What a conversation is opened by on a phone: the one an Item follows, once
+ * its source has named it - never one *Email…* is still starting.
+ */
+export function followedConversationId(conversation: Conversation | null | undefined): string | null {
+  return conversation && !isDraftStarting(conversation) ? conversation.conversationId : null;
+}
+
+/**
+ * What a source's own phone website opens, for the Item: the conversation it
+ * follows, else the id its source gave it where that names a conversation (an
+ * older Item brought in by one email names none: the stored link). Null where
+ * this is no phone, or the source declares no phone address.
+ */
+function phoneAddressOfItem(item: Item, conversationId: string | null, phone: PhoneLinks, link: string): string | null {
+  const id = conversationId ?? item.sourceId;
+  return id ? phoneAddress(phone, item.source, link, id) : null;
+}
 
 /**
  * What a source is called on screen ("Take source names out of the shared
@@ -87,11 +122,18 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  * page for that source rather than the source, and one on it that names no page
  * opens nothing. Any other link - a named person's real one included - passes
  * through as it was.
+ *
+ * **On a phone a source that declares how its website wants an address gets
+ * it** (`phoneLinks`, "Open a Gmail Item at its email on a phone", issue 1837):
+ * the conversation the Item follows, else its source id where that names one,
+ * opened by the source's own phone address; an Item that knows neither keeps
+ * its stored link.
  */
 export function openableAtSource(
   item: Item,
   names: SourceNames,
   messageLinks?: MessageLinks,
+  phone?: { links: PhoneLinks; conversationId: string | null },
 ): { name: string; link: string } | null {
   if (!item.sourceLink && (item.source === 'internal' || item.source === 'mcp')) {
     const found = firstMessageLink(item.description, messageLinks) ?? firstMessageLink(item.capturedMessage, messageLinks);
@@ -101,6 +143,9 @@ export function openableAtSource(
   if (!/^https?:\/\//i.test(item.sourceLink)) return null;
   const name = capturingApp(item) ?? sourceNamed(names, item.source);
   const link = whereALinkOpens(item.sourceLink);
-  return link === null ? null : { name, link };
+  if (link === null) return null;
+  // On a phone, where the source declares how its website wants an address.
+  const onThePhone = phone?.links ? phoneAddressOfItem(item, phone.conversationId, phone.links, link) : null;
+  return { name, link: onThePhone ?? link };
 }
 
