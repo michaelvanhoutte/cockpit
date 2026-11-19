@@ -523,10 +523,28 @@ export const panels = sqliteTable(
      * and a name this release cannot read is drawn as one list.
      */
     columns: text('columns'),
+    /**
+     * The Item this Panel is ("Brainstorming: give every Panel an Item and store
+     * filings as Item-in-Item relations", issue 1824): its title is the Panel's,
+     * it is in the Panel's Workspace, and its texts are settled, so Claude never
+     * rewrites it. **Its id is the Panel's own id**, which is what lets the
+     * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
+     * to hand out, and makes a replay a no-op.
+     *
+     * Null until the backfill reaches the Panel, and on a deleted Panel or one
+     * on a deleted Dashboard, which get none. **No REFERENCES**: `items` already
+     * points here through `proposed_panel_id`, and a link back would put the two
+     * tables in a circle a restore cannot order (`tablesParentsFirst`,
+     * restore.ts). The unique index `panels_item` holds one Panel to an Item.
+     */
+    itemId: text('item_id'),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },
   (t) => [
+    uniqueIndex('panels_item')
+      .on(t.itemId)
+      .where(sql`${t.itemId} IS NOT NULL`),
     /**
      * Unique within the *dashboard*, which is one level further down than the
      * dashboards index: two dashboards of one workspace may each have a Reading
@@ -1079,6 +1097,17 @@ export const items = sqliteTable(
      * the reason `proposed_panel_id` has none.
      */
     seriesId: text('series_id').references(() => series.id, { onDelete: 'restrict' }),
+    /**
+     * How many Items this one holds, and how many of those are done ("2 of 3
+     * done"; issue 1824): its live `item_children` rows whose Item is not
+     * dismissed, counted again in the transaction of every change that files,
+     * unfiles, finishes, reopens, dismisses or restores one of them
+     * (`item-children.ts`), so a read never counts history. 0 on an Item that
+     * holds nothing, which is every Item but a Panel's own today. No CHECK,
+     * for the reason `completed_at` has none.
+     */
+    childrenCount: integer('children_count').notNull().default(0),
+    childrenDone: integer('children_done').notNull().default(0),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 
@@ -1187,6 +1216,57 @@ export const panelItems = sqliteTable(
     check('panel_items_position_is_an_order', sql.raw('position >= 0')),
     check('panel_items_created_at_is_timestamp', isTimestamp('created_at')),
     check('panel_items_filed_at_is_timestamp', isTimestamp('filed_at')),
+  ],
+);
+
+/**
+ * Every Item held by another Item, and where it sits in that Item's order
+ * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
+ * relations", issue 1824). The one place an Item will sit in another, whether
+ * on a Panel, in a nested Panel or on a whiteboard; today it holds every
+ * filing a second time, under the Panel's own Item (`panels.item_id`), written
+ * in the transaction of every change that writes `panel_items`
+ * (`item-children.ts`). **Nothing reads it yet**: `panel_items` stays what a
+ * Panel and the Inbox are drawn from until the switch (issue 1825).
+ *
+ * - **Tombstoned, unlike `panel_items`**: taking an Item out sets `deleted_at`,
+ *   and putting it back clears it, so the key below is never met twice.
+ * - **`x`, `y`, `w`, `h` and `collapsed`** are a card's place on a whiteboard,
+ *   null and 0 for everything else; nothing writes them yet.
+ */
+export const itemChildren = sqliteTable(
+  'item_children',
+  {
+    tenantId: text('tenant_id').notNull(),
+    parentId: text('parent_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    childId: text('child_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull().default(0),
+    x: real('x'),
+    y: real('y'),
+    w: real('w'),
+    h: real('h'),
+    collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.parentId, t.childId] }),
+    // Where an Item is held, for the counts its holders keep and, from the
+    // switch, the Inbox; and what one Item holds, in order.
+    index('item_children_tenant_child')
+      .on(t.tenantId, t.childId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('item_children_tenant_parent')
+      .on(t.tenantId, t.parentId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('item_children_position_is_an_order', sql.raw('position >= 0')),
+    check('item_children_collapsed_is_a_flag', sql.raw('collapsed IN (0, 1)')),
+    check('item_children_created_at_is_timestamp', isTimestamp('created_at')),
+    check('item_children_deleted_at_is_timestamp', isTimestamp('deleted_at')),
   ],
 );
 

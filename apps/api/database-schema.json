@@ -2868,6 +2868,140 @@
           ]
         },
         {
+          "name": "item_children",
+          "strict": true,
+          "queriedAs": "itemChildren",
+          "columns": [
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "parent_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "parentId"
+            },
+            {
+              "name": "child_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 2,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "childId"
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "position"
+            },
+            {
+              "name": "x",
+              "type": "REAL",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "x"
+            },
+            {
+              "name": "y",
+              "type": "REAL",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "y"
+            },
+            {
+              "name": "w",
+              "type": "REAL",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "w"
+            },
+            {
+              "name": "h",
+              "type": "REAL",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "h"
+            },
+            {
+              "name": "collapsed",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "collapsed"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "item_children_tenant_child",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "child_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            },
+            {
+              "name": "item_children_tenant_parent",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "parent_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            }
+          ]
+        },
+        {
           "name": "item_conversations",
           "strict": true,
           "queriedAs": "itemConversations",
@@ -3676,6 +3810,24 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "waitingSince"
+            },
+            {
+              "name": "children_count",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "childrenCount"
+            },
+            {
+              "name": "children_done",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "childrenDone"
             }
           ],
           "indexes": [
@@ -4138,6 +4290,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "columns"
+            },
+            {
+              "name": "item_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "itemId"
             }
           ],
           "indexes": [
@@ -4150,6 +4311,14 @@
                 "folded_name"
               ],
               "where": "\"deleted_at\" IS NULL"
+            },
+            {
+              "name": "panels_item",
+              "unique": true,
+              "columns": [
+                "item_id"
+              ],
+              "where": "`item_id` IS NOT NULL"
             },
             {
               "name": "panels_tenant_dashboard",

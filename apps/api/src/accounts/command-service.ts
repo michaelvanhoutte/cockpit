@@ -5,6 +5,14 @@ import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../doma
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
+  dismissPanelsItems,
+  insertPanelsItem,
+  mirrorFilingsOf,
+  panelsHolding,
+  recountHoldersOf,
+  renamePanelsItem,
+} from './item-children.js';
+import {
   accountEmailAddress,
   accountFollowUps,
   accountItemFormPresentation,
@@ -126,6 +134,7 @@ import {
   panelFromCommand,
   panelNameForMove,
   panelNamed,
+  type PanelRow,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import { finishedKeptAfter } from '../domain/workspace-read.js';
@@ -728,6 +737,36 @@ function removedFromItsLayouts(
     .run();
 }
 
+/**
+ * A new Panel and the Item it is, in one transaction (issue 1824). `replayed:
+ * 'changes nothing'` is for a command whose replay carries the same Panel id,
+ * named at the primary key so a title collision still raises.
+ */
+function insertPanel(
+  tx: InATransaction,
+  panel: PanelRow,
+  workspaceId: string,
+  { replayed }: { replayed?: 'changes nothing' } = {},
+): void {
+  insertPanelsItem(tx, panel.tenantId, panel, workspaceId, panel.createdAt);
+  const inserting = tx.insert(panels).values({ ...panel, itemId: panel.id });
+  if (replayed) inserting.onConflictDoNothing({ target: panels.id }).run();
+  else inserting.run();
+}
+
+/**
+ * Writes an Item's row as it now stands, and counts again what every Item
+ * holding it keeps (`recountHoldersOf`), since a write may have finished,
+ * reopened, dismissed or restored it (issue 1824).
+ */
+function storeItem(tx: InATransaction, tenantId: string, item: Item): void {
+  tx.update(items)
+    .set(asStored(item))
+    .where(and(eq(items.tenantId, tenantId), eq(items.id, item.id)))
+    .run();
+  recountHoldersOf(tx, tenantId, item.id);
+}
+
 /** Writes where an item belongs, once somebody has said ("An item gets its workspace…"). */
 function settleWorkspace(
   tx: InATransaction,
@@ -825,12 +864,16 @@ function writeFiling(
   tenantId: string,
   itemId: string,
   decided: FilingDecided,
+  at: string,
 ): void {
   if (decided.workspaceSettled) settleWorkspace(tx, tenantId, itemId, decided.workspaceSettled);
+  // Every Panel whose filings this rewrites, for their Items to hold the same (issue 1824).
+  const touched = decided.panelId ? [decided.panelId] : [];
   // Off the Panels it is moved from first, which is what makes this a move
   // rather than an add: the item's own rows there go, and the target panel's
   // arrangement is then written whole.
   if (decided.takesItOffPanels) {
+    touched.push(...(decided.fromPanelIds ?? panelsHolding(tx, tenantId, itemId)));
     tx.delete(panelItems)
       .where(
         and(
@@ -841,17 +884,19 @@ function writeFiling(
       )
       .run();
   }
-  if (!decided.panelId) return;
-  // Replaced whole rather than merged: an order is the answer to "where do
-  // these items go now", so a row not in it must not survive - except the rows
-  // of Items finished more than a day ago, which `rows` carries as they were.
-  tx.delete(panelItems)
-    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, decided.panelId)))
-    .run();
-  for (const batch of inBatchesOf(decided.rows, FILING_VALUES_PER_ROW)) {
-    tx.insert(panelItems).values(batch).run();
+  if (decided.panelId) {
+    // Replaced whole rather than merged: an order is the answer to "where do
+    // these items go now", so a row not in it must not survive - except the rows
+    // of Items finished more than a day ago, which `rows` carries as they were.
+    tx.delete(panelItems)
+      .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, decided.panelId)))
+      .run();
+    for (const batch of inBatchesOf(decided.rows, FILING_VALUES_PER_ROW)) {
+      tx.insert(panelItems).values(batch).run();
+    }
   }
-  if (!decided.decision) return;
+  mirrorFilingsOf(tx, tenantId, touched, at);
+  if (!decided.panelId || !decided.decision) return;
   tx.insert(decisionHistory).values(decided.decision).onConflictDoNothing().run();
   // The proposal is spent the moment it is read into that entry - cleared here
   // so an Item that returns to the Inbox and is filed again cannot have its
@@ -879,8 +924,8 @@ function panelNamedFor(db: AccountDb, tenantId: string, workspaceId: string, pan
  * transaction of the change that settles it: each Panel's order whole, the one
  * decision, and the proposal withdrawn - as `writeFiling` does for a person's.
  */
-function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid): void {
-  writePanelOrders(tx, tenantId, filed.panels);
+function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid, at: string): void {
+  writePanelOrders(tx, tenantId, filed.panels, at);
   tx.insert(decisionHistory).values(filed.decision).onConflictDoNothing().run();
   tx.update(items)
     .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
@@ -888,8 +933,13 @@ function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: stri
     .run();
 }
 
-/** Each Panel's order written whole: its filings taken out, and the order it is left with put in. */
-function writePanelOrders(tx: InATransaction, tenantId: string, panels: readonly { panelId: string; rows: FilingRow[] }[]): void {
+/** Each Panel's order written whole: its filings taken out, the order it is left with put in, and its Item made to hold the same. */
+function writePanelOrders(
+  tx: InATransaction,
+  tenantId: string,
+  panels: readonly { panelId: string; rows: FilingRow[] }[],
+  at: string,
+): void {
   for (const panel of panels) {
     tx.delete(panelItems)
       .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.panelId)))
@@ -898,6 +948,7 @@ function writePanelOrders(tx: InATransaction, tenantId: string, panels: readonly
       tx.insert(panelItems).values(batch).run();
     }
   }
+  mirrorFilingsOf(tx, tenantId, panels.map((panel) => panel.panelId), at);
 }
 
 /** What a series' day comes to, read from the store before anything is written (`bring_back_occurrence`). */
@@ -1082,10 +1133,7 @@ function turnApplied(
  * message, the end of an open run, as To do ends one.
  */
 function writeTurnStatus(tx: InATransaction, tenantId: string, updated: Item, by: ConversationTurnBy, at: string): void {
-  tx.update(items)
-    .set(asStored(updated))
-    .where(and(eq(items.tenantId, tenantId), eq(items.id, updated.id)))
-    .run();
+  storeItem(tx, tenantId, updated);
   tx.update(pulledLinks)
     .set({ givenDueDate: updated.dueDate })
     .where(and(eq(pulledLinks.tenantId, tenantId), eq(pulledLinks.itemId, updated.id)))
@@ -1247,9 +1295,7 @@ export function runCommand<N extends CommandName>(
         // derived dashboard - both no-ops - but a panel id nothing has seen, so
         // naming `panels.id` would catch nothing and the *title* index would
         // refuse a second Panel 1 and take the whole command down with it.
-        if (dashboardIsNew) {
-          tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
-        }
+        if (dashboardIsNew) insertPanel(tx, firstPanelFor(dashboard, cmd.panelId), workspace.id);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1283,9 +1329,7 @@ export function runCommand<N extends CommandName>(
         // Every dashboard arrives with one, not only a workspace's first:
         // otherwise the `+` in the bar makes a dashboard nothing can be filed
         // onto, one dashboard at a time.
-        if (dashboardIsNew) {
-          tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
-        }
+        if (dashboardIsNew) insertPanel(tx, firstPanelFor(dashboard, cmd.panelId), cmd.workspaceId);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1343,6 +1387,7 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
           .run();
+        dismissPanelsItems(tx, tenantId, { dashboardId: cmd.dashboardId }, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1402,10 +1447,7 @@ export function runCommand<N extends CommandName>(
         // it must be a no-op rather than a second panel - and a *name*
         // collision has to raise, which a bare onConflictDoNothing would
         // swallow now that this table has a second unique index.
-        tx.insert(panels)
-          .values(panelFromCommand(cmd, tenantId))
-          .onConflictDoNothing({ target: panels.id })
-          .run();
+        insertPanel(tx, panelFromCommand(cmd, tenantId), cmd.workspaceId, { replayed: 'changes nothing' });
         insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
@@ -1539,6 +1581,7 @@ export function runCommand<N extends CommandName>(
           .set({ name: cmd.name, foldedName: foldName(cmd.name) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
+        renamePanelsItem(tx, tenantId, cmd.panelId, cmd.name, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1574,6 +1617,7 @@ export function runCommand<N extends CommandName>(
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
+        if (cmd.name !== undefined) renamePanelsItem(tx, tenantId, cmd.panelId, cmd.name, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1594,6 +1638,7 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
+        dismissPanelsItems(tx, tenantId, { panelId: cmd.panelId }, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1631,6 +1676,7 @@ export function runCommand<N extends CommandName>(
           .set({ dashboardId: target.id, name, foldedName: foldName(name) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
+        if (name !== panel.name) renamePanelsItem(tx, tenantId, cmd.panelId, name, cmd.issuedAt);
         insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
@@ -1831,7 +1877,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1849,10 +1895,7 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         // A resend whose command id was lost still writes one row.
         tx.insert(itemAdditions).values(addition).onConflictDoNothing().run();
-        tx.update(items)
-          .set(asStored(item))
-          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-          .run();
+        storeItem(tx, tenantId, item);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1868,7 +1911,7 @@ export function runCommand<N extends CommandName>(
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
 
       db.transaction((tx) => {
-        writeFiling(tx, tenantId, cmd.itemId, decided);
+        writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
@@ -1882,7 +1925,7 @@ export function runCommand<N extends CommandName>(
       const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [], fromTheSource)));
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
-        writeFiling(tx, tenantId, cmd.itemId, decided);
+        writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
@@ -1907,6 +1950,7 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1965,11 +2009,8 @@ export function runCommand<N extends CommandName>(
         applied = false;
       } else {
         db.transaction((tx) => {
-          tx.update(items)
-            // Both source columns, as the capture above (`asStored`, domain/items.ts).
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          // Both source columns, as the capture above (`asStored`, domain/items.ts).
+          storeItem(tx, tenantId, updated);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -1992,10 +2033,7 @@ export function runCommand<N extends CommandName>(
         applied = false;
       } else {
         db.transaction((tx) => {
-          tx.update(items)
-            .set(asStored(read))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, read);
           tx.insert(commands).values(commandRow).run();
         });
         // Decided against the Item as it stood here, not as the job read it
@@ -2035,11 +2073,8 @@ export function runCommand<N extends CommandName>(
       } else {
         const updated = applyProposedPanel(existing, cmd);
         db.transaction((tx) => {
-          tx.update(items)
-            // Both source columns, as the capture above (`asStored`, domain/items.ts).
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          // Both source columns, as the capture above (`asStored`, domain/items.ts).
+          storeItem(tx, tenantId, updated);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -2060,10 +2095,7 @@ export function runCommand<N extends CommandName>(
         applied = false;
       } else {
         db.transaction((tx) => {
-          tx.update(items)
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, updated);
           // Counted only for a proposal that was written, so a replay or a
           // proposal discarded for a later change uses nothing (issue 1163).
           countSentencesUsed(tx, tenantId, cmd.usedSentenceIds ?? [], cmd.issuedAt);
@@ -2135,12 +2167,9 @@ export function runCommand<N extends CommandName>(
       } else {
         db.transaction((tx) => {
           if (proposed !== null) {
-            tx.update(items)
-              .set(asStored(proposed.item))
-              .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-              .run();
+            storeItem(tx, tenantId, proposed.item);
           }
-          if (filed !== null) writeFilingWhereSaid(tx, tenantId, cmd.itemId, filed);
+          if (filed !== null) writeFilingWhereSaid(tx, tenantId, cmd.itemId, filed, cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
         fieldsSet = {
@@ -2645,10 +2674,7 @@ export function runCommand<N extends CommandName>(
         applied = false;
       } else {
         db.transaction((tx) => {
-          tx.update(items)
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, updated);
           // To do ends the run; In progress leaves it open, and so does an undo
           // of a wait, which says so - the wait left the run open.
           if (!cmd.started && !cmd.keepsRun) endTheOpenRun(tx, tenantId, cmd.itemId, cmd.issuedAt);
@@ -2677,10 +2703,7 @@ export function runCommand<N extends CommandName>(
       } else {
         // Open before and after, so nothing is mirrored at the source and no run ends.
         db.transaction((tx) => {
-          tx.update(items)
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, updated);
           tx.insert(commands).values(commandRow).run();
         });
       }
@@ -2916,10 +2939,7 @@ export function runCommand<N extends CommandName>(
       const updated = applyStartDraft(existing, cmd.issuedAt);
       if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
-        tx.update(items)
-          .set(asStored(updated))
-          .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-          .run();
+        storeItem(tx, tenantId, updated);
         if (cmd.replyIn !== null) {
           tx.update(itemConversations)
             .set({ statusBeforeDraft: before, draftId: null, draftLink: null, claudeDraftDigest: null })
@@ -2984,10 +3004,7 @@ export function runCommand<N extends CommandName>(
       if (!existing.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (updated) {
-          tx.update(items)
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, updated);
         }
         if (before.opened) tx.delete(itemConversations).where(where).run();
         else tx.update(itemConversations).set({ draftId: null, draftLink: null, claudeDraftDigest: null, statusBeforeDraft: null }).where(where).run();
@@ -3088,7 +3105,7 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         if (brought.kind === 'writes') {
           tx.insert(items).values({ ...asStored(brought.item), status: DEAD_STATUS_VALUE }).run();
-          writePanelOrders(tx, tenantId, brought.panels);
+          writePanelOrders(tx, tenantId, brought.panels, cmd.issuedAt);
         }
         tx.update(series)
           .set(
@@ -3283,10 +3300,7 @@ export function runCommand<N extends CommandName>(
           .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, cmd.runId)))
           .run();
         if (settled) {
-          tx.update(items)
-            .set(asStored(settled))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          storeItem(tx, tenantId, settled);
           // As set_done records it: "Agent finished: Done" on a Gmail Task
           // takes its label off (issue 944).
           wantPulledOpenStateMirrored(tx, tenantId, item, settled, mirroring);
@@ -3355,11 +3369,8 @@ export function runCommand<N extends CommandName>(
               ? runToReopen(db, tenantId, cmd, existing.deletedAt, updated)
               : null;
         db.transaction((tx) => {
-          tx.update(items)
-            // Both source columns, as the capture above (`asStored`, domain/items.ts).
-            .set(asStored(updated))
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
-            .run();
+          // Both source columns, as the capture above (`asStored`, domain/items.ts).
+          storeItem(tx, tenantId, updated);
           if (!fromTheSource) {
             wantPulledOpenStateMirrored(tx, tenantId, existing, updated, mirroring);
           }

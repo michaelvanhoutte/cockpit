@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { abortAllDurableObjects, applyD1Migrations, env } from 'cloudflare:test';
 import type { SqlStorage } from '@cloudflare/workers-types';
 import { GMAIL_RECONNECT_REASON, accountChanges, filterRowsStatements } from '../../../src/accounts/changes.js';
-import { itemStatus, themeOf } from '@cockpit/shared';
+import { filingsThatFile, itemStatus, itemsInTheInbox, themeOf } from '@cockpit/shared';
 import { inStoreAsItIs, storeNamed } from '../seed.js';
 
 /**
@@ -78,6 +78,8 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     claude_proposals: _claudeProposals,
     series_id: _seriesId,
     waiting_since: _waitingSince,
+    children_count: _childrenCount,
+    children_done: _childrenDone,
     ...rest
   } = row;
   return rest;
@@ -601,6 +603,14 @@ const rowsFor: {
     sql: `INSERT INTO item_conversations (tenant_id, item_id, connector_id, external_account_key, conversation_id, link, last_by, last_from, last_at, last_excerpt, message_count, started_at, with_whom)
           VALUES (?, 'it-before', 'gmail', 'google-somebody', 'thread-before', 'https://mail.google.com/mail/#all/thread-before', 'them', 'Steven', ?, 'Friday?', 2, ?, 'Steven')`,
     params: (name) => [name, AT, AT],
+  },
+  {
+    // An Item held by another (`0108-item-children`), so the backfill after it
+    // meets a table already holding a row it did not write.
+    table: 'item_children',
+    sql: `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+          VALUES (?, 'it-done-before', 'it-before', 0, ?)`,
+    params: (name) => [name, AT],
   },
 ];
 
@@ -1167,7 +1177,7 @@ describe('Capture', () => {
         await inStoreAsItIs(name, (sql) =>
           sql
             .exec<{ workspace_id: string; workspace_decided: number }>(
-              'SELECT workspace_id, workspace_decided FROM items ORDER BY id',
+              'SELECT workspace_id, workspace_decided FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id',
             )
             .toArray(),
         ),
@@ -1466,7 +1476,7 @@ describe('Layouts', () => {
         await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM panels ORDER BY id').toArray()),
       ).toEqual([{ id: 'pn-before' }, { id: 'pn-wrapped' }]);
       expect(
-        await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM items ORDER BY id').toArray()),
+        await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray()),
       ).toEqual([{ id: 'it-before' }, { id: 'it-done-before' }]);
       expect(
         await inStoreAsItIs(name, (sql) =>
@@ -2196,7 +2206,7 @@ const connectorRowsIn = (name: string) =>
       .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, own_alias: _ownAlias, ...row }) => row),
     failures: sql.exec('SELECT * FROM connection_failures ORDER BY source_account_id').toArray(),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
+    items: sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray().map(withoutLaterColumns),
   }));
 
 describe('Connector management', () => {
@@ -2289,7 +2299,7 @@ const keptBesideGmail = (name: string) =>
       .toArray()
       .map(({ follows: _follows, files_by_name: _filesByName, due_in_days: _dueInDays, granted: _granted, own_alias: _ownAlias, ...row }) => row),
     // Without the columns `0069-item-priority-set-at` and the changes after it add on the same open.
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray().map(withoutLaterColumns),
+    items: sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray().map(withoutLaterColumns),
     // Without `names` and `given_due_date`, which `0078-files-by-name` and `0091-due-in-days` add on the same open.
     links: sql
       .exec('SELECT * FROM pulled_links ORDER BY source_id')
@@ -2884,7 +2894,7 @@ const sourcesIn = (name: string) =>
   inStoreAsItIs(name, (sql) =>
     sql
       .exec<{ id: string; source: string; source_connector: string | null }>(
-        'SELECT id, source, source_connector FROM items ORDER BY id',
+        'SELECT id, source, source_connector FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id',
       )
       .toArray(),
   );
@@ -3137,7 +3147,7 @@ const servedAsItIs = (name: string) =>
   inStoreAsItIs(name, (sql) =>
     Object.fromEntries(
       sql
-        .exec<{ id: string; source: string }>('SELECT id, coalesce(source_connector, source) AS source FROM items')
+        .exec<{ id: string; source: string }>('SELECT id, coalesce(source_connector, source) AS source FROM items WHERE id NOT IN (SELECT id FROM panels)')
         .toArray()
         .map((row) => [row.id, row.source]),
     ),
@@ -3465,7 +3475,7 @@ const PROPOSED_PANEL_FIT = '0076-proposed-panel-fit';
 /** Every row of the two tables the change adds to, read whole. */
 const proposalsAndFilings = (name: string) =>
   inStoreAsItIs(name, (sql) => ({
-    items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+    items: sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray(),
     filings: sql.exec('SELECT * FROM decision_history ORDER BY id').toArray(),
   }));
 
@@ -3605,7 +3615,7 @@ describe('Connector management', () => {
     const DUE_IN_DAYS = '0091-due-in-days';
     const itemDatesIn = (name: string) =>
       inStoreAsItIs(name, (sql) =>
-        sql.exec('SELECT id, due_date, due_date_set_at, due_date_chosen_at FROM items ORDER BY id').toArray(),
+        sql.exec('SELECT id, due_date, due_date_set_at, due_date_chosen_at FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray(),
       );
     const datesIn = (name: string) =>
       inStoreAsItIs(name, (sql) => ({
@@ -3650,7 +3660,7 @@ describe('Item editing', () => {
     const SERIES = '0092-series';
     const itemsIn = (name: string) =>
       inStoreAsItIs(name, (sql) => ({
-        items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+        items: sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray(),
         series: sql.exec('SELECT * FROM series').toArray(),
       }));
 
@@ -3658,7 +3668,7 @@ describe('Item editing', () => {
       const name = 'aged-store-before-series';
       await agedTo(name, justBefore(SERIES));
       await fillWithWhatIsAlreadyThere(name);
-      const before = await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+      const before = await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray());
       expect(before.length).toBeGreaterThan(0);
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
@@ -3711,7 +3721,7 @@ describe('Item editing', () => {
 describe('Triage', () => {
   describe('every Item an account already had is not waiting for a reply once an Item can wait', () => {
     const WAITING_SINCE = '0096-item-waiting-since';
-    const itemsIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items ORDER BY id').toArray());
+    const itemsIn = (name: string) => inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM items WHERE id NOT IN (SELECT id FROM panels) ORDER BY id').toArray());
 
     it('adds the column, leaves every Item as it was, and reads each with the status it had', async () => {
       const name = 'aged-store-before-waiting-since';
@@ -3753,6 +3763,24 @@ const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => (
   connector_accounts: (kept.connector_accounts ?? []).map((row) => ({ ...(row as object), granted: null, own_alias: null })),
   connection_history: (kept.connection_history ?? []).map((row) => ({ ...(row as object), started_at: null })),
 });
+
+/**
+ * An account as it was before `0109-panels-become-items` gave each of its
+ * Panels an Item on the same open: without those Items, what they hold, and
+ * the columns `0108-item-children` adds.
+ */
+const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T => {
+  const rows = (table: string) => (kept[table] ?? []) as Record<string, unknown>[];
+  const panelIds = new Set(rows('panels').map((row) => row.id));
+  const { item_children: _held, ...rest } = kept;
+  return {
+    ...rest,
+    items: rows('items')
+      .filter((row) => !panelIds.has(row.id))
+      .map(({ children_count: _count, children_done: _done, ...row }) => row),
+    panels: rows('panels').map(({ item_id: _itemId, ...row }) => row),
+  } as unknown as T;
+};
 
 /** Every filing as it was, with `0105-panel-items-filed-at`'s column null: when it landed is unknown for every filing made before it. */
 const withFilingsUnstamped = <T extends Record<string, unknown[]>>(kept: T): T => ({
@@ -3801,7 +3829,7 @@ describe('Triage', () => {
         ...keptAfter
       } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
+      expect(withoutPanelsAsItems(keptAfter)).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { followUpDays: 3 } });
@@ -3858,7 +3886,7 @@ describe('Capture', () => {
         ...keptAfter
       } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
+      expect(withoutPanelsAsItems(keptAfter)).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { additions: [] } });
@@ -3907,7 +3935,7 @@ describe('Capture', () => {
       // remembered sentence whatever change it applies (`retire-agents.ts`).
       const { item_conversations: _added, account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual(withTheStartAdded(keptBefore));
+      expect(withoutPanelsAsItems(keptAfter)).toEqual(withTheStartAdded(keptBefore));
       expect(changesAfter!.slice(0, changesBefore!.length)).toEqual(changesBefore);
       const snapshot = await storeNamed(name).snapshot(name, 'ws-before');
       expect(snapshot).toMatchObject({ status: 'ok', value: { conversations: [] } });
@@ -3963,7 +3991,7 @@ describe('Triage', () => {
       // Agent every open converts to a remembered sentence (`retire-agents.ts`) aside.
       const { account_changes: changesAfter, agents: _a, remembered_sentences: _r, ...keptAfter } = after;
       const { account_changes: changesBefore, agents: _b, remembered_sentences: _s, ...keptBefore } = before;
-      expect(keptAfter).toEqual({
+      expect(withoutPanelsAsItems(keptAfter)).toEqual({
         ...withFilingsUnstamped(keptBefore),
         item_conversations: keptBefore.item_conversations!.map((row) => ({ ...(row as object), claude_draft_digest: null })),
         connector_accounts: keptBefore.connector_accounts!.map((row) => ({ ...(row as object), granted: null, own_alias: null })),
@@ -4072,6 +4100,290 @@ describe('Connector management', () => {
       await abortAllDurableObjects();
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await connectionsIn(name)).toEqual(once);
+    });
+  });
+});
+
+describe('Panels', () => {
+  /**
+   * `0109-panels-become-items` ("Brainstorming: give every Panel an Item and
+   * store filings as Item-in-Item relations", issue 1824), against a store
+   * aged to just before it and holding every kind of Panel and filing it has
+   * to meet. Its failure modes are its header's (changes.ts).
+   */
+  const PANELS_BECOME_ITEMS = '0109-panels-become-items';
+  const BIG = 250;
+
+  /** A store from just before Panels became Items, holding the Panels and filings each case reads. */
+  async function storeOfPanels(name: string): Promise<void> {
+    await agedTo(name, justBefore(PANELS_BECOME_ITEMS));
+    await inStoreAsItIs(name, (sql) => {
+      sql.exec(
+        `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES ('ws-a', ?, 'Novel', 'novel', '#6f62b5', ?)`,
+        name,
+        AT,
+      );
+      sql.exec(
+        `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at, deleted_at)
+         VALUES ('db-live', ?, 'ws-a', 'Book', 'book', ?, NULL), ('db-gone', ?, 'ws-a', 'Gone', 'gone', ?, ?)`,
+        name,
+        AT,
+        name,
+        AT,
+        LATER,
+      );
+      const panel = (id: string, dashboard: string, title: string, extra: { kind?: string; filter?: string; deletedAt?: string } = {}) =>
+        sql.exec(
+          `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, kind, filter_conditions, created_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          name,
+          dashboard,
+          title,
+          title.toLowerCase(),
+          extra.kind ?? 'items',
+          extra.filter ?? null,
+          AT,
+          extra.deletedAt ?? null,
+        );
+      panel('pn-people', 'db-live', 'People');
+      panel('pn-acts', 'db-live', 'Acts');
+      panel('pn-big', 'db-live', 'Big');
+      panel('pn-due', 'db-live', 'Due', { filter: '{"conditions":[],"match":"all","groupBy":"none"}' });
+      panel('pn-notes', 'db-live', 'Notes', { kind: 'text' });
+      panel('pn-deleted', 'db-live', 'Deleted', { deletedAt: LATER });
+      panel('pn-orphan', 'db-gone', 'Orphan');
+      const item = (id: string, title: string, extra: { completedAt?: string; deletedAt?: string } = {}) =>
+        sql.exec(
+          `INSERT INTO items (id, tenant_id, workspace_id, source, title, status, unseen, created_at, updated_at, completed_at, deleted_at)
+           VALUES (?, ?, 'ws-a', 'internal', ?, 'to_process', 0, ?, ?, ?, ?)`,
+          id,
+          name,
+          title,
+          AT,
+          AT,
+          extra.completedAt ?? null,
+          extra.deletedAt ?? null,
+        );
+      item('it-mentor', 'Mentor');
+      item('it-hero', 'Hero', { completedAt: FINISHED_AT });
+      item('it-villain', 'Villain');
+      item('it-ferry', 'Book the ferry', { deletedAt: LATER });
+      item('it-loose', 'Loose note');
+      item('it-left-behind', 'On a deleted Panel');
+      item('it-on-gone', 'On a deleted Dashboard');
+      const file = (panelId: string, itemId: string, position: number) =>
+        sql.exec(
+          'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
+          name,
+          panelId,
+          itemId,
+          position,
+          AT,
+        );
+      // Out of the order they were made in, so a copy that kept the made order would show.
+      file('pn-people', 'it-villain', 0);
+      file('pn-people', 'it-mentor', 1);
+      file('pn-people', 'it-hero', 2);
+      file('pn-acts', 'it-mentor', 0);
+      file('pn-acts', 'it-ferry', 1);
+      file('pn-deleted', 'it-left-behind', 0);
+      file('pn-orphan', 'it-on-gone', 0);
+      for (let n = 0; n < BIG; n += 1) {
+        const id = `it-big-${String(n).padStart(3, '0')}`;
+        item(id, `Scene ${n}`);
+        file('pn-big', id, BIG - 1 - n);
+      }
+    });
+  }
+
+  /** Each of the fixture's Panels with the Item it became, if any. */
+  const panelsAndTheirItems = (name: string) =>
+    inStoreAsItIs(name, (sql) =>
+      sql
+        .exec<{ id: string; item_id: string | null; title: string | null; workspace_id: string | null; settled: number | null; source: string | null }>(
+          `SELECT p.id, p.item_id, i.title, i.workspace_id, i.texts_settled_at IS NOT NULL AS settled, i.source
+             FROM panels p LEFT JOIN items i ON i.id = p.item_id
+            WHERE p.id LIKE 'pn-%' ORDER BY p.id`,
+        )
+        .toArray(),
+    );
+
+  /** What the Item one Panel became holds, in its order, with its two counts. */
+  const heldBy = (name: string, panelId: string) =>
+    inStoreAsItIs(name, (sql) => ({
+      held: sql
+        .exec<{ child_id: string }>(
+          `SELECT c.child_id FROM item_children c JOIN panels p ON p.item_id = c.parent_id
+            WHERE p.id = ? AND c.deleted_at IS NULL ORDER BY c.position, c.child_id`,
+          panelId,
+        )
+        .toArray()
+        .map((row) => row.child_id),
+      counts: sql
+        .exec<{ children_count: number; children_done: number }>(
+          'SELECT i.children_count, i.children_done FROM items i JOIN panels p ON p.item_id = i.id WHERE p.id = ?',
+          panelId,
+        )
+        .toArray()[0],
+    }));
+
+  const everyRowCount = (name: string) => inStoreAsItIs(name, rowCountsOf);
+  const ledgerHas = (name: string) =>
+    inStoreAsItIs(name, (sql) => sql.exec('SELECT name FROM account_changes WHERE name = ?', PANELS_BECOME_ITEMS).toArray().length === 1);
+
+  /** The Workspace's Inbox as a person sees it, by title. */
+  async function inboxOf(name: string): Promise<string[]> {
+    const read = await storeNamed(name).snapshot(name, 'ws-a');
+    if (read.status !== 'ok') throw new Error(JSON.stringify(read));
+    const { items, filings, panels } = read.value;
+    return itemsInTheInbox(items, filingsThatFile(filings, panels))
+      .map((one) => one.title)
+      .sort();
+  }
+
+  describe('every live Panel becomes an Item of its own, with its title and Workspace, and none of them reaches the Inbox', () => {
+    it.each([
+      { situation: 'a Panel of Items', panelId: 'pn-people', title: 'People' },
+      { situation: 'a Filter panel', panelId: 'pn-due', title: 'Due' },
+      { situation: 'a Panel of text', panelId: 'pn-notes', title: 'Notes' },
+    ])('$situation has one, settled so Claude never rewrites it', async ({ panelId, title }) => {
+      const name = `aged-store-panel-item-${panelId}`;
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const found = (await panelsAndTheirItems(name)).find((row) => row.id === panelId);
+      expect(found).toEqual({ id: panelId, item_id: panelId, title, workspace_id: 'ws-a', settled: 1, source: 'internal' });
+    });
+
+    it.each([
+      { situation: 'a Panel on a deleted Dashboard', panelId: 'pn-orphan' },
+      { situation: 'a deleted Panel', panelId: 'pn-deleted' },
+    ])('$situation has none', async ({ panelId }) => {
+      const name = `aged-store-panel-item-none-${panelId}`;
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect((await panelsAndTheirItems(name)).find((row) => row.id === panelId)?.item_id).toBeNull();
+      expect(
+        await inStoreAsItIs(name, (sql) => sql.exec('SELECT id FROM items WHERE id = ?', panelId).toArray()),
+      ).toEqual([]);
+    });
+
+    it('leaves the Inbox holding the same Items as before', async () => {
+      const name = 'aged-store-panel-item-inbox';
+      await storeOfPanels(name);
+
+      expect(await inboxOf(name)).toEqual(['Loose note', 'On a deleted Dashboard', 'On a deleted Panel']);
+    });
+  });
+
+  describe('every Item already filed on a live Panel is held by that Panel’s Item, in the same order', () => {
+    it.each([
+      { situation: 'a Panel with three filings', panelId: 'pn-people', held: ['it-villain', 'it-mentor', 'it-hero'] },
+      { situation: 'an Item on two Panels, held by the second as well', panelId: 'pn-acts', held: ['it-mentor', 'it-ferry'] },
+      {
+        situation: `a Panel with ${BIG} filings`,
+        panelId: 'pn-big',
+        held: Array.from({ length: BIG }, (_, n) => `it-big-${String(BIG - 1 - n).padStart(3, '0')}`),
+      },
+    ])('$situation', async ({ panelId, held }) => {
+      const name = `aged-store-panel-holds-${panelId}`;
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect((await heldBy(name, panelId)).held).toEqual(held);
+    });
+
+    it('keeps a dismissed Item dismissed while it is held', async () => {
+      const name = 'aged-store-panel-holds-dismissed';
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) => sql.exec("SELECT deleted_at FROM items WHERE id = 'it-ferry'").one()),
+      ).toEqual({ deleted_at: LATER });
+      expect((await heldBy(name, 'pn-acts')).held).toContain('it-ferry');
+    });
+
+    it.each([
+      { situation: 'three held, one of them done', panelId: 'pn-people', counts: { children_count: 3, children_done: 1 } },
+      { situation: 'two held, one of them dismissed', panelId: 'pn-acts', counts: { children_count: 1, children_done: 0 } },
+    ])('counts what it holds and how many are done: $situation', async ({ panelId, counts }) => {
+      const name = `aged-store-panel-counts-${panelId}`;
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect((await heldBy(name, panelId)).counts).toEqual(counts);
+    });
+  });
+
+  describe('turning Panels into Items changes nothing the second time, and nothing when it stops halfway', () => {
+    it('adds no row when it runs a second time', async () => {
+      const name = 'aged-store-panel-items-twice';
+      await storeOfPanels(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = await everyRowCount(name);
+      const children = await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM item_children ORDER BY parent_id, child_id').toArray());
+
+      // As the switch's copy step will carry the same statements again (issue 1825).
+      await inStoreAsItIs(name, (sql) => sql.exec('DELETE FROM account_changes WHERE name = ?', PANELS_BECOME_ITEMS));
+      await abortAllDurableObjects();
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await everyRowCount(name)).toEqual(once);
+      expect(await inStoreAsItIs(name, (sql) => sql.exec('SELECT * FROM item_children ORDER BY parent_id, child_id').toArray())).toEqual(children);
+    });
+
+    it('leaves the store as it was when it fails before it commits, and runs whole on the next request', async () => {
+      // Its last statement counts what each Panel's Item holds, after every
+      // other row is written; refusing that is the one way in from outside.
+      const name = 'aged-store-panel-items-fails-partway';
+      await storeOfPanels(name);
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec("CREATE TRIGGER in_the_way BEFORE UPDATE OF children_count ON items BEGIN SELECT RAISE(ABORT, 'in the way'); END"),
+      );
+      const before = await everyRowCount(name);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(PANELS_BECOME_ITEMS);
+      expect(await everyRowCount(name)).toEqual(before);
+      expect(await ledgerHas(name)).toBe(false);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP TRIGGER in_the_way'));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await ledgerHas(name)).toBe(true);
+      expect((await heldBy(name, 'pn-people')).held).toEqual(['it-villain', 'it-mentor', 'it-hero']);
+    });
+
+    it('fails loudly, writing nothing, on a filing whose Panel row is missing', async () => {
+      const name = 'aged-store-panel-items-missing-panel';
+      await storeOfPanels(name);
+      await inStoreAsItIs(name, (sql) => {
+        // The one way such a row can exist: written while the store's links were not held.
+        sql.exec('PRAGMA foreign_keys = OFF');
+        sql.exec(
+          "INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, 'pn-missing', 'it-loose', 0, ?)",
+          name,
+          AT,
+        );
+      });
+      const before = await everyRowCount(name);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(PANELS_BECOME_ITEMS);
+      expect(await everyRowCount(name)).toEqual(before);
+      expect(await ledgerHas(name)).toBe(false);
     });
   });
 });

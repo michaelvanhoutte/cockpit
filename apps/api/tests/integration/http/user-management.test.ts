@@ -110,7 +110,8 @@ function everythingIn(accountName: string) {
 function itemsIn(accountName: string): Promise<string[]> {
   return inStoreAsItIs(accountName, (sql) =>
     sql
-      .exec<{ id: string }>(`SELECT id FROM items WHERE ${NOT_THE_GUIDE} ORDER BY id`)
+      // Nor the Items its Panels are (issue 1824).
+      .exec<{ id: string }>(`SELECT id FROM items WHERE ${NOT_THE_GUIDE} AND id NOT IN (SELECT id FROM panels) ORDER BY id`)
       .toArray()
       .map((row) => row.id),
   );

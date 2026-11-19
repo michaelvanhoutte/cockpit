@@ -388,10 +388,17 @@ export function listPanels(db: AccountDb, tenantId: string, dashboardId: string)
         isNull(panels.deletedAt),
       ),
     )
-    .orderBy(panels.createdAt)
+    .orderBy(panels.createdAt, panelsInTheOrderMade)
     .all()
     .map(panelAsRead);
 }
+
+/**
+ * Two Panels made in the same instant in the order they were written, which
+ * is what the order on `created_at` alone gave until `panels_item` let SQLite
+ * plan the read another way (issue 1824).
+ */
+const panelsInTheOrderMade = sql`"panels"."rowid"`;
 
 /** One live panel, wherever it sits. Its `dashboardId` is what the changes to it scope by. */
 export function getPanel(db: AccountDb, tenantId: string, panelId: string): Panel | null {
@@ -457,7 +464,7 @@ export function listPanelsInWorkspace(
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(panels.createdAt)
+    .orderBy(panels.createdAt, panelsInTheOrderMade)
     .all()
     .map(panelAsRead);
 }
@@ -759,6 +766,17 @@ const itemColumns = {
  */
 export type ItemsOfTheRead = 'every' | 'finished' | { finishedAfter: string };
 
+/**
+ * Leaves out the Item a Panel is ("Brainstorming: give every Panel an Item and
+ * store filings as Item-in-Item relations", issue 1824): it is never in the
+ * Inbox, and until the switch shows Panels as Items (issue 1825) it is on no
+ * list, found by no search and read by no job. One lookup by `panels_item` per
+ * row; a deleted Panel's Item is left out as well.
+ */
+function notAPanelsOwnItem() {
+  return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${items.id})`;
+}
+
 function itemsOfTheRead(of: ItemsOfTheRead) {
   if (of === 'every') return undefined;
   if (of === 'finished') return and(isNotNull(items.completedAt), isNull(items.deletedAt));
@@ -798,6 +816,7 @@ export function listOpenItems(
         or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
         isNull(items.deletedAt),
         itemsOfTheRead(of),
+        notAPanelsOwnItem(),
       ),
     )
     .orderBy(items.createdAt)
@@ -846,6 +865,7 @@ export function listItemsToSearch(
         inScope,
         isNull(items.deletedAt),
         includeDone ? undefined : isNull(items.completedAt),
+        notAPanelsOwnItem(),
       ),
     )
     .all();
@@ -2572,6 +2592,7 @@ export function openItemsASentenceMayFit(
         isNull(items.completedAt),
         isNull(items.deletedAt),
         workspaceId === null ? undefined : and(eq(items.workspaceDecided, true), eq(items.workspaceId, workspaceId)),
+        notAPanelsOwnItem(),
       ),
     )
     .orderBy(desc(items.updatedAt), desc(items.id))
@@ -3114,6 +3135,7 @@ export function itemsToRead(
         couldStillBeActedOn(items, tenantId),
         after === null ? undefined : gt(items.id, after),
         nothingHasReadIt,
+        notAPanelsOwnItem(),
       ),
     )
     .orderBy(asc(items.id))
