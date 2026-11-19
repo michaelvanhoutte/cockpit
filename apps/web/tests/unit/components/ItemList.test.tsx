@@ -4231,6 +4231,34 @@ describe('Panels', () => {
       );
     });
 
+    it('takes a child moved to the Inbox out of the Item holding it, or it would be in no Inbox', async () => {
+      const user = await onAPanel();
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      const storm = within(childRows()!).getByText('Storm scene').closest('li')!;
+      await user.click(within(storm).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Move to…' }));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /^Inbox/ }));
+
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: expect.objectContaining({ itemId: STORM.id, panelId: null }) }),
+      );
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'remove_child', payload: expect.objectContaining({ parentId: CHAPTER.id, childId: STORM.id }) }),
+      );
+    });
+
+    it('carries a child row picked in the Inbox in the Inbox’s bar', async () => {
+      held.filings = [];
+      const user = await showList({ items: [CHAPTER, BART] });
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      await tick(user, STORM);
+      await tick(user, BART);
+
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+    });
+
     it.each([
       { situation: 'at a phone’s width', desk: false },
       { situation: 'at a desk’s width', desk: true },
@@ -4288,6 +4316,20 @@ describe('Panels', () => {
       expect(held.send).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id] }) }),
       );
+    });
+
+    it('offers no Item waiting in every Inbox, which belongs to no Workspace to hold anything in', async () => {
+      const waiting = { ...anItem('11111111-1111-7111-8111-000000000031', 'Somewhere'), workspaceDecided: false };
+      held.items = [BART, CHAPTER, waiting];
+      const user = await showList({ items: [BART, CHAPTER, waiting] });
+
+      const bart = screen.getByText('Reply to Bart').closest('li')!;
+      await user.click(within(bart).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add as child of…' }));
+      const dialog = await screen.findByRole('dialog');
+
+      expect(within(dialog).getByRole('button', { name: 'Chapter 3' })).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Somewhere' })).not.toBeInTheDocument();
     });
   });
 });

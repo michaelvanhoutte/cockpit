@@ -11,6 +11,7 @@ import {
   itemSchema,
   textsFromCapture,
   nextColor,
+  parentIdsOf,
   stillOpen,
   themeOf,
   type AgentRun,
@@ -113,9 +114,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
         ? snapshot
         : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
     case 'set_done':
-      return withItem(snapshot, change.payload.itemId, {
-        completedAt: change.payload.done ? change.payload.issuedAt : null,
-      });
+      return doneAhead(snapshot, change.payload);
     case 'set_started':
       return withItem(snapshot, change.payload.itemId, {
         startedAt: change.payload.started ? change.payload.issuedAt : null,
@@ -274,7 +273,7 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     priority: note.priority ?? null,
     dueDate: note.dueDate ?? null,
     unseen: false,
-    // A note just captured holds nothing (issue 1825).
+    // A note just captured holds nothing ("Brainstorming: an Item can't hold other Items", issue 1825).
     childrenCount: 0,
     childrenDone: 0,
     createdAt: note.issuedAt,
@@ -678,6 +677,21 @@ function takenOutAhead(snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_
   const child = snapshot.items.find((item) => item.id === out.childId);
   const counted = withCounts(snapshot, out.parentId, -1, child && !stillOpen(child) ? -1 : 0);
   return { ...counted, children: held.filter((row) => !(row.parentId === out.parentId && row.childId === out.childId)) };
+}
+
+/**
+ * An Item finished or reopened, and the done count of every Item holding it
+ * moved with it, as the server counts it (issue 1825), so "2 of 3 done"
+ * changes at the click rather than at the read after.
+ */
+function doneAhead(snapshot: WorkspaceSnapshot, done: CommandPayload<'set_done'>): WorkspaceSnapshot {
+  const was = snapshot.items.find((item) => item.id === done.itemId);
+  const finished = withItem(snapshot, done.itemId, { completedAt: done.done ? done.issuedAt : null });
+  if (!was || stillOpen(was) !== done.done) return finished;
+  return parentIdsOf(snapshot.children ?? [], done.itemId).reduce(
+    (drawn, parentId) => withCounts(drawn, parentId, 0, done.done ? 1 : -1),
+    finished,
+  );
 }
 
 /** A parent's two counts moved by these amounts, never below nothing. */

@@ -12,7 +12,9 @@ function useRelations(workspaceId: string, item: Item) {
   const { data } = useSnapshot(workspaceId);
   const rows = data?.children ?? [];
   const parents = parentIdsOf(rows, item.id);
-  const children = childIdsOf(rows, item.id);
+  // Only the ones the read holds: one dismissed a moment ago is gone from it and from the counts.
+  const held = new Set((data?.items ?? []).map((one) => one.id));
+  const children = childIdsOf(rows, item.id).filter((id) => held.has(id));
   /** The children the read leaves out, which the counts kept on the Item still hold. */
   const notListed = Math.max(0, (item.childrenCount ?? 0) - children.length);
   return { data, parents, children, notListed };

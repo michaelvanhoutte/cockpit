@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMemo, useState } from 'react';
-import { descendantIdsOf, itemLabel, stillOpen, type ChildRow, type Item } from '@cockpit/shared';
+import { descendantIdsOf, itemLabel, stillOpen, workspaceIsDecided, type ChildRow, type Item } from '@cockpit/shared';
 
 /** The most Items the picker lists at once; typing narrows it. */
 const LISTED = 8;
@@ -18,7 +18,10 @@ export default function AddAsChildOf({
   children,
   onAdd,
   onClose,
+  returnFocusTo,
 }: {
+  /** Where the focus goes back to once it closes: the row's menu button, when it was opened from one. */
+  returnFocusTo?: HTMLElement | null | undefined;
   /** The Items going inside, never none. */
   chosen: readonly Item[];
   /** The Workspace's Items, from its snapshot. */
@@ -41,6 +44,8 @@ export default function AddAsChildOf({
     const words = search.trim().toLowerCase();
     return items
       .filter(stillOpen)
+      // One waiting in every Inbox belongs to no Workspace yet, so it can hold nothing here.
+      .filter(workspaceIsDecided)
       .filter((item) => !chosenIds.has(item.id) && !below.has(item.id))
       .filter((item) => !words || itemLabel(item).toLowerCase().includes(words))
       .slice(0, LISTED);
@@ -54,6 +59,11 @@ export default function AddAsChildOf({
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusTo) return;
+            event.preventDefault();
+            returnFocusTo.focus();
+          }}
           className="fixed left-1/2 top-1/2 z-floating flex max-h-[90vh] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="truncate text-base font-semibold">{title}</Dialog.Title>

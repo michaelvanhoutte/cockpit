@@ -4238,7 +4238,7 @@ describe('Item editing', () => {
 
 /**
  * "Show what Cockpit changed on the item itself, and name it for what it is"
- * (issue 690): the fourth tab on an item's form, and a note under the tabs. What
+ * (issue 690): the last tab on an item's form, and a note under the tabs. What
  * decides the note from the history and what has been seen is
  * tests/unit/cockpitChanges.test.ts; what is asked here is what the form draws
  * and when it reads.

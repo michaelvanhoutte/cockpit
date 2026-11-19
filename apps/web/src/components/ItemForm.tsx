@@ -34,6 +34,7 @@ import {
   type Priority,
   type StatusState,
   filingsThatFile,
+  insideOf,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
@@ -486,6 +487,7 @@ function TheForm({
     // the rule a pair is offered by.
     filingsThatFile(data?.filings ?? [], data?.panels ?? []),
     data?.duplicates ?? [],
+    data?.children,
   );
   /**
    * The other ways this note could genuinely be read, or `null` where the
@@ -1023,7 +1025,7 @@ function TheForm({
    */
   const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
-  /** Its parents and children, for the Relations tab's title (issue 1825). */
+  /** Its parents and children, for the Relations tab's title ("Brainstorming: an Item can't hold other Items", issue 1825). */
   const relationCount = useRelationCount(workspaceId, item);
   /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
   const seeChanges = cockpit.markSeen;
@@ -1955,8 +1957,10 @@ function TheForm({
                   aria-label="Item"
                   // On a phone the five tabs are wider than the page, so the
                   // strip scrolls sideways, as the description's toolbar does,
-                  // rather than breaking a tab's name across two lines.
-                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3 overflow-x-auto' : 'gap-4'}`}
+                  // rather than breaking a tab's name across two lines. A
+                  // scrolling strip clips what hangs below it, so there a tab's
+                  // line sits on the strip's rather than over it.
+                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3 overflow-x-auto overflow-y-hidden' : 'gap-4'}`}
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
@@ -1976,7 +1980,7 @@ function TheForm({
                       aria-controls={tab === which ? `${formId}-${which}` : undefined}
                       tabIndex={tab === which ? 0 : -1}
                       onClick={() => setTab(which)}
-                      className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-1 pb-1.5 text-sm font-medium ${
+                      className={`${onAPage ? '' : '-mb-px '}shrink-0 whitespace-nowrap border-b-2 px-1 pb-1.5 text-sm font-medium ${
                         tab === which
                           ? 'border-accent text-ink'
                           : 'border-transparent text-ink-faint hover:text-ink'
@@ -2010,7 +2014,7 @@ function TheForm({
                 >
                   {/* Said once, where the surprise is, and only where Cockpit
                       changed the title or description: the rest is in the
-                      fourth tab ("Show what Cockpit changed on the item
+                      last tab ("Show what Cockpit changed on the item
                       itself", issue 690). */}
                   {cockpit.note && (
                     <p className="mt-2 shrink-0 text-xs text-ink-faint">
@@ -2276,9 +2280,12 @@ function TheForm({
                       <div>
                         {readView ? (
                           <p className="text-sm text-ink-soft">
-                            {onPanels.shown.length === 0
-                              ? 'In the Inbox'
-                              : `On ${onPanels.shown.map((one) => one.name).join(', ')}`}
+                            {onPanels.shown.length > 0
+                              ? `On ${onPanels.shown.map((one) => one.name).join(', ')}`
+                              : // Held by an Item is out of the Inbox too (issue 1825).
+                                insideOf(itemId, data?.children ?? [], data?.items ?? []).length > 0
+                                ? `Inside ${insideOf(itemId, data?.children ?? [], data?.items ?? []).join(', ')}`
+                                : 'In the Inbox'}
                           </p>
                         ) : onPanelsFailed ? (
                           <p role="alert" className="text-sm text-over-ink">

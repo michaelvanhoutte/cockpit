@@ -289,6 +289,7 @@ export function CaptureNote({
           afterCapture.items,
           filingsThatFile(afterCapture.filings, afterCapture.panels),
           afterCapture.duplicates,
+          afterCapture.children,
         )[0]
       : undefined;
 

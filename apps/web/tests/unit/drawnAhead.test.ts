@@ -155,6 +155,19 @@ describe('Item editing', () => {
       expect(shown(read(copy, BART)!)).not.toEqual(expected);
     });
 
+    it('moves the done count of the Item holding it as it is finished and reopened', () => {
+      const copy = {
+        ...workspace([anItem(BART), anItem(LISA, { childrenCount: 1, childrenDone: 0 })]),
+        children: [{ parentId: LISA, childId: BART, position: 0 }],
+      };
+
+      const finished = drawnAhead(copy, { name: 'set_done', payload: { ...envelope(BART), done: true } } as CommandArgs);
+      const reopened = drawnAhead(finished, { name: 'set_done', payload: { ...envelope(BART), done: false } } as CommandArgs);
+
+      expect(read(finished, LISA)).toMatchObject({ childrenCount: 1, childrenDone: 1 });
+      expect(read(reopened, LISA)).toMatchObject({ childrenCount: 1, childrenDone: 0 });
+    });
+
     it('takes a dismissed Item out of the Workspace', () => {
       const copy = workspace([anItem(BART), anItem(LISA)]);
 

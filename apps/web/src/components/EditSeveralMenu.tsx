@@ -52,7 +52,7 @@ export function EditSeveralMenu({
   onEndRuns,
   onAddAsChildOf,
 }: {
-  /** *Add as child of…* (issue 1825): asks which Item the picked ones go inside. Absent, it is not offered. */
+  /** *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue 1825): asks which Item the picked ones go inside. Absent, it is not offered. */
   onAddAsChildOf?: (() => void) | undefined;
   picked: readonly Item[];
   /** *End Claude run*: on offer where a picked row has an open run, and saying so where none does. */

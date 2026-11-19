@@ -18,6 +18,8 @@ export function useAddingAsChild(workspaceId: string, afterAdding?: () => void) 
   const send = useSendCommand();
   const offerToUndo = useUndo();
   const [asking, setAsking] = useState<readonly Item[] | null>(null);
+  /** The menu button it was asked from, which the focus goes back to. */
+  const [askedFrom, setAskedFrom] = useState<HTMLElement | null>(null);
 
   const add = (chosen: readonly Item[], parent: Item) => {
     const already = new Set((data?.children ?? []).filter((row) => row.parentId === parent.id).map((row) => row.childId));
@@ -53,9 +55,16 @@ export function useAddingAsChild(workspaceId: string, afterAdding?: () => void) 
         children={data.children ?? []}
         onAdd={(parent) => add(asking, parent)}
         onClose={() => setAsking(null)}
+        returnFocusTo={askedFrom}
       />
     </Suspense>
   );
 
-  return { ask: (chosen: readonly Item[]) => setAsking(chosen), dialog };
+  return {
+    ask: (chosen: readonly Item[], from: HTMLElement | null = null) => {
+      setAskedFrom(from);
+      setAsking(chosen);
+    },
+    dialog,
+  };
 }

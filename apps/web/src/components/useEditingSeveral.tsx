@@ -41,7 +41,7 @@ export function useEditingSeveral({
   scope,
   onAddAsChildOf,
 }: {
-  /** *Add as child of…* on Edit ▾ (issue 1825), where the bar offers it. */
+  /** *Add as child of…* on Edit ▾ ("Brainstorming: an Item can't hold other Items", issue 1825), where the bar offers it. */
   onAddAsChildOf?: (() => void) | undefined;
   workspaceId: string;
   /** Where the selection is held, which a dismissal takes the Items it applied out of. */

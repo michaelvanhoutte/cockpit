@@ -2001,7 +2001,9 @@ export function runCommand<N extends CommandName>(
       if (settling.length > 0) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         for (const child of settling) {
-          settleWorkspace(tx, tenantId, child.id, { workspaceId: parent.workspaceId, updatedAt: cmd.issuedAt });
+          // Through `decideWorkspace`, as filing settles one, so its stamp never goes backwards.
+          const settled = decideWorkspace(child, parent.workspaceId, cmd.issuedAt);
+          if (settled) settleWorkspace(tx, tenantId, child.id, settled);
         }
         putInside(tx, tenantId, parent.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();

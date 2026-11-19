@@ -1043,7 +1043,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
             item,
             [
               ...placesFiledOn(item, where.filings, where.panels, where.dashboards),
-              // Inside an Item rather than on a Panel (issue 1825): not in the Inbox either.
+              // Inside an Item rather than on a Panel ("Brainstorming: an Item can't hold other Items", issue 1825): not in the Inbox either.
               ...where.parents.filter((parent) => parent.childId === item.id).map((parent) => `inside ${itemLabel(parent)}`),
             ],
             files.filter((file) => file.itemId === item.id).map(({ id, filename }) => ({ id, filename })),

@@ -1,4 +1,4 @@
-import { itemLabel, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
+import { itemLabel, parentIdsOf, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
 import { refusalFrom, type CommandArgs } from './api/queries';
 import {
   allAnswered,
@@ -86,7 +86,13 @@ export async function fileOnto(
   running = true;
   d.setFiling(true);
   d.setRefusal(null);
-  let handedOver: { answered: Answered<Item>; wasOn: ReadonlyMap<string, WasOn[]>; reordering: boolean } | null = null;
+  let handedOver: {
+    answered: Answered<Item>;
+    wasOn: ReadonlyMap<string, WasOn[]>;
+    reordering: boolean;
+    /** The Items each one was taken out of on its way to the Inbox. */
+    leftParents: ReadonlyMap<string, string[]>;
+  } | null = null;
   try {
     // The screen's own copy, with the changes made a moment ago over it, so
     // every order below describes the Panels as they are drawn.
@@ -144,7 +150,19 @@ export async function fileOnto(
             },
           });
     });
-    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering };
+    // To the Inbox is out of every Item holding it as well, or it would be in
+    // no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825).
+    const leftParents = new Map(
+      target === null ? chosen.map((item) => [item.id, parentIdsOf(drawn.children ?? [], item.id)] as const) : [],
+    );
+    for (const [childId, parentIds] of leftParents) {
+      for (const parentId of parentIds) {
+        void d
+          .send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } })
+          .catch(() => {});
+      }
+    }
+    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering, leftParents };
   } catch (error) {
     d.setRefusal(refusalFrom({ error }));
   } finally {
@@ -160,7 +178,7 @@ export async function fileOnto(
     d.closeQuestion();
   }
   if (!handedOver) return;
-  const { answered, wasOn, reordering } = handedOver;
+  const { answered, wasOn, reordering, leftParents } = handedOver;
   const selectionScope = landing?.scope ?? d.scope;
   const where = d.nameOf(target);
 
@@ -199,8 +217,20 @@ export async function fileOnto(
       ...(decides
         ? {}
         : {
-            undo: async () =>
-              putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, (await answered).landed, wasOn),
+            undo: async () => {
+              const { landed } = await answered;
+              await Promise.all([
+                putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed, wasOn),
+                ...landed.flatMap((item) =>
+                  (leftParents.get(item.id) ?? []).map((parentId) =>
+                    d.send({
+                      name: 'add_children',
+                      payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [item.id] },
+                    }),
+                  ),
+                ),
+              ]);
+            },
           }),
       // A reorder shows nothing new and adds to no other Panel: Undo alone.
       ...(target && !reordering ? d.nextSteps(answered.then(({ landed }) => landed), target) : {}),

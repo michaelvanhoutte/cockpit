@@ -263,5 +263,11 @@ describe('Inbox', () => {
     ])('$situation', ({ completedAt, filings, where }) => {
       expect(whereItIs(anItem('x', completedAt), filings, PANELS, DASHBOARDS)).toBe(where);
     });
+
+    it('names the Item holding one filed nowhere, rather than the Inbox it is not in', () => {
+      const chapter = { ...anItem('chapter', null), title: 'Chapter 3' };
+      const children = [{ parentId: 'chapter', childId: 'x', position: 0 }];
+      expect(whereItIs(anItem('x', null), [], PANELS, DASHBOARDS, children, [chapter])).toBe('Inside Chapter 3');
+    });
   });
 });

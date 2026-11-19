@@ -1537,6 +1537,8 @@ export function childRowsOfTheRead(db: AccountDb, tenantId: string, workspaceId:
         heldBy(items.id, items.tenantId),
         eq(items.tenantId, tenantId),
         eq(items.workspaceId, workspaceId),
+        // A dismissed child is in no read and no count, so it has no row to send.
+        isNull(items.deletedAt),
         eq(parent.workspaceId, workspaceId),
         isNull(parent.deletedAt),
         sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parent.id})`,

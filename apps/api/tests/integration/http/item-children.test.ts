@@ -208,6 +208,19 @@ describe('Panels', () => {
       expect(read.items.find((item) => item.id === chapter)).toMatchObject({ childrenCount: 1, childrenDone: 0 });
       expect((read.children ?? []).filter((row) => row.parentId === chapter).map((row) => row.childId)).toEqual([ferry]);
     });
+
+    it('counts out and sends no row for a child dismissed', async () => {
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      const ferry = await anItem('Ferry scene');
+      expect((await putInside(chapter, storm, ferry)).status).toBe(200);
+
+      expect((await send('set_dismissed', { itemId: storm, dismissed: true })).status).toBe(200);
+
+      const read = await snapshot();
+      expect(read.items.find((item) => item.id === chapter)).toMatchObject({ childrenCount: 1, childrenDone: 0 });
+      expect((read.children ?? []).filter((row) => row.parentId === chapter).map((row) => row.childId)).toEqual([ferry]);
+    });
   });
 
   describe('the Workspace’s read carries where an Item sits only for the Items it reads', () => {

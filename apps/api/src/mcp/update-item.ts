@@ -180,7 +180,7 @@ export function updateItemTool(catalogue: readonly ReadableWorkspace[] = []): To
           type: ['array', 'null'],
           items: panelNames('A Panel to take the item off.'),
           maxItems: MOST_PANELS_NAMED,
-          description: 'Panels to take the item off, by name. With none left it is in the Inbox.',
+          description: 'Panels to take the item off, by name. With none left, and inside no other item, it is in the Inbox.',
         },
         move_to_panel: {
           type: ['string', 'null'],

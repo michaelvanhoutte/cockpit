@@ -18,6 +18,7 @@ import {
   itemsOnPanel,
   childrenOf,
   holdsItems,
+  parentIdsOf,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
@@ -325,8 +326,21 @@ export function ItemList({
   /** Everything a selection put on screen, gone together. */
   const stopSelecting = () => endSelection(scope);
 
-  /** The picked rows this list shows, in the order it shows them. */
-  const picked = pickedInTheList(selection, items);
+  /**
+   * The picked rows this list shows, in the order it shows them. The Inbox's
+   * bar also carries the child rows ticked under its parents, which are lists
+   * of their own (issue 1825); a Dashboard's bar reads every pick already.
+   */
+  const pickedHere = pickedInTheList(selection, items);
+  const picked =
+    onDashboard || heldBy
+      ? pickedHere
+      : [
+          ...pickedHere,
+          ...(data?.items ?? []).filter(
+            (item) => stillOpen(item) && selection.picked.has(item.id) && !pickedHere.includes(item),
+          ),
+        ];
 
   // Says what this list shows, so the scope can drop what none of its lists
   // show any more - **dropped, not merely hidden**, or a row moved out from its
@@ -461,6 +475,13 @@ export function ItemList({
         ...(leaving && panelId !== null ? { fromPanelIds: [leaving] } : {}),
       },
     });
+    // To the Inbox is out of every Item holding it as well, or it would be in
+    // no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825).
+    const leftParents = panelId === null ? parentIdsOf(data?.children ?? [], item.id) : [];
+    const childEnvelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
+    for (const parentId of leftParents) {
+      void send({ name: 'remove_child', payload: { ...childEnvelope(), parentId, childId: item.id } }).catch(() => {});
+    }
     // Remembered only once it has happened: a panel a move was refused for is
     // not a panel you have been filing into.
     answer.then(
@@ -487,7 +508,17 @@ export function ItemList({
       // 142, issue 923). **Withheld for
       // an undecided item**, whose move decides its workspace and cannot
       // be put back (`decides` above); it still gets the two below.
-      ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
+      ...(decides
+        ? {}
+        : {
+            undo: () =>
+              Promise.all([
+                putItBackOn(item, before),
+                ...leftParents.map((parentId) =>
+                  send({ name: 'add_children', payload: { ...childEnvelope(), parentId, childIds: [item.id] } }),
+                ),
+              ]),
+          }),
       // Onto a panel only: a move to the Inbox has nowhere to show and
       // nothing to also show on ("Show and Also show on… in the undo
       // bar after moving an Item", issue 849).
@@ -515,8 +546,8 @@ export function ItemList({
   const flagged = useMemo(
     // Which items are in the Inbox is half of the rule a pair is offered by,
     // and a filing onto a Filter leaves an item there (`filed` above).
-    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? []),
-    [data?.items, filed, data?.duplicates],
+    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? [], data?.children),
+    [data?.items, filed, data?.duplicates, data?.children],
   );
 
   /**
@@ -570,7 +601,7 @@ export function ItemList({
 
   /** The note(s) a flagged row may repeat, named for the chip's hover. */
   const duplicateNamesOf = (item: Item): string =>
-    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [])
+    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [], data?.children)
       .map((other) => `“${itemLabel(other)}”`)
       .join(', ');
 
@@ -599,6 +630,7 @@ export function ItemList({
       // what that mark actually offered.
       filed,
       data?.duplicates ?? [],
+      data?.children,
     ).map((other) => other.id);
     if (others.length === 0) return undefined;
     return () => {
@@ -858,9 +890,14 @@ export function ItemList({
     // The rows themselves, not the line drawn between them: a landing line is
     // a child of the same list, and counting it would move the midpoints under
     // the pointer as the line follows it about.
-    const boxes = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])].map((row) =>
-      row.getBoundingClientRect(),
-    );
+    // Nor a parent's child rows unfolded under it, which are its list's and
+    // not this one's (issue 1825).
+    const boxes = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])]
+      .filter((row) => {
+        const under = row.closest('[data-child-rows]');
+        return under === null || !rows.current!.contains(under);
+      })
+      .map((row) => row.getBoundingClientRect());
     // In columns a row has a left and a right half to aim at, and the line it
     // is on; in one column only its height says anything.
     if (columns !== null) return landingOnRow(boxes, x, y);
@@ -1105,8 +1142,7 @@ export function ItemList({
             onAcceptSelection: acceptSelection,
           })}
       onAddAsChildOf={(from: HTMLElement | null) => {
-        openedFrom.current = from;
-        addingAsChild.ask([item]);
+        addingAsChild.ask([item], from);
       }}
       {...(heldBy ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => takeOut(item, heldBy) } } : {})}
     />
@@ -1116,6 +1152,7 @@ export function ItemList({
         parent={item}
         panelId={panelId}
         openDashboardId={openDashboardId}
+        hidden={hidden}
       />
     )}
     </>
@@ -1523,8 +1560,11 @@ export function ItemList({
             : { inboxesOf: allWorkspaces.workspaces })}
           // Left out for an item that belongs to no workspace: it is on no
           // panel, but this workspace's Inbox is still a place it can go, the
-          // one that decides which workspace it belongs to.
-          {...(workspaceIsDecided(moving)
+          // one that decides which workspace it belongs to. Left out too for
+          // one on no panel but inside an Item, which is not in the Inbox
+          // either, so the Inbox is a move for it (issue 1825).
+          {...(workspaceIsDecided(moving) &&
+          (whereItIs(moving).length > 0 || parentIdsOf(data?.children ?? [], moving.id).length === 0)
             ? { alreadyOn: whereItIs(moving).map((at) => at.panelId) }
             : {})}
           openDashboardId={openDashboardId}
@@ -1628,11 +1668,14 @@ function HeldRows({
   parent,
   panelId,
   openDashboardId,
+  hidden,
 }: {
   workspaceId: string;
   parent: Item;
   panelId: string | null;
   openDashboardId: string | null;
+  /** That the list it is under is off screen, a collapsed Panel's, so these rows are too. */
+  hidden: boolean;
 }) {
   const { unfolded } = useUnfolded(parent.id);
   const { data } = useSnapshot(workspaceId);
@@ -1642,7 +1685,8 @@ function HeldRows({
   );
   if (!unfolded || held.length === 0) return null;
   return (
-    <li className="border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
+    // The whole width in columns, under the parent's line, rather than a cell of its own.
+    <li className="col-span-full border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
       <ItemList
         workspaceId={workspaceId}
         items={held}
@@ -1650,6 +1694,7 @@ function HeldRows({
         panelId={panelId}
         gathered
         heldBy={parent}
+        hidden={hidden}
         emptyMessage=""
       />
     </li>

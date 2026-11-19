@@ -8,6 +8,7 @@ import {
   type ItemStatus,
   type Panel,
   type Priority,
+  type ChildRow,
 } from '@cockpit/shared';
 
 /**
@@ -98,6 +99,7 @@ export function allItemsRows(
     filings: readonly Filing[];
     panels: readonly Panel[];
     dashboards: readonly Dashboard[];
+    children?: readonly ChildRow[] | undefined;
   },
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
@@ -108,7 +110,7 @@ export function allItemsRows(
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
+      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards, snapshot.children, snapshot.items),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });
