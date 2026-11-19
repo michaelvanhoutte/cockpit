@@ -15,6 +15,7 @@ import {
   pressed,
   slowNote,
   stillOut,
+  withoutDisconnected,
   type Checkable,
   type CheckRun,
 } from './checkConnections';
@@ -31,7 +32,7 @@ export interface CheckNote {
  * connection of the Workspace and `checking` is true until each has said its
  * check ended, by the stream's announcement of its history line - or, where the
  * stream dropped while waiting, by one read of that connection's history when
- * it is back. Pressing again while `checking` sends nothing.
+ * it is back or a minute has passed. Pressing again while `checking` sends nothing, until the minute's note says a check is taking long: a press then starts a new run.
  *
  * **A press belongs to the Workspace it was made in**: opening another drops
  * it, and its note with it.
@@ -42,18 +43,29 @@ export function useCheckConnections(workspaceId: string, checkable: readonly Che
   /** Whether a press is under way: from the click until the last connection has ended or the server was not reached. */
   const [checking, setChecking] = useState(false);
   const live = useRef<CheckRun | null>(null);
+  /** Whether the live run has said it is taking long, after which a press starts a new one. */
+  const slow = useRef(false);
   const setLive = (next: CheckRun | null) => {
     live.current = next;
     setRun(next);
   };
 
-  const end = useCallback((last: CheckRun) => {
-    const { text, failed } = endedNote(last);
+  /** The press is over, however it ended. */
+  const clear = useCallback(() => {
     live.current = null;
+    slow.current = false;
     setRun(null);
     setChecking(false);
-    setNote({ ok: failed.length === 0, text, failed });
   }, []);
+
+  const end = useCallback(
+    (last: CheckRun) => {
+      const { text, failed } = endedNote(last);
+      clear();
+      setNote({ ok: failed.length === 0, text, failed });
+    },
+    [clear],
+  );
 
   const hear = useCallback(
     (next: CheckRun) => {
@@ -63,8 +75,30 @@ export function useCheckConnections(workspaceId: string, checkable: readonly Che
     [end],
   );
 
+  /** Reads the history of each connection of the run still out, once, and counts what ended as ended. */
+  const readStillOut = useCallback(
+    (current: CheckRun): Promise<unknown> => {
+      const since = current.since;
+      if (since === null) return Promise.resolve();
+      return Promise.all(
+        stillOut(current).map((one) =>
+          import('./components/ConnectionHistory')
+            .then(({ fetchHistory }) => fetchHistory(current.workspaceId, one.sourceAccountId))
+            .then((history) => {
+              const ended = endedByHistory(history, since);
+              const now = live.current;
+              if (!ended || now?.id !== current.id) return;
+              hear(heard(now, now.workspaceId, one.sourceAccountId, ended));
+            })
+            .catch(() => undefined),
+        ),
+      );
+    },
+    [hear],
+  );
+
   const press = useCallback(() => {
-    if (live.current !== null) return;
+    if (live.current !== null && !slow.current) return;
     try {
       refuseWhileOffline();
     } catch (error) {
@@ -73,33 +107,30 @@ export function useCheckConnections(workspaceId: string, checkable: readonly Che
       return;
     }
     const first = pressed(workspaceId, checkable);
+    slow.current = false;
     setLive(first);
     setChecking(true);
     setNote({ ok: true, text: askedNote(checkable.length), failed: [] });
+    // Only the press that is still the live one may act on what comes back: an earlier one's answer or refusal is nobody's.
     checkWorkspaceConnectionsNow(workspaceId).then(
       (answer) => {
         const current = live.current;
-        // Dropped meanwhile - another Workspace was opened - and the answer is nobody's.
-        if (current === null || current.workspaceId !== first.workspaceId) return;
+        if (current?.id !== first.id) return;
         const next = answered(current, answer, checkable);
         if (next.asked.length === 0) {
-          live.current = null;
-          setRun(null);
-          setChecking(false);
+          clear();
           setNote({ ok: true, text: 'No connection to check.', failed: [] });
           return;
         }
         hear(next);
       },
       () => {
-        if (live.current === null) return;
-        live.current = null;
-        setRun(null);
-        setChecking(false);
+        if (live.current?.id !== first.id) return;
+        clear();
         setNote({ ok: false, text: 'That did not reach the server. Try again.', failed: [] });
       },
     );
-  }, [workspaceId, checkable, hear]);
+  }, [workspaceId, checkable, hear, clear]);
 
   // The stream's word that a check ended: kept, and the press ended where it was the last.
   useEffect(
@@ -114,50 +145,54 @@ export function useCheckConnections(workspaceId: string, checkable: readonly Che
     [hear],
   );
 
-  // A minute with one still out: the Settings card's own note, which the end replaces.
+  // A connection disconnected while waited on is never announced: the Workspace no longer lists it, so the run stops waiting for it.
+  useEffect(() => {
+    const current = live.current;
+    if (!current || current.since === null) return;
+    const next = withoutDisconnected(current, checkable);
+    if (next === current) return;
+    if (next.asked.length === 0) {
+      clear();
+      setNote({ ok: true, text: 'No connection to check.', failed: [] });
+    } else hear(next);
+  }, [checkable, hear, clear]);
+
+  // A minute with one still out: each is read once in case the stream lost its word, and what is still out is said as the Settings card says it, which the end replaces.
   const waiting = run !== null && run.since !== null;
-  const since = run?.since;
+  const runId = run?.id;
   useEffect(() => {
     if (!waiting) return;
     const timer = setTimeout(() => {
       const current = live.current;
-      const slow = current ? slowNote(current) : null;
-      if (slow) setNote({ ...slow, failed: [] });
+      if (!current) return;
+      void readStillOut(current).then(() => {
+        const now = live.current;
+        const note = now?.id === current.id ? slowNote(now) : null;
+        if (!note) return;
+        slow.current = true;
+        setNote({ ...note, failed: [] });
+      });
     }, CHECK_TAKES_LONG_MS);
     return () => clearTimeout(timer);
-  }, [waiting, since]);
+  }, [waiting, runId, readStillOut]);
 
   // The stream came back while waiting: each connection still out is read once, so a check that ended while it was down is not waited on for ever.
   useEffect(() => {
     const onBack = () => {
       const current = live.current;
-      if (!current || current.since === null) return;
-      const since = current.since;
-      for (const one of stillOut(current)) {
-        void import('./components/ConnectionHistory')
-          .then(({ fetchHistory }) => fetchHistory(current.workspaceId, one.sourceAccountId))
-          .then((history) => {
-            const ended = endedByHistory(history, since);
-            const now = live.current;
-            if (!ended || !now || now.since !== since) return;
-            hear(heard(now, now.workspaceId, one.sourceAccountId, ended));
-          })
-          .catch(() => undefined);
-      }
+      if (current) void readStillOut(current);
     };
     globalThis.addEventListener(RECONNECTED, onBack);
     return () => globalThis.removeEventListener(RECONNECTED, onBack);
-  }, [hear]);
+  }, [readStillOut]);
 
   // Another Workspace: a press of the last one is dropped, and its note.
   useEffect(
     () => () => {
-      live.current = null;
-      setRun(null);
-      setChecking(false);
+      clear();
       setNote(null);
     },
-    [workspaceId],
+    [workspaceId, clear],
   );
 
   return { press, checking, note };

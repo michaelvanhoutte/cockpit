@@ -387,7 +387,7 @@ export interface Account {
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
   /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
   checkNow(workspaceId: string, sourceAccountId: string): Promise<{ status: CheckedNow; at: string }>;
-  /** *Check now* on every pulled connection of the Workspace (issue 1835). */
+  /** *Check now* on every pulled connection of the Workspace ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
   checkWorkspaceNow(workspaceId: string): Promise<{ connections: { sourceAccountId: string; status: CheckedNow }[]; at: string }>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;

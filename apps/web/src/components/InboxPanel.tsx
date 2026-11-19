@@ -16,7 +16,7 @@ import { filingsThatFile, itemsInTheInbox } from '@cockpit/shared';
 // a row mounts its own - since nothing on first paint needs it.
 const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
-// The ↻ and its note, fetched once the Workspace lists a connection to check (issue 1835).
+// The ↻ and its note, fetched once the Workspace lists a connection to check ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835).
 const CheckConnections = lazy(() => import('./CheckConnections'));
 
 /** The connections to check where the read lists none, held once so a render does not make a new list. */
@@ -172,7 +172,8 @@ export function InboxHeading({
           />
         </div>
       </div>
-      <div ref={setNoteSlot} />
+      {/* Zero tall: the note is drawn over the column under the heading, so the band the heading sits in never changes height. */}
+      <div ref={setNoteSlot} className="relative" />
       {historyOpen && (
         <Suspense fallback={null}>
           <SmartRefinementsWindow

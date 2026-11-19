@@ -1520,7 +1520,7 @@ const routes = app
         ...snapshot,
         // The connections Email… may use, which only the registry can say (issue 1708).
         mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
-        // The ones the Inbox's ↻ checks, which only the registry can say are pulled; the guest's demo connections are never checked (issue 1835).
+        // The ones the Inbox's ↻ checks, which only the registry can say are pulled; the guest's demo connections are never checked ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835).
         checkable: c.get('visitor').accountName === GUEST_ACCOUNT_NAME ? [] : checkableOf(c.env, connections),
         sourceNames: sourceNames(c.env),
         messageLinks: messageLinks(c.env),

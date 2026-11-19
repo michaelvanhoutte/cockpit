@@ -246,8 +246,8 @@ describe('Connector management', () => {
       await connect('teams', 'a-team');
 
       expect((await opened()).checkable).toEqual([
-        { sourceAccountId: gmail, name: 'me@home.com' },
-        { sourceAccountId: outlook, name: 'me@work.com' },
+        { sourceAccountId: gmail, name: `${GMAIL} · me@home.com` },
+        { sourceAccountId: outlook, name: `${OUTLOOK} · me@work.com` },
       ]);
     });
 
@@ -268,7 +268,7 @@ describe('Connector management', () => {
       });
       expect(res.status).toBe(200);
 
-      expect((await opened()).checkable).toEqual([{ sourceAccountId: gmail, name: 'me@home.com' }]);
+      expect((await opened()).checkable).toEqual([{ sourceAccountId: gmail, name: `${GMAIL} · me@home.com` }]);
     });
   });
 
@@ -316,6 +316,24 @@ describe('Connector management', () => {
 
       expect(await announcementsSince(since)).toEqual([
         expect.objectContaining({ sourceAccountId: id, outcome: 'worked', broughtIn: 2, closed: 1, at: expect.any(String) }),
+      ]);
+    });
+
+    it('says only the newest line’s counts, not those of an earlier check in the same stretch', async () => {
+      const since = new Date().toISOString(); // clock-ok: the store stamps with its own clock, which the test reads against
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const id = await connect(GMAIL, 'me@home.com');
+      fake.scripts.set(GMAIL, async (host) => {
+        await host.emitItem({ sourceId: 'x', sourceLink: null, sender: null, sourceTimestamp: null, title: 'Page x', capturedMessage: 'What x says' });
+      });
+      await connectedAndChecked(id);
+      fake.scripts.set(GMAIL, async () => {});
+      await pressed();
+      await waitForQueued(1);
+      await queuedChecksRun();
+
+      expect(await announcementsSince(since)).toEqual([
+        expect.objectContaining({ sourceAccountId: id, outcome: 'worked', broughtIn: 0, closed: 0 }),
       ]);
     });
 

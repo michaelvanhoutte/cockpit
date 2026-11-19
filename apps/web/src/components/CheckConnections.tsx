@@ -36,7 +36,7 @@ export default function CheckConnections({
       {note &&
         noteSlot &&
         createPortal(
-          <div role="status" className={`mt-1 text-xs ${note.ok ? 'text-ink-soft' : 'text-over-ink'}`}>
+          <div role="status" className={`absolute inset-x-0 top-1 z-20 rounded-md bg-surface px-2 py-1 text-xs shadow-sm ${note.ok ? 'text-ink-soft' : 'text-over-ink'}`}>
             <p>{note.text}</p>
             {note.failed.map((one) => (
               <p key={one.sourceAccountId}>

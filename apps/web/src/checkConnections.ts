@@ -27,17 +27,21 @@ export interface Ended {
  * announcements are held, since a quick check can end before the answer lands.
  */
 export interface CheckRun {
+  /** Which press this is, so an answer or a refusal of an earlier one cannot end a later. */
+  id: number;
   workspaceId: string;
   /** The connections asked for: the Workspace's checkable ones until the server answers, then the ones it checked. */
   asked: Checkable[];
   since: string | null;
-  /** Every announcement heard for the Workspace since the press, newest of a connection last. */
+  /** Every announcement heard for the Workspace since the press, in the order heard. */
   heard: { sourceAccountId: string; ended: Ended }[];
 }
 
+let presses = 0;
+
 /** A press: asked of the connections the Workspace's read lists. */
 export function pressed(workspaceId: string, checkable: readonly Checkable[]): CheckRun {
-  return { workspaceId, asked: [...checkable], since: null, heard: [] };
+  return { id: ++presses, workspaceId, asked: [...checkable], since: null, heard: [] };
 }
 
 /** The server answered: it checked these, and the press was at `at`. */
@@ -62,28 +66,22 @@ export function heard(run: CheckRun, workspaceId: string, sourceAccountId: strin
   return { ...run, heard: [...run.heard, { sourceAccountId, ended }] };
 }
 
-/** How a connection's own history says it ended since a time, for the connections whose announcement was missed. */
+/** How a connection's own history says it ended since a time, for a connection whose announcement was missed: its newest line, as the announcement would have said it. */
 export function endedByHistory(history: ConnectionHistory, since: string): Ended | null {
-  const lines = history.lines.filter((line) => line.lastAt >= since);
-  const newest = lines[0];
-  if (!newest) return null;
-  return {
-    failed: newest.outcome === 'failed',
-    broughtIn: lines.reduce((sum, line) => sum + line.did.broughtIn.count, 0),
-    closed: lines.reduce((sum, line) => sum + line.did.closed.count, 0),
-    at: newest.lastAt,
-  };
+  const newest = history.lines[0];
+  if (!newest || newest.lastAt < since) return null;
+  return { failed: newest.outcome === 'failed', broughtIn: newest.did.broughtIn.count, closed: newest.did.closed.count, at: newest.lastAt };
 }
 
-/** What each connection asked for has ended with, once the server's time is known: the announcement at or after it, the newest per connection. */
+/** What each connection asked for has ended with, once the server's time is known: the first announcement at or after it. */
 export function endings(run: CheckRun): Map<string, Ended> {
   const done = new Map<string, Ended>();
   if (run.since === null) return done;
   const asked = new Set(run.asked.map((one) => one.sourceAccountId));
   for (const { sourceAccountId, ended } of run.heard) {
-    if (!asked.has(sourceAccountId) || ended.at < run.since) continue;
-    const held = done.get(sourceAccountId);
-    done.set(sourceAccountId, held ? { ...ended, broughtIn: held.broughtIn + ended.broughtIn, closed: held.closed + ended.closed } : ended);
+    // The first word of a connection's end stands: a read of its history after a reconnect and the announcement of the same line are one end.
+    if (!asked.has(sourceAccountId) || ended.at < run.since || done.has(sourceAccountId)) continue;
+    done.set(sourceAccountId, ended);
   }
   return done;
 }
@@ -136,4 +134,11 @@ export async function checkWorkspaceConnectionsNow(workspaceId: string): Promise
   if (!res.ok) throw refusal('checking the connections', res.status);
   // Read as the server sends it, which the type says: parsing it here would put its schema in the Inbox's chunk.
   return (await res.json()) as WorkspaceCheckedNow;
+}
+
+/** The run without the connections the Workspace no longer lists, which are never announced again. */
+export function withoutDisconnected(run: CheckRun, checkable: readonly Checkable[]): CheckRun {
+  const listed = new Set(checkable.map((one) => one.sourceAccountId));
+  const asked = run.asked.filter((one) => listed.has(one.sourceAccountId));
+  return asked.length === run.asked.length ? run : { ...run, asked };
 }

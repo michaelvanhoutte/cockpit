@@ -75,12 +75,14 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const opened: [string, string][] = [];
 
 /** The heading, once the ↻'s own chunk has arrived where the Workspace lists a connection to check. */
+const tree = () => (
+  <ConnectionHistoryOpener.Provider value={(workspaceId, sourceAccountId) => opened.push([workspaceId, sourceAccountId])}>
+    <InboxHeading workspaceId="ws-privé" />
+  </ConnectionHistoryOpener.Provider>
+);
+
 async function heading() {
-  const drawn = render(
-    <ConnectionHistoryOpener.Provider value={(workspaceId, sourceAccountId) => opened.push([workspaceId, sourceAccountId])}>
-      <InboxHeading workspaceId="ws-privé" />
-    </ConnectionHistoryOpener.Provider>,
-  );
+  const drawn = render(tree());
   if (held.checkable?.length) await screen.findByRole('button', { name: 'Check connections now' });
   return drawn;
 }
@@ -280,10 +282,62 @@ describe('Inbox', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(screen.getByText(new RegExp(`Still checking ${GMAIL.name}: nothing back after a minute`))).toBeInTheDocument();
+      expect(await screen.findByText(new RegExp(`Still checking ${GMAIL.name}: nothing back after a minute`))).toBeInTheDocument();
 
       ended(GMAIL);
       expect(await screen.findByText('Checked 2 connections · nothing new')).toBeInTheDocument();
+    });
+
+    it('reads each connection still out once at the minute, and ticks off one whose announcement was lost', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      await heading();
+      await pressed();
+      await waitFor(() => expect(held.sent).toBe(1));
+      held.histories[GMAIL.sourceAccountId] = { lines: [lineOf('worked', { broughtIn: 0, closed: 0 })], olderRemain: false };
+      held.histories[OUTLOOK.sourceAccountId] = { lines: [lineOf('worked', { broughtIn: 2, closed: 0 })], olderRemain: false };
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(held.read.sort()).toEqual([GMAIL.sourceAccountId, OUTLOOK.sourceAccountId]);
+      expect(await screen.findByText('Checked 2 connections · 2 new')).toBeInTheDocument();
+      expect(refresh()!.querySelector('.animate-spin')).toBeNull();
+    });
+
+    it('starts a new run on a press once the minute’s note says a check is taking long', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      await heading();
+      await pressed();
+      await waitFor(() => expect(held.sent).toBe(1));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      await screen.findByText(/nothing back after a minute/);
+
+      await userEvent.click(refresh()!);
+
+      expect(held.sent).toBe(2);
+      expect(await screen.findByText('Checking 2 connections now.')).toBeInTheDocument();
+    });
+
+    it('stops waiting for a connection the Workspace no longer lists, and ends with the rest', async () => {
+      const drawn = await heading();
+      await pressed();
+      await waitFor(() => expect(held.sent).toBe(1));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      ended(GMAIL);
+
+      held.checkable = [GMAIL];
+      drawn.rerender(tree());
+
+      expect(await screen.findByText('Checked 1 connection · nothing new')).toBeInTheDocument();
+      expect(refresh()!.querySelector('.animate-spin')).toBeNull();
     });
 
     it.each([
@@ -329,6 +383,8 @@ describe('Inbox', () => {
       expect(screen.queryByText(/^Checked/)).toBeNull();
       expect(refresh()!.querySelector('.animate-spin')).not.toBeNull();
 
+      // The announcement of the line the read already counted is not counted again.
+      ended(GMAIL, { broughtIn: 1 });
       ended(OUTLOOK);
       expect(await screen.findByText('Checked 2 connections · 1 new')).toBeInTheDocument();
     });

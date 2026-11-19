@@ -247,6 +247,7 @@ export default function ManageConnections({
   picker,
   guest = false,
   historyOfId,
+  onHistoryShown,
 }: {
   /**
    * The shared guest, who connects nothing: the server refuses it anyway
@@ -254,8 +255,10 @@ export default function ManageConnections({
    * in place of every Connect, Disconnect, Test and Edit (issue 772).
    */
   guest?: boolean | undefined;
-  /** The connection whose history is drawn at once, where the Inbox's ↻ named one as failed (issue 1835). */
+  /** The connection whose history is drawn at once, where the Inbox's ↻ named one as failed ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
   historyOfId?: string | undefined;
+  /** Told once the history asked for is drawn, so the request is not made again by a window that is opened over again. */
+  onHistoryShown?: (() => void) | undefined;
   /** What picks the workspace, drawn under the intro. */
   picker?: React.ReactNode;
   workspaceId: string;
@@ -358,15 +361,14 @@ export default function ManageConnections({
     : undefined;
   const cards = registered;
   const connected = data?.sourceAccounts ?? [];
-  // Opened on a connection's history once, when its row has been read.
-  const openedOn = useRef<string | undefined>(undefined);
+  // Opened on the connection's history once its row has been read, and the request is then used up (`onHistoryShown`).
   useEffect(() => {
-    if (!historyOfId || openedOn.current === historyOfId) return;
+    if (!historyOfId) return;
     const wanted = data?.sourceAccounts.find((account) => account.id === historyOfId);
     if (!wanted) return;
-    openedOn.current = historyOfId;
     setHistoryOf(wanted);
-  }, [historyOfId, data]);
+    onHistoryShown?.();
+  }, [historyOfId, data, onHistoryShown]);
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived: `?? []` would make a failed read look

@@ -494,7 +494,7 @@ function TheShell() {
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcomeFor | undefined>(undefined);
   /** The remembered sentence Settings opens for editing, where a window that used it sent the person there. */
   const [settingsSentence, setSettingsSentence] = useState<string | undefined>(undefined);
-  /** The connection whose history Settings opens on, where the Inbox's ↻ named it as failed (issue 1835). */
+  /** The connection whose history Settings opens on, where the Inbox's ↻ named it as failed ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
   const [settingsConnection, setSettingsConnection] = useState<{ workspaceId: string; sourceAccountId: string } | undefined>(undefined);
   /** The profile control, which the focus returns to when Settings closes. */
   const profileControl = useRef<HTMLButtonElement>(null);
@@ -535,7 +535,7 @@ function TheShell() {
     setSettingsConnection(undefined);
     setManaging('settings');
   }, []);
-  /** Settings › Connections on one connection's history, over the Inbox that named it (issue 1835). */
+  /** Settings › Connections on one connection's history, over the Inbox that named it ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
   const openConnectionHistory = useCallback((workspaceId: string, sourceAccountId: string) => {
     setSettingsOn('connections');
     setConnectOutcome(undefined);
@@ -1241,6 +1241,7 @@ function TheShell() {
             guest={me?.user.id === GUEST_USER_ID}
             sentenceId={settingsSentence}
             connection={settingsConnection}
+            onConnectionShown={() => setSettingsConnection(undefined)}
             onlyAppearance={!roomForTheInbox}
             onClose={() => setManaging(null)}
             returnFocusTo={profileControl.current}

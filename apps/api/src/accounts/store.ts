@@ -1294,7 +1294,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   }
 
   /**
-   * *Check now* on every pulled connection of one Workspace (issue 1835), in one
+   * *Check now* on every pulled connection of one Workspace ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835), in one
    * transaction, and the alarm armed where any check was made due.
    */
   async checkWorkspaceConnectionsNow(

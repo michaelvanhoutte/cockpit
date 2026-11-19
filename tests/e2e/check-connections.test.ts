@@ -26,7 +26,7 @@ const MAILBOX = "michael@example.com";
  * the store marks due are apps/web/tests/unit/components/InboxCheckConnections.test.tsx's
  * and apps/api/tests/integration/connectors/workspace-check-now.test.ts's.
  */
-test.describe("Inbox", () => {
+test.describe("Connector management", () => {
   test.describe("Pressing ↻ in the Inbox heading checks the Workspace's connections and brings in what was starred", () => {
     test("shows the starred conversation as an Item and says 1 new", async ({ page, isMobile }) => {
       await openFirstWorkspace(page, isMobile);

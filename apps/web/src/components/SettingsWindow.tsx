@@ -40,6 +40,7 @@ export default function SettingsWindow({
   guest,
   sentenceId,
   connection,
+  onConnectionShown,
   onlyAppearance,
   onClose,
   returnFocusTo,
@@ -54,8 +55,10 @@ export default function SettingsWindow({
   guest?: boolean | undefined;
   /** The remembered sentence *What Cockpit remembers* opens for editing, where a window that used it sent the person here. */
   sentenceId?: string | undefined;
-  /** The connection whose history Connections opens on, with the Workspace it belongs to (issue 1835). */
+  /** The connection whose history Connections opens on, with the Workspace it belongs to ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
   connection?: { workspaceId: string; sourceAccountId: string } | undefined;
+  /** Told once that connection's history is drawn, which uses the request up. */
+  onConnectionShown?: (() => void) | undefined;
   /** On a phone, which holds Appearance and nothing else: the rest of Settings is for a desk. */
   onlyAppearance?: boolean | undefined;
   onClose: () => void;
@@ -73,7 +76,7 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} connection={connection} onClose={onClose} />,
+          content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} connection={connection} onConnectionShown={onConnectionShown} onClose={onClose} />,
         },
         { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
         { key: 'followups', label: 'Follow-ups', content: <FollowUpsOf startsIn={startsIn} /> },
@@ -104,12 +107,14 @@ function ConnectionsOf({
   outcome,
   guest,
   connection,
+  onConnectionShown,
   onClose,
 }: {
   guest?: boolean | undefined;
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
   connection?: { workspaceId: string; sourceAccountId: string } | undefined;
+  onConnectionShown?: (() => void) | undefined;
   onClose: () => void;
 }) {
   const { data } = useWorkspaces();
@@ -124,6 +129,7 @@ function ConnectionsOf({
       key={chosen.id}
       guest={guest}
       historyOfId={connection?.workspaceId === chosen.id ? connection.sourceAccountId : undefined}
+      onHistoryShown={onConnectionShown}
       workspaceId={chosen.id}
       workspaceName={chosen.name}
       outcome={outcome?.workspaceId === chosen.id ? outcome.outcome : undefined}

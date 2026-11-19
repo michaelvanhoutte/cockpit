@@ -453,7 +453,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
   ): Awaitable<Answer<{ status: CheckedNow; at: string }>>;
   /**
-   * *Check now* on every pulled connection of this Workspace (issue 1835), in
+   * *Check now* on every pulled connection of this Workspace ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835), in
    * one transaction; each answers as `checkPulledConnectionNow` does. Refused as
    * not found for the guest and for a Workspace this account does not have.
    */

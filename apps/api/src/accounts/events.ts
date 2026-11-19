@@ -99,15 +99,12 @@ export function collectInvalidations(
    */
   const lines = new Map<string, HistoryNews>();
   for (const line of historyWrittenSince(db, tenantId, since).all()) {
-    const kept = line.did === null ? null : (JSON.parse(line.did) as Partial<DidStored>);
-    const held = lines.get(line.sourceAccountId);
-    // Rows come oldest first: the newest line says the outcome, and what each line brought in and closed adds up.
+    // Oldest first, so the last line of a connection is the newest and says all of it: its own outcome, message, counts and time.
     lines.set(line.sourceAccountId, {
       workspaceId: line.workspaceId,
       outcome: line.outcome,
       message: line.outcome === 'failed' ? line.message : null,
-      broughtIn: (held?.broughtIn ?? 0) + (kept?.broughtIn?.count ?? 0),
-      closed: (held?.closed ?? 0) + (kept?.closed?.count ?? 0),
+      ...countsOf(line.did),
       at: line.lastAt,
     });
     if (line.lastAt > cursor) cursor = line.lastAt;
@@ -118,7 +115,23 @@ export function collectInvalidations(
   return { events, cursor };
 }
 
-/** What one connection's lines written since a cursor say, for the announcement of them. */
+/**
+ * What a line's stored `did` counts as brought in and closed. A line that
+ * cannot be read counts as none: this runs in every open stream's poll, so one
+ * bad row must not end them all.
+ */
+function countsOf(did: string | null): { broughtIn: number; closed: number } {
+  if (did === null) return { broughtIn: 0, closed: 0 };
+  try {
+    const kept = JSON.parse(did) as Partial<DidStored> | null;
+    const count = (value: unknown) => (typeof value === 'number' && value >= 0 ? Math.floor(value) : 0);
+    return { broughtIn: count(kept?.broughtIn?.count), closed: count(kept?.closed?.count) };
+  } catch {
+    return { broughtIn: 0, closed: 0 };
+  }
+}
+
+/** What the newest line a connection wrote since a cursor says, for the announcement of it. */
 type HistoryNews = {
   workspaceId: string;
   outcome: 'worked' | 'failed';
