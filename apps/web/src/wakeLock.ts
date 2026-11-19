@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 
 /**
  * Keeping the screen on while the Car view is shown ("Capture by voice in the
- * car", issue 730), through the browser's Screen Wake Lock.
+ * car", issue 730) and for Write's mic, each caller saying when it is active,
+ * through the browser's Screen Wake Lock.
  *
- * **Held for exactly as long as the view is mounted and the page visible.** The
- * browser lets go of it whenever the page is hidden, so it is taken again on
- * coming back, and let go of on unmounting. It cannot unlock a phone that is
- * already locked, or survive the power button.
+ * **Held for exactly as long as the caller is active, mounted and the page
+ * visible.** The browser lets go of it whenever the page is hidden, so it is
+ * taken again on coming back while still active, and let go of on going
+ * inactive or unmounting. It cannot unlock a phone that is already locked, or
+ * survive the power button.
  *
- * Imported only by the Car view, which is fetched behind the shell
- * (`captureForm.ts`), so none of it is in the first bundle.
+ * Imported only by the Car view and the Capture form, which are fetched behind
+ * the shell (`captureForm.ts`), so none of it is in the first bundle.
  */
 
 /** The part of a wake lock this uses, which is also all a test's fake has to offer. */
@@ -32,15 +34,19 @@ export const browserWakeLock = (): WakeLockApi | undefined =>
 
 /**
  * - `held`: the screen is being kept on.
- * - `asking`: not yet answered, or the page is hidden and it will be taken again.
+ * - `asking`: not yet answered, the page is hidden and it will be taken again, or the caller is not active.
  * - `unavailable`: the browser has none, or refused (battery saver): the screen may lock.
  */
 export type WakeLockState = 'asking' | 'held' | 'unavailable';
 
-export function useScreenWakeLock(api: () => WakeLockApi | undefined = browserWakeLock): WakeLockState {
+export function useScreenWakeLock(api: () => WakeLockApi | undefined = browserWakeLock, active = true): WakeLockState {
   const [state, setState] = useState<WakeLockState>('asking');
 
   useEffect(() => {
+    if (!active) {
+      setState('asking');
+      return;
+    }
     const wakeLock = api();
     if (!wakeLock) {
       setState('unavailable');
@@ -83,7 +89,7 @@ export function useScreenWakeLock(api: () => WakeLockApi | undefined = browserWa
       lock = null;
       void held?.release().catch(() => {});
     };
-  }, [api]);
+  }, [api, active]);
 
   return state;
 }
