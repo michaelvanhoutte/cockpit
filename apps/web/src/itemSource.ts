@@ -2,6 +2,7 @@ import {
   demoPageOf,
   firstMessageLink,
   isDraftStarting,
+  isLinkedInConversation,
   phoneAddress,
   type Conversation,
   type DeclaredPhoneLinks,
@@ -31,21 +32,25 @@ export type PhoneLinks = DeclaredPhoneLinks;
 
 /**
  * What a conversation is opened by on a phone: the one an Item follows, once
- * its source has named it - never one *Email…* is still starting.
+ * its source has named it - never one *Email…* is still starting, and never a
+ * LinkedIn one, whose id names no mailbox conversation.
  */
 export function followedConversationId(conversation: Conversation | null | undefined): string | null {
-  return conversation && !isDraftStarting(conversation) ? conversation.conversationId : null;
+  return conversation && !isDraftStarting(conversation) && !isLinkedInConversation(conversation) ? conversation.conversationId : null;
 }
 
 /**
  * What a source's own phone website opens, for the Item: the conversation it
- * follows, else the id its source gave it where that names a conversation (an
- * older Item brought in by one email names none: the stored link). Null where
- * this is no phone, or the source declares no phone address.
+ * follows, in that conversation's own mailbox, where it is at the Item's own
+ * source; else the id its source gave it where that names a conversation (an
+ * older Item brought in by one email names none: the stored link). A
+ * conversation *Email…* started from another mailbox or source is never put in
+ * the Item's own mailbox. Null where the source declares no phone address.
  */
-function phoneAddressOfItem(item: Item, conversationId: string | null, phone: PhoneLinks, link: string): string | null {
-  const id = conversationId ?? item.sourceId;
-  return id ? phoneAddress(phone, item.source, link, id) : null;
+function phoneAddressOfItem(item: Item, conversation: Conversation | null | undefined, phone: PhoneLinks, link: string): string | null {
+  const id = conversation && conversation.source === item.source ? followedConversationId(conversation) : null;
+  if (id) return phoneAddress(phone, item.source, conversation!.link, id);
+  return item.sourceId ? phoneAddress(phone, item.source, link, item.sourceId) : null;
 }
 
 /**
@@ -133,7 +138,7 @@ export function openableAtSource(
   item: Item,
   names: SourceNames,
   messageLinks?: MessageLinks,
-  phone?: { links: PhoneLinks; conversationId: string | null },
+  phone?: { links: PhoneLinks; conversation: Conversation | null | undefined },
 ): { name: string; link: string } | null {
   if (!item.sourceLink && (item.source === 'internal' || item.source === 'mcp')) {
     const found = firstMessageLink(item.description, messageLinks) ?? firstMessageLink(item.capturedMessage, messageLinks);
@@ -144,8 +149,8 @@ export function openableAtSource(
   const name = capturingApp(item) ?? sourceNamed(names, item.source);
   const link = whereALinkOpens(item.sourceLink);
   if (link === null) return null;
-  // On a phone, where the source declares how its website wants an address.
-  const onThePhone = phone?.links ? phoneAddressOfItem(item, phone.conversationId, phone.links, link) : null;
+  // On a phone, where the source declares how its website wants an address - never for a link the guest demo translated.
+  const onThePhone = phone?.links && link === item.sourceLink ? phoneAddressOfItem(item, phone.conversation, phone.links, link) : null;
   return { name, link: onThePhone ?? link };
 }
 

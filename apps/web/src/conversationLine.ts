@@ -130,7 +130,7 @@ export function openEntryFor(
     const link = conversationOpensAt(conversation);
     if (link !== null) return { name: 'LinkedIn', link };
   }
-  return openableAtSource(item, names, messageLinks, { links: phone, conversationId: followedConversationId(conversation) });
+  return openableAtSource(item, names, messageLinks, { links: phone, conversation });
 }
 
 /**

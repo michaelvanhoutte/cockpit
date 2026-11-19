@@ -2137,6 +2137,8 @@ describe('Capture', () => {
         },
       };
 
+      afterEach(() => vi.restoreAllMocks());
+
       it.each([
         { situation: 'on a phone', mobile: true, href: 'https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/18f3c0' },
         { situation: 'on a computer', mobile: false, href: stored },
@@ -2150,7 +2152,6 @@ describe('Capture', () => {
         expect(screen.getByRole('link', { name: 'Open in Gmail' })).toHaveAttribute('href', href);
         await user.click(screen.getByLabelText('Item actions'));
         expect(await screen.findByRole('menuitem', { name: 'Open in Gmail' })).toHaveAttribute('href', href);
-        vi.restoreAllMocks();
       });
     });
 
