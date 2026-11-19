@@ -177,6 +177,15 @@ export class KeptRecordings {
     return landing;
   }
 
+  /** Deletes one recording the Worker refused as empty, under the lock every tab takes. Throws where storage refuses. */
+  async discard(id: string): Promise<void> {
+    try {
+      await this.deps.lock(() => this.deps.store.remove(id));
+    } finally {
+      await this.changedHere();
+    }
+  }
+
   /** Deletes every recording of the signed-in person's: the explicit sign-out, confirmed. */
   async discardAll(): Promise<void> {
     const owner = this.owner;
