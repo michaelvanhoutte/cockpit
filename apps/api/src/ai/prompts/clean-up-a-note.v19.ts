@@ -102,8 +102,7 @@ export const NOTE_MARKER_LINE = 'My note, typed when saving this message:';
 export const NOTE_FROM_TEAMS = `Some notes are a message somebody else wrote, saved from Microsoft Teams, followed by the person's own words about it. Then, after the message, comes a line reading exactly "${NOTE_MARKER_LINE}" and below it what the person typed. Everything above that line is the sender's, and everything below it is the person's own. Read both together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the person's words and the sender's disagree about a field - one says urgent and the other no rush, or each names a different day - the person's words decide it. Where the person's words say nothing about a field, the sender's words still decide it. The person's words are what to do about the sender's message, so write the work they ask for rather than quoting either, and never write the marker line in either text.`;
 
 /**
- * An email's subject, handed as the first line of the note ("Clean-up reads an
- * email's subject, and a phone signature is removed first", issue 1836): the
+ * An email's subject, handed as the first line of the note ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): the
  * clean-up job puts it there for a Gmail or Outlook Item whose texts are not
  * settled, and for no other note. Its own constant for the reason
  * `STATED_PRIORITY` is.
@@ -381,8 +380,7 @@ panel: Board meetings, closest, because the dinner is for the board, though it i
  * schema, left out where the note states none. Whether it lands on the Item is
  * the store's to decide, together with the texts.
  *
- * **`v19` reads an email's subject** ("Clean-up reads an email's subject, and a
- * phone signature is removed first", issue 1836): `NOTE_FROM_EMAIL` in the
+ * **`v19` reads an email's subject** ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): `NOTE_FROM_EMAIL` in the
  * instructions. Nothing is added to the schema; the subject arrives as the
  * first line of the note, for an email Item only.
  */

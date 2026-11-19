@@ -393,8 +393,7 @@ describe('Capture', () => {
 
   /**
    * An email Item is read with its subject as the first line of the note
-   * ("Clean-up reads an email's subject, and a phone signature is removed
-   * first", issue 1836); what builds that note is `noteAsRead`
+   * ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836); what builds that note is `noteAsRead`
    * (tests/unit/ai/note-texts.test.ts). Held here is that the rules every
    * account shares tell the model what that first line is.
    */

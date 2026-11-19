@@ -527,6 +527,18 @@ export async function cleanUpACapturedNote(
     );
     return say(job.itemId, 'nothing was enriched: the item has no captured note');
   }
+  // A redelivery after a proposal landed for an email: the first proposal was written from the subject
+  // and the text together, and reading the body alone now would replace it ("Mail Items: an email whose
+  // only text is a phone signature is titled with that signature…", issue 1836).
+  if (item.textsProposedAt !== null && item.textsSettledAt === null && sourcesTitledBySubject(env).has(item.source)) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was proposed: the texts were already proposed from the subject and the text',
+      }),
+    );
+    return say(job.itemId, 'nothing was proposed: the texts were already proposed from the subject and the text');
+  }
   // Somebody edited the title or the description while this was queued, so the
   // two texts are theirs, and every field the note could state is already
   // theirs or already filled - or, for the due date, has no day to count from

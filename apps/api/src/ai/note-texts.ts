@@ -16,8 +16,7 @@ import type { PlaceNamed } from '../domain/spoken-path.js';
  */
 
 /**
- * The note as the clean-up reads it ("Clean-up reads an email's subject, and a
- * phone signature is removed first", issue 1836): for an Item of a source
+ * The note as the clean-up reads it ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836): for an Item of a source
  * whose titles are subjects (`sourcesTitledBySubject`) with its texts neither
  * settled nor proposed, its subject - the Item's title, still the one it
  * arrived with, unless it is the source's no-subject title - on a line of its

@@ -6,8 +6,7 @@ import shared from '../../../phone-signatures.json';
 /**
  * L1, against a fake host and Gmail faked at the network: the lines
  * a phone's mail app adds never reach an email Item's description or the
- * clean-up ("Clean-up reads an email's subject, and a phone signature is
- * removed first", issue 1836). The phrases are the list the Outlook connector's
+ * clean-up ("Mail Items: an email whose only text is a phone signature is titled with that signature…", issue 1836). The phrases are the list the Outlook connector's
  * tests run too (`packages/connectors/phone-signatures.json`), so the two
  * copies of the rule cannot drift.
  */

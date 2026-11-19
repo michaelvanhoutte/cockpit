@@ -19,9 +19,9 @@ import {
 /**
  * Integration level, through the account's real store, its real alarm and the
  * Worker's real queue consumer, with the model faked at the network: what an
- * email Item arrives as, and what the clean-up is handed to read ("Clean-up
- * reads an email's subject, and a phone signature is removed first", issue
- * 1836). Which lines count as a phone signature is each mail connector's, in
+ * email Item arrives as, and what the clean-up is handed to read ("Mail
+ * Items: an email whose only text is a phone signature is titled with that
+ * signature…", issue 1836). Which lines count as a phone signature is each mail connector's, in
  * its unit tests; here, that an email with nothing left is filed with its texts
  * settled and the clean-up still reads the fields its subject states, and that
  * an email with words left is read with its subject, and no other note is.
@@ -172,6 +172,13 @@ describe('Capture', () => {
       expect(asked.filter(isACleanUp).map((call) => call.note)).toEqual([title]);
     });
 
+    it('keeps a subject exactly as typed, list marker and emphasis included, with no description', async () => {
+      await connect(FAKE_MAIL);
+      await check((host) => host.emitItem(email('1. Agenda *urgent*', null)).then(() => {}));
+
+      expect(await theItem()).toMatchObject({ title: '1. Agenda *urgent*', description: null, captured_message: '1. Agenda *urgent*' });
+    });
+
     it('still reads the priority and the due date its subject states, and keeps the title', async () => {
       await connect(FAKE_MAIL);
       await check((host) => host.emitItem(email('conselit email urgent tomorrow', null)).then(() => {}));
@@ -250,15 +257,18 @@ describe('Capture', () => {
       return itemId;
     }
 
-    it('reads a retry without it, the title being the proposal the first try wrote', async () => {
+    it.each(MAIL)('leaves the title a %s email was first proposed where the clean-up is delivered again', async (mail: Mail) => {
       const itemId = await aMail('Reply to Bryton');
+      await inTheStore((sql) => sql.exec('UPDATE items SET source_connector = ? WHERE id = ?', mail, itemId));
       await cleanUp(itemId);
+      expect((await theItemById(itemId)).title).toBe(A_READING.title);
+      theModelIs({ says: { ...A_READING, title: 'Written from the text alone', message: 'Something else.' } });
       asked.length = 0;
 
       await cleanUp(itemId);
 
-      const notes = asked.filter(isACleanUp).map((call) => call.note);
-      expect(notes).toEqual(['Can you answer before Friday?']);
+      expect(asked.filter(isACleanUp)).toHaveLength(0);
+      expect(await theItemById(itemId)).toMatchObject({ title: A_READING.title, description: A_READING.message });
     });
 
     it('reads an email with no subject, titled "(no subject)", without it', async () => {
