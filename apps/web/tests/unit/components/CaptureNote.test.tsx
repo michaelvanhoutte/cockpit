@@ -3665,6 +3665,18 @@ describe('Capture', () => {
       expect(await keptOnTheDevice()).toBe(0);
     });
 
+    it('on Retry of one under a second kept before, without sending it', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating, waitingRecordings: [aKeptRecording(0, '2026-10-12T09:00:00.000Z')] });
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(transcriber.sent()).toBe(0);
+    });
+
     it('still says it was empty, throwing nothing, when storage will not delete it', async () => {
       const dictation = dictate();
       const user = await thePage({

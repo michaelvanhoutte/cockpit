@@ -11,9 +11,11 @@ import type { RecordingEvents, RecordingSession, StartRecording } from '../../..
  */
 
 /**
- * How long recordings have lasted, added to `Date.now` so a test that taps the
- * mic twice straight away still has a recording of the length it says, which the
- * hook reads off the clock. A test on fake timers moves its own clock instead.
+ * How long the last recording lasted, added to `Date.now` from its stop until
+ * the next one starts, so a test that taps the mic twice straight away still has
+ * a recording of the length it says, which the hook reads off the clock. Never
+ * more than one recording's length, so the clock never drifts far from `new
+ * Date()`. A test on fake timers moves its own clock instead.
  */
 let lasted = 0;
 const realNow = Date.now.bind(Date);
@@ -31,7 +33,7 @@ export class FakeRecording implements RecordingSession {
   ) {}
   stop(): Promise<Blob> {
     this.stopped = true;
-    lasted += this.how.lastsMs;
+    lasted = this.how.lastsMs;
     return Promise.resolve(new Blob(this.how.sound ? ['audio'] : [], { type: 'audio/webm' }));
   }
   cancel(): void {
@@ -52,6 +54,7 @@ export function aRecorder() {
   const how = { lastsMs: SECONDS_BY_DEFAULT, sound: true };
   const record: StartRecording = (events) => {
     if (refusal) return Promise.reject(Object.assign(new Error('refused'), refusal));
+    lasted = 0;
     const session = new FakeRecording(events, { ...how });
     made.push(session);
     if (holdNext) {

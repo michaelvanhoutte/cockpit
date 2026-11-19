@@ -450,6 +450,13 @@ export function useRecordedDictation({
     setNotice(null);
     holding(id, 'retry');
     void (async () => {
+      // One kept before recordings under a second stopped being kept has
+      // nothing to send, whatever the Worker would answer of its few bytes.
+      if (one.seconds < 1) {
+        await dropEmpty(id);
+        holding(id, null);
+        return;
+      }
       try {
         await carryOver(soundOf(one), id);
       } catch (failure) {
