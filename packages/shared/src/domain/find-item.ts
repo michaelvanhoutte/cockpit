@@ -108,7 +108,7 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex
       into.set(itemId, list);
     }
   }
-  const inbox = new Set(itemsInTheInbox(snapshot.items, filings).map((item) => item.id));
+  const inbox = new Set(itemsInTheInbox(snapshot.items, filings, snapshot.children ?? []).map((item) => item.id));
   const entries: FindEntry[] = [];
   for (const item of snapshot.items) {
     if (!stillOpen(item)) continue;

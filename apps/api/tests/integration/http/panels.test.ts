@@ -235,16 +235,12 @@ async function anItem(message: string): Promise<string> {
  * depend on the command that put the filing there in the first place.
  */
 async function fileOn(panelId: string, itemId: string, position: number): Promise<void> {
-  await inTheStore((sql) =>
-    sql.exec(
-      'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
-      'tenant-default',
-      panelId,
-      itemId,
-      position,
-      AT,
-    ),
-  );
+  await inTheStore((sql) => {
+    // Both tables, as every filing writes them: what the Panel's own Item holds is what is read (issue 1825).
+    for (const table of ['panel_items (tenant_id, panel_id, item_id', 'item_children (tenant_id, parent_id, child_id']) {
+      sql.exec(`INSERT INTO ${table}, position, created_at) VALUES (?, ?, ?, ?, ?)`, 'tenant-default', panelId, itemId, position, AT);
+    }
+  });
 }
 
 /** The items filed on one panel, in the order it holds them. */

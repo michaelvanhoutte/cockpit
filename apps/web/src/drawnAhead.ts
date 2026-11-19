@@ -157,6 +157,10 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
           (filing) => !(filing.itemId === change.payload.itemId && filing.panelId === change.payload.panelId),
         ),
       };
+    case 'add_children':
+      return putInsideAhead(snapshot, change.payload);
+    case 'remove_child':
+      return takenOutAhead(snapshot, change.payload);
     case 'add_dashboard':
       return dashboardAdded(snapshot, change.payload);
     case 'rename_dashboard':
@@ -270,6 +274,9 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     priority: note.priority ?? null,
     dueDate: note.dueDate ?? null,
     unseen: false,
+    // A note just captured holds nothing (issue 1825).
+    childrenCount: 0,
+    childrenDone: 0,
     createdAt: note.issuedAt,
     updatedAt: note.issuedAt,
   } as Item;
@@ -600,6 +607,8 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
+  'add_children',
+  'remove_child',
   'remove_attachment',
   // An addition the outbox could not keep, sent by the queue instead (issue 1640).
   'append_to_item',
@@ -637,6 +646,48 @@ export function drawnOver(snapshot: WorkspaceSnapshot, changes: readonly Drawn[]
 /** The list of Workspaces with the changes drawn over it, in the order they were made. */
 export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): WorkspaceList {
   return changes.reduce(workspacesDrawnAhead, list);
+}
+
+/**
+ * Items put inside one ("Brainstorming: an Item can't hold other Items", issue
+ * 1825): rows at the end of the parent's order, and its counts grown by those
+ * not already inside it, as the server counts them. A parent the copy does not
+ * hold is drawn with nothing.
+ */
+function putInsideAhead(snapshot: WorkspaceSnapshot, put: CommandPayload<'add_children'>): WorkspaceSnapshot {
+  if (put.workspaceId !== snapshot.workspace.id) return snapshot;
+  const held = snapshot.children ?? [];
+  const already = new Set(held.filter((row) => row.parentId === put.parentId).map((row) => row.childId));
+  const arriving = put.childIds.filter((id) => !already.has(id));
+  if (arriving.length === 0) return snapshot;
+  const last = Math.max(-1, ...held.filter((row) => row.parentId === put.parentId).map((row) => row.position));
+  const byId = new Map(snapshot.items.map((item) => [item.id, item]));
+  const done = arriving.filter((id) => byId.get(id) && !stillOpen(byId.get(id)!)).length;
+  const counted = withCounts(snapshot, put.parentId, arriving.length, done);
+  return {
+    ...counted,
+    children: [...held, ...arriving.map((childId, at) => ({ parentId: put.parentId, childId, position: last + 1 + at }))],
+  };
+}
+
+/** One Item taken out of one parent: its row gone, and the parent's counts shrunk by it. */
+function takenOutAhead(snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>): WorkspaceSnapshot {
+  if (out.workspaceId !== snapshot.workspace.id) return snapshot;
+  const held = snapshot.children ?? [];
+  if (!held.some((row) => row.parentId === out.parentId && row.childId === out.childId)) return snapshot;
+  const child = snapshot.items.find((item) => item.id === out.childId);
+  const counted = withCounts(snapshot, out.parentId, -1, child && !stillOpen(child) ? -1 : 0);
+  return { ...counted, children: held.filter((row) => !(row.parentId === out.parentId && row.childId === out.childId)) };
+}
+
+/** A parent's two counts moved by these amounts, never below nothing. */
+function withCounts(snapshot: WorkspaceSnapshot, parentId: string, count: number, done: number): WorkspaceSnapshot {
+  const parent = snapshot.items.find((item) => item.id === parentId);
+  if (!parent) return snapshot;
+  return withItem(snapshot, parentId, {
+    childrenCount: Math.max(0, (parent.childrenCount ?? 0) + count),
+    childrenDone: Math.max(0, (parent.childrenDone ?? 0) + done),
+  });
 }
 
 function withItem(snapshot: WorkspaceSnapshot, itemId: string, fields: Partial<Item>): WorkspaceSnapshot {

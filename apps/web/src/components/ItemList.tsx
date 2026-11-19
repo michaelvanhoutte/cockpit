@@ -16,6 +16,8 @@ import {
   panelAndFilterIdsByItem,
   itemIdsWithRun,
   itemsOnPanel,
+  childrenOf,
+  holdsItems,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
@@ -76,6 +78,8 @@ import { SelectionBar } from './SelectionBar';
 import { FetchedPicker } from './FetchedPicker';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
+import { useAddingAsChild } from './useAddingAsChild';
+import { useUnfolded } from '../unfoldedParents';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
@@ -122,7 +126,15 @@ export function ItemList({
   fillsTheRestOfItsColumn = false,
   groupByProposal = false,
   columns = null,
+  heldBy,
 }: {
+  /**
+   * The parent these rows are drawn under, unfolded from its row ("Brainstorming:
+   * an Item can't hold other Items", issue 1825): each row can be taken out of
+   * it, and the list is the parent's, so nothing is dropped or reordered here
+   * and it draws no selection bar of its own.
+   */
+  heldBy?: Item | undefined;
   /**
    * That the rows are drawn in columns of at least this width, when the Panel
    * is wide enough ("Split a wide Panel's rows into columns, at a minimum width
@@ -324,10 +336,17 @@ export function ItemList({
   // there is, so it does its own.
   const shownIds = useMemo(() => items.map((item) => item.id), [items]);
   useShowing(scope, shownIds, hidden);
-  useHeldTo(onDashboard ? null : scope);
+  useHeldTo(onDashboard || heldBy ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
+  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting);
+  const editing = useEditingSeveral({
+    workspaceId,
+    picked,
+    filing: filingSeveral.filing,
+    scope,
+    onAddAsChildOf: () => addingAsChild.ask(picked),
+  });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
@@ -757,6 +776,20 @@ export function ItemList({
     });
   };
 
+  /**
+   * Takes a child out of the parent it is drawn under, and that one alone
+   * (issue 1825), with Undo putting it back in.
+   */
+  const takeOut = (item: Item, parent: Item) => {
+    const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
+    const answer = send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: item.id } });
+    offerToUndo({
+      what: `“${itemLabel(item)}” taken out of ${itemLabel(parent)}`,
+      unlessRefused: answer,
+      undo: () => send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
+    });
+  };
+
   /** A tick clicked, which is a row picked or a span reached across. */
   const pick = (item: Item, withShift: boolean) => {
     setSelection((was) =>
@@ -999,6 +1032,7 @@ export function ItemList({
     group?: readonly Item[],
     landing?: 'before' | 'after',
   ) => (
+    <>
     <ItemRow
       item={item}
       {...(landing ? { landing } : {})}
@@ -1020,8 +1054,9 @@ export function ItemList({
         onEndSelection: stopSelecting,
       }}
       // Not on a Filter panel's row: its place is a consequence of the Item, so
-      // there is no Panel to move it from (it keeps Also show on…).
-      {...(gathered
+      // there is no Panel to move it from (it keeps Also show on…). A child's
+      // row moves it as an Inbox row does, off every Panel.
+      {...(gathered && !heldBy
         ? {}
         : {
             onMoveTo: (from: HTMLElement | null) => {
@@ -1069,7 +1104,21 @@ export function ItemList({
             onAcceptRouting: acceptRoutingFor(item),
             onAcceptSelection: acceptSelection,
           })}
+      onAddAsChildOf={(from: HTMLElement | null) => {
+        openedFrom.current = from;
+        addingAsChild.ask([item]);
+      }}
+      {...(heldBy ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => takeOut(item, heldBy) } } : {})}
     />
+    {holdsItems(item) && (
+      <HeldRows
+        workspaceId={workspaceId}
+        parent={item}
+        panelId={panelId}
+        openDashboardId={openDashboardId}
+      />
+    )}
+    </>
   );
 
   /**
@@ -1330,7 +1379,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
+      {!onDashboard && !heldBy && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}
@@ -1343,6 +1392,7 @@ export function ItemList({
           onClear={stopSelecting}
         />
       )}
+      {addingAsChild.dialog}
 
       {filingSeveral.pickers}
 
@@ -1565,4 +1615,43 @@ function useOrientation(on: boolean, order: string, picked: readonly string[]) {
     orienter.current?.settle(picked);
   });
   return box;
+}
+
+/**
+ * A parent's children as full rows of their own, indented under its row
+ * while it is unfolded ("Brainstorming: an Item can't hold other Items", issue
+ * 1825): the POC's child rows, each with its status, menu and drag. Only the
+ * open ones the Workspace's read holds; the parent's row counts the rest.
+ */
+function HeldRows({
+  workspaceId,
+  parent,
+  panelId,
+  openDashboardId,
+}: {
+  workspaceId: string;
+  parent: Item;
+  panelId: string | null;
+  openDashboardId: string | null;
+}) {
+  const { unfolded } = useUnfolded(parent.id);
+  const { data } = useSnapshot(workspaceId);
+  const held = useMemo(
+    () => childrenOf(data?.children ?? [], data?.items ?? [], parent.id),
+    [data?.children, data?.items, parent.id],
+  );
+  if (!unfolded || held.length === 0) return null;
+  return (
+    <li className="border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
+      <ItemList
+        workspaceId={workspaceId}
+        items={held}
+        openDashboardId={openDashboardId}
+        panelId={panelId}
+        gathered
+        heldBy={parent}
+        emptyMessage=""
+      />
+    </li>
+  );
 }

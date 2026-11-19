@@ -1223,12 +1223,13 @@ export const panelItems = sqliteTable(
 /**
  * Every Item held by another Item, and where it sits in that Item's order
  * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
- * relations", issue 1824). The one place an Item will sit in another, whether
- * on a Panel, in a nested Panel or on a whiteboard; today it holds every
- * filing a second time, under the Panel's own Item (`panels.item_id`), written
- * in the transaction of every change that writes `panel_items`
- * (`item-children.ts`). **Nothing reads it yet**: `panel_items` stays what a
- * Panel and the Inbox are drawn from until the switch (issue 1825).
+ * relations", issue 1824). The one place an Item sits in another, whether
+ * on a Panel, inside another Item or, later, on a whiteboard: every filing,
+ * under the Panel's own Item (`panels.item_id`), written in the transaction of
+ * every change that writes `panel_items` (`item-children.ts`), and every Item
+ * held by another ("Brainstorming: an Item can't hold other Items", issue
+ * 1825). **What a Panel holds and what the Inbox holds are read from here**;
+ * `panel_items` is still written until it is dropped (issue 1833).
  *
  * - **Tombstoned, unlike `panel_items`**: taking an Item out sets `deleted_at`,
  *   and putting it back clears it, so the key below is never met twice.

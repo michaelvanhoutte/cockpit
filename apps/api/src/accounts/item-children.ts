@@ -9,13 +9,13 @@ type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
  * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
  * relations", issue 1824). The writes that keep `item_children` and the counts
  * equal to `panel_items`, each called inside the transaction of the change
- * that moves them, so the two tables never disagree. Reads still come from
- * `panel_items`; the backfill that brought existing Panels here is
- * `0109-panels-become-items` (changes.ts).
+ * that moves them, so the two tables never disagree. Reads come from
+ * `item_children` (issue 1825); the backfill that brought existing Panels here
+ * is `0109-panels-become-items`, and `0110-filings-copied-again` brought over
+ * what an older Worker wrote during its rollout (changes.ts).
  *
- * **A Panel the backfill has not reached holds nothing here**: one an older
- * Worker made during the rollout has no Item, so its filings are left to the
- * switch's copy step (issue 1825) rather than given a holder here.
+ * **Any Item can hold Items** (issue 1825): `putInside` and `takeOut` write
+ * the rows of an Item parent, which `panel_items` knows nothing of.
  */
 
 /**
@@ -137,3 +137,68 @@ const COUNTS = sql.raw(`
   children_done = (SELECT count(*) FROM item_children c JOIN items k ON k.id = c.child_id
                     WHERE c.tenant_id = items.tenant_id AND c.parent_id = items.id
                       AND c.deleted_at IS NULL AND k.deleted_at IS NULL AND k.completed_at IS NOT NULL)`);
+
+/**
+ * Items put inside an Item at the end of its order ("Brainstorming: an Item
+ * can't hold other Items", issue 1825), in the transaction of `add_children`:
+ * one already inside it keeps its place, one taken out before comes back, and
+ * the parent's counts are counted again. Never a Panel's own Item as parent,
+ * which `panel_items` still has to agree with: filing is its own change.
+ */
+export function putInside(tx: InATransaction, tenantId: string, parentId: string, childIds: readonly string[], at: string): void {
+  const last = tx.get<{ last: number | null }>(sql`SELECT max(position) AS last FROM item_children
+                                                    WHERE tenant_id = ${tenantId} AND parent_id = ${parentId}
+                                                      AND deleted_at IS NULL`);
+  let position = (last?.last ?? -1) + 1;
+  for (const childId of childIds) {
+    tx.run(sql`INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+                VALUES (${tenantId}, ${parentId}, ${childId}, ${position}, ${at})
+                ON CONFLICT (parent_id, child_id) DO UPDATE SET
+                  position = excluded.position, created_at = excluded.created_at, deleted_at = NULL
+                WHERE item_children.deleted_at IS NOT NULL`);
+    position += 1;
+  }
+  recount(tx, tenantId, parentId);
+}
+
+/** One Item taken out of one parent, which keeps the places of the rest, and the parent counted again. */
+export function takeOut(tx: InATransaction, tenantId: string, parentId: string, childId: string, at: string): void {
+  tx.run(sql`UPDATE item_children SET deleted_at = ${at}
+              WHERE tenant_id = ${tenantId} AND parent_id = ${parentId} AND child_id = ${childId}
+                AND deleted_at IS NULL`);
+  recount(tx, tenantId, parentId);
+}
+
+/**
+ * Which of these Items the parent already sits inside, however deep: putting
+ * one of them in it would make an Item its own ancestor. Walks up from the
+ * parent by `item_children_tenant_child`, one row per level.
+ */
+export function ancestorsAmong(db: AccountDb, tenantId: string, parentId: string, childIds: readonly string[]): string[] {
+  if (childIds.length === 0) return [];
+  const candidates = sql.join(
+    childIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  return db
+    .all<{ id: string }>(sql`WITH RECURSIVE up(id) AS (
+                               SELECT ${parentId}
+                               UNION
+                               SELECT c.parent_id FROM item_children c JOIN up ON c.child_id = up.id
+                                WHERE c.tenant_id = ${tenantId} AND c.deleted_at IS NULL)
+                             SELECT id FROM up WHERE id IN (${candidates})`)
+    .map((row) => row.id);
+}
+
+/** Whether a live row has this Item inside that one: what a take-out needs to find to change anything. */
+export function isInside(db: AccountDb, tenantId: string, parentId: string, childId: string): boolean {
+  return (
+    db.get<{ one: number }>(sql`SELECT 1 AS one FROM item_children
+                                 WHERE tenant_id = ${tenantId} AND parent_id = ${parentId} AND child_id = ${childId}
+                                   AND deleted_at IS NULL`) !== undefined
+  );
+}
+
+function recount(tx: InATransaction, tenantId: string, itemId: string): void {
+  tx.run(sql`UPDATE items SET ${COUNTS} WHERE tenant_id = ${tenantId} AND id = ${itemId}`);
+}

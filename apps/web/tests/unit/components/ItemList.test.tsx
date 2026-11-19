@@ -3,6 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, renderHook, screen, waitF
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
+  ChildRow,
   Dashboard,
   Filing,
   FilterGroup,
@@ -18,6 +19,7 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
+import { foldEveryParent } from '../../../src/unfoldedParents';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { settleTheShowRequest, useShowRequest } from '../../../src/showItem';
 
@@ -32,6 +34,8 @@ import { settleTheShowRequest, useShowRequest } from '../../../src/showItem';
 const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
+  /** Which Item holds which (issue 1825). */
+  children: [] as ChildRow[],
   dashboards: [] as Dashboard[],
   panels: [] as Panel[],
   duplicates: [] as PossibleDuplicate[],
@@ -148,6 +152,7 @@ vi.mock('../../../src/api/queries', async () => {
     followUpDays: 3,
     duplicates: held.duplicates,
         filings: held.filings,
+        children: held.children,
         agentRuns: [],
         generatedAt: '2026-08-31T09:00:00.000Z',
       } as WorkspaceSnapshot),
@@ -369,6 +374,8 @@ function offered(dialog: HTMLElement): string[] {
 beforeEach(() => {
   held.items = [BART];
   held.filings = [];
+  held.children = [];
+  foldEveryParent();
   held.dashboards = [TODAY, RESEARCH];
   held.panels = [
     aPanel('p-falcon', TODAY.id, 'Falcon'),
@@ -4162,6 +4169,125 @@ describe('Triage', () => {
 
       expect(await screen.findByText('2 items moved to Falcon')).toBeVisible();
       expect(nowOn('p-falcon')).toEqual([BART.id, CHASE.id]);
+    });
+  });
+});
+
+describe('Panels', () => {
+  /**
+   * "Brainstorming: an Item can't hold other Items" (issue 1825): the POC's
+   * child rows. Which children the snapshot carries, and the counts, are
+   * proved against a real store (apps/api/tests/integration/http/item-children.test.ts);
+   * dragging a child row to another Panel only exists in a browser
+   * (tests/e2e/filing.test.ts).
+   */
+  describe('in a Panel, a parent shows once as an expander row with its children as full rows under it', () => {
+    const CHAPTER: Item = { ...anItem('11111111-1111-7111-8111-000000000020', 'Chapter 3'), childrenCount: 3, childrenDone: 2 };
+    const STORM = anItem('11111111-1111-7111-8111-000000000021', 'Storm scene');
+    const FERRY = anItem('11111111-1111-7111-8111-000000000022', 'Ferry scene');
+
+    beforeEach(() => {
+      held.items = [CHAPTER, STORM, FERRY];
+      held.filings = [{ panelId: 'p-falcon', itemId: CHAPTER.id, position: 0 }];
+      held.children = [
+        { parentId: CHAPTER.id, childId: FERRY.id, position: 1 },
+        { parentId: CHAPTER.id, childId: STORM.id, position: 0 },
+      ];
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const onAPanel = () => showList({ items: [CHAPTER], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+    const childRows = () => document.querySelector(`[data-child-rows="${CHAPTER.id}"]`) as HTMLElement | null;
+
+    it('says how many it holds and how many are done, and shows none of them until unfolded', async () => {
+      await onAPanel();
+
+      expect(screen.getByText('Chapter 3')).toBeInTheDocument();
+      expect(screen.getByText('· 2 of 3 done')).toBeInTheDocument();
+      expect(screen.queryByText('Storm scene')).not.toBeInTheDocument();
+    });
+
+    it('shows the children in its order on unfolding, hides them on folding, and never picks the row', async () => {
+      const user = await onAPanel();
+
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+      expect(within(childRows()!).getAllByText(/scene$/).map((title) => title.textContent)).toEqual(['Storm scene', 'Ferry scene']);
+
+      await user.click(screen.getByRole('button', { name: 'Fold Chapter 3' }));
+      expect(childRows()).toBeNull();
+      expect(pickedNow(dashboardScope(TODAY.id)).size).toBe(0);
+    });
+
+    it('acts on the child from a child row’s menu', async () => {
+      const user = await onAPanel();
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      const storm = within(childRows()!).getByText('Storm scene').closest('li')!;
+      await user.click(within(storm).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Take out of Chapter 3' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'remove_child', payload: expect.objectContaining({ parentId: CHAPTER.id, childId: STORM.id }) }),
+      );
+    });
+
+    it.each([
+      { situation: 'at a phone’s width', desk: false },
+      { situation: 'at a desk’s width', desk: true },
+    ])('indents the children under the parent $situation', async ({ desk }) => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: desk && query.includes('min-width'),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+      const user = await onAPanel();
+
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      const parentRow = screen.getByText('Chapter 3').closest('li')!;
+      expect(parentRow.nextElementSibling).toBe(childRows());
+      expect(childRows()!.className).toContain('pl-5');
+      expect(within(childRows()!).getByText('Storm scene')).toBeInTheDocument();
+    });
+  });
+
+  describe('Add as child of… puts the chosen Items inside the Item picked, with Undo', () => {
+    const CHAPTER = anItem('11111111-1111-7111-8111-000000000030', 'Chapter 3');
+
+    it('offers the other open Items and sends what was picked', async () => {
+      held.items = [BART, CHAPTER];
+      const user = await showList({ items: [BART, CHAPTER] });
+
+      const bart = screen.getByText('Reply to Bart').closest('li')!;
+      await user.click(within(bart).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add as child of…' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).queryByRole('button', { name: 'Reply to Bart' })).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Chapter 3' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id] }) }),
+      );
+      expect(await screen.findByRole('status')).toHaveTextContent('“Reply to Bart” added to Chapter 3');
+    });
+
+    it('puts every picked row inside it from the selection’s Edit menu', async () => {
+      held.items = [BART, LISA, CHAPTER];
+      const user = await showList({ items: [BART, LISA, CHAPTER] });
+      await tick(user, BART);
+      await tick(user, LISA);
+
+      await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add as child of…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Chapter 3' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id] }) }),
+      );
     });
   });
 });

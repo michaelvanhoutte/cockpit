@@ -37,6 +37,7 @@ import {
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
+import { ItemRelations, useRelationCount } from './ItemRelations';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
@@ -106,11 +107,12 @@ const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((l
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
-const TABS = ['item', 'attachments', 'details', 'changes'] as const;
+const TABS = ['item', 'attachments', 'details', 'relations', 'changes'] as const;
 const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   item: 'Item',
   attachments: 'Attachments',
   details: 'Details',
+  relations: 'Relations',
   changes: 'Suggestions',
 };
 
@@ -1021,6 +1023,8 @@ function TheForm({
    */
   const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
+  /** Its parents and children, for the Relations tab's title (issue 1825). */
+  const relationCount = useRelationCount(workspaceId, item);
   /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
   const seeChanges = cockpit.markSeen;
   useEffect(() => {
@@ -1937,18 +1941,22 @@ function TheForm({
                   </p>
                 )}
 
-                {/* Four tabs, the form, its files ("Give an Item's
+                {/* The tabs: the form, its files ("Give an Item's
                     attachments a tab of their own", issue 1410), its technical
                     record ("Give the item's form more room, and put clutter
-                    out of the way", issue 480) and the suggestions Cockpit made
-                    on it (issue 690). The
+                    out of the way", issue 480), its parents and children
+                    (issue 1825) and the suggestions Cockpit made on it (issue
+                    690). The
                     form's panel stays mounted while another shows, only
                     hidden, so the editor and whatever is half typed are still
                     there when the person comes back. */}
                 <div
                   role="tablist"
                   aria-label="Item"
-                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3' : 'gap-4'}`}
+                  // On a phone the five tabs are wider than the page, so the
+                  // strip scrolls sideways, as the description's toolbar does,
+                  // rather than breaking a tab's name across two lines.
+                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3 overflow-x-auto' : 'gap-4'}`}
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
@@ -1968,13 +1976,20 @@ function TheForm({
                       aria-controls={tab === which ? `${formId}-${which}` : undefined}
                       tabIndex={tab === which ? 0 : -1}
                       onClick={() => setTab(which)}
-                      className={`-mb-px border-b-2 px-1 pb-1.5 text-sm font-medium ${
+                      className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-1 pb-1.5 text-sm font-medium ${
                         tab === which
                           ? 'border-accent text-ink'
                           : 'border-transparent text-ink-faint hover:text-ink'
                       }`}
                     >
                       {TAB_NAMES[which]}
+                      {/* Titled with how many, as the POC's (issue 1825). */}
+                      {which === 'relations' && relationCount > 0 && (
+                        <>
+                          {' '}
+                          <span className="text-ink-faint">· {relationCount}</span>
+                        </>
+                      )}
                       {which === 'attachments' && anyFiles && (
                         <>
                           {' '}
@@ -2396,6 +2411,17 @@ function TheForm({
                         {attachmentError}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {tab === 'relations' && item && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-relations`}
+                    aria-labelledby={`${formId}-relations-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <ItemRelations workspaceId={workspaceId} item={item} />
                   </div>
                 )}
 

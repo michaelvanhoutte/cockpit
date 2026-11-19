@@ -198,7 +198,7 @@ beforeEach(() => {
 
 describe('Selection', () => {
   describe('Edit names the value every picked Item shares, or Mixed, and ticks the shared one', () => {
-    it('offers Priority, Due and Status, then End Claude run, and no Type, though the workspace has one', async () => {
+    it('offers Priority, Due and Status, then End Claude run and Add as child of…, and no Type, though the workspace has one', async () => {
       const user = show(TWO_PANELS);
       await tick(user, BART.title);
       await tick(user, RENEW.title);
@@ -206,7 +206,7 @@ describe('Selection', () => {
       await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
 
       const fields = (await screen.findAllByRole('menuitem')).map((item) => item.textContent?.split(' ')[0]);
-      expect(fields).toEqual(['Priority', 'Due', 'Status', 'End']);
+      expect(fields).toEqual(['Priority', 'Due', 'Status', 'End', 'Add']);
     });
 
     it('reads High and ticks it when the picked Items are all High', async () => {

@@ -18,6 +18,7 @@ import {
   itemFormPresentationSchema,
 } from '../domain/item-form-presentation.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
+import { childRowSchema } from '../domain/item-children.js';
 import { seriesSchema } from '../domain/series.js';
 
 /**
@@ -51,6 +52,15 @@ export const workspaceSnapshotSchema = z.object({
   layouts: z.array(layoutSchema),
   /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),
+  /**
+   * Which of the Items above an Item holds, and in what order ("Brainstorming:
+   * an Item can't hold other Items", issue 1825): the rows of those Items' live
+   * parents of this Workspace that are not Panels, which `filings` carries.
+   * Only the Items read here, so a parent's finished children cost nothing; its
+   * counts say how many it holds. Optional: a copy saved by a release that did
+   * not send it holds none.
+   */
+  children: z.array(childRowSchema).optional(),
   associations: z.array(associationSchema),
   /**
    * Every file attached to an Item of this Workspace ("Attach a file to an
