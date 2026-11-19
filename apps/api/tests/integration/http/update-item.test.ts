@@ -212,8 +212,9 @@ describe('MCP connections', () => {
     const LATE_EVENING = Date.parse('2026-10-19T23:30:00.000Z');
 
     it('is due 7 days from today in Brussels, and waiting since now, for an account whose latest capture was made there', async () => {
-      vi.useFakeTimers({ toFake: ['Date'], now: LATE_EVENING });
+      // Connected on the real clock: a token saved under a fixed past date expires before it is saved.
       const { token } = await connected();
+      vi.useFakeTimers({ toFake: ['Date'], now: LATE_EVENING });
       await anItem('Captured in Brussels', { timeZone: 'Europe/Brussels' });
       const itemId = await anItem('Wait on Bart');
 
@@ -228,8 +229,9 @@ describe('MCP connections', () => {
     });
 
     it('counts on UTC where no capture ever carried a time zone', async () => {
-      vi.useFakeTimers({ toFake: ['Date'], now: LATE_EVENING });
+      // Connected on the real clock: a token saved under a fixed past date expires before it is saved.
       const { token } = await connected();
+      vi.useFakeTimers({ toFake: ['Date'], now: LATE_EVENING });
       const itemId = await anItem('Wait on Bart');
 
       const waited = await updateItem(token, { id: itemId, status: 'waiting', days: 7 });
