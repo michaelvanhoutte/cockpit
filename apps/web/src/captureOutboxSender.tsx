@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { UseStore } from 'idb-keyval';
 import { ACCOUNT_WIDE, uuidv7, type CommandResult, type Priority } from '@cockpit/shared';
 import { changes } from './api/changes';
-import { sendCommand, uploadAttachment } from './api/client';
+import { CommandRefused, sendCommand, uploadAttachment } from './api/client';
 import { readForAnnouncement } from './api/snapshotReads';
 import { deviceTimeZone } from './deviceTimeZone';
 import { createDeviceStore, del, onPage, pageIsFrozen, set, values } from './onDeviceStore';
@@ -612,8 +612,10 @@ export class CaptureOutbox {
           this.told(current.id, 'waiting');
           return outcome.answered ? 'skipped' : 'waits';
         }
-        await this.save({ ...current, refused: outcome.reason });
-        this.told(current.id, 'waiting');
+        // A 400 is the Worker's "nothing was recorded": the same as words that came back empty.
+        const empty = error instanceof CommandRefused && error.status === 400;
+        await this.save({ ...current, refused: empty ? NOTHING_HEARD : outcome.reason });
+        this.told(current.id, empty ? 'nothing' : 'waiting');
         return 'done';
       }
       const message = words.trim();

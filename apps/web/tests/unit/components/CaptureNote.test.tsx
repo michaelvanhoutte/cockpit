@@ -42,6 +42,8 @@ import {
   DICTATION_KEPT_TO_RETRY,
   DICTATION_TOO_MANY,
   DICTATION_STOPPED_AT_THE_LIMIT,
+  DICTATION_NOTHING_RECORDED,
+  DICTATION_RECORDING_EMPTY,
   type StartRecording,
 } from '../../../src/recording';
 import { aRecorder, aTranscriber } from '../support/recording';
@@ -3138,6 +3140,7 @@ describe('Capture', () => {
       expect(recorder.current().cancelled).toBe(true);
       expect(mic()).toHaveAttribute('aria-pressed', 'false');
       expect(transcriber.sent()).toBe(0);
+      expect(await screen.findByText(DICTATION_NOTHING_RECORDED)).toBeInTheDocument();
     });
 
     it.each([
@@ -3570,6 +3573,129 @@ describe('Capture', () => {
 
       expect(retries()).toHaveLength(offered ? 1 : 0);
       // Kept either way: nobody else's sign-in deletes it.
+      expect(await keptOnTheDevice()).toBe(1);
+    });
+  });
+
+  describe('a recording under a second is neither kept nor sent, and says so', () => {
+    it.each([
+      { situation: 'the mic is tapped off 0.4 seconds in', lasts: 400, sound: true },
+      { situation: 'the recorder answers no sound after two seconds', lasts: 2000, sound: false },
+    ])('when $situation', async ({ lasts, sound }) => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(lasts);
+      if (!sound) recorder.recordsNoSound();
+      const user = await thePage({ dictating });
+
+      await user.click(mic());
+      await user.click(mic());
+
+      expect(await screen.findByRole('status')).toHaveTextContent(DICTATION_NOTHING_RECORDED);
+      expect(DICTATION_NOTHING_RECORDED).toBe('Nothing was recorded.');
+      expect(transcriber.sent()).toBe(0);
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(retries()).toHaveLength(0);
+      expect(mic()).toBeEnabled();
+    });
+
+    it('clears the line, and starts recording, on the next tap', async () => {
+      const { dictating, recorder } = dictate();
+      recorder.lasts(400);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+      await screen.findByText(DICTATION_NOTHING_RECORDED);
+
+      await user.click(mic());
+
+      expect(screen.queryByText(DICTATION_NOTHING_RECORDED)).toBeNull();
+      expect(mic()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('sends nothing and keeps nothing when the page is hidden 0.3 seconds in', async () => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(300);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      try {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+
+        expect(await screen.findByText(DICTATION_NOTHING_RECORDED)).toBeInTheDocument();
+        expect(transcriber.sent()).toBe(0);
+        expect(await keptOnTheDevice()).toBe(0);
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    });
+
+    it('sends and transcribes a recording of exactly one second', async () => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(1000);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+
+      await transcriber.answers('buy oat milk');
+
+      expect(box()).toHaveValue('buy oat milk');
+      expect(screen.queryByText(DICTATION_NOTHING_RECORDED)).toBeNull();
+    });
+  });
+
+  describe('a waiting recording the Worker refuses as empty is deleted, and says so', () => {
+    it('on Retry', async () => {
+      const { user, transcriber } = await dictatedAndFailed();
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+      await transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(DICTATION_RECORDING_EMPTY).toBe('That recording was empty.');
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+    });
+
+    it('on a first attempt, never offering it for Retry', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+
+      await transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(retries()).toHaveLength(0);
+      expect(await keptOnTheDevice()).toBe(0);
+    });
+
+    it('on Retry of one under a second kept before, without sending it', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating, waitingRecordings: [aKeptRecording(0, '2026-10-12T09:00:00.000Z')] });
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(transcriber.sent()).toBe(0);
+    });
+
+    it('still says it was empty, throwing nothing, when storage will not delete it', async () => {
+      const dictation = dictate();
+      const user = await thePage({
+        dictating: dictation.dictating,
+        recordingStore: { ...browserRecordingStore(), remove: () => Promise.reject(new Error('storage refused')) },
+      });
+      await user.click(mic());
+      await user.click(mic());
+
+      await dictation.transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).toBeNull();
+      // Still on the device, to be offered again on the next load.
       expect(await keptOnTheDevice()).toBe(1);
     });
   });
