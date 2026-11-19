@@ -36,8 +36,6 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
-import { askToSplit, openDashboardId } from '../poc/dialogs';
-import { PocRelations, usePocRelationCount } from '../poc/PocRelations';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -108,12 +106,11 @@ const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((l
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
-const TABS = ['item', 'attachments', 'details', 'relations', 'changes'] as const;
+const TABS = ['item', 'attachments', 'details', 'changes'] as const;
 const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   item: 'Item',
   attachments: 'Attachments',
   details: 'Details',
-  relations: 'Relations',
   changes: 'Suggestions',
 };
 
@@ -1024,7 +1021,6 @@ function TheForm({
    */
   const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
-  const pocRelationCount = usePocRelationCount(workspaceId, item?.id ?? '');
   /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
   const seeChanges = cockpit.markSeen;
   useEffect(() => {
@@ -1754,11 +1750,6 @@ function TheForm({
               <span className="text-base font-semibold text-ink">Item</span>
               {/* Copy link sits left of whichever of Edit and Save holds the corner. */}
               <div className="flex shrink-0 items-center gap-2">
-                {item && (
-                  <button type="button" onClick={() => askToSplit(item.id, openDashboardId())} className={headerButtonClass}>
-                    Split…
-                  </button>
-                )}
                 {filedOnAPanel && (
                   <button type="button" onClick={copyLink} className={headerButtonClass}>
                     Copy link
@@ -1787,11 +1778,6 @@ function TheForm({
             </div>
           ) : (
             <div className="flex shrink-0 items-center justify-end gap-2">
-              {item && (
-                <button type="button" onClick={() => askToSplit(item.id, openDashboardId())} className={headerButtonClass}>
-                  Split…
-                </button>
-              )}
               {filedOnAPanel && (
                 <button type="button" onClick={copyLink} className={headerButtonClass}>
                   Copy link
@@ -1989,7 +1975,6 @@ function TheForm({
                       }`}
                     >
                       {TAB_NAMES[which]}
-                      {which === 'relations' && pocRelationCount > 0 && <span className="text-ink-faint"> · {pocRelationCount}</span>}
                       {which === 'attachments' && anyFiles && (
                         <>
                           {' '}
@@ -2411,17 +2396,6 @@ function TheForm({
                         {attachmentError}
                       </p>
                     )}
-                  </div>
-                )}
-
-                {tab === 'relations' && item && (
-                  <div
-                    role="tabpanel"
-                    id={`${formId}-relations`}
-                    aria-labelledby={`${formId}-relations-tab`}
-                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
-                  >
-                    <PocRelations workspaceId={workspaceId} itemId={item.id} />
                   </div>
                 )}
 

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import {
   NO_CONDITIONS,
   panelGathers,
@@ -14,8 +14,6 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { saysHowItIsSorted } from '../sorting';
 import { ItemList } from './ItemList';
-import { ink, tint, useColourOf } from '../poc/colour';
-import { PocChildPanels, PocColourAsk } from '../poc/PocPanels';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';
 import { PanelText } from '../panels/PanelText';
@@ -191,14 +189,8 @@ export function PanelCard({
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
   /** Where and when the press on this header that might be a tap began. */
   const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
-  const pocColour = useColourOf(workspaceId, `panel:${panel.id}`);
-  const [pocColourAsk, setPocColourAsk] = useState(false);
 
   return (
-    <>
-    {pocColourAsk && (
-      <PocColourAsk workspaceId={workspaceId} target={`panel:${panel.id}`} onClose={() => setPocColourAsk(false)} />
-    )}
     <section
       aria-label={panel.name}
       // Where a panel lands is measured off the rows rather than caught by a
@@ -207,8 +199,6 @@ export function PanelCard({
       // drawing and there is nothing here to hit. What is still dropped *on* a
       // panel is an item, and that is the list's own target, further in.
       data-panel-cell={panel.id}
-      data-poc-panel={panel.id}
-      style={pocColour ? { borderColor: ink(pocColour), borderStyle: 'solid', borderWidth: 2 } : undefined}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
       // artboard 2c).
@@ -276,13 +266,10 @@ export function PanelCard({
                   : 'This workspace has no other dashboard',
               onSelect: onMoveToAnotherDashboard,
             },
-            // POC (throwaway): the Panel's colour, shared with its box on the whiteboard.
-            { label: 'Colour…', onSelect: () => setPocColourAsk(true) },
             { label: 'Delete', destructive: true, onSelect: onDelete },
           ]}
         >
           <header
-            style={pocColour ? { background: tint(pocColour) } : undefined}
             // The handle, and a pointer gesture rather than the browser's own
             // drag-and-drop.
             //
@@ -423,10 +410,7 @@ export function PanelCard({
                     (components/InboxPanel.tsx): small, uppercase and in the accent,
                     because a header on the sheet has no fill or rule to say it is a
                     header and the letterform has to do it alone. */}
-                  <h3
-                    className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
-                    style={pocColour ? { color: ink(pocColour) } : undefined}
-                  >
+                  <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
                     {panel.name}
                   </h3>
                   {/* That this panel gathers rather than holds, and what it
@@ -583,8 +567,6 @@ export function PanelCard({
         {text ? (
           <PanelText panel={panel} workspaceId={workspaceId} />
         ) : (
-          <>
-          {!collapsed && <PocChildPanels workspaceId={workspaceId} panelId={panel.id} />}
           <ItemList
             workspaceId={workspaceId}
             items={items}
@@ -608,10 +590,9 @@ export function PanelCard({
                 : NOTHING_FILED_HERE
             }
           />
-          </>
         )}
       </div>
     </section>
-    </>
+
   );
 }

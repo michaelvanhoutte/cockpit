@@ -24,10 +24,7 @@ export function SelectionBar({
   onMoveTo,
   onClear,
   onBoard = false,
-  onCombine,
 }: {
-  /** POC (throwaway): Combine… the picked Items. */
-  onCombine?: (() => void) | undefined;
   /** How many rows of this list are picked. Never zero - the bar is not drawn. */
   count: number;
   /** That the filing is still going, so it cannot be asked for twice. */
@@ -153,16 +150,6 @@ export function SelectionBar({
               {filing ? 'Moving…' : 'Move to…'}
             </button>
             {editMenu}
-            {onCombine && count >= 2 && (
-              <button
-                type="button"
-                className="rounded-sm border border-accent/40 bg-surface px-2 py-1 text-sm hover:border-accent disabled:opacity-50"
-                disabled={filing || saving !== null}
-                onClick={onCombine}
-              >
-                Combine…
-              </button>
-            )}
             <button
               type="button"
               className="rounded-sm px-2 py-1 text-sm text-ink-soft hover:text-ink disabled:opacity-50"

@@ -1071,12 +1071,6 @@ export function PanelBoard({
     if (held) anchorOn(held.id);
     setDragging(null);
     if (!held) return;
-    // POC (throwaway): a Panel let go over the whiteboard is put on it, and the arrangement is left as it was.
-    const board = held.row ? null : document.querySelector('[data-poc-whiteboard]')?.getBoundingClientRect();
-    if (board && point.x >= board.left && point.x < board.right && point.y >= board.top && point.y < board.bottom) {
-      window.dispatchEvent(new CustomEvent('poc-panel-drop', { detail: { panelId: held.id, x: point.x, y: point.y } }));
-      return;
-    }
     // A row has no other dashboard to be sent to: only a Panel does.
     const droppedOnDashboard = held.row ? null : dashboardTabAt(point, tabsOnScreen(), dashboard.id);
     if (droppedOnDashboard) {

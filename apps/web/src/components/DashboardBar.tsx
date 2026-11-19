@@ -18,7 +18,6 @@ import { usePanelsCollapsed } from '../panelsCollapsed';
 import { useScreenWidth } from '../panels/useScreenWidth';
 import { allItemsFilterId, setAllItemsTab, useAllItemsTab } from '../allItemsTab';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { ViewSwitch } from '../poc/ViewSwitch';
 import { carryAcrossSwitch } from '../itemInTheAir';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -586,7 +585,6 @@ export function DashboardBar({
       )}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
-          <ViewSwitch dashboardId={openDashboardId} />
           <AddPanel
             workspaceId={workspaceId}
             dashboardId={openDashboardId}
