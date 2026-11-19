@@ -1991,13 +1991,14 @@ function filingsCopiedAgain(): Statement[] {
 /**
  * What Combine writes ("Brainstorming: related loose notes can't be brought
  * together", issue 1826): the trail a Merge leaves on the rows, so `unmerge`
- * can put every one of them back in one transaction (decision 11 of issue
- * 1818), and the setting a parent made by Combine starts with.
+ * can put every one of them back in one transaction (decision 11 of "Brainstorming in
+ * Cockpit: loose Items can't be grouped, split or laid out as a storyline",
+ * issue 1818), and the setting a parent made by Combine starts with.
  *
  * - **`items.merged_into_id`**: the Item an original was merged into, null
  *   for every Item that never was.
  * - **`items.keeps_story`**: whether Claude keeps this Item's description up
- *   to date as children join or leave (issue 1827), 0 for every Item there is.
+ *   to date as children join or leave ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827), 0 for every Item there is.
  * - **`attachments.moved_from_item_id`**: the Item a file was moved from.
  * - **`item_additions.from_item_id`**: the original an Addition was made from.
  *

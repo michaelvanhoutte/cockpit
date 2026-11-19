@@ -238,3 +238,22 @@ export function itemParentsHolding(db: AccountDb, tenantId: string, itemIds: rea
   }
   return found;
 }
+
+/**
+ * The live Items the given Items hold, each once, in the order held: what a
+ * Merge hands to the Item that replaces them, so their children are not left
+ * held by nothing.
+ */
+export function itemChildrenHeldBy(db: AccountDb, tenantId: string, parentIds: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const parentId of parentIds) {
+    const rows = db.all<{ child_id: string }>(
+      sql`SELECT c.child_id FROM item_children c JOIN items k ON k.id = c.child_id
+           WHERE c.tenant_id = ${tenantId} AND c.parent_id = ${parentId} AND c.deleted_at IS NULL
+             AND k.deleted_at IS NULL
+           ORDER BY c.created_at, c.child_id`,
+    );
+    for (const row of rows) if (!found.includes(row.child_id)) found.push(row.child_id);
+  }
+  return found;
+}

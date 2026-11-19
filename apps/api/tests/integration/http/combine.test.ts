@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
-import { filingsThatFile, itemsInTheInbox, type WorkspaceSnapshot } from '@cockpit/shared';
-import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, asUser, inTheStore, seedRegister, startFromEmpty, storeNamed, withoutTheGuide } from '../seed.js';
+import { ACCOUNT_WIDE, filingsThatFile, itemsInTheInbox, type WorkspaceSnapshot } from '@cockpit/shared';
+import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, alsoWorkspaces, asUser, inTheStore, seedRegister, startFromEmpty, storeNamed, withoutTheGuide } from '../seed.js';
 
 /**
  * Integration level, through the real Worker: "Brainstorming: related loose
@@ -67,8 +67,8 @@ async function attach(itemId: string, filename: string) {
   expect(res.status).toBe(201);
 }
 
-async function snapshot(): Promise<WorkspaceSnapshot> {
-  const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+async function snapshot(workspaceId = WORKSPACE_ID): Promise<WorkspaceSnapshot> {
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${workspaceId}/snapshot`);
   expect(res.status).toBe(200);
   return (await res.json()) as WorkspaceSnapshot;
 }
@@ -184,6 +184,179 @@ describe('Triage', () => {
       const unfiled = await storeNamed(ACCOUNT_NAME).unfiledItemsInWorkspace(ACCOUNT_NAME, WORKSPACE_ID);
       expect(unfiled.status === 'ok' && unfiled.value.some((item) => [a, b].includes(item.id))).toBe(false);
       expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
+    });
+  });
+
+  describe('Merges undone in turn keep every file on the trail', () => {
+    it('gives each file back to the Item it came from when a Merge of a Merge is undone twice', async () => {
+      const [a, b, c] = [await aNote('Alpha'), await aNote('Bravo'), await aNote('Charlie')];
+      await attach(a, 'from-a.png');
+      await attach(c, 'from-c.png');
+      const [first, second] = [nextId(), nextId()];
+      await send('merge_items', { itemId: first, originalIds: [a, b], title: 'First', description: 'D' });
+      await send('merge_items', { itemId: second, originalIds: [first, c], title: 'Second', description: 'D' });
+
+      await send('unmerge_items', { itemId: second, originalIds: [first, c] });
+      expect((await snapshot()).attachments.filter((file) => file.itemId === first).map((file) => file.filename)).toEqual(['from-a.png']);
+      await send('unmerge_items', { itemId: first, originalIds: [a, b] });
+
+      const read = await snapshot();
+      expect(read.attachments.filter((file) => file.itemId === a).map((file) => file.filename)).toEqual(['from-a.png']);
+      expect(read.attachments.filter((file) => file.itemId === c).map((file) => file.filename)).toEqual(['from-c.png']);
+      expect(await rows('SELECT id FROM attachments WHERE moved_from_item_id IS NOT NULL')).toEqual([]);
+    });
+  });
+
+  describe('a Merge carries what the originals held and keeps the run Undo brings back', () => {
+    it('hands the originals’ children to the new Item, and gives them back on Undo', async () => {
+      const [a, b, child] = [await aNote('Alpha'), await aNote('Bravo'), await aNote('Child')];
+      expect((await send('add_children', { parentId: a, childIds: [child] })).status).toBe(200);
+      const merged = nextId();
+
+      await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'T', description: 'D' });
+
+      const during = await snapshot();
+      expect(during.children).toContainEqual(expect.objectContaining({ parentId: merged, childId: child }));
+      expect(during.items.find((item) => item.id === merged)).toMatchObject({ childrenCount: 1 });
+      const inbox = itemsInTheInbox(during.items, filingsThatFile(during.filings, during.panels), during.children ?? [], during.panels);
+      expect(inbox.map((item) => item.id)).not.toContain(child);
+
+      await send('unmerge_items', { itemId: merged, originalIds: [a, b] });
+
+      const after = await snapshot();
+      expect(after.children).toContainEqual(expect.objectContaining({ parentId: a, childId: child }));
+      expect(after.items.find((item) => item.id === a)).toMatchObject({ childrenCount: 1 });
+    });
+
+    it('ends an original’s open run and brings it back with Undo', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      await inTheStore((sql) => {
+        sql.exec(
+          `INSERT INTO agent_runs (id, tenant_id, workspace_id, item_id, agent_id, status, started_at, destination)
+           VALUES ('run-on-a', ?, ?, ?, 'claude', 'working', '2026-11-19T09:00:00.000Z', 'code')`,
+          ACCOUNT_NAME,
+          WORKSPACE_ID,
+          a,
+        );
+      });
+      const merged = nextId();
+      await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'T', description: 'D' });
+      expect(await rows('SELECT ended_at FROM agent_runs WHERE id = ?', 'run-on-a')).toEqual([{ ended_at: '2026-11-19T10:00:00.000Z' }]);
+
+      await send('unmerge_items', { itemId: merged, originalIds: [a, b] });
+
+      expect(await rows('SELECT ended_at FROM agent_runs WHERE id = ?', 'run-on-a')).toEqual([{ ended_at: null }]);
+    });
+
+    it('answers a resend of the same Merge under a new command as already applied', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const merged = nextId();
+      await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'T', description: 'D' });
+
+      const again = await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'T', description: 'D' });
+
+      expect(again.status).toBe(200);
+      expect(((await again.json()) as { applied: boolean }).applied).toBe(false);
+    });
+
+    it('still gives an original its file back after it was brought back on its own', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      await attach(a, 'from-a.png');
+      const merged = nextId();
+      await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'The crossing', description: 'D' });
+      expect((await send('set_dismissed', { itemId: a, dismissed: false })).status).toBe(200);
+
+      await send('unmerge_items', { itemId: merged, originalIds: [a, b] });
+
+      expect((await snapshot()).attachments.filter((file) => file.itemId === a).map((file) => file.filename)).toEqual(['from-a.png']);
+    });
+  });
+
+  describe('a Merge never puts an Item inside itself', () => {
+    const holds = (parentId: string, childId: string) =>
+      rows('SELECT 1 AS one FROM item_children WHERE parent_id = ? AND child_id = ? AND deleted_at IS NULL', parentId, childId).then((found) => found.length > 0);
+
+    it('puts the new Item inside what held the Items, and not above it, when one original is an ancestor of another', async () => {
+      const [epic, story, task] = [await aNote('Epic'), await aNote('Story'), await aNote('Task')];
+      expect((await send('add_children', { parentId: epic, childIds: [story] })).status).toBe(200);
+      expect((await send('add_children', { parentId: story, childIds: [task] })).status).toBe(200);
+      const merged = nextId();
+
+      expect((await send('merge_items', { itemId: merged, originalIds: [epic, task], title: 'T', description: 'D' })).status).toBe(200);
+
+      expect(await holds(story, merged)).toBe(true);
+      expect(await holds(merged, story)).toBe(false);
+    });
+
+    it('leaves the new Item inside none of the originals when one held another', async () => {
+      const [epic, story] = [await aNote('Epic'), await aNote('Story')];
+      expect((await send('add_children', { parentId: epic, childIds: [story] })).status).toBe(200);
+      const merged = nextId();
+
+      expect((await send('merge_items', { itemId: merged, originalIds: [epic, story], title: 'T', description: 'D' })).status).toBe(200);
+
+      expect(await holds(epic, merged)).toBe(false);
+      expect(await holds(merged, story)).toBe(false);
+    });
+  });
+
+  describe('an Item an app captured over MCP is merged as a note is', () => {
+    it('merges it, as it finishes at no source', async () => {
+      const [a, b] = [await aNote('Mine'), await aNote('From Claude')];
+      await inTheStore((sql) => {
+        sql.exec("UPDATE items SET source_connector = 'mcp' WHERE id = ?", b);
+      });
+
+      expect((await send('merge_items', { itemId: nextId(), originalIds: [a, b], title: 'T', description: 'D' })).status).toBe(200);
+    });
+  });
+
+  describe('Items waiting in every Inbox are settled by a Combine', () => {
+    it('merges Items of no Workspace yet and takes them out of every Workspace’s Inbox', async () => {
+      await alsoWorkspaces();
+      const [a, b] = [nextId(), nextId()];
+      for (const [itemId, message] of [[a, 'Alpha'], [b, 'Bravo']] as const) {
+        expect((await send('capture_item', { itemId, message, workspaceDecided: false })).status).toBe(200);
+      }
+      const merged = nextId();
+
+      expect((await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'T', description: 'D' })).status).toBe(200);
+
+      for (const workspaceId of [WORKSPACE_ID, 'ws-atlas']) {
+        expect((await snapshot(workspaceId)).items.map((item) => item.id)).not.toEqual(expect.arrayContaining([a]));
+      }
+      expect(await rows('SELECT id FROM items WHERE id = ? AND workspace_decided = 1', merged)).toHaveLength(1);
+      // Logged for every Workspace to hear of, since Items in no Workspace yet are drawn in every Inbox.
+      expect(await rows("SELECT workspace_id FROM commands WHERE name = 'merge_items'")).toEqual([{ workspace_id: ACCOUNT_WIDE }]);
+    });
+
+    it('settles Items of no Workspace yet into the Workspace of a new parent', async () => {
+      const [a, b] = [nextId(), nextId()];
+      for (const [itemId, message] of [[a, 'Alpha'], [b, 'Bravo']] as const) {
+        expect((await send('capture_item', { itemId, message, workspaceDecided: false })).status).toBe(200);
+      }
+
+      const parent = nextId();
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);
+
+      expect(await rows('SELECT workspace_decided, workspace_id FROM items WHERE id IN (?, ?)', a, b)).toEqual([
+        { workspace_decided: 1, workspace_id: WORKSPACE_ID },
+        { workspace_decided: 1, workspace_id: WORKSPACE_ID },
+      ]);
+      expect(await rows("SELECT workspace_id FROM commands WHERE name = 'combine_under_new_parent'")).toEqual([{ workspace_id: ACCOUNT_WIDE }]);
+    });
+  });
+
+  describe('a new parent with neither a Panel nor a Dashboard is an Item of the Workspace’s own', () => {
+    it('holds the Items and is filed on no Panel', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const parent = nextId();
+
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'Loose', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);
+
+      const read = await snapshot();
+      expect(read.items.find((item) => item.id === parent)).toMatchObject({ title: 'Loose', childrenCount: 2 });
+      expect(read.filings.filter((filing) => filing.itemId === parent)).toEqual([]);
     });
   });
 });

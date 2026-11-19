@@ -44,7 +44,9 @@ export default function AddAsChildOf({
   onAdd: (parent: Item) => void;
   onClose: () => void;
 }) {
-  const [parent, setParent] = useState<Item | null>(null);
+  const [picked, setParent] = useState<Item | null>(null);
+  // Only while it is still open in the Workspace: one dismissed or finished meanwhile is no longer picked.
+  const parent = picked && items.some((item) => item.id === picked.id && stillOpen(item)) ? picked : null;
   const title = chosen.length === 1 ? `Add “${itemLabel(chosen[0]!)}” as child of…` : `Add ${chosen.length} Items as children of…`;
 
   return (

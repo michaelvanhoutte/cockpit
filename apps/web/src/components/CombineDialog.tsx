@@ -1,6 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  CHILDREN_ADDED_AT_ONCE,
   combinedTitle,
   itemFromASource,
   itemLabel,
@@ -34,7 +36,10 @@ export default function CombineDialog({
   itemIds,
   onClose,
   onCombined,
+  returnFocusTo,
 }: {
+  /** Where the focus goes back to once it closes: the row's menu button, when it was opened from one. */
+  returnFocusTo?: HTMLElement | null | undefined;
   workspaceId: string;
   /** The Items to combine, in the order they were picked, as the Workspace's read holds them. */
   itemIds: readonly string[];
@@ -44,37 +49,60 @@ export default function CombineDialog({
 }) {
   const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
+  const queryClient = useQueryClient();
   const offerToUndo = useUndo();
   /** Items picked in the window itself, for a Combine asked from one row's menu. */
   const [withIds, setWithIds] = useState<readonly string[]>([]);
   const byId = new Map((data?.items ?? []).filter(stillOpen).map((item) => [item.id, item]));
-  const chosen = [...itemIds, ...withIds].flatMap((id) => byId.get(id) ?? []);
+  // The Items picked stay named even if one finishes before the window draws: only one dismissed is gone.
+  const named = new Map((data?.items ?? []).map((item) => [item.id, item]));
+  const chosen = [...itemIds, ...withIds].flatMap((id) => named.get(id) ?? []);
   const sourced = itemFromASource(chosen);
-  const [choice, setChoice] = useState<Choice>('new-parent');
+  const [picked, setPicked] = useState<Choice>('new-parent');
+  /** Why Merge and a new parent are not offered, as the dialog says; null where they are. */
+  const mergeWhy = sourced
+    ? `Can't merge: ${itemLabel(sourced)} finishes from ${sourceOnARow(sourced, data?.sourceNames)}`
+    : chosen.length > CHILDREN_ADDED_AT_ONCE
+      ? `Can't merge more than ${CHILDREN_ADDED_AT_ONCE} Items at once`
+      : null;
+  const newParentWhy = chosen.length > CHILDREN_ADDED_AT_ONCE ? `Can't hold more than ${CHILDREN_ADDED_AT_ONCE} Items at once` : null;
+  // What is offered may change under a choice already made, as Items are added: then the next one that is offered stands.
+  const choice = ([picked, 'new-parent', 'existing-parent'] as const).find(
+    (one) => (one === 'merge' ? !mergeWhy : one === 'new-parent' ? !newParentWhy : true),
+  )!;
   const [note, setNote] = useState('');
-  const [parent, setParent] = useState<Item | null>(null);
+  const [pickedParent, setParent] = useState<Item | null>(null);
+  // Only one still open and not among the Items going in.
+  const parent = pickedParent && byId.has(pickedParent.id) && !chosen.includes(byId.get(pickedParent.id)!) ? byId.get(pickedParent.id)! : null;
 
   const combine = () => {
     if (!data) return;
     const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
     const childIds = chosen.map((item) => item.id);
     const title = combinedTitle(chosen);
+    // An Item in no Workspace yet is drawn in every Inbox, so the others' reads are stale once it is merged or settled.
+    const everyInbox = <T,>(answer: Promise<T>): Promise<T> => {
+      if (chosen.some((item) => !workspaceIsDecided(item))) {
+        void answer.then(() => queryClient.invalidateQueries({ queryKey: ['snapshot'] }), () => undefined);
+      }
+      return answer;
+    };
     // The Dashboard open in the address bar, which Items from the Inbox are combined onto as a new Panel: the Inbox list names none.
     const dashboardId = /\/d\/([^/?#]+)/.exec(window.location.pathname)?.[1] ?? null;
     if (choice === 'merge') {
       const itemId = uuidv7();
-      const answer = send({
+      const answer = everyInbox(send({
         name: 'merge_items',
         payload: { ...envelope(), itemId, originalIds: childIds, title, description: stitchedDescription(chosen, note) },
-      });
+      }));
       offerToUndo({
         what: `Merged ${chosen.length} Items into “${title}”`,
         unlessRefused: answer,
-        undo: () => send({ name: 'unmerge_items', payload: { ...envelope(), itemId, originalIds: childIds } }),
+        undo: () => everyInbox(send({ name: 'unmerge_items', payload: { ...envelope(), itemId, originalIds: childIds } })),
       });
     } else if (choice === 'new-parent') {
       const panelId = panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels);
-      const answer = send({
+      const answer = everyInbox(send({
         name: 'combine_under_new_parent',
         payload: {
           ...envelope(),
@@ -85,7 +113,7 @@ export default function CombineDialog({
           panelId,
           dashboardId: panelId ? null : dashboardId,
         },
-      });
+      }));
       offerToUndo({ what: `${chosen.length} Items combined under “${title}”`, unlessRefused: answer });
     } else if (parent) {
       addAsChildren({ workspaceId, send, offerToUndo, children: data.children ?? [] }, chosen, parent);
@@ -105,7 +133,10 @@ export default function CombineDialog({
         value={value}
         checked={choice === value}
         disabled={unavailable !== null}
-        onChange={() => setChoice(value)}
+        onChange={() => {
+          setPicked(value);
+          setParent(null);
+        }}
         className="mt-1 accent-[var(--color-accent)]"
       />
       <span className="flex min-w-0 flex-col gap-0.5">
@@ -121,6 +152,11 @@ export default function CombineDialog({
         <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
         <Dialog.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusTo) return;
+            event.preventDefault();
+            returnFocusTo.focus();
+          }}
           className="fixed left-1/2 top-1/2 z-floating flex max-h-[90vh] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="text-base font-semibold">
@@ -130,7 +166,10 @@ export default function CombineDialog({
             <CombineWith
               items={[...byId.values()].filter(workspaceIsDecided)}
               chosen={chosen}
-              onToggle={(id) => setWithIds((was) => (was.includes(id) ? was.filter((one) => one !== id) : [...was, id]))}
+              onToggle={(id) => {
+                setParent(null);
+                setWithIds((was) => (was.includes(id) ? was.filter((one) => one !== id) : [...was, id]));
+              }}
             />
           )}
           <ul className="flex flex-wrap gap-1.5">
@@ -146,13 +185,13 @@ export default function CombineDialog({
               'merge',
               'Merge into one new Item',
               'The originals are replaced by one new Item.',
-              sourced ? `Can't merge: ${itemLabel(sourced)} finishes from ${sourceOnARow(sourced, data?.sourceNames)}` : null,
+              mergeWhy,
             )}
-            {card('new-parent', 'Combine under a new parent', 'They stay where they are. A new Item holds them.')}
+            {card('new-parent', 'Combine under a new parent', 'They stay where they are. A new Item holds them.', newParentWhy)}
             {card('existing-parent', 'Combine under an existing parent', 'They stay where they are. An Item you pick holds them.')}
             {choice === 'existing-parent' && (
               <div className="pl-7">
-                <ParentPicker chosen={chosen} items={data?.items ?? []} children={data?.children ?? []} onPick={setParent} />
+                <ParentPicker key={chosen.map((item) => item.id).join()} chosen={chosen} items={data?.items ?? []} children={data?.children ?? []} onPick={setParent} />
               </div>
             )}
           </fieldset>

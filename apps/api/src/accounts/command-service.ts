@@ -1,4 +1,4 @@
-import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
@@ -9,6 +9,7 @@ import {
   dismissPanelsItems,
   insertPanelsItem,
   isInside,
+  itemChildrenHeldBy,
   itemParentsHolding,
   mirrorFilingsOf,
   panelsHeldBy,
@@ -1178,6 +1179,43 @@ function writeTurnStatus(tx: InATransaction, tenantId: string, updated: Item, by
   if (by === 'them') endTheOpenRun(tx, tenantId, updated.id, at);
 }
 
+/** A write's stamp, never earlier than the one on the row, which every other change measures staleness by. */
+const neverBackwards = (recorded: string, issuedAt: string): string => (recorded > issuedAt ? recorded : issuedAt);
+
+/** Every Item merged into this one, or into one merged into it, and so on: where a file that came in by an earlier Merge was first. */
+function mergedAwayInto(db: AccountDb, tenantId: string, itemId: string): string[] {
+  const found: string[] = [];
+  let level = [itemId];
+  while (level.length > 0) {
+    level = db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.tenantId, tenantId), inArray(items.mergedIntoId, level)))
+      .all()
+      .map((row) => row.id)
+      .filter((id) => !found.includes(id) && id !== itemId);
+    found.push(...level);
+  }
+  return found;
+}
+
+/**
+ * The run a Merge ended on this original, which Undo has back on the terms a
+ * Dismiss's Undo does (`runToReopen`): ended at the very moment it was
+ * dismissed, nothing open on the Item now and nothing started since.
+ */
+function runEndedWith(db: AccountDb, tenantId: string, itemId: string, dismissedAt: string | null): string[] {
+  if (dismissedAt === null || openAgentRunOn(db, tenantId, itemId)) return [];
+  const run = db
+    .select({ id: agentRuns.id, endedAt: agentRuns.endedAt })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.itemId, itemId)))
+    .orderBy(desc(agentRuns.startedAt))
+    .get();
+  if (!run || run.endedAt !== dismissedAt || anotherRunStartedSince(db, tenantId, itemId, run.id, run.endedAt)) return [];
+  return [run.id];
+}
+
 /**
  * The run an undo names and may have back, or null.
  *
@@ -2041,6 +2079,12 @@ export function runCommand<N extends CommandName>(
     case 'merge_items': {
       const cmd = payload as CommandPayload<'merge_items'>;
       if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      // A resend whose command id was lost finds the Item made already, and merges nothing twice. Asked first: by then the originals are dismissed.
+      if (getItem(db, tenantId, cmd.itemId)) {
+        applied = false;
+        db.insert(commands).values(commandRow).run();
+        break;
+      }
       const originals = cmd.originalIds.map((id) => {
         const original = getItem(db, tenantId, id);
         // Another Workspace's Item is not one this Workspace can name, as on a Panel.
@@ -2051,12 +2095,6 @@ export function runCommand<N extends CommandName>(
       });
       const sourced = itemFromASource(originals);
       if (sourced) throw new MergeRefusedError(itemLabel(sourced), sourced.source);
-      // A resend whose command id was lost finds the Item made already, and merges nothing twice.
-      if (getItem(db, tenantId, cmd.itemId)) {
-        applied = false;
-        db.insert(commands).values(commandRow).run();
-        break;
-      }
       // One of them in every Inbox until now is this Workspace's from here, and gone from every Inbox.
       if (originals.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
       // Filed wherever any of them was, at the top as a capture's File on files it.
@@ -2066,7 +2104,12 @@ export function runCommand<N extends CommandName>(
         cmd,
         targets,
       );
-      const parents = itemParentsHolding(db, tenantId, cmd.originalIds);
+      // Inside what held them, unless that is one of the originals, which is dismissed with them.
+      const parents = itemParentsHolding(db, tenantId, cmd.originalIds).filter((id) => !cmd.originalIds.includes(id));
+      // What they held, the new Item holds: their children would otherwise fall back to the Inbox. Never one that
+      // holds the new Item, which would put an Item inside itself.
+      const aboveIt = new Set(parents.flatMap((parentId) => ancestorsAmong(db, tenantId, parentId, itemChildrenHeldBy(db, tenantId, cmd.originalIds))));
+      const held = itemChildrenHeldBy(db, tenantId, cmd.originalIds).filter((id) => !cmd.originalIds.includes(id) && !aboveIt.has(id));
       // Their words, in the order they were written: what each captured, then what was added to it.
       const words = originals.flatMap((original) => [
         ...(original.capturedMessage ? [{ message: original.capturedMessage, createdAt: original.createdAt, from: original.id }] : []),
@@ -2082,6 +2125,7 @@ export function runCommand<N extends CommandName>(
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).run();
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
         for (const parentId of parents) putInside(tx, tenantId, parentId, [item.id], cmd.issuedAt);
+        if (held.length > 0) putInside(tx, tenantId, item.id, held, cmd.issuedAt);
         for (const word of words) {
           tx.insert(itemAdditions)
             .values({ id: uuidv7(), tenantId, itemId: item.id, message: word.message, fromItemId: word.from, createdAt: word.createdAt })
@@ -2089,12 +2133,13 @@ export function runCommand<N extends CommandName>(
         }
         for (const original of originals) {
           // Their files move, each remembering where from, and the original is dismissed as merged into it.
+          // A file that came into the original by an earlier Merge keeps that trail, so undoing both finds it.
           tx.update(attachments)
-            .set({ itemId: item.id, movedFromItemId: original.id })
+            .set({ itemId: item.id, movedFromItemId: sql`coalesce(${attachments.movedFromItemId}, ${original.id})` })
             .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id)))
             .run();
           tx.update(items)
-            .set({ deletedAt: cmd.issuedAt, updatedAt: cmd.issuedAt, mergedIntoId: item.id })
+            .set({ deletedAt: cmd.issuedAt, updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt), mergedIntoId: item.id })
             .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
             .run();
           recountHoldersOf(tx, tenantId, original.id);
@@ -2110,11 +2155,15 @@ export function runCommand<N extends CommandName>(
       if (!merged || merged.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       // Only what the trail on the row says went into this Item comes back, so a second send finds nothing to do.
       const back = db
-        .select({ id: items.id, workspaceDecided: items.workspaceDecided })
+        .select({ id: items.id, workspaceDecided: items.workspaceDecided, deletedAt: items.deletedAt, updatedAt: items.updatedAt })
         .from(items)
         .where(and(eq(items.tenantId, tenantId), inArray(items.id, cmd.originalIds), eq(items.mergedIntoId, merged.id)))
         .all();
       applied = back.length > 0;
+      // Read before anything is written: what each was merged out of, for files that came in by an earlier Merge.
+      const earlier = new Map(back.map((original) => [original.id, mergedAwayInto(db, tenantId, original.id)]));
+      // The run the Merge ended, as Undo of a Dismiss brings it back.
+      const reopened = back.flatMap((original) => runEndedWith(db, tenantId, original.id, original.deletedAt));
       if (back.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
@@ -2123,11 +2172,19 @@ export function runCommand<N extends CommandName>(
               .set({ itemId: original.id, movedFromItemId: null })
               .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, merged.id), eq(attachments.movedFromItemId, original.id)))
               .run();
+            // Files the original held through an earlier Merge go back to it still carrying that trail.
+            const before = earlier.get(original.id) ?? [];
+            if (before.length > 0) {
+              tx.update(attachments)
+                .set({ itemId: original.id })
+                .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, merged.id), inArray(attachments.movedFromItemId, before)))
+                .run();
+            }
             tx.delete(itemAdditions)
               .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, merged.id), eq(itemAdditions.fromItemId, original.id)))
               .run();
             tx.update(items)
-              .set({ deletedAt: null, updatedAt: cmd.issuedAt, mergedIntoId: null })
+              .set({ deletedAt: null, updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt), mergedIntoId: null })
               .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
               .run();
             recountHoldersOf(tx, tenantId, original.id);
@@ -2139,6 +2196,12 @@ export function runCommand<N extends CommandName>(
             .run();
           recountHoldersOf(tx, tenantId, merged.id);
           endTheOpenRun(tx, tenantId, merged.id, cmd.issuedAt);
+          for (const runId of reopened) {
+            tx.update(agentRuns)
+              .set({ endedAt: null })
+              .where(and(eq(agentRuns.tenantId, tenantId), eq(agentRuns.id, runId)))
+              .run();
+          }
         }
         tx.insert(commands).values(commandRow).run();
       });

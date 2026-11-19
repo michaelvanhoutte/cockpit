@@ -86,6 +86,8 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    * filters on the account - is the ordinary case and not a failure to report.
    */
   item(accountName: string, itemId: string): Awaitable<Answer<Item | null>>;
+  /** The title of the Item this one was merged into, null where it was not merged away ("Brainstorming: related loose notes can't be brought together", issue 1826). */
+  mergedInto(accountName: string, itemId: string): Awaitable<Answer<string | null>>;
   /**
    * One attachment by its id, with the R2 key its bytes are stored under -
    * what the download route reads ("Attach a file to an item", issue 441).

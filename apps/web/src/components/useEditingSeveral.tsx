@@ -42,7 +42,7 @@ export function useEditingSeveral({
   onAddAsChildOf,
   onCombine,
 }: {
-  /** *Combine…* on Edit ▾ (issue 1826), where two or more are picked. */
+  /** *Combine…* on Edit ▾ ("Brainstorming: related loose notes can't be brought together", issue 1826), where two or more are picked. */
   onCombine?: ((ids: readonly string[]) => void) | undefined;
   /** *Add as child of…* on Edit ▾ ("Brainstorming: an Item can't hold other Items", issue 1825), where the bar offers it. */
   onAddAsChildOf?: (() => void) | undefined;

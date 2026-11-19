@@ -1,4 +1,4 @@
-import { NAME_MAX_LENGTH, itemLabel, type Item } from './item.js';
+import { DESCRIPTION_MAX_LENGTH, NAME_MAX_LENGTH, itemLabel, type Item } from './item.js';
 import type { Filing, Panel } from './panel.js';
 
 /**
@@ -8,9 +8,17 @@ import type { Filing, Panel } from './panel.js';
  * are stitched from the parts and what the person adds.
  */
 
+/** Cut to `max` characters, never between the halves of one. */
+function cutAt(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+}
+
 /** Cut to a Panel's name length, with an ellipsis where it was cut. */
 function clipped(text: string): string {
-  return text.length <= NAME_MAX_LENGTH ? text : `${text.slice(0, NAME_MAX_LENGTH - 1).trimEnd()}…`;
+  return text.length <= NAME_MAX_LENGTH ? text : `${cutAt(text, NAME_MAX_LENGTH - 1).trimEnd()}…`;
 }
 
 /** The new Item's title: the first Item's, and how many more are with it. */
@@ -24,6 +32,9 @@ function namedParts(items: readonly Pick<Item, 'title'>[]): string {
   const titles = items.map((item) => `“${itemLabel(item)}”`);
   return titles.length > 1 ? `${titles.slice(0, -1).join(', ')} and ${titles.at(-1)}` : (titles[0] ?? '');
 }
+
+/** Cut to what a description may hold. */
+const withinADescription = (text: string): string => cutAt(text, DESCRIPTION_MAX_LENGTH);
 
 /** What the person typed under "Anything to add?", on one line. */
 function addedWords(note: string): string {
@@ -41,13 +52,13 @@ export function stitchedDescription(items: readonly Pick<Item, 'title' | 'descri
     return words ? `${itemLabel(item)}\n${words}` : itemLabel(item);
   });
   const added = addedWords(note);
-  return [...(added ? [added] : []), ...parts].join('\n\n').slice(0, 60_000);
+  return withinADescription([...(added ? [added] : []), ...parts].join('\n\n'));
 }
 
 /** A new parent's description: which Items it brings together, and what the person added. */
 export function parentDescription(items: readonly Pick<Item, 'title'>[], note: string): string {
   const added = addedWords(note);
-  return `This brings together ${namedParts(items)}.${added ? ` ${added}` : ''}`;
+  return withinADescription(`This brings together ${namedParts(items)}.${added ? ` ${added}` : ''}`);
 }
 
 /**
@@ -70,5 +81,6 @@ export function panelTheFirstIsOn(
 
 /** The Item among these that comes from a source, which a Merge refuses: it is finished at its source, not here. */
 export function itemFromASource<T extends Pick<Item, 'source'>>(items: readonly T[]): T | undefined {
-  return items.find((item) => item.source !== 'internal');
+  // An app's capture over MCP (`mcp`) has no source it finishes at, so it merges as a note does.
+  return items.find((item) => item.source !== 'internal' && item.source !== 'mcp');
 }

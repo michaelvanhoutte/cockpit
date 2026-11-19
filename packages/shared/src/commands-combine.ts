@@ -33,7 +33,7 @@ export const mergeItemsSchema = commandEnvelopeSchema
 export type MergeItemsCommand = z.infer<typeof mergeItemsSchema>;
 
 /**
- * unmerge_items — a Merge undone, in one change (issue 1826): the originals
+ * unmerge_items — a Merge undone, in one change ("Brainstorming: related loose notes can't be brought together", issue 1826): the originals
  * named come back where they were, their files and words with them, and the
  * Item they were merged into is dismissed. `originalIds` is what the Merge
  * took, which the store checks against the trail on each row, so one never

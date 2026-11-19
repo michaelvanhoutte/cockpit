@@ -5,7 +5,7 @@ import { NAME_MAX_LENGTH, type Item } from '../../../src/domain/item.js';
 /**
  * L1: what Combine works out before it sends one change ("Brainstorming:
  * related loose notes can't be brought together", issue 1826). What the dialog
- * does with it is apps/web/tests/unit/components/CombineDialog.test.tsx.
+ * does with it is apps/web/tests/unit/components/ItemList.test.tsx.
  */
 
 const note = (title: string, over: Partial<Item> = {}): Item => ({ id: title, title, description: null, source: 'internal', ...over }) as Item;
@@ -36,6 +36,27 @@ describe('Triage', () => {
     });
   });
 
+  describe('the texts never pass what a description may hold', () => {
+    it('cuts a new parent’s description at 60 000 characters, never between the halves of one', () => {
+      const parts = [note('A'), note('B')];
+      const lead = parentDescription(parts, 'x').length - 1;
+      // The cut lands exactly between the two halves of the first emoji.
+      const text = parentDescription(parts, `${'x'.repeat(59_999 - lead)}😀😀`);
+
+      expect(text.length).toBe(59_999);
+      expect(text.at(-1)).toBe('x');
+    });
+  });
+
+  describe('a title is never cut between the halves of one character', () => {
+    it('drops a lone high surrogate where the cut falls inside an emoji', () => {
+      const title = combinedTitle([note(`${'x'.repeat(NAME_MAX_LENGTH - 'Combined: '.length - 2)}😀😀`)]);
+
+      expect(title.at(-1)).toBe('…');
+      expect(title.at(-2)).toBe('x');
+    });
+  });
+
   describe('a new parent is made where the first Item was', () => {
     const panels = [
       { id: 'here', dashboardId: 'today' },
@@ -56,6 +77,10 @@ describe('Triage', () => {
     it('finds the first one from a source, and none among Items captured here', () => {
       expect(itemFromASource([note('A'), note('B', { source: 'gmail' })])?.title).toBe('B');
       expect(itemFromASource([note('A'), note('B')])).toBeUndefined();
+    });
+
+    it('lets an Item an app captured over MCP be merged, as it finishes at no source', () => {
+      expect(itemFromASource([note('A'), note('B', { source: 'mcp' })])).toBeUndefined();
     });
   });
 });

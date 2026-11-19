@@ -150,6 +150,7 @@ import {
   getAttachment,
   getAttachmentForDownload,
   getItem,
+  mergedIntoTitle,
   getItemFormPresentation,
   getFollowUpDays,
   getEmailLocalPart,
@@ -565,6 +566,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   item(accountName: string, itemId: string): Answer<Item | null> {
     return this.#answer(accountName, (db) => getItem(db, accountName, itemId));
+  }
+
+  /** The title of the Item this one was merged into, or null where it was not merged away. */
+  mergedInto(accountName: string, itemId: string): Answer<string | null> {
+    return this.#answer(accountName, (db) => mergedIntoTitle(db, accountName, itemId));
   }
 
   /**

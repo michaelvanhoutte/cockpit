@@ -76,7 +76,8 @@ export const itemTitleSchema = z
   });
 
 /** A description is as long as it needs to be and holds line breaks (architecture.md §4.4). */
-export const itemDescriptionSchema = z.string().trim().max(60_000);
+export const DESCRIPTION_MAX_LENGTH = 60_000;
+export const itemDescriptionSchema = z.string().trim().max(DESCRIPTION_MAX_LENGTH);
 
 /**
  * Where a capture came from, when it came from somewhere else - the

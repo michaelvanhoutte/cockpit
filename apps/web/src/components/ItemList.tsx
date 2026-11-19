@@ -1149,7 +1149,7 @@ export function ItemList({
         addingAsChild.ask([item], from);
       }}
       // *Combine with…* from a row's menu: this row, and the Items the window asks to combine it with (issue 1826).
-      onCombine={() => addingAsChild.combine([item.id])}
+      onCombine={(from: HTMLElement | null) => addingAsChild.combine([item.id], from)}
       {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
     />
     {holdsItems(item) && (

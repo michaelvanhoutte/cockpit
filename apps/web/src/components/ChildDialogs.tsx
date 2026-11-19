@@ -8,7 +8,7 @@ import CombineDialog from './CombineDialog';
 /** What a row's menu or a selection's bar asked: Items to put inside one you pick, or Items to combine. */
 export type ChildAsk =
   | { chosen: readonly Item[]; from?: HTMLElement | null | undefined }
-  | { ids: readonly string[] };
+  | { ids: readonly string[]; from?: HTMLElement | null | undefined };
 
 /**
  * *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue
@@ -33,7 +33,7 @@ export default function ChildDialogs({
   const offerToUndo = useUndo();
   if (!data) return null;
   if ('ids' in asking) {
-    return <CombineDialog workspaceId={workspaceId} itemIds={asking.ids} onClose={onClose} onCombined={onDone} />;
+    return <CombineDialog workspaceId={workspaceId} itemIds={asking.ids} onClose={onClose} onCombined={onDone} returnFocusTo={asking.from} />;
   }
   return (
     <AddAsChildOf

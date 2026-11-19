@@ -31,7 +31,7 @@ export function useAddingAsChild(workspaceId: string, afterAdding?: () => void) 
 
   return {
     /** *Combine…* for these Items, never offered for fewer than two. */
-    combine: (ids: readonly string[]) => setAsking({ ids }),
+    combine: (ids: readonly string[], from?: HTMLElement | null) => setAsking({ ids, from }),
     /** The menu button it was asked from, which the focus goes back to. */
     ask: (chosen: readonly Item[], from?: HTMLElement | null) => setAsking({ chosen, from }),
     dialog,

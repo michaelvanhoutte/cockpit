@@ -81,5 +81,23 @@ test.describe('Triage', () => {
       await expect.poll(() => itemsOn(page, parent)).toEqual([first, second]);
       for (const title of [first, second]) await expect(inbox(page).getByText(title, { exact: true })).toHaveCount(0);
     });
+    test('merges them into one new Item in the Inbox, and Undo puts the originals back', async ({ page, isMobile }) => {
+      const [first, second] = [uniqueTitle('Storm scene'), uniqueTitle('Ferry scene')] as const;
+      await inboxWithRows(page, isMobile, [first, second]);
+      await pickRows(page, [first, second], isMobile);
+
+      const dialog = await combineThem(page, isMobile);
+      await dialog.getByRole('radio', { name: /Merge into one new Item/ }).check();
+      await dialog.getByRole('button', { name: 'Combine' }).click();
+
+      const merged = `Combined: ${first} +1`;
+      await expect(inbox(page).getByText(merged, { exact: true })).toBeVisible();
+      for (const title of [first, second]) await expect(inbox(page).getByText(title, { exact: true })).toHaveCount(0);
+
+      await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+
+      for (const title of [first, second]) await expect(inbox(page).getByText(title, { exact: true })).toBeVisible();
+      await expect(inbox(page).getByText(merged, { exact: true })).toHaveCount(0);
+    });
   });
 });
