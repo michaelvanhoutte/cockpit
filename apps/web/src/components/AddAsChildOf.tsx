@@ -1,6 +1,17 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMemo, useState } from 'react';
-import { descendantIdsOf, itemLabel, stillOpen, workspaceIsDecided, type ChildRow, type Item } from '@cockpit/shared';
+import {
+  CHILDREN_ADDED_AT_ONCE,
+  descendantIdsOf,
+  itemLabel,
+  stillOpen,
+  uuidv7,
+  workspaceIsDecided,
+  type ChildRow,
+  type Item,
+} from '@cockpit/shared';
+import type { CommandArgs } from '../api/queries';
+import type { Undoable } from '../undo';
 
 /** The most Items the picker lists at once; typing narrows it. */
 const LISTED = 8;
@@ -112,4 +123,57 @@ export default function AddAsChildOf({
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/**
+ * Puts the chosen Items inside the parent picked and offers Undo, which takes
+ * out the ones it put in. One already inside that parent stays, and Undo leaves
+ * it there. Here rather than in `useAddingAsChild`, so none of it is in the
+ * initial bundle.
+ */
+export function addAsChildren(
+  d: {
+    workspaceId: string;
+    send: (change: CommandArgs) => Promise<unknown>;
+    offerToUndo: (change: Undoable) => void;
+    children: readonly ChildRow[];
+  },
+  chosen: readonly Item[],
+  parent: Item,
+): void {
+  const already = new Set(d.children.filter((row) => row.parentId === parent.id).map((row) => row.childId));
+  const arriving = chosen.filter((item) => !already.has(item.id));
+  if (arriving.length === 0) return;
+  const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId });
+  // As many changes as a change takes Items, for a selection bigger than that.
+  const batches: Item[][] = [];
+  for (let at = 0; at < arriving.length; at += CHILDREN_ADDED_AT_ONCE) {
+    batches.push(arriving.slice(at, at + CHILDREN_ADDED_AT_ONCE));
+  }
+  const answer = Promise.all(
+    batches.map((batch) =>
+      d.send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: batch.map((item) => item.id) } }),
+    ),
+  );
+  // **No way back once one belonged to no Workspace**: going inside settles it
+  // in this one, and taking it out leaves it in this Inbox alone, not in every
+  // Workspace's, as a move withholds its Undo for the same reason.
+  const decides = arriving.some((item) => !workspaceIsDecided(item));
+  d.offerToUndo({
+    what:
+      arriving.length === 1
+        ? `“${itemLabel(arriving[0]!)}” added to ${itemLabel(parent)}`
+        : `${arriving.length} Items added to ${itemLabel(parent)}`,
+    unlessRefused: answer,
+    ...(decides
+      ? {}
+      : {
+          undo: () =>
+            Promise.all(
+              arriving.map((item) =>
+                d.send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: item.id } }),
+              ),
+            ),
+        }),
+  });
 }

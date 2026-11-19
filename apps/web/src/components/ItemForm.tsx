@@ -38,7 +38,7 @@ import {
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
-import { ItemRelations, useRelationCount } from './ItemRelations';
+import { useRelationCount } from './ItemRelations';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
@@ -93,6 +93,8 @@ import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
+/** The Relations tab, fetched when it opens (issue 1825). */
+const ItemRelationsTab = lazy(() => import('./ItemRelationsTab'));
 
 /** The *On panels* field, loaded behind the form like the editor, so the initial bundle does not carry it (issue 1106). */
 const FileOnLine = lazy(() => import('./FileOnLine').then((loaded) => ({ default: loaded.FileOnLine })));
@@ -2428,7 +2430,9 @@ function TheForm({
                     aria-labelledby={`${formId}-relations-tab`}
                     className="mt-4 min-h-0 flex-1 overflow-y-auto"
                   >
-                    <ItemRelations workspaceId={workspaceId} item={item} />
+                    <Suspense fallback={null}>
+                      <ItemRelationsTab workspaceId={workspaceId} item={item} />
+                    </Suspense>
                   </div>
                 )}
 

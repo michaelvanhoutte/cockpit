@@ -4858,7 +4858,8 @@ describe('Item editing', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Relations · 3' }));
 
-      const relations = screen.getByRole('region', { name: 'Relations' });
+      // Fetched when the tab opens, so it is waited for.
+      const relations = await screen.findByRole('region', { name: 'Relations' });
       expect(within(relations).getByRole('heading', { name: 'Parents' }).nextElementSibling).toHaveTextContent('People');
       expect(within(relations).getByRole('heading', { name: 'Children' }).nextElementSibling).toHaveTextContent('Mentor');
       expect(within(relations).getByText('1 more, finished earlier')).toBeVisible();
@@ -4871,7 +4872,7 @@ describe('Item editing', () => {
       const user = await theForm(anItem({ childrenCount: 1, childrenDone: 0 }), [PEOPLE, MENTOR]);
       await user.click(screen.getByRole('tab', { name: /^Relations/ }));
 
-      await user.click(within(screen.getByRole('region', { name: 'Relations' })).getByRole('button', { name }));
+      await user.click(within(await screen.findByRole('region', { name: 'Relations' })).getByRole('button', { name }));
 
       expect(held.open).toHaveBeenCalledWith(id);
     });
@@ -4882,7 +4883,7 @@ describe('Item editing', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Relations' }));
 
-      expect(screen.getByText('No parents or children yet.')).toBeVisible();
+      expect(await screen.findByText('No parents or children yet.')).toBeVisible();
     });
   });
 });

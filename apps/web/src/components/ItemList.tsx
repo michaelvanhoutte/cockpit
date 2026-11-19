@@ -16,7 +16,6 @@ import {
   panelAndFilterIdsByItem,
   itemIdsWithRun,
   itemsOnPanel,
-  childrenOf,
   holdsItems,
   parentIdsOf,
   descendantIdsOf,
@@ -81,10 +80,14 @@ import { FetchedPicker } from './FetchedPicker';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
 import { useAddingAsChild } from './useAddingAsChild';
-import { useUnfolded } from '../unfoldedParents';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
+/**
+ * A parent's child rows, fetched once a row holding Items is drawn, folded or
+ * not, so unfolding one finds them here (issue 1825).
+ */
+const HeldRows = lazy(() => import('./HeldRows'));
 // Out of the initial bundle, as the other windows opened from a row are.
 const SendToClaudeWindow = lazy(() => import('./SendToClaudeWindow'));
 
@@ -129,6 +132,7 @@ export function ItemList({
   groupByProposal = false,
   columns = null,
   heldBy,
+  onTakeOut,
 }: {
   /**
    * The parent these rows are drawn under, unfolded from its row ("Brainstorming:
@@ -137,6 +141,8 @@ export function ItemList({
    * and it draws no selection bar of its own.
    */
   heldBy?: Item | undefined;
+  /** Takes one of those rows out of `heldBy`, and that one alone (`HeldRows`). */
+  onTakeOut?: ((item: Item) => void) | undefined;
   /**
    * That the rows are drawn in columns of at least this width, when the Panel
    * is wide enough ("Split a wide Panel's rows into columns, at a minimum width
@@ -816,20 +822,6 @@ export function ItemList({
     });
   };
 
-  /**
-   * Takes a child out of the parent it is drawn under, and that one alone
-   * (issue 1825), with Undo putting it back in.
-   */
-  const takeOut = (item: Item, parent: Item) => {
-    const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
-    const answer = send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: item.id } });
-    offerToUndo({
-      what: `“${itemLabel(item)}” taken out of ${itemLabel(parent)}`,
-      unlessRefused: answer,
-      undo: () => send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
-    });
-  };
-
   /** A tick clicked, which is a row picked or a span reached across. */
   const pick = (item: Item, withShift: boolean) => {
     setSelection((was) =>
@@ -1153,9 +1145,10 @@ export function ItemList({
       onAddAsChildOf={(from: HTMLElement | null) => {
         addingAsChild.ask([item], from);
       }}
-      {...(heldBy ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => takeOut(item, heldBy) } } : {})}
+      {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
     />
     {holdsItems(item) && (
+      <Suspense fallback={null}>
       <HeldRows
         workspaceId={workspaceId}
         parent={item}
@@ -1163,6 +1156,7 @@ export function ItemList({
         openDashboardId={openDashboardId}
         hidden={hidden}
       />
+      </Suspense>
     )}
     </>
   );
@@ -1664,48 +1658,4 @@ function useOrientation(on: boolean, order: string, picked: readonly string[]) {
     orienter.current?.settle(picked);
   });
   return box;
-}
-
-/**
- * A parent's children as full rows of their own, indented under its row
- * while it is unfolded ("Brainstorming: an Item can't hold other Items", issue
- * 1825): the POC's child rows, each with its status, menu and drag. Only the
- * open ones the Workspace's read holds; the parent's row counts the rest.
- */
-function HeldRows({
-  workspaceId,
-  parent,
-  panelId,
-  openDashboardId,
-  hidden,
-}: {
-  workspaceId: string;
-  parent: Item;
-  panelId: string | null;
-  openDashboardId: string | null;
-  /** That the list it is under is off screen, a collapsed Panel's, so these rows are too. */
-  hidden: boolean;
-}) {
-  const { unfolded } = useUnfolded(parent.id);
-  const { data } = useSnapshot(workspaceId);
-  const held = useMemo(
-    () => childrenOf(data?.children ?? [], data?.items ?? [], parent.id),
-    [data?.children, data?.items, parent.id],
-  );
-  if (!unfolded || held.length === 0) return null;
-  return (
-    // The whole width in columns, under the parent's line, rather than a cell of its own.
-    <li className="col-span-full border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
-      <ItemList
-        workspaceId={workspaceId}
-        items={held}
-        openDashboardId={openDashboardId}
-        panelId={panelId}
-        gathered
-        heldBy={parent}
-        hidden={hidden}
-        emptyMessage=""
-      />
-    </li>
-  );
 }
