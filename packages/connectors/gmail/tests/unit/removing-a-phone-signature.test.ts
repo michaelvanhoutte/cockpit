@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GmailWorld, signedInHost } from './gmail-world.js';
+import { withoutPhoneSignature } from '../../src/messages.js';
 import shared from '../../../phone-signatures.json';
 
 /**
@@ -80,6 +81,23 @@ describe('Capture', () => {
       const filed = await filedFor('Long one', `${words}\n\nSent from my iPhone`);
 
       expect(filed.capturedMessage).toBe(words);
+    });
+
+    it('leaves a text with blank-line runs and no signature exactly as it is', async () => {
+      const text = 'First paragraph.\n\n\n\nSecond paragraph.';
+
+      expect((await filedFor('Spacing', text)).capturedMessage).toBe(text);
+    });
+
+    it.each([' ', '\u00a0'])('keeps a long line that only starts like a signature, and answers at once (%j filler)', async (filler) => {
+      const line = `Sent from my iPhone${filler.repeat(10_000)}x`;
+      const started = performance.now();
+
+      const kept = withoutPhoneSignature(line);
+
+      expect(performance.now() - started).toBeLessThan(100);
+      expect(kept).toBe(line);
+      expect((await filedFor('Slow?', line)).capturedMessage).toBe(line);
     });
   });
 });

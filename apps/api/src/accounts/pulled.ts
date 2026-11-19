@@ -435,7 +435,9 @@ export function filePulledItem(
     }
     // An Item whose title is all the source said keeps it as typed: its texts
     // are settled at birth, as a series' and a child's are, so the clean-up
-    // reads the fields the title states and never rewrites it (issue 1836).
+    // reads the fields the title states and never rewrites it ("Mail Items: an
+    // email whose only text is a phone signature is titled with that signature…",
+    // issue 1836).
     if (item.titleIsAll && captured.applied) {
       db.update(items)
         .set({ textsSettledAt: at })

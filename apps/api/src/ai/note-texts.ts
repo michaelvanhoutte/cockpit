@@ -1,5 +1,6 @@
 import { asNextAction, itemDescriptionSchema, itemTitleSchema, nextActionSchema, panelFitSchema, prioritySchema, type PanelFit, type Priority } from '@cockpit/shared';
 import { z } from 'zod';
+import { EMAIL_SUBJECT_MARKER } from './prompts/clean-up-a-note.v19.js';
 import type { PlaceNamed } from '../domain/spoken-path.js';
 
 /**
@@ -17,19 +18,23 @@ import type { PlaceNamed } from '../domain/spoken-path.js';
 /**
  * The note as the clean-up reads it ("Clean-up reads an email's subject, and a
  * phone signature is removed first", issue 1836): for an Item of a source
- * whose titles are subjects (`sourcesTitledBySubject`) with its texts not
- * settled, its subject - the Item's title, which is still the one it arrived
- * with - on a line of its own above the text, then a blank line. Any other note
+ * whose titles are subjects (`sourcesTitledBySubject`) with its texts neither
+ * settled nor proposed, its subject - the Item's title, still the one it
+ * arrived with, unless it is the source's no-subject title - on a line of its
+ * own starting `EMAIL_SUBJECT_MARKER`, then a blank line. Any other note
  * is read as captured. **Read only, never stored**: the
  * captured note and the description stay the email's own words.
  */
 export function noteAsRead(
-  item: { source: string; title: string; textsSettledAt: string | null },
+  item: { source: string; title: string; textsSettledAt: string | null; textsProposedAt: string | null },
   capturedMessage: string,
-  titledBySubject: ReadonlySet<string>,
+  titledBySubject: ReadonlyMap<string, string>,
 ): string {
-  if (item.textsSettledAt !== null || !titledBySubject.has(item.source) || !item.title.trim()) return capturedMessage;
-  return `${item.title}\n\n${capturedMessage}`;
+  const noSubject = titledBySubject.get(item.source);
+  // Only while the title is still the arrival one: a proposal already written (a retry) or settled texts make it Cockpit's or the person's.
+  if (noSubject === undefined || item.textsSettledAt !== null || item.textsProposedAt !== null) return capturedMessage;
+  if (!item.title.trim() || item.title === noSubject) return capturedMessage;
+  return `${EMAIL_SUBJECT_MARKER} ${item.title}\n\n${capturedMessage}`;
 }
 
 /**

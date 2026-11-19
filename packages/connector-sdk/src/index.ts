@@ -69,13 +69,15 @@ export interface ConnectorManifest {
    */
   messageLinks?: readonly { host: string; pathStart: string }[];
   /**
-   * Whether the title of an Item the source makes is the subject its sender
-   * gave it, an email's ("Clean-up reads an email's subject, and a phone
-   * signature is removed first", issue 1836). The clean-up then reads that
-   * title as the first line of the note, while the texts are not settled. The
-   * app reads this and names no source. Absent: it does not.
+   * Declared where the title of an Item the source makes is the subject its
+   * sender gave it, an email's: `whenNone` is the title it carries where the
+   * sender gave none ("Mail Items: an email whose only text is a phone
+   * signature is titled with that signature…", issue 1836). The clean-up then
+   * reads that title as the subject, marked, ahead of the note, while the texts
+   * are not settled and still the arrival ones - and reads none for `whenNone`.
+   * The app reads this and names no source. Absent: the title is no subject.
    */
-  titleIsSubject?: true;
+  titleIsSubject?: { whenNone: string };
   /**
    * Whether an Item a push files belongs to the Workspace of the connection it
    * arrived on. Absent is yes, as for every pushed Item so far. `false`: the
@@ -324,7 +326,8 @@ export type SourceItem = Pick<
   title?: string;
   /**
    * True where the title is all the source said of this Item - an email whose
-   * text was only what its mail app adds. The host files it with its texts
+   * text was only what its mail app adds. Honoured for a pulled connector's
+   * Items only: the push host ignores it. The host files it with its texts
    * settled, so the clean-up never rewrites the title and still reads the
    * priority, due date and place the title states. Absent: the host's usual
    * clean-up runs.

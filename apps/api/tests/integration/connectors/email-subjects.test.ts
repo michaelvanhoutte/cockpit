@@ -222,7 +222,7 @@ describe('Capture', () => {
       await cleanUp(itemId);
 
       expect(asked.filter(isACleanUp).map((call) => call.note)).toEqual([
-        'Reply to Bryton about subscriptions\n\nCan you answer before Friday?',
+        'Email subject: Reply to Bryton about subscriptions\n\nCan you answer before Friday?',
       ]);
       expect(await theItemById(itemId)).toMatchObject({
         title: A_READING.title,
@@ -234,6 +234,43 @@ describe('Capture', () => {
 });
 
 describe('Capture', () => {
+  describe('an email is read with no subject line where its title is not its subject any more', () => {
+    async function aMail(title: string): Promise<string> {
+      const itemId = nextId();
+      const saved = await postChange('capture_item', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:00:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        itemId,
+        message: 'Can you answer before Friday?',
+        title,
+      });
+      expect(saved.status).toBe(200);
+      await inTheStore((sql) => sql.exec("UPDATE items SET source_connector = 'outlook' WHERE id = ?", itemId));
+      return itemId;
+    }
+
+    it('reads a retry without it, the title being the proposal the first try wrote', async () => {
+      const itemId = await aMail('Reply to Bryton');
+      await cleanUp(itemId);
+      asked.length = 0;
+
+      await cleanUp(itemId);
+
+      const notes = asked.filter(isACleanUp).map((call) => call.note);
+      expect(notes).toEqual(['Can you answer before Friday?']);
+    });
+
+    it('reads an email with no subject, titled "(no subject)", without it', async () => {
+      const itemId = await aMail('(no subject)');
+      asked.length = 0;
+
+      await cleanUp(itemId);
+
+      expect(asked.filter(isACleanUp).map((call) => call.note)).toEqual(['Can you answer before Friday?']);
+    });
+  });
+
   describe('a note that is not an email is cleaned up without a subject line', () => {
     it.each([
       { situation: 'a note captured in the form' },

@@ -20,7 +20,7 @@ import { syncMailbox } from './sync.js';
  */
 
 /** Who this connector is, needing no configuration. */
-export const OUTLOOK_IDENTITY = { id: 'outlook', displayName: 'Outlook', titleIsSubject: true } as const;
+export const OUTLOOK_IDENTITY = { id: 'outlook', displayName: 'Outlook', titleIsSubject: { whenNone: '(no subject)' } } as const;
 
 export function createOutlookConnector(config: OutlookConnectorConfig): Connector {
   return {

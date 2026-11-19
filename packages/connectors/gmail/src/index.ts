@@ -26,7 +26,7 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
  * called on screen in every environment, whether or not this one can sign in
  * to Gmail.
  */
-export const GMAIL_IDENTITY = { id: 'gmail', displayName: 'Gmail', titleIsSubject: true } as const;
+export const GMAIL_IDENTITY = { id: 'gmail', displayName: 'Gmail', titleIsSubject: { whenNone: '(no subject)' } } as const;
 
 export function createGmailConnector(config: GmailConnectorConfig): Connector {
   return {

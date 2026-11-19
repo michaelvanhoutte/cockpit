@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NOTE_MARKER } from '@cockpit/connector-teams';
-import { buildCleanUpANote } from '../../../../src/ai/prompts/clean-up-a-note.v19.js';
+import { buildCleanUpANote, EMAIL_SUBJECT_MARKER } from '../../../../src/ai/prompts/clean-up-a-note.v19.js';
 import type { DecisionHistoryEntry } from '../../../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../../../src/domain/text-corrections.js';
 
@@ -402,7 +402,9 @@ describe('Capture', () => {
     it("says the subject is the sender's own name for the email, read with the text, in the rules every account shares", () => {
       const { instructions } = buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], null, null).system;
 
-      expect(instructions).toContain("the first line is the email's subject, the sender's own name for the email");
+      expect(instructions).toContain(`"${EMAIL_SUBJECT_MARKER}"`);
+      expect(instructions).toContain("the sender's own name for the email");
+      expect(instructions).toContain('A note that does not begin with that marker has no subject');
       expect(instructions).toContain('Read the subject and the text together as one note');
     });
   });

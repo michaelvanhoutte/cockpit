@@ -448,19 +448,25 @@ describe('Triage', () => {
     });
   });
 
-  describe("an email is read with its subject, and no other note is", () => {
-    const MAILBOXES = new Set(['gmail', 'outlook']);
-    const mail = { title: 'Reply to Bryton', textsSettledAt: null };
+  describe("an email is read with its subject, marked, and no other note is", () => {
+    const MAILBOXES = new Map([
+      ['gmail', '(no subject)'],
+      ['outlook', '(no subject)'],
+    ]);
+    const mail = { title: 'Reply to Bryton', textsSettledAt: null, textsProposedAt: null };
+    const marked = 'Email subject: Reply to Bryton\n\nCan you answer before Friday?';
 
     it.each([
-      { situation: 'a Gmail email', source: 'gmail', textsSettledAt: null, read: 'Reply to Bryton\n\nCan you answer before Friday?' },
-      { situation: 'an Outlook email', source: 'outlook', textsSettledAt: null, read: 'Reply to Bryton\n\nCan you answer before Friday?' },
-      { situation: 'a note typed in Cockpit', source: 'internal', textsSettledAt: null, read: 'Can you answer before Friday?' },
-      { situation: 'a Teams message', source: 'teams', textsSettledAt: null, read: 'Can you answer before Friday?' },
-      { situation: 'a text message', source: 'twilio', textsSettledAt: null, read: 'Can you answer before Friday?' },
+      { situation: 'a Gmail email', source: 'gmail', read: marked },
+      { situation: 'an Outlook email', source: 'outlook', read: marked },
+      { situation: 'a note typed in Cockpit', source: 'internal', read: 'Can you answer before Friday?' },
+      { situation: 'a Teams message', source: 'teams', read: 'Can you answer before Friday?' },
+      { situation: 'a text message', source: 'twilio', read: 'Can you answer before Friday?' },
       { situation: 'an email whose texts are already settled', source: 'outlook', textsSettledAt: '2026-10-01T09:00:00.000Z', read: 'Can you answer before Friday?' },
-    ])('reads $situation as $read', ({ source, textsSettledAt, read }) => {
-      expect(noteAsRead({ ...mail, source, textsSettledAt }, 'Can you answer before Friday?', MAILBOXES)).toBe(read);
+      { situation: 'an email whose title is already a proposal, as on a retry', source: 'outlook', textsProposedAt: '2026-10-01T09:00:00.000Z', read: 'Can you answer before Friday?' },
+      { situation: 'an email with no subject', source: 'gmail', title: '(no subject)', read: 'Can you answer before Friday?' },
+    ])('reads $situation as it should', ({ source, read, ...changed }) => {
+      expect(noteAsRead({ ...mail, source, ...changed }, 'Can you answer before Friday?', MAILBOXES)).toBe(read);
     });
   });
 });

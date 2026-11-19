@@ -108,7 +108,8 @@ export const NOTE_FROM_TEAMS = `Some notes are a message somebody else wrote, sa
  * settled, and for no other note. Its own constant for the reason
  * `STATED_PRIORITY` is.
  */
-export const NOTE_FROM_EMAIL = `Some notes are an email, saved from a mailbox. Then the first line is the email's subject, the sender's own name for the email, and a blank line follows it, then the email's text. Read the subject and the text together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the text is only a few words or says nothing the subject does not, the subject is what the note is about, so keep its words. Never write the subject as a separate line of the message, and never copy it into the message where the title already says it.`;
+export const EMAIL_SUBJECT_MARKER = 'Email subject:';
+export const NOTE_FROM_EMAIL = `Some notes are an email, saved from a mailbox. Then the note begins with a line starting exactly "${EMAIL_SUBJECT_MARKER}", followed by the email's subject, which is the sender's own name for the email, then a blank line and the email's text. A note that does not begin with that marker has no subject. Read the subject and the text together as one note about one piece of work: write the title and message from what both say, and read the priority, due date and place under the rules below from both. Where the text is only a few words or says nothing the subject does not, the subject is what the note is about, so keep its words. Never write the marker line in either text, and never copy the subject into the message where the title already says it.`;
 
 /**
  * Every word of the system prompt that is the same for every note and every
