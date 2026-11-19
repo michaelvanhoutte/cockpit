@@ -295,6 +295,20 @@ describe('Capture', () => {
       expect(capturedCalls()).toHaveLength(0);
     });
 
+    it('captures and sends nothing, and says nothing was recorded, when it is stopped under a second in', async () => {
+      const { user, recorder, transcriber } = await drivingWith();
+      recorder.lasts(400);
+      await recording(user);
+
+      await user.click(theButton());
+
+      await waitFor(() => expect(theStatus()).toHaveTextContent('Nothing was recorded.'));
+      await settled();
+      expect(transcriber.sent()).toBe(0);
+      expect(await browserOutboxStore().all()).toEqual([]);
+      expect(capturedCalls()).toHaveLength(0);
+    });
+
     it('captures once when the second tap is pressed twice', async () => {
       const { user, transcriber } = await drivingWith({ capturedFor: 200 });
       await recording(user);
