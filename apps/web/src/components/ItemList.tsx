@@ -327,7 +327,7 @@ export function ItemList({
   useHeldTo(onDashboard ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing });
+  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
@@ -1151,7 +1151,9 @@ export function ItemList({
         // text saying it is empty - and letting go anywhere in the space below
         // did nothing, which is most of the panel.
         ref={orientation}
-        className={fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'}
+        // Where the focus goes once the bar's Dismiss has run and the bar has left (`useEditingSeveral`); a Panel on a Dashboard has the board's.
+        {...(onDashboard ? {} : { tabIndex: -1, 'data-selection-home': scope })}
+        className={`${fillsTheRestOfItsColumn ? 'flex-1' : 'min-h-full'} outline-none`}
         onDragOver={(event) => {
           // Only a row of ours. A panel dragged by its header crosses lists on
           // its way to another panel, and a list that offered it a place would
@@ -1328,7 +1330,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several) && (
+      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}
@@ -1337,11 +1339,14 @@ export function ItemList({
           editMenu={editing.menu}
           dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
+          onDismiss={editing.askToDismiss}
           onClear={stopSelecting}
         />
       )}
 
       {filingSeveral.pickers}
+
+      {!onDashboard && editing.dismissQuestion}
 
       {askingSeveral && panelId && (
         <WhateverTheQuestionDoes onFailure={() => setAskingSeveral(null)}>

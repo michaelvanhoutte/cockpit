@@ -125,9 +125,6 @@ export function editSeveral(
   const runs = needingTheChange(options.items, field, value).map((item) => {
     const writes = fieldWrites(field, sending.envelope(item.id), value, stateOf(item));
     const sends = writes.map((write) => sending.send(write.command));
-    // Awaited one Item at a time below: a refusal met while an earlier Item is
-    // still being waited on must not be reported as unhandled meanwhile.
-    sends.forEach((send) => send.catch(() => {}));
     const endedRunId = field === 'status' && value === 'done' ? options.runOf(item.id) : undefined;
     const changing: Changed = {
       item,
@@ -137,19 +134,35 @@ export function editSeveral(
     };
     return { changing, sends };
   });
-  const answer = answered(runs, options.onProgress);
-  options.onStarted?.(
+  return handedOver(runs, options.onProgress, options.onStarted);
+}
+
+/**
+ * What every run of Items shares: the changes are all handed over before any is
+ * awaited, then answered one Item at a time, and `onStarted` is told the moment
+ * the hand-over is done.
+ */
+function handedOver<T extends { item: Item }>(
+  runs: readonly { changing: T; sends: readonly Promise<{ applied: boolean }>[] }[],
+  onProgress: (at: number, of: number) => void,
+  onStarted?: (changing: T[], answer: Promise<{ changed: T[]; refused: Refused[] }>) => void,
+): Promise<{ changed: T[]; refused: Refused[] }> {
+  // Awaited one Item at a time below: a refusal met while an earlier Item is
+  // still being waited on must not be reported as unhandled meanwhile.
+  runs.forEach((run) => run.sends.forEach((send) => send.catch(() => {})));
+  const answer = answered(runs, onProgress);
+  onStarted?.(
     runs.map((run) => run.changing),
     answer,
   );
   return answer;
 }
 
-async function answered(
-  runs: readonly { changing: Changed; sends: readonly Promise<{ applied: boolean }>[] }[],
+async function answered<T extends { item: Item }>(
+  runs: readonly { changing: T; sends: readonly Promise<{ applied: boolean }>[] }[],
   onProgress: (at: number, of: number) => void,
-): Promise<{ changed: Changed[]; refused: Refused[] }> {
-  const changed: Changed[] = [];
+): Promise<{ changed: T[]; refused: Refused[] }> {
+  const changed: T[] = [];
   const refused: Refused[] = [];
   for (const [at, { changing, sends }] of runs.entries()) {
     onProgress(at + 1, runs.length);
@@ -209,9 +222,67 @@ export function whatWasChanged(
   return `${done} on ${on}`;
 }
 
-/** What the bar says of the Items a run could not change. */
-export function saysWhatWasNotChanged(refused: readonly Refused[]): string | null {
+/** What the bar says of the Items a run could not change (or `dismissed`, or whatever the run did): how many, and why. */
+export function saysWhatWasNot(verb: 'changed' | 'dismissed', refused: readonly Refused[]): string | null {
   if (refused.length === 0) return null;
   const reasons = [...new Set(refused.map(({ why }) => why))].join(' ');
-  return `${refused.length} not changed. ${reasons}`;
+  return `${refused.length} not ${verb}. ${reasons}`;
+}
+
+/** One Item the bar dismissed, and the agent run its dismissal ended, which the Undo names so the server reopens exactly that one. */
+export interface Dismissed {
+  item: Item;
+  endedRunId?: string;
+}
+
+/**
+ * Dismisses every Item handed in, one `set_dismissed` each - the command one row's
+ * Dismiss sends - in the order given ("Add Dismiss to the selection bar, asking
+ * first", issue 1819). Handed over and answered exactly as `editSeveral` does:
+ * every change before any is awaited, a refusal recorded against its Item while
+ * the run goes on, and `onStarted` told at the moment an Undo can be offered.
+ */
+export function dismissSeveral(
+  sending: Sending,
+  options: {
+    items: readonly Item[];
+    /** The open agent run of an Item, which dismissing it ends. */
+    runOf: (itemId: string) => string | undefined;
+    onProgress: (at: number, of: number) => void;
+    onStarted?: (dismissing: Dismissed[], answer: Promise<{ changed: Dismissed[]; refused: Refused[] }>) => void;
+  },
+): Promise<{ changed: Dismissed[]; refused: Refused[] }> {
+  const runs = options.items.map((item) => {
+    const send = sending.send({ name: 'set_dismissed', payload: { ...sending.envelope(item.id)(), dismissed: true } });
+    const endedRunId = options.runOf(item.id);
+    const changing: Dismissed = { item, ...(endedRunId && { endedRunId }) };
+    return { changing, sends: [send] };
+  });
+  return handedOver(runs, options.onProgress, options.onStarted);
+}
+
+/**
+ * Undismisses each Item the run dismissed: the same command with the flag turned
+ * round, naming the run it ended. **Stops at the first refusal and says how far it
+ * got**, as `putBack` does.
+ */
+export async function undismissSeveral(sending: Sending, dismissed: readonly Dismissed[]): Promise<void> {
+  for (const [at, { item, endedRunId }] of dismissed.entries()) {
+    try {
+      await sendAll(sending, [
+        {
+          name: 'set_dismissed',
+          payload: { ...sending.envelope(item.id)(), dismissed: false, ...(endedRunId && { reopensRunId: endedRunId }) },
+        },
+      ]);
+    } catch (error) {
+      throw new Error(`${at} of ${dismissed.length} put back, the rest still dismissed. ${whyNot(error)}`);
+    }
+  }
+}
+
+/** What the offer to undo says happened, worded as one row's Dismiss words it for one Item. */
+export function whatWasDismissed(dismissed: readonly Dismissed[]): string {
+  const only = dismissed.length === 1 ? dismissed[0]!.item : null;
+  return only ? `“${itemLabel(only)}” dismissed` : `${dismissed.length} items dismissed`;
 }

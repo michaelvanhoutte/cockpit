@@ -51,6 +51,7 @@ export function DeleteQuestion({
   canConfirm = true,
   refusal,
   returnFocusTo,
+  focusInstead,
 }: {
   /** The whole question, in one sentence: what is going, and what goes with it. */
   question: string;
@@ -69,6 +70,8 @@ export function DeleteQuestion({
   refusal?: string | null;
   /** The control the question was opened from, which gets the focus back. */
   returnFocusTo?: HTMLElement | null;
+  /** Where the focus goes when `returnFocusTo` is gone or unavailable by the time the question has closed. */
+  focusInstead?: () => HTMLElement | null;
 }) {
   return (
     <AlertDialog.Root open={open} onOpenChange={(nowOpen) => !nowOpen && onCancel()}>
@@ -82,7 +85,9 @@ export function DeleteQuestion({
           onCloseAutoFocus={(event) => {
             if (!returnFocusTo) return;
             event.preventDefault();
-            returnFocusTo.focus();
+            // Where the control has gone, or been made unavailable by the answer, the focus goes somewhere live instead.
+            const live = returnFocusTo.isConnected && !(returnFocusTo as HTMLButtonElement).disabled;
+            (live ? returnFocusTo : focusInstead?.())?.focus();
           }}
           className="fixed z-floating left-1/2 top-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >

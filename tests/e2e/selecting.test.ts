@@ -459,6 +459,59 @@ test.describe('Selection', () => {
       await expect(high(third)).toHaveCount(0);
     });
 
+    test('dismisses every pick after a question, and one Undo brings all three back', async ({ page, isMobile }) => {
+      const { falcon, reading, first, second, third } = await picksOnTwoPanels(page, isMobile);
+      await startSelecting(page, first, isMobile);
+      await addToSelection(page, second, isMobile);
+      await addToSelection(page, third, isMobile);
+      await expect(page.getByText('3 selected')).toBeVisible();
+
+      // Dismiss is the last button on the bar, after Move to…, Edit ▾ and Clear, in one row.
+      const buttons = page.getByRole('button', { name: /^(Move to…|Edit ▾|Clear|Dismiss)$/ });
+      await expect(buttons).toHaveText(['Move to…', 'Edit ▾', 'Clear', 'Dismiss']);
+      const boxes = await buttons.evaluateAll((all) => all.map((one) => one.getBoundingClientRect().toJSON()));
+      for (const box of boxes) expect(Math.abs(box.y - boxes[0]!.y)).toBeLessThan(4);
+      expect(boxes[3]!.x).toBeGreaterThan(boxes[2]!.x);
+
+      // The question sends nothing: Cancel leaves all three on their Panels and picked.
+      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+      const question = page.getByRole('alertdialog');
+      await expect(question).toContainText('Dismiss 3 items?');
+      await question.getByRole('button', { name: 'Cancel' }).click();
+      await expect(question).toHaveCount(0);
+      await expect(page.getByText('3 selected')).toBeVisible();
+      await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
+
+      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+      await question.getByRole('button', { name: 'Dismiss 3 items' }).click();
+      await expect(question).toHaveCount(0);
+      await expect.poll(() => itemsOn(page, falcon)).toEqual([]);
+      await expect.poll(() => itemsOn(page, reading)).toEqual([]);
+      await expect(page.getByText(/ selected$/)).toHaveCount(0);
+
+      await expect(page.getByText('3 items dismissed')).toBeVisible();
+      await page.getByRole('button', { name: 'Undo' }).click();
+      await expect.poll(() => itemsOn(page, falcon)).toEqual([first, second]);
+      await expect.poll(() => itemsOn(page, reading)).toEqual([third]);
+    });
+
+    test('offers Dismiss on the Inbox’s bar, pinned to the foot of the screen on a phone', async ({ page, isMobile }) => {
+      const inInbox = uniqueTitle('Left in the Inbox');
+      const alongside = uniqueTitle('Also in the Inbox');
+      await signedInWithInboxRows(page, isMobile, [inInbox, alongside]);
+      await startSelecting(page, inInbox, isMobile);
+      await addToSelection(page, alongside, isMobile);
+      await expect(page.getByText('2 selected')).toBeVisible();
+      const dismiss = page.getByRole('button', { name: 'Dismiss', exact: true });
+      await expect(dismiss).toBeVisible();
+      await expect(dismiss).toBeInViewport();
+      if (isMobile) {
+        const bar = (await page.getByText('2 selected').locator('xpath=../..').boundingBox())!;
+        const viewport = page.viewportSize()!;
+        expect(bar.y + bar.height).toBeGreaterThan(viewport.height - 40);
+      }
+    });
+
     test('offers the same Edit from the Inbox’s bar', async ({ page, isMobile }) => {
       const inInbox = uniqueTitle('Left in the Inbox');
       const alongside = uniqueTitle('Also in the Inbox');

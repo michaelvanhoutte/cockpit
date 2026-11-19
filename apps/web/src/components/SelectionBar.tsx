@@ -22,6 +22,7 @@ export function SelectionBar({
   editMenu,
   dateField,
   onMoveTo,
+  onDismiss,
   onClear,
   onBoard = false,
 }: {
@@ -31,13 +32,15 @@ export function SelectionBar({
   filing: boolean;
   /** Why the filing stopped, if it stopped. */
   refusal: string | null;
-  /** Which Item of how many an edit is sending, while one is: the count then says so, and Move to… and Edit wait. */
-  saving: { at: number; of: number } | null;
+  /** Which Item of how many an edit is sending, while one is: the count then says so, and Move to… Edit and Dismiss wait. */
+  saving: { at: number; of: number; doing?: string } | null;
   /** Edit ▾ (`useEditingSeveral`), which sits between Move to… and Clear. */
   editMenu: ReactNode;
   /** The date field Pick a date… opens, drawn under the buttons. */
   dateField?: ReactNode;
   onMoveTo: () => void;
+  /** Asks *Dismiss N items?* (`useEditingSeveral`), from the button pressed; nothing is sent by this press. */
+  onDismiss: (from: HTMLElement) => void;
   onClear: () => void;
   /** That this is a Dashboard's bar, drawn as a card beside the Inbox rather than as the foot of a list. */
   onBoard?: boolean;
@@ -138,7 +141,7 @@ export function SelectionBar({
           label across two. */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="whitespace-nowrap text-sm font-medium tabular-nums text-accent-deep">
-            {saving ? `Saving ${saving.at} of ${saving.of}…` : `${count} selected`}
+            {saving ? `${saving.doing ?? 'Saving'} ${saving.at} of ${saving.of}…` : `${count} selected`}
           </span>
           <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
             <button
@@ -157,6 +160,14 @@ export function SelectionBar({
               onClick={onClear}
             >
               Clear
+            </button>
+            <button
+              type="button"
+              className="rounded-sm px-2 py-1 text-sm text-over-ink hover:underline disabled:opacity-50"
+              disabled={filing || saving !== null}
+              onClick={(event) => onDismiss(event.currentTarget)}
+            >
+              Dismiss
             </button>
           </div>
         </div>

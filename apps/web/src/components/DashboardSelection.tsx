@@ -45,11 +45,11 @@ export function DashboardSelection({
     scope,
     picked,
   });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing });
+  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
 
   return (
     <>
-      {showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several) && (
+      {showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
         <SelectionBar
           onBoard
           count={picked.length}
@@ -59,10 +59,12 @@ export function DashboardSelection({
           editMenu={editing.menu}
           dateField={editing.dateField}
           onMoveTo={filingSeveral.ask}
+          onDismiss={editing.askToDismiss}
           onClear={() => endSelection(scope)}
         />
       )}
       {filingSeveral.pickers}
+      {editing.dismissQuestion}
     </>
   );
 }

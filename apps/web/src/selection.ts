@@ -126,8 +126,10 @@ export function showsABar(
   count: number,
   refusals: readonly (string | null | false | undefined)[],
   several = SEVERAL,
+  /** A run is going: its Items are already drawn gone, and the bar counts it to the end. */
+  running = false,
 ): boolean {
-  return count >= several || (count > 0 && refusals.some(Boolean));
+  return running || count >= several || (count > 0 && refusals.some(Boolean));
 }
 
 /** The selection a plain click leaves: this row alone, and what a shift-click reaches back to. */
@@ -257,6 +259,21 @@ let keptAcrossSwitch: string | null = null;
 export function keepAcrossSwitch(scope: string | null) {
   keptAcrossSwitch = scope;
 }
+/**
+ * Items whose dismissal from the selection bar has not been answered yet
+ * ("Selection: picked Items can be moved and edited but not dismissed - add
+ * Dismiss to the selection bar, asking first", issue 1819). They are drawn gone
+ * at once, so no list shows them, and pruning must not take them out of the
+ * selection meanwhile: one the server refuses is still picked when it is drawn
+ * back. It lasts only while a change is unanswered, and the caller ends it.
+ */
+const unanswered = new Set<string>();
+export function keepWhileUnanswered(ids: Iterable<string>) {
+  for (const id of ids) unanswered.add(id);
+}
+export function stopKeeping(ids: Iterable<string>) {
+  for (const id of ids) unanswered.delete(id);
+}
 const heldListeners = new Set<() => void>();
 const set = (next: Held) => {
   if (next === held) return;
@@ -337,6 +354,14 @@ export function endSelection(scope?: string) {
   set(afterEnding(held, scope));
 }
 
+/** Takes ids out of what `scope` holds, as an Item the bar dismissed leaves it. */
+export function dropFromSelection(scope: string, ids: Iterable<string>) {
+  const going = new Set(ids);
+  // Pruning to everything else held, which is what it already does for an anchor that does not survive.
+  const staying = new Set([...pickedNow(scope)].filter((id) => !going.has(id)));
+  set(afterPruning(held, scope, staying));
+}
+
 /** Adds ids to what `scope` holds. */
 export function pickAll(scope: string, ids: Iterable<string>) {
   set(afterPickingAll(held, scope, ids));
@@ -376,6 +401,16 @@ export function useShowing(scope: string, ids: readonly string[], hidden = false
   );
 }
 
+/**
+ * The Items in the order `scope`'s lists show them, as they are right now: read
+ * when a run starts, never while drawing, since the lists report from effects.
+ * Any not shown go last, in the order given.
+ */
+export function inShownOrder(scope: string, items: readonly Item[]): Item[] {
+  const at = new Map([...shownOn(scope)].map((id, index) => [id, index]));
+  return [...items].sort((a, b) => (at.get(a.id) ?? Infinity) - (at.get(b.id) ?? Infinity));
+}
+
 /** The distinct ids the lists show for `scope` right now; `onScreenOnly` leaves out a collapsed Panel's. */
 export function shownOn(scope: string, onScreenOnly = false): Set<string> {
   return shownIn(lists.values(), scope, onScreenOnly);
@@ -403,7 +438,7 @@ export function useHeldTo(scope: string | null) {
         // Its lists are leaving with the Dashboard, so they show nothing: not
         // a reason to let go of rows the drag is still carrying.
         if (keptAcrossSwitch === scope) return;
-        set(afterPruning(held, scope, shownOn(scope)));
+        set(afterPruning(held, scope, new Set([...shownOn(scope), ...unanswered])));
       });
     };
     listsListeners.add(prune);

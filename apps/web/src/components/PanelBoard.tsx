@@ -1,5 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { dashboardScope } from '../selection';
 import {
   GRID_COLUMNS,
   isPhoneWidth,
@@ -1250,7 +1251,13 @@ export function PanelBoard({
     });
 
   return (
-    <div ref={measure} className="flex min-w-0 flex-col">
+    <div
+      ref={measure}
+      // Where the focus goes once the bar's Dismiss has run and the bar has left (`useEditingSeveral`).
+      tabIndex={-1}
+      data-selection-home={dashboardScope(dashboard.id)}
+      className="flex min-w-0 flex-col outline-none"
+    >
       {/* The name, for whoever is not looking at the screen. It used to be a
           heading here as well as the tab above, which said the same thing
           twice a centimetre apart ("Modernise the app shell", issue 125) -
