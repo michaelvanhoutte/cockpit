@@ -39,6 +39,7 @@ export default function SettingsWindow({
   outcome,
   guest,
   sentenceId,
+  connection,
   onlyAppearance,
   onClose,
   returnFocusTo,
@@ -53,6 +54,8 @@ export default function SettingsWindow({
   guest?: boolean | undefined;
   /** The remembered sentence *What Cockpit remembers* opens for editing, where a window that used it sent the person here. */
   sentenceId?: string | undefined;
+  /** The connection whose history Connections opens on, with the Workspace it belongs to (issue 1835). */
+  connection?: { workspaceId: string; sourceAccountId: string } | undefined;
   /** On a phone, which holds Appearance and nothing else: the rest of Settings is for a desk. */
   onlyAppearance?: boolean | undefined;
   onClose: () => void;
@@ -70,7 +73,7 @@ export default function SettingsWindow({
         {
           key: 'connections',
           label: 'Connections',
-          content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} onClose={onClose} />,
+          content: <ConnectionsOf startsIn={startsIn} outcome={outcome} guest={guest} connection={connection} onClose={onClose} />,
         },
         { key: 'mcp', label: 'Connected apps', content: <ManageConnectedApps open onClose={onClose} /> },
         { key: 'followups', label: 'Follow-ups', content: <FollowUpsOf startsIn={startsIn} /> },
@@ -100,16 +103,18 @@ function ConnectionsOf({
   startsIn,
   outcome,
   guest,
+  connection,
   onClose,
 }: {
   guest?: boolean | undefined;
   startsIn: string | undefined;
   outcome?: ConnectOutcomeFor | undefined;
+  connection?: { workspaceId: string; sourceAccountId: string } | undefined;
   onClose: () => void;
 }) {
   const { data } = useWorkspaces();
   const workspaces = data?.workspaces ?? [];
-  const [picked, setPicked] = useState(outcome?.workspaceId ?? startsIn);
+  const [picked, setPicked] = useState(outcome?.workspaceId ?? connection?.workspaceId ?? startsIn);
   const chosen = workspaces.find((ws) => ws.id === picked) ?? workspaces[0];
   if (!chosen) return null;
   return (
@@ -118,6 +123,7 @@ function ConnectionsOf({
       // open over the next.
       key={chosen.id}
       guest={guest}
+      historyOfId={connection?.workspaceId === chosen.id ? connection.sourceAccountId : undefined}
       workspaceId={chosen.id}
       workspaceName={chosen.name}
       outcome={outcome?.workspaceId === chosen.id ? outcome.outcome : undefined}

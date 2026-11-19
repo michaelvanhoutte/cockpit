@@ -453,6 +453,15 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
     sourceAccountId: string,
   ): Awaitable<Answer<{ status: CheckedNow; at: string }>>;
   /**
+   * *Check now* on every pulled connection of this Workspace (issue 1835), in
+   * one transaction; each answers as `checkPulledConnectionNow` does. Refused as
+   * not found for the guest and for a Workspace this account does not have.
+   */
+  checkWorkspaceConnectionsNow(
+    accountName: string,
+    workspaceId: string,
+  ): Awaitable<Answer<{ connections: { sourceAccountId: string; status: CheckedNow }[]; at: string }>>;
+  /**
    * The calls a run of one pulled connection's check makes, each naming the
    * run so the store can refuse one that no longer holds its connection
    * (issue 891). `beginPulledRun` is what a delivered check takes the lease

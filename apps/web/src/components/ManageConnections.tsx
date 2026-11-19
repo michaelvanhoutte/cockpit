@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -246,6 +246,7 @@ export default function ManageConnections({
   returnFocusTo,
   picker,
   guest = false,
+  historyOfId,
 }: {
   /**
    * The shared guest, who connects nothing: the server refuses it anyway
@@ -253,6 +254,8 @@ export default function ManageConnections({
    * in place of every Connect, Disconnect, Test and Edit (issue 772).
    */
   guest?: boolean | undefined;
+  /** The connection whose history is drawn at once, where the Inbox's ↻ named one as failed (issue 1835). */
+  historyOfId?: string | undefined;
   /** What picks the workspace, drawn under the intro. */
   picker?: React.ReactNode;
   workspaceId: string;
@@ -355,6 +358,15 @@ export default function ManageConnections({
     : undefined;
   const cards = registered;
   const connected = data?.sourceAccounts ?? [];
+  // Opened on a connection's history once, when its row has been read.
+  const openedOn = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!historyOfId || openedOn.current === historyOfId) return;
+    const wanted = data?.sourceAccounts.find((account) => account.id === historyOfId);
+    if (!wanted) return;
+    openedOn.current = historyOfId;
+    setHistoryOf(wanted);
+  }, [historyOfId, data]);
   /**
    * Saying "nothing connected" is a claim about what this Workspace holds, so
    * it needs an answer to have arrived: `?? []` would make a failed read look

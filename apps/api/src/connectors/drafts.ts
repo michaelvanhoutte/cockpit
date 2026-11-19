@@ -100,6 +100,17 @@ export function mailboxesOf(
     }));
 }
 
+/** The Workspace's pulled connections, oldest first, as the Workspace read carries them for the Inbox's ↻ (issue 1835). */
+export function checkableOf(
+  env: Env,
+  connections: readonly { id: string; connectorId: string; displayName: string }[],
+): { sourceAccountId: string; name: string }[] {
+  const pulled = new Set(connectors(env).filter((one) => one.manifest.pulled).map((one) => one.manifest.id));
+  return connections
+    .filter((one) => pulled.has(one.connectorId))
+    .map((one) => ({ sourceAccountId: one.id, name: one.displayName }));
+}
+
 /**
  * Makes the draft one click asked for, and answers where it opens. The click's
  * own id makes resending it safe: a draft already recorded is answered as it

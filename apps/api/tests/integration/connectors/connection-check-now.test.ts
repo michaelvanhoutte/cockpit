@@ -273,7 +273,7 @@ describe('Connector management', () => {
       if (answer.status !== 'ok') throw new Error('the store did not answer');
 
       expect(answer.value.events.filter((event) => event.type === 'connection_history_changed')).toEqual([
-        { type: 'connection_history_changed', workspaceId: WORKSPACE_ID, sourceAccountId: id },
+        expect.objectContaining({ type: 'connection_history_changed', workspaceId: WORKSPACE_ID, sourceAccountId: id }),
       ]);
     });
   });

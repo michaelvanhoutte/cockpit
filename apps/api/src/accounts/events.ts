@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, inArray, max } from 'drizzle-orm';
 import { ACCOUNT_WIDE, type CommandName, type ServerEvent } from '@cockpit/shared';
+import type { DidStored } from '../domain/connection-history.js';
 import type { AccountDb } from './client.js';
 import { commands, connectionHistory, connectorAccounts, itemMeanings, items } from './schema.js';
 
@@ -96,25 +97,52 @@ export function collectInvalidations(
    * history", issue 1143). So the lines are a source of their own event, naming
    * the connection and not the snapshot, which they do not change.
    */
+  const lines = new Map<string, HistoryNews>();
   for (const line of historyWrittenSince(db, tenantId, since).all()) {
-    events.push({ type: 'connection_history_changed', workspaceId: line.workspaceId, sourceAccountId: line.sourceAccountId });
+    const kept = line.did === null ? null : (JSON.parse(line.did) as Partial<DidStored>);
+    const held = lines.get(line.sourceAccountId);
+    // Rows come oldest first: the newest line says the outcome, and what each line brought in and closed adds up.
+    lines.set(line.sourceAccountId, {
+      workspaceId: line.workspaceId,
+      outcome: line.outcome,
+      message: line.outcome === 'failed' ? line.message : null,
+      broughtIn: (held?.broughtIn ?? 0) + (kept?.broughtIn?.count ?? 0),
+      closed: (held?.closed ?? 0) + (kept?.closed?.count ?? 0),
+      at: line.lastAt,
+    });
     if (line.lastAt > cursor) cursor = line.lastAt;
+  }
+  for (const [sourceAccountId, news] of lines) {
+    events.push({ type: 'connection_history_changed', sourceAccountId, ...news });
   }
   return { events, cursor };
 }
 
+/** What one connection's lines written since a cursor say, for the announcement of them. */
+type HistoryNews = {
+  workspaceId: string;
+  outcome: 'worked' | 'failed';
+  message: string | null;
+  broughtIn: number;
+  closed: number;
+  at: string;
+};
+
 /**
- * The connections of a live Workspace whose history a check wrote to after a
- * cursor, each once with the newest time - a line a quiet check extends moves
- * its `last_at`, so it counts as written too. Unrun, so the test that proves a
- * poll with nothing new reads no line can plan this very statement.
+ * The lines of a live Workspace's connections that a check wrote or extended
+ * after a cursor, oldest first - a line a quiet check extends moves its
+ * `last_at`, so it counts as written too. Unrun, so a test can plan this very
+ * statement.
  */
 export function historyWrittenSince(db: AccountDb, tenantId: string, since: string) {
   return db
     .select({
       workspaceId: connectorAccounts.workspaceId,
       sourceAccountId: connectionHistory.sourceAccountId,
-      lastAt: max(connectionHistory.lastAt).mapWith(String),
+      outcome: connectionHistory.outcome,
+      message: connectionHistory.message,
+      did: connectionHistory.did,
+      lastAt: connectionHistory.lastAt,
     })
     .from(connectionHistory)
     .innerJoin(connectorAccounts, eq(connectorAccounts.id, connectionHistory.sourceAccountId))
@@ -125,7 +153,7 @@ export function historyWrittenSince(db: AccountDb, tenantId: string, since: stri
         gt(connectionHistory.lastAt, since),
       ),
     )
-    .groupBy(connectorAccounts.workspaceId, connectionHistory.sourceAccountId);
+    .orderBy(connectionHistory.lastAt);
 }
 
 /**

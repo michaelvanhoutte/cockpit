@@ -16,6 +16,12 @@ import { filingsThatFile, itemsInTheInbox } from '@cockpit/shared';
 // a row mounts its own - since nothing on first paint needs it.
 const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 
+// The ↻ and its note, fetched once the Workspace lists a connection to check (issue 1835).
+const CheckConnections = lazy(() => import('./CheckConnections'));
+
+/** The connections to check where the read lists none, held once so a render does not make a new list. */
+const NONE_TO_CHECK: readonly { sourceAccountId: string; name: string }[] = [];
+
 /** How many items the Inbox holds, or null until the snapshot has arrived. */
 function useInboxCount(workspaceId: string): number | null {
   const { data } = useSnapshot(workspaceId);
@@ -110,6 +116,11 @@ export function InboxHeading({
   onCollapse?: () => void;
 }) {
   const count = useInboxCount(workspaceId);
+  const { data: held } = useSnapshot(workspaceId);
+  // Drawn only where the Workspace's read lists a connection to check, so a guest and a Workspace with none see no ↻.
+  const checkable = held?.checkable ?? NONE_TO_CHECK;
+  /** Where the ↻'s note is drawn, under the heading. */
+  const [noteSlot, setNoteSlot] = useState<HTMLElement | null>(null);
 
   /** What Cockpit changed across the Inbox, opened from this heading's own menu ("Show what Cockpit changed on the item itself", issue 690). */
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -142,6 +153,11 @@ export function InboxHeading({
           {count !== null && (
             <span className="text-xs tabular-nums text-ink-faint">{count}</span>
           )}
+          {checkable.length > 0 && (
+            <Suspense fallback={null}>
+              <CheckConnections workspaceId={workspaceId} checkable={checkable} noteSlot={noteSlot} />
+            </Suspense>
+          )}
           <RowMenu
             label="Actions for the Inbox"
             entries={[
@@ -156,6 +172,7 @@ export function InboxHeading({
           />
         </div>
       </div>
+      <div ref={setNoteSlot} />
       {historyOpen && (
         <Suspense fallback={null}>
           <SmartRefinementsWindow

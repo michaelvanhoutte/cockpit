@@ -82,6 +82,7 @@ import {
   savePulledState,
   schedulePulledChecks,
   checkPulledConnectionNow,
+  checkWorkspaceConnectionsNow,
   type CheckedNow,
   type PulledRunBegun,
 } from './pulled.js';
@@ -1289,6 +1290,25 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       at: now.toISOString(),
     }));
     if (answer.status === 'ok' && answer.value.status === 'queued') await this.#arm(accountName);
+    return answer;
+  }
+
+  /**
+   * *Check now* on every pulled connection of one Workspace (issue 1835), in one
+   * transaction, and the alarm armed where any check was made due.
+   */
+  async checkWorkspaceConnectionsNow(
+    accountName: string,
+    workspaceId: string,
+  ): Promise<Answer<{ connections: { sourceAccountId: string; status: CheckedNow }[]; at: string }>> {
+    const now = new Date();
+    const answer = this.#answer(accountName, (db) => ({
+      connections: checkWorkspaceConnectionsNow(db, accountName, workspaceId, this.pulledConnectorIds(), now),
+      at: now.toISOString(),
+    }));
+    if (answer.status === 'ok' && answer.value.connections.some((one) => one.status === 'queued')) {
+      await this.#arm(accountName);
+    }
     return answer;
   }
 
