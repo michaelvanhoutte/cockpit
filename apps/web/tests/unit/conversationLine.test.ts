@@ -176,7 +176,7 @@ const PHONE = {
   },
 };
 
-describe('Open at the source', () => {
+describe('Connector management', () => {
   describe('on a phone the conversation an Item follows opens on the source’s phone website, a draft not yet named opens nothing', () => {
     const phoneAt = (id: string) => `https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/${id}`;
 

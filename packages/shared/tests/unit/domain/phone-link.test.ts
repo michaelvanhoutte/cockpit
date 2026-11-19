@@ -20,7 +20,7 @@ const DECLARED = {
 };
 const STORED = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/18f3c0';
 
-describe('Open at the source', () => {
+describe('Connector management', () => {
   describe('a source’s phone address names its conversation from All Mail, in the mailbox the stored link names', () => {
     it.each([
       {

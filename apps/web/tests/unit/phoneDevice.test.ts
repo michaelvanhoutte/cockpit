@@ -9,7 +9,7 @@ import { onAPhoneDevice, phoneLinksOnThisDevice } from '../../src/phoneDevice';
 
 const DECLARED = { gmail: { host: 'mail.google.com', path: '/p/', mailboxParam: 'authuser', conversationFragment: 'cv/', draftsFragment: 'tl/d' } };
 
-describe('Open at the source', () => {
+describe('Connector management', () => {
   describe('a phone is decided by the device at the tap, not by the window’s width', () => {
     it.each([
       { situation: 'a phone browser that says it is mobile', device: { userAgentData: { mobile: true } }, phone: true },

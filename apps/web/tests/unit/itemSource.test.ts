@@ -213,7 +213,7 @@ const gmailItem = (sourceId: string | null, over: Partial<Item> = {}): Item =>
 const followed = (conversationId: string, over: Partial<Conversation> = {}): Conversation =>
   ({ source: 'gmail', conversationId, link: `https://mail.google.com/mail/?authuser=anna%40example.com#all/${conversationId}`, ...over }) as Conversation;
 
-describe('Open at the source', () => {
+describe('Connector management', () => {
   describe('on a phone a Gmail Item that knows its conversation opens that conversation, and on a computer the stored link', () => {
     it.each([
       { situation: 'brought in by the label, on a phone', item: gmailItem('18f3c0'), conversation: null, phone: PHONE, link: phoneAt('18f3c0') },
