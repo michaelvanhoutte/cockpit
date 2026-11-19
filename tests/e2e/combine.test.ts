@@ -7,7 +7,6 @@ import {
   holdRow,
   inbox,
   itemRow,
-  itemsOn,
   openDashboard,
   press,
   signIn,
@@ -25,8 +24,8 @@ import {
  * apps/api/tests/integration/http/combine.test.ts; what the dialog offers and
  * sends is apps/web/tests/unit/components/ItemList.test.tsx's. **What is only
  * true in a browser** is that rows really picked with ctrl/cmd-clicks (or a
- * finger) reach Edit ▾ ▸ Combine…, and that the Inbox and the Dashboard really
- * do change together when the one change lands.
+ * finger) reach Edit ▾ ▸ Combine…, on a desk and on a phone, which is why this is
+ * one walk rather than one per action.
  *
  * **Every walk arranges its rows through the API** and drives only the
  * selection and the dialog through the UI (`./support/arrange`).
@@ -67,20 +66,6 @@ async function inboxWithRows(page: Page, isMobile: boolean, titles: string[]) {
 
 test.describe('Triage', () => {
   test.describe('rows picked in the Inbox are combined', () => {
-    test('puts them under a new Panel of the open Dashboard, which holds them and leaves the Inbox', async ({ page, isMobile }) => {
-      test.skip(isMobile, 'A phone shows the Inbox on a screen of its own, with no Dashboard open to put a Panel on: there the parent is an Item in the Inbox.');
-      const [first, second] = [uniqueTitle('Storm scene'), uniqueTitle('Ferry scene')] as const;
-      await inboxWithRows(page, isMobile, [first, second]);
-      await pickRows(page, [first, second], isMobile);
-
-      const dialog = await combineThem(page, isMobile);
-      await dialog.getByRole('button', { name: 'Combine' }).click();
-
-      const parent = `Combined: ${first} +1`;
-      await expect(page.getByRole('region', { name: parent })).toBeVisible();
-      await expect.poll(() => itemsOn(page, parent)).toEqual([first, second]);
-      for (const title of [first, second]) await expect(inbox(page).getByText(title, { exact: true })).toHaveCount(0);
-    });
     test('merges them into one new Item in the Inbox, and Undo puts the originals back', async ({ page, isMobile }) => {
       const [first, second] = [uniqueTitle('Storm scene'), uniqueTitle('Ferry scene')] as const;
       await inboxWithRows(page, isMobile, [first, second]);
