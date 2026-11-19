@@ -95,6 +95,12 @@ export const workspaceSnapshotSchema = z.object({
    */
   mailboxes: z.array(mailboxSchema).optional(),
   /**
+   * The Workspace's connections that are pulled, oldest first ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835): the
+   * ones the Inbox's ↻ checks, drawn only where there is one. Optional, as
+   * `mailboxes` is: a copy saved by a release that did not send it has none.
+   */
+  checkable: z.array(z.object({ sourceAccountId: z.string(), name: z.string() })).optional(),
+  /**
    * The series the Items above name ("Repeat an Item on a schedule, so it
    * comes back every Monday or every quarter", issue 1405) - stopped ones too,
    * since an Item still names the series deleting its recurring item stopped. Defaulted for the

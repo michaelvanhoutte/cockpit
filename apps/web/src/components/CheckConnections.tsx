@@ -1,0 +1,77 @@
+import { createPortal } from 'react-dom';
+import { useRoomForTheInbox } from '../roomForTheInbox';
+import { useOpenConnectionHistory } from '../settingsOpener';
+import { useCheckConnections } from '../useCheckConnections';
+import type { Checkable } from '../checkConnections';
+
+/**
+ * The Inbox's ↻ and the note it leaves ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835): the button where it is drawn in the heading's row, and the note in `noteSlot`, under the heading. Its own chunk, fetched once the Workspace lists a connection to check, since nothing on first paint needs it.
+ */
+export default function CheckConnections({
+  workspaceId,
+  checkable,
+  noteSlot,
+}: {
+  workspaceId: string;
+  checkable: readonly Checkable[];
+  noteSlot: HTMLElement | null;
+}) {
+  const check = useCheckConnections(workspaceId, checkable);
+  const room = useRoomForTheInbox();
+  const openHistory = useOpenConnectionHistory();
+  const { note } = check;
+  const settled = note !== null && !note.working;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={check.press}
+        title="Check connections now"
+        aria-label="Check connections now"
+        className="rounded px-1 text-sm leading-none text-ink-faint hover:text-ink"
+      >
+        <span aria-hidden="true" className={`inline-block ${check.checking ? 'animate-spin' : ''}`}>
+          ↻
+        </span>
+      </button>
+      {note &&
+        noteSlot &&
+        createPortal(
+          <div
+            onClick={check.dismiss}
+            className={`absolute inset-x-0 top-1 z-20 flex items-start gap-1 rounded-md bg-surface px-2 py-1 text-xs shadow-sm ${note.ok ? 'text-ink-soft' : 'text-over-ink'}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p>{note.text}</p>
+              {note.failed.map((one) => (
+                <p key={one.sourceAccountId}>
+                  {/* A desk opens the connection's history in Settings; a phone has no Connections to open it in. */}
+                  {room && openHistory ? (
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openHistory(workspaceId, one.sourceAccountId);
+                      }}
+                    >
+                      {one.name}
+                    </button>
+                  ) : (
+                    one.name
+                  )}{' '}
+                  failed
+                </p>
+              ))}
+            </div>
+            {settled && (
+              <button type="button" aria-label="Dismiss" className="px-1 leading-none text-ink-faint hover:text-ink" onClick={check.dismiss}>
+                ×
+              </button>
+            )}
+          </div>,
+          noteSlot,
+        )}
+    </>
+  );
+}

@@ -169,7 +169,7 @@ let pressedAt = '2026-10-16T12:00:00.000Z';
 let pressFinds: 'queued' | 'already queued' | 'running' = 'queued';
 let client: QueryClient;
 
-function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode) {
+function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBecause, picker?: React.ReactNode, historyOfId?: string) {
   sent = vi.fn();
   // The queue is where a change is sent from; what it draws is ConnectionsAtOnce.test.tsx.
   vi.spyOn(changes, 'enqueue').mockImplementation((change) => {
@@ -194,6 +194,7 @@ function showWindow(outcome?: ConnectOutcome, guest = false, because?: RefusedBe
         {...(because ? { because } : {})}
         guest={guest}
         picker={picker}
+        historyOfId={historyOfId}
         open
         onClose={() => {}}
       />
@@ -1615,6 +1616,16 @@ describe('Connector management', () => {
       expect(await screen.findByRole('button', { name: 'Add connection' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Actions for anna@example.com' })).toBeInTheDocument();
       expect(screen.queryByRole('region', { name: /^History of/ })).toBeNull();
+    });
+  });
+
+  describe('a connection the Inbox’s ↻ named as failed opens on its history', () => {
+    it('draws that connection’s history in place of the list, once its row has been read', async () => {
+      held.sourceAccounts = [ADA, ANNA];
+      showWindow(undefined, false, undefined, undefined, ANNA.id);
+
+      expect(await screen.findByRole('region', { name: `History of ${ANNA.displayName}` })).toBeInTheDocument();
+      expect(held.historyAskedFor).toEqual([ANNA.id]);
     });
   });
 

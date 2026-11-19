@@ -4,6 +4,7 @@ import { serverEventSchema, streamOpenedSchema } from '@cockpit/shared';
 import { cameOnline, foundOffline } from '../opening';
 import { isOffline, useStanding } from '../offline';
 import { RECONNECTED } from '../updating';
+import { announceCheckEnded } from '../checkEnds';
 import { diagnoseConnection } from './loadFailure';
 import { readForAnnouncement, readWhereBehind } from './snapshotReads';
 
@@ -119,6 +120,8 @@ export function useServerEvents() {
         // A check's end moves the history of one connection and nothing in the
         // snapshot: only that connection's open view reads again (issue 1143).
         if (parsed.data.type === 'connection_history_changed') {
+          // And the Inbox's ↻, where it waits on this connection ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835).
+          announceCheckEnded(parsed.data);
           void queryClient.invalidateQueries({
             queryKey: ['connectionHistory', parsed.data.workspaceId, parsed.data.sourceAccountId],
           });
