@@ -77,9 +77,20 @@ export async function withoutTheGuide(accountName: string = ACCOUNT_NAME): Promi
   if (opened.status !== 'ok') throw new Error(JSON.stringify(opened));
   await inStoreAsItIs(accountName, (sql) => {
     const guide = `SELECT id FROM items WHERE NOT (${NOT_THE_GUIDE})`;
+    // The guide's Panel is an Item too, holding the guide's Tasks (issue 1824).
+    const guidePanelsItem = 'SELECT item_id FROM panels WHERE name = ?';
+    sql.exec(
+      `DELETE FROM item_children WHERE child_id IN (${guide}) OR parent_id IN (${guidePanelsItem})`,
+      GETTING_STARTED_PANEL_NAME,
+    );
     sql.exec(`DELETE FROM panel_items WHERE item_id IN (${guide})`);
     sql.exec(`DELETE FROM items WHERE id IN (${guide})`);
+    const panelsItems = sql
+      .exec<{ item_id: string | null }>(guidePanelsItem, GETTING_STARTED_PANEL_NAME)
+      .toArray()
+      .flatMap((row) => (row.item_id === null ? [] : [row.item_id]));
     sql.exec('DELETE FROM panels WHERE name = ?', GETTING_STARTED_PANEL_NAME);
+    for (const id of panelsItems) sql.exec('DELETE FROM items WHERE id = ?', id);
   });
 }
 

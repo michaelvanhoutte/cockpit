@@ -110,7 +110,7 @@ async function emptyTheStore(name: string): Promise<void> {
       .toArray()
       .map((row) => row.name);
     // Children before parents, the same order a restore drops in.
-    for (const table of ['panel_placements', 'layout_rows', 'panel_items', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'screen_sizes', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
+    for (const table of ['panel_placements', 'layout_rows', 'panel_items', 'item_children', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'screen_sizes', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
       if (tables.includes(table)) sql.exec(`DROP TABLE IF EXISTS "${table}"`);
     }
     for (const table of tables) sql.exec(`DROP TABLE IF EXISTS "${table}"`);

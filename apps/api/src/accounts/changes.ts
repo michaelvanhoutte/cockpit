@@ -193,6 +193,8 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANEL_ITEMS_FILED_AT,
     CONNECTOR_ACCOUNTS_GRANTED,
     CONNECTOR_ACCOUNTS_OWN_ALIAS,
+    ITEM_CHILDREN,
+    PANELS_BECOME_ITEMS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1759,6 +1761,144 @@ const CONNECTOR_ACCOUNTS_OWN_ALIAS: Change = {
   name: '0107-connector-accounts-own-alias',
   statements: [{ sql: 'ALTER TABLE `connector_accounts` ADD COLUMN `own_alias` text' }],
 };
+
+/**
+ * Where an Item sits in another ("Brainstorming: give every Panel an Item and
+ * store filings as Item-in-Item relations", issue 1824): the `item_children`
+ * table and its two indexes, the two counts on `items`, and `panels.item_id`
+ * with its unique index; `schema.ts` says what each carries. Expand only: the
+ * rows are `0109-panels-become-items`'s.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: a `CREATE TABLE`,
+ *   three `ADD COLUMN`s and three indexes, and no statement that writes a row.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release names none of it and
+ *   writes `panel_items` alone, which the switch's copy step repairs (issue 1825).
+ */
+const ITEM_CHILDREN: Change = {
+  name: '0108-item-children',
+  statements: [
+    {
+      sql: `CREATE TABLE \`item_children\` (
+	\`tenant_id\` text NOT NULL,
+	\`parent_id\` text NOT NULL,
+	\`child_id\` text NOT NULL,
+	\`position\` integer DEFAULT 0 NOT NULL,
+	\`x\` real,
+	\`y\` real,
+	\`w\` real,
+	\`h\` real,
+	\`collapsed\` integer DEFAULT 0 NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	PRIMARY KEY(\`parent_id\`, \`child_id\`),
+	FOREIGN KEY (\`parent_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`child_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_children_position_is_an_order" CHECK(position >= 0),
+	CONSTRAINT "item_children_collapsed_is_a_flag" CHECK(collapsed IN (0, 1)),
+	${timestampCheck('item_children', 'created_at')},
+	${timestampCheck('item_children', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `item_children_tenant_child` ON `item_children` (`tenant_id`,`child_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `item_children_tenant_parent` ON `item_children` (`tenant_id`,`parent_id`) WHERE `deleted_at` IS NULL',
+    },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `children_count` integer DEFAULT 0 NOT NULL' },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `children_done` integer DEFAULT 0 NOT NULL' },
+    { sql: 'ALTER TABLE `panels` ADD COLUMN `item_id` text' },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `panels_item` ON `panels` (`item_id`) WHERE `item_id` IS NOT NULL',
+    },
+  ],
+};
+
+/**
+ * Every live Panel becomes an Item, and every filing on one is also held by
+ * that Item (issue 1824), in one transaction per account, after
+ * `0108-item-children` as the Agents' retirement runs after its columns.
+ * Reads still come from `panel_items`. The guest's demonstration, written after
+ * this, carries the same statements at its end (`guestDemoSeed`).
+ *
+ * - **Every live Panel's Item** - filter and text Panels included - is
+ *   `internal`, carries the Panel's title and Workspace, has its texts settled
+ *   at the Panel's own creation so Claude never rewrites it, and takes the
+ *   Panel's id; the reads keep it out of the Inbox and every list
+ *   (`notAPanelsOwnItem`, repo.ts).
+ * - **Stopping halfway:** one change is one transaction (store.ts), so an
+ *   interruption leaves the account exactly as it was, the ledger records
+ *   nothing, and the next request runs it whole.
+ * - **Running a second time:** it touches only Panels whose `item_id` is null
+ *   and inserts filings `ON CONFLICT DO NOTHING`, so a re-run - after an
+ *   interruption, or carried again by the switch's copy step - adds nothing
+ *   twice; the counts are counted again, to the same values.
+ * - **Rows that already break the new rule:**
+ *   - a filing on a deleted Panel, or on a Panel of a deleted Dashboard, is not
+ *     copied, since the Inbox already ignores it, and neither Panel gets an Item;
+ *   - a filing whose Item is dismissed is copied with that tombstone kept, and
+ *     counted in neither count;
+ *   - a cycle cannot exist, since today's filings are one level;
+ *   - a filing whose Panel row (or that Panel's Dashboard row) is missing
+ *     fails the change loudly: its holder is null, which `parent_id NOT NULL`
+ *     refuses, rather than being dropped.
+ * - **What each environment holds:** staging and production hold real Panels
+ *   and filings. This only adds rows and leaves `panel_items` untouched until
+ *   it is dropped (issue 1833), so a rollback loses nothing. `pnpm
+ *   backup:export` runs before each release.
+ * - **The interruption windows:** before the transaction commits, nothing has
+ *   happened; between `0108-item-children` and this, the account is not served
+ *   until both finish; during the rollout, an older Worker can write
+ *   `panel_items` alone, which the switch's copy step repairs before any read
+ *   moves (issue 1825).
+ */
+const PANELS_BECOME_ITEMS: Change = {
+  name: '0109-panels-become-items',
+  statements: panelsBecomeItems(),
+};
+
+/**
+ * A filing is held from when a person filed it (`filed_at`), which survives a
+ * Panel's reorders, and otherwise from the Panel's last rewrite (`created_at`).
+ */
+function panelsBecomeItems(): Statement[] {
+  return [
+    {
+      sql: `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, texts_settled_at,
+                               status, unseen, created_at, updated_at)
+              SELECT p.id, p.tenant_id, d.workspace_id, 1, 'internal', p.name, p.created_at,
+                     ?, 0, p.created_at, p.created_at
+                FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
+               WHERE p.item_id IS NULL AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+      params: [DEAD_STATUS_VALUE],
+    },
+    {
+      sql: `UPDATE panels SET item_id = id
+             WHERE item_id IS NULL AND deleted_at IS NULL
+               AND EXISTS (SELECT 1 FROM dashboards d WHERE d.id = panels.dashboard_id AND d.deleted_at IS NULL)`,
+    },
+    {
+      sql: `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+              SELECT f.tenant_id, p.item_id, f.item_id, f.position, coalesce(f.filed_at, f.created_at)
+                FROM panel_items f
+                LEFT JOIN panels p ON p.id = f.panel_id
+                LEFT JOIN dashboards d ON d.id = p.dashboard_id
+               WHERE p.id IS NULL OR (p.deleted_at IS NULL AND d.deleted_at IS NULL)
+              ON CONFLICT (parent_id, child_id) DO NOTHING`,
+    },
+    {
+      sql: `UPDATE items SET
+              children_count = (SELECT count(*) FROM item_children c JOIN items k ON k.id = c.child_id
+                                 WHERE c.parent_id = items.id AND c.deleted_at IS NULL AND k.deleted_at IS NULL),
+              children_done = (SELECT count(*) FROM item_children c JOIN items k ON k.id = c.child_id
+                                WHERE c.parent_id = items.id AND c.deleted_at IS NULL AND k.deleted_at IS NULL
+                                  AND k.completed_at IS NOT NULL)
+             WHERE id IN (SELECT item_id FROM panels WHERE item_id IS NOT NULL)`,
+    },
+  ];
+}
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
 export const GMAIL_RECONNECT_REASON = 'Gmail connects a new way now. Reconnect it to carry on.';
@@ -5891,7 +6031,9 @@ function guestDemoSeed(accountId: string): Change {
   const name = '0026-guest-demo-seed';
   if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
   const day = new Date().toISOString().slice(0, 10);
-  if (seeded?.day !== day) seeded = { day, statements: guestDemoStatements(GUEST_ACCOUNT_NAME, day) };
+  // Its Panels and filings arrive after `0109-panels-become-items` has run,
+  // so they become Items here, by the same statements (issue 1824).
+  if (seeded?.day !== day) seeded = { day, statements: [...guestDemoStatements(GUEST_ACCOUNT_NAME, day), ...panelsBecomeItems()] };
   return { name, statements: seeded.statements };
 }
 

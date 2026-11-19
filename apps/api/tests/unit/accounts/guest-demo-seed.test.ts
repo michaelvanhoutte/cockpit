@@ -62,7 +62,8 @@ interface WrittenItem {
 
 function itemsWritten(statements: readonly Statement[]): WrittenItem[] {
   return statements
-    .filter((one) => one.sql.includes('INSERT INTO items '))
+    // The demonstration's own, not the Items its Panels become after it (issue 1824).
+    .filter((one) => one.sql.includes('INSERT INTO items ') && !one.sql.includes('FROM panels p JOIN dashboards d'))
     .map((one) => {
       const p = one.params!;
       return {
