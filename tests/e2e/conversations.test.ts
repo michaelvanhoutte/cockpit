@@ -296,9 +296,13 @@ test.describe("Triage", () => {
       await expect(row).toBeVisible();
       await expect(row.getByText(/^Waiting since/)).toBeVisible();
       await expect(row.getByText("Gmail · You wrote just now")).toBeVisible();
+      // A phone opens Gmail's phone website at the conversation, which ignores the computer link.
       await expect(
         row.getByRole("link", { name: "Open the latest email in Gmail" }),
-      ).toHaveAttribute("href", /#all\/sent-\d+$/);
+      ).toHaveAttribute(
+        "href",
+        isMobile ? /\/mail\/mu\/mp\/\?authuser=[^#]+#cv\/All%20Mail\/sent-\d+$/ : /#all\/sent-\d+$/,
+      );
 
       const workspaceId = new URL(page.url()).pathname.split("/")[2]!;
       const listed = (await (
