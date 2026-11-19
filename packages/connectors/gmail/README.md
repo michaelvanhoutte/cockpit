@@ -245,6 +245,7 @@ turns:
   otherwise, gone or labelled `TRASH`, a new one is made ("Conversation follow-up: Open, previews, drafts and Check now misbehave on real Gmail and Outlook mailboxes", issue 1720). At most four calls:
   a refresh, the draft, the profile where no check saved the address yet, and
   the conversation, read for a reply still there or a draft no longer there.
+- **A phone's own signature never reaches an Item** ("Clean-up reads an email's subject, and a phone signature is removed first", issue 1836): `withoutPhoneSignature` takes whole lines such as `Sent from my iPhone`, `Verzonden vanaf Outlook voor Android` and `Get Outlook for Android`, with an aka.ms link (plain, `<link>` or Markdown), out of the text before it is cut to the description limit. A message with nothing else is emitted with `titleIsAll`, so the host files it titled with the subject and leaves its texts alone. The phrase list is in each mail connector, and both connectors' tests run the one list in `packages/connectors/phone-signatures.json`.
 - **Claude's draft written again** ("Mail follow-up: a Claude draft looks like
   any other and cannot be redone: say Claude drafted it, and redo it while you
   have not edited it", issue 1732). The look (`findDraft` with `{ text: true }`)

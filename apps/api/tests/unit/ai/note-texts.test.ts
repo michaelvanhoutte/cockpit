@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readPanelChoice, readPlace, readProposal } from '../../../src/ai/note-texts.js';
+import { noteAsRead, readPanelChoice, readPlace, readProposal } from '../../../src/ai/note-texts.js';
 
 /**
  * L1: reading an answer back is a pure decision over a string, so every way an
@@ -445,6 +445,22 @@ describe('Triage', () => {
       { situation: 'JSON that is not a panel choice', raw: JSON.stringify({ panel: 'panel-1' }) },
     ])('discards $situation rather than reading it as none fitting', ({ raw }) => {
       expect(readPanelChoice(raw, OFFERED)).toHaveProperty('discarded');
+    });
+  });
+
+  describe("an email is read with its subject, and no other note is", () => {
+    const MAILBOXES = new Set(['gmail', 'outlook']);
+    const mail = { title: 'Reply to Bryton', textsSettledAt: null };
+
+    it.each([
+      { situation: 'a Gmail email', source: 'gmail', textsSettledAt: null, read: 'Reply to Bryton\n\nCan you answer before Friday?' },
+      { situation: 'an Outlook email', source: 'outlook', textsSettledAt: null, read: 'Reply to Bryton\n\nCan you answer before Friday?' },
+      { situation: 'a note typed in Cockpit', source: 'internal', textsSettledAt: null, read: 'Can you answer before Friday?' },
+      { situation: 'a Teams message', source: 'teams', textsSettledAt: null, read: 'Can you answer before Friday?' },
+      { situation: 'a text message', source: 'twilio', textsSettledAt: null, read: 'Can you answer before Friday?' },
+      { situation: 'an email whose texts are already settled', source: 'outlook', textsSettledAt: '2026-10-01T09:00:00.000Z', read: 'Can you answer before Friday?' },
+    ])('reads $situation as $read', ({ source, textsSettledAt, read }) => {
+      expect(noteAsRead({ ...mail, source, textsSettledAt }, 'Can you answer before Friday?', MAILBOXES)).toBe(read);
     });
   });
 });

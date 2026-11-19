@@ -391,6 +391,8 @@ export interface GmailConversation {
   readonly title: string;
   /** The plain text of the most recent marked message - never empty, the subject standing in where it is. */
   readonly text: string;
+  /** Whether the message had no words of its own, so `text` is only the subject standing in. */
+  readonly titleIsAll: boolean;
   /** Who sent that message: the name in its From, or the address where it gives none. */
   readonly sender: string | null;
   /** Where Gmail shows the conversation, in the connected mailbox. */
@@ -456,11 +458,13 @@ export function emailIn(answer: unknown, emailId: string): unknown {
 function describe(message: GmailMessage, linkId: string, mailboxAddress: string) {
   const subject = oneLine(headerOf(message.payload, 'Subject') ?? '');
   const title = cutTo(subject, TITLE_LENGTH) || NO_SUBJECT;
-  const text = cutTo(textOf(message.payload).trim(), DESCRIPTION_LENGTH) || title;
+  // The mail app's own lines go before the cut, so one past the limit never survives it.
+  const words = cutTo(withoutPhoneSignature(textOf(message.payload)).trim(), DESCRIPTION_LENGTH);
   const at = sentAt(message);
   return {
     title,
-    text,
+    text: words || title,
+    titleIsAll: !words,
     sender: senderIn(headerOf(message.payload, 'From')),
     link: conversationLink(typeof message.id === 'string' && message.id ? message.id : linkId, mailboxAddress),
     sentAt: at > 0 ? new Date(at).toISOString() : null,
@@ -722,6 +726,39 @@ export function withoutQuotedText(text: string): string {
     if (found && found.index < at) at = found.index;
   }
   return text.slice(0, at).trim() || text;
+}
+
+/**
+ * The lines a phone's mail app adds to a message: "Sent from my iPhone",
+ * "Verzonden vanaf Outlook voor Android" and Outlook's "Get Outlook for
+ * Android" - each with the aka.ms link it carries, as plain text, as `<link>`
+ * or as a Markdown link. A whole line only: the same words inside a sentence are
+ * somebody's own. Kept equal to the other mail connector's copy by the shared
+ * list in `packages/connectors/phone-signatures.json`, which both connectors'
+ * tests run.
+ */
+const APP_LINK = String.raw`(?:\[[^\]]*\]\(\s*<?https?://aka\.ms/[^\s)>]*>?\s*\)|<?https?://aka\.ms/[^\s>]*>?)`;
+const SIGNATURE_PHRASE = String.raw`(?:(?:verzonden vanaf|sent from) outlook (?:voor|for) (?:android|ios)|(?:get|download) outlook (?:voor|for) (?:android|ios)|haal outlook voor (?:android|ios) op|(?:sent from my|verzonden vanaf mijn) (?:iphone|ipad))`;
+const SIGNATURE_LINE = new RegExp(String.raw`^\s*${SIGNATURE_PHRASE}\s*[:.]?\s*(?:${APP_LINK})?\s*$`, 'i');
+const LINK_LINE = new RegExp(String.raw`^\s*${APP_LINK}\s*$`, 'i');
+
+/**
+ * A message's text without the lines a phone's mail app adds (`SIGNATURE_LINE`),
+ * and the line of link a signature leaves under it. Whatever else the message
+ * holds - its words, a forwarded or quoted email - is kept as it was.
+ */
+export function withoutPhoneSignature(text: string): string {
+  let afterSignature = false;
+  const kept: string[] = [];
+  for (const line of text.split('\n')) {
+    if (SIGNATURE_LINE.test(line) || (afterSignature && LINK_LINE.test(line))) {
+      afterSignature = true;
+      continue;
+    }
+    if (line.trim() !== '') afterSignature = false;
+    kept.push(line);
+  }
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function oneLine(text: string): string {

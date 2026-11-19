@@ -433,6 +433,15 @@ export function filePulledItem(
         .where(and(eq(items.tenantId, accountName), eq(items.id, ids.itemId)))
         .run();
     }
+    // An Item whose title is all the source said keeps it as typed: its texts
+    // are settled at birth, as a series' and a child's are, so the clean-up
+    // reads the fields the title states and never rewrites it (issue 1836).
+    if (item.titleIsAll && captured.applied) {
+      db.update(items)
+        .set({ textsSettledAt: at })
+        .where(and(eq(items.tenantId, accountName), eq(items.id, ids.itemId)))
+        .run();
+    }
     db.insert(pulledLinks)
       .values({
         tenantId: accountName,

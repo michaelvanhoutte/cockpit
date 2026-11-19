@@ -8,6 +8,7 @@ import {
   NotFoundInAccountError,
 } from '../accounts/index.js';
 import { aiFor } from '../ai/index.js';
+import { noteAsRead } from '../ai/note-texts.js';
 import type { Trigger } from '../gateway/attempts.js';
 import { hasClaudeKey, noClaudeKeyBecause } from '../gateway/environment.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
@@ -22,7 +23,7 @@ import {
   EMBEDDING_MODEL,
 } from '../embeddings/index.js';
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
-import { sourceNames } from '../connectors/registry.js';
+import { sourceNames, sourcesTitledBySubject } from '../connectors/registry.js';
 import { pastedLinkIn, readThePastedLink, type PastedLinkRead } from '../connectors/pasted-link.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
@@ -587,7 +588,7 @@ export async function cleanUpACapturedNote(
   let read;
   try {
     read = await ai.cleanUpNote(
-      item.capturedMessage,
+      noteAsRead(item, item.capturedMessage, sourcesTitledBySubject(env)),
       panels,
       history,
       recentlyCaptured,

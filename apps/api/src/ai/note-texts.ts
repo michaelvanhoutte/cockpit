@@ -15,6 +15,24 @@ import type { PlaceNamed } from '../domain/spoken-path.js';
  */
 
 /**
+ * The note as the clean-up reads it ("Clean-up reads an email's subject, and a
+ * phone signature is removed first", issue 1836): for an Item of a source
+ * whose titles are subjects (`sourcesTitledBySubject`) with its texts not
+ * settled, its subject - the Item's title, which is still the one it arrived
+ * with - on a line of its own above the text, then a blank line. Any other note
+ * is read as captured. **Read only, never stored**: the
+ * captured note and the description stay the email's own words.
+ */
+export function noteAsRead(
+  item: { source: string; title: string; textsSettledAt: string | null },
+  capturedMessage: string,
+  titledBySubject: ReadonlySet<string>,
+): string {
+  if (item.textsSettledAt !== null || !titledBySubject.has(item.source) || !item.title.trim()) return capturedMessage;
+  return `${item.title}\n\n${capturedMessage}`;
+}
+
+/**
  * One other way the note could be read, in the model's own field names -
  * `message` rather than `description`, matching `NoteTexts` below. `index.ts`
  * is what translates a usable one onto the wire shape the Item's own form

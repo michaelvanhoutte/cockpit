@@ -146,6 +146,7 @@ const KNOWN_CONNECTORS: readonly {
   readonly displayName: string;
   readonly itemSourceName?: string;
   readonly messageLinks?: readonly { readonly host: string; readonly pathStart: string }[];
+  readonly titleIsSubject?: true;
 }[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
@@ -187,6 +188,20 @@ export function messageLinks(env: Env): Record<string, { host: string; pathStart
   for (const { id, messageLinks: links } of KNOWN_CONNECTORS) add(id, links);
   for (const { manifest } of connectors(env)) add(manifest.id, manifest.messageLinks);
   return declared;
+}
+
+/**
+ * The sources whose Items are titled with their sender's subject, which the
+ * clean-up reads first (issue 1836): declared by every connector package and
+ * registered connector, as `messageLinks` is, so the app names none.
+ */
+export function sourcesTitledBySubject(env: Env): ReadonlySet<string> {
+  return new Set([
+    ...KNOWN_CONNECTORS.filter((known) => known.titleIsSubject).map(({ id }) => id),
+    ...connectors(env)
+      .filter(({ manifest }) => manifest.titleIsSubject)
+      .map(({ manifest }) => manifest.id),
+  ]);
 }
 
 export function getConnector(env: Env, id: string): Connector | undefined {

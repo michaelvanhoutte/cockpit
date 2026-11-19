@@ -4,7 +4,7 @@ import type { ClaudeAiService, ProposalRead } from '../../src/ai/index.js';
 import { A_CONTRACT_RUN, claude, expectAKeyAndARecord } from './support/claude.js';
 import { NOTE_MARKER } from '@cockpit/connector-teams';
 import { TITLE_LENGTH } from '@cockpit/shared';
-import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v18.js';
+import { buildCleanUpANote, TITLE_TARGET } from '../../src/ai/prompts/clean-up-a-note.v19.js';
 import type { CaptureDay } from '../../src/domain/capture-day.js';
 import type { DecisionHistoryEntry } from '../../src/domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../../src/domain/text-corrections.js';
@@ -57,7 +57,7 @@ function tallied(name: string): ClaudeAiService {
     spent.output += usage.output_tokens;
   });
 }
-const reading = tallied('clean-up-a-note.v18 on capture');
+const reading = tallied('clean-up-a-note.v19 on capture');
 
 const NO_STOOD: WhatStood | null = null;
 
@@ -268,7 +268,7 @@ describe('Capture', () => {
         expect(proposal.message.length).toBeGreaterThan(proposal.title.length);
         // The cases in this file are only evidence about the version they ran
         // against, so the version is said out loud once.
-        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v18');
+        expect(buildCleanUpANote({ panels: [], history: [], recentlyCaptured: [] }, [], NO_STOOD, A_DAY).version).toBe('v19');
       });
 
       it('does not pad a note that is already shorter than the target', async () => {
@@ -589,7 +589,7 @@ describe('Capture', () => {
    * questions ("Propose where a captured note belongs, without filing it
    * there", issue 298) - the same shape the prompt's own worked example is,
    * deliberately neither the same note nor the same panel name as that
-   * example (`clean-up-a-note.v18.ts`'s last example pairs "Compliance
+   * example (`clean-up-a-note.v19.ts`'s last example pairs "Compliance
    * questions" with the Part 11 audit trail note). A pass on the exact note
    * and panel name the prompt was shown the answer to would prove recall
    * rather than generalisation - the failure this tier exists to catch, per

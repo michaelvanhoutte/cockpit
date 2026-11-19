@@ -573,6 +573,7 @@ class Reading {
       sourceTimestamp: conversation.sentAt,
       capturedMessage: conversation.text,
       title: conversation.title,
+      ...(conversation.titleIsAll ? { titleIsAll: true as const } : {}),
       choice: this.choice,
       names: namesOf(full, await this.#labelNames(), markId),
       ...(read ? { conversation: read } : {}),
@@ -645,6 +646,7 @@ class Reading {
       sourceTimestamp: conversation.sentAt,
       capturedMessage: conversation.text,
       title: conversation.title,
+      ...(conversation.titleIsAll ? { titleIsAll: true as const } : {}),
       choice: this.choice,
       names: namesOf(thread, await this.#labelNames(), markId),
     });
