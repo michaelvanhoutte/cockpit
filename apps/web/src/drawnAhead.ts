@@ -112,10 +112,12 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       return change.payload.workspaceId !== snapshot.workspace.id
         ? snapshot
         : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
-    case 'set_done':
-      return withItem(snapshot, change.payload.itemId, {
+    case 'set_done': {
+      const finished = withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
       });
+      return children ? children.done(snapshot, finished, change.payload) : finished;
+    }
     case 'set_started':
       return withItem(snapshot, change.payload.itemId, {
         startedAt: change.payload.started ? change.payload.issuedAt : null,
@@ -140,9 +142,10 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_dismissed':
       // The Workspace read holds open Items only, so a dismissed Item is simply absent.
       // Undoing one has no copy to draw it from and waits for the next read.
-      return change.payload.dismissed
-        ? { ...snapshot, items: snapshot.items.filter((item) => item.id !== change.payload.itemId) }
-        : snapshot;
+      if (!change.payload.dismissed) return snapshot;
+      return children
+        ? children.dismissed(snapshot, change.payload.itemId)
+        : { ...snapshot, items: snapshot.items.filter((item) => item.id !== change.payload.itemId) };
     case 'set_duplicate_settled':
       return pairSettled(snapshot, change.payload);
     case 'move_item_to_panel':
@@ -157,6 +160,10 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
           (filing) => !(filing.itemId === change.payload.itemId && filing.panelId === change.payload.panelId),
         ),
       };
+    case 'add_children':
+      return children ? children.put(snapshot, change.payload) : snapshot;
+    case 'remove_child':
+      return children ? children.takenOut(snapshot, change.payload) : snapshot;
     case 'add_dashboard':
       return dashboardAdded(snapshot, change.payload);
     case 'rename_dashboard':
@@ -270,6 +277,9 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     priority: note.priority ?? null,
     dueDate: note.dueDate ?? null,
     unseen: false,
+    // A note just captured holds nothing ("Brainstorming: an Item can't hold other Items", issue 1825).
+    childrenCount: 0,
+    childrenDone: 0,
     createdAt: note.issuedAt,
     updatedAt: note.issuedAt,
   } as Item;
@@ -600,6 +610,8 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'move_item_to_panel',
   'add_item_to_panel',
   'remove_item_from_panel',
+  'add_children',
+  'remove_child',
   'remove_attachment',
   // An addition the outbox could not keep, sent by the queue instead (issue 1640).
   'append_to_item',
@@ -639,7 +651,26 @@ export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): W
   return changes.reduce(workspacesDrawnAhead, list);
 }
 
-function withItem(snapshot: WorkspaceSnapshot, itemId: string, fields: Partial<Item>): WorkspaceSnapshot {
+/**
+ * How a change to Items held by Items is drawn ahead ("Brainstorming: an Item
+ * can't hold other Items", issue 1825), set by `childrenDrawnAhead.ts` once it
+ * is fetched, which a Workspace holding any such Item does on its first draw
+ * (`ItemList`). Until then those changes wait for the read after them, and
+ * finishing or dismissing an Item is drawn as it was before Items held Items.
+ */
+export interface ChildrenDrawn {
+  put: (snapshot: WorkspaceSnapshot, put: CommandPayload<'add_children'>) => WorkspaceSnapshot;
+  takenOut: (snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>) => WorkspaceSnapshot;
+  /** `finished` is the copy with the Item already finished or reopened. */
+  done: (was: WorkspaceSnapshot, finished: WorkspaceSnapshot, done: CommandPayload<'set_done'>) => WorkspaceSnapshot;
+  dismissed: (snapshot: WorkspaceSnapshot, itemId: string) => WorkspaceSnapshot;
+}
+let children: ChildrenDrawn | null = null;
+export function drawChildrenWith(drawers: ChildrenDrawn): void {
+  children = drawers;
+}
+
+export function withItem(snapshot: WorkspaceSnapshot, itemId: string, fields: Partial<Item>): WorkspaceSnapshot {
   if (!snapshot.items.some((item) => item.id === itemId)) return snapshot;
   return {
     ...snapshot,

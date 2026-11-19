@@ -100,6 +100,8 @@ export function allItemsRows(
     dashboards: readonly Dashboard[];
   },
   sort: AllItemsSort = DEFAULT_SORT,
+  /** What its *Where it is* column says of an Item: where it is filed, unless the board says more (`whereItSits`). */
+  whereOf: (item: Item) => string = (item) => whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
 ): AllItemsRow[] {
   const rows = snapshot.items.map((item): AllItemsRow => {
     return {
@@ -108,7 +110,7 @@ export function allItemsRows(
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
+      where: whereOf(item),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });

@@ -22,6 +22,7 @@ import {
 import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/conversation.js';
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
+import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
 import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
@@ -518,6 +519,35 @@ export const removeItemFromPanelSchema = commandEnvelopeSchema.extend({
   panelId: z.uuid(),
 });
 export type RemoveItemFromPanelCommand = z.infer<typeof removeItemFromPanelSchema>;
+
+/**
+ * add_children — Items put inside an Item you pick, at the end of its order
+ * ("Brainstorming: an Item can't hold other Items", issue 1825): *Add as child
+ * of…*. The Items stay wherever else they are. One that is already inside it
+ * is left where it is, and one that would put the parent inside itself refuses
+ * the whole change.
+ */
+export const addChildrenSchema = commandEnvelopeSchema
+  .extend({
+    parentId: z.uuid(),
+    childIds: z.array(z.uuid()).min(1).max(CHILDREN_ADDED_AT_ONCE),
+  })
+  .refine((cmd) => new Set(cmd.childIds).size === cmd.childIds.length, {
+    message: 'an item can only be added once',
+    path: ['childIds'],
+  })
+  .refine((cmd) => !cmd.childIds.includes(cmd.parentId), {
+    message: 'an item cannot be put inside itself',
+    path: ['childIds'],
+  });
+export type AddChildrenCommand = z.infer<typeof addChildrenSchema>;
+
+/** remove_child — one Item taken out of one parent, staying wherever else it is (issue 1825). */
+export const removeChildSchema = commandEnvelopeSchema.extend({
+  parentId: z.uuid(),
+  childId: z.uuid(),
+});
+export type RemoveChildCommand = z.infer<typeof removeChildSchema>;
 
 /** set_done — a flag rather than a pair of commands each way ("An item is either yours to deal with or finished with", issue 154; architecture.md §4.4). */
 export const setDoneSchema = commandEnvelopeSchema.extend({
@@ -1320,6 +1350,8 @@ export const commandSchemas = {
   move_item_to_panel: moveItemToPanelSchema,
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
+  add_children: addChildrenSchema,
+  remove_child: removeChildSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,
   wait_for_reply: waitForReplySchema,

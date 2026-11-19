@@ -73,6 +73,7 @@ import {
   useSettleQuietOpening,
 } from '../itemForm';
 import { capturingApp, sourceNamed } from '../itemSource';
+import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { openEntryFor } from '../conversationLine';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
@@ -91,6 +92,11 @@ import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
+/** The Relations tab, fetched when it opens ("Brainstorming: an Item can't hold other Items", issue 1825). */
+const ItemRelationsTab = lazy(() => import('./ItemRelationsTab'));
+/** The Relations count and where a held Item is, fetched with the form's first draw (issue 1825). */
+const RelationCount = lazy(() => import('./ItemFormHeld').then((loaded) => ({ default: loaded.RelationCount })));
+const InsideOrInbox = lazy(() => import('./ItemFormHeld').then((loaded) => ({ default: loaded.InsideOrInbox })));
 
 /** The *On panels* field, loaded behind the form like the editor, so the initial bundle does not carry it (issue 1106). */
 const FileOnLine = lazy(() => import('./FileOnLine').then((loaded) => ({ default: loaded.FileOnLine })));
@@ -106,11 +112,12 @@ const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((l
 const DESCRIPTION_LIMIT = 60_000;
 
 /** The form's tabs, left to right; the last is always there, whether or not Cockpit has changed anything. */
-const TABS = ['item', 'attachments', 'details', 'changes'] as const;
+const TABS = ['item', 'attachments', 'details', 'relations', 'changes'] as const;
 const TAB_NAMES: Record<(typeof TABS)[number], string> = {
   item: 'Item',
   attachments: 'Attachments',
   details: 'Details',
+  relations: 'Relations',
   changes: 'Suggestions',
 };
 
@@ -356,7 +363,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks) : null;
+  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks, phoneLinksOnThisDevice(data?.phoneLinks)) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -484,6 +491,7 @@ function TheForm({
     // the rule a pair is offered by.
     filingsThatFile(data?.filings ?? [], data?.panels ?? []),
     data?.duplicates ?? [],
+    data?.children,
   );
   /**
    * The other ways this note could genuinely be read, or `null` where the
@@ -1937,18 +1945,24 @@ function TheForm({
                   </p>
                 )}
 
-                {/* Four tabs, the form, its files ("Give an Item's
+                {/* The tabs: the form, its files ("Give an Item's
                     attachments a tab of their own", issue 1410), its technical
                     record ("Give the item's form more room, and put clutter
-                    out of the way", issue 480) and the suggestions Cockpit made
-                    on it (issue 690). The
+                    out of the way", issue 480), its parents and children
+                    (issue 1825) and the suggestions Cockpit made on it (issue
+                    690). The
                     form's panel stays mounted while another shows, only
                     hidden, so the editor and whatever is half typed are still
                     there when the person comes back. */}
                 <div
                   role="tablist"
                   aria-label="Item"
-                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3' : 'gap-4'}`}
+                  // On a phone the five tabs are wider than the page, so the
+                  // strip scrolls sideways, as the description's toolbar does,
+                  // rather than breaking a tab's name across two lines. A
+                  // scrolling strip clips what hangs below it, so there a tab's
+                  // line sits on the strip's rather than over it.
+                  className={`mt-3 flex shrink-0 border-b border-shade/10 ${onAPage ? 'gap-3 overflow-x-auto overflow-y-hidden' : 'gap-4'}`}
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
                     e.preventDefault();
@@ -1968,13 +1982,19 @@ function TheForm({
                       aria-controls={tab === which ? `${formId}-${which}` : undefined}
                       tabIndex={tab === which ? 0 : -1}
                       onClick={() => setTab(which)}
-                      className={`-mb-px border-b-2 px-1 pb-1.5 text-sm font-medium ${
+                      className={`${onAPage ? '' : '-mb-px '}shrink-0 whitespace-nowrap border-b-2 px-1 pb-1.5 text-sm font-medium ${
                         tab === which
                           ? 'border-accent text-ink'
                           : 'border-transparent text-ink-faint hover:text-ink'
                       }`}
                     >
                       {TAB_NAMES[which]}
+                      {/* Titled with how many, as the POC's (issue 1825). */}
+                      {which === 'relations' && item && (
+                        <Suspense fallback={null}>
+                          <RelationCount workspaceId={workspaceId} item={item} />
+                        </Suspense>
+                      )}
                       {which === 'attachments' && anyFiles && (
                         <>
                           {' '}
@@ -1995,7 +2015,7 @@ function TheForm({
                 >
                   {/* Said once, where the surprise is, and only where Cockpit
                       changed the title or description: the rest is in the
-                      fourth tab ("Show what Cockpit changed on the item
+                      last tab ("Show what Cockpit changed on the item
                       itself", issue 690). */}
                   {cockpit.note && (
                     <p className="mt-2 shrink-0 text-xs text-ink-faint">
@@ -2254,6 +2274,7 @@ function TheForm({
                           conversations={data?.conversations}
                           mailboxes={data?.mailboxes}
                           sourceNames={data?.sourceNames}
+                          phoneLinks={data?.phoneLinks}
                         />
                       </Suspense>
 
@@ -2261,9 +2282,14 @@ function TheForm({
                       <div>
                         {readView ? (
                           <p className="text-sm text-ink-soft">
-                            {onPanels.shown.length === 0
-                              ? 'In the Inbox'
-                              : `On ${onPanels.shown.map((one) => one.name).join(', ')}`}
+                            {onPanels.shown.length > 0
+                              ? `On ${onPanels.shown.map((one) => one.name).join(', ')}`
+                              : (
+                                  // Held by an Item is out of the Inbox too (issue 1825).
+                                  <Suspense fallback={null}>
+                                    <InsideOrInbox workspaceId={workspaceId} itemId={itemId} />
+                                  </Suspense>
+                                )}
                           </p>
                         ) : onPanelsFailed ? (
                           <p role="alert" className="text-sm text-over-ink">
@@ -2396,6 +2422,19 @@ function TheForm({
                         {attachmentError}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {tab === 'relations' && item && (
+                  <div
+                    role="tabpanel"
+                    id={`${formId}-relations`}
+                    aria-labelledby={`${formId}-relations-tab`}
+                    className="mt-4 min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <Suspense fallback={null}>
+                      <ItemRelationsTab workspaceId={workspaceId} item={item} />
+                    </Suspense>
                   </div>
                 )}
 

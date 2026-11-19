@@ -3,6 +3,7 @@ import { dashboardScope, endSelection, showsABar, useHeldTo, useSelection, useSe
 import { SelectionBar } from './SelectionBar';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
+import { useAddingAsChild } from './useAddingAsChild';
 import { stillOpen } from '@cockpit/shared';
 
 /**
@@ -45,7 +46,14 @@ export function DashboardSelection({
     scope,
     picked,
   });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
+  const addingAsChild = useAddingAsChild(workspaceId, () => endSelection(scope));
+  const editing = useEditingSeveral({
+    workspaceId,
+    picked,
+    filing: filingSeveral.filing,
+    scope,
+    onAddAsChildOf: () => addingAsChild.ask(picked),
+  });
 
   return (
     <>
@@ -63,6 +71,7 @@ export function DashboardSelection({
           onClear={() => endSelection(scope)}
         />
       )}
+      {addingAsChild.dialog}
       {filingSeveral.pickers}
       {editing.dismissQuestion}
     </>

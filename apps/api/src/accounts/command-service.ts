@@ -1,16 +1,20 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import {
+  ancestorsAmong,
   dismissPanelsItems,
   insertPanelsItem,
+  isInside,
   mirrorFilingsOf,
   panelsHolding,
+  putInside,
   recountHoldersOf,
   renamePanelsItem,
+  takeOut,
 } from './item-children.js';
 import {
   accountEmailAddress,
@@ -428,6 +432,18 @@ export class LayoutNotFoundError extends Error {
   constructor(layoutId: string) {
     super(`layout ${layoutId} is not on this dashboard`);
     this.name = 'LayoutNotFoundError';
+  }
+}
+
+/**
+ * An Item asked to go inside one it already holds, however deep ("Brainstorming:
+ * an Item can't hold other Items", issue 1825). A 400: every Item named is
+ * there, and what is asked is a thing an Item cannot be, its own ancestor.
+ */
+export class ItemInsideItselfError extends Error {
+  constructor(childTitle: string, parentTitle: string) {
+    super(`${parentTitle} is already inside ${childTitle}, so ${childTitle} can't go inside it`);
+    this.name = 'ItemInsideItselfError';
   }
 }
 
@@ -1959,6 +1975,50 @@ export function runCommand<N extends CommandName>(
           )
           .run();
         mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'add_children': {
+      const cmd = payload as CommandPayload<'add_children'>;
+      const parent = getItem(db, tenantId, cmd.parentId);
+      // A dismissed one is gone until it is brought back, so nothing goes inside it, and it goes inside nothing.
+      if (!parent || parent.deletedAt || !parent.workspaceDecided || parent.workspaceId !== cmd.workspaceId) {
+        throw new ItemNotFoundError(cmd.parentId);
+      }
+      const children = cmd.childIds.map((id) => {
+        const child = getItem(db, tenantId, id);
+        // Another Workspace's Item is not one this Workspace can name, as on a Panel.
+        if (!child || child.deletedAt || (child.workspaceDecided && child.workspaceId !== parent.workspaceId)) throw new ItemNotFoundError(id);
+        return child;
+      });
+      const inside = ancestorsAmong(db, tenantId, parent.id, cmd.childIds);
+      if (inside.length > 0) {
+        const child = children.find((one) => one.id === inside[0])!;
+        throw new ItemInsideItselfError(itemLabel(child), itemLabel(parent));
+      }
+      // One in every Inbox until now is this Workspace's from here, as filing settles it.
+      const settling = children.filter((child) => !child.workspaceDecided);
+      if (settling.length > 0) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        for (const child of settling) {
+          // Through `decideWorkspace`, as filing settles one, so its stamp never goes backwards.
+          const settled = decideWorkspace(child, parent.workspaceId, cmd.issuedAt);
+          if (settled) settleWorkspace(tx, tenantId, child.id, settled);
+        }
+        putInside(tx, tenantId, parent.id, cmd.childIds, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'remove_child': {
+      const cmd = payload as CommandPayload<'remove_child'>;
+      const parent = getItem(db, tenantId, cmd.parentId);
+      if (!parent || parent.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.parentId);
+      // Taken out already is what was asked, as a second remove from a Panel is.
+      applied = isInside(db, tenantId, parent.id, cmd.childId);
+      db.transaction((tx) => {
+        if (applied) takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;

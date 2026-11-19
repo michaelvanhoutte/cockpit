@@ -1,0 +1,181 @@
+import * as Dialog from '@radix-ui/react-dialog';
+import { useMemo, useState } from 'react';
+import {
+  CHILDREN_ADDED_AT_ONCE,
+  descendantIdsOf,
+  itemLabel,
+  stillOpen,
+  uuidv7,
+  workspaceIsDecided,
+  type ChildRow,
+  type Item,
+} from '@cockpit/shared';
+import type { CommandArgs } from '../api/queries';
+import type { Undoable } from '../undo';
+// What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
+import '../childrenDrawnAhead';
+
+/** The most Items the picker lists at once; typing narrows it. */
+const LISTED = 8;
+
+/**
+ * *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue
+ * 1825): which Item the chosen ones go inside, picked from the Workspace's
+ * open Items by name. The POC's *Combine under an existing parent* picker, as
+ * a step of its own: an Item already holding one of them, however deep, is not
+ * offered, since an Item never sits inside itself.
+ */
+export default function AddAsChildOf({
+  chosen,
+  items,
+  children,
+  onAdd,
+  onClose,
+  returnFocusTo,
+}: {
+  /** Where the focus goes back to once it closes: the row's menu button, when it was opened from one. */
+  returnFocusTo?: HTMLElement | null | undefined;
+  /** The Items going inside, never none. */
+  chosen: readonly Item[];
+  /** The Workspace's Items, from its snapshot. */
+  items: readonly Item[];
+  /** Which of them hold which, from the same snapshot. */
+  children: readonly ChildRow[];
+  onAdd: (parent: Item) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [parentId, setParentId] = useState<string | null>(null);
+  const chosenIds = useMemo(() => new Set(chosen.map((item) => item.id)), [chosen]);
+  /** Every Item below one of the chosen ones: putting one of them inside it would be a loop. */
+  const below = useMemo(() => {
+    const found = new Set<string>();
+    for (const item of chosen) for (const id of descendantIdsOf(children, item.id)) found.add(id);
+    return found;
+  }, [chosen, children]);
+  const candidates = useMemo(() => {
+    const words = search.trim().toLowerCase();
+    return items
+      .filter(stillOpen)
+      // One waiting in every Inbox belongs to no Workspace yet, so it can hold nothing here.
+      .filter(workspaceIsDecided)
+      .filter((item) => !chosenIds.has(item.id) && !below.has(item.id))
+      .filter((item) => !words || itemLabel(item).toLowerCase().includes(words))
+      .slice(0, LISTED);
+  }, [items, chosenIds, below, search]);
+  const parent = candidates.find((item) => item.id === parentId) ?? null;
+  const title = chosen.length === 1 ? `Add “${itemLabel(chosen[0]!)}” as child of…` : `Add ${chosen.length} Items as children of…`;
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-floating bg-scrim/30" />
+        <Dialog.Content
+          aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            if (!returnFocusTo) return;
+            event.preventDefault();
+            returnFocusTo.focus();
+          }}
+          className="fixed left-1/2 top-1/2 z-floating flex max-h-[90vh] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
+        >
+          <Dialog.Title className="truncate text-base font-semibold">{title}</Dialog.Title>
+          <p className="text-sm text-ink-soft">They stay where they are. An Item you pick holds them.</p>
+          <div className="flex flex-col gap-1">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Find an Item…"
+              aria-label="Find the parent Item"
+              autoFocus
+              className="w-full rounded-md border border-shade/10 bg-field px-3 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <ul aria-label="Items to add them to" className="flex max-h-40 flex-col overflow-y-auto rounded-md border border-shade/10 bg-field">
+              {candidates.length === 0 && <li className="px-3 py-1.5 text-sm text-ink-faint">No Item matches.</li>}
+              {candidates.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    aria-pressed={parentId === item.id}
+                    onClick={() => setParentId(item.id)}
+                    className={`w-full truncate px-3 py-1.5 text-left text-sm hover:bg-accent-tint ${
+                      parentId === item.id ? 'bg-accent-tint font-medium text-accent-deep' : 'text-ink'
+                    }`}
+                  >
+                    {itemLabel(item)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
+              Cancel
+            </Dialog.Close>
+            <button
+              type="button"
+              onClick={() => parent && onAdd(parent)}
+              disabled={parent === null}
+              className="milled shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/**
+ * Puts the chosen Items inside the parent picked and offers Undo, which takes
+ * out the ones it put in. One already inside that parent stays, and Undo leaves
+ * it there. Here rather than in `useAddingAsChild`, so none of it is in the
+ * initial bundle.
+ */
+export function addAsChildren(
+  d: {
+    workspaceId: string;
+    send: (change: CommandArgs) => Promise<unknown>;
+    offerToUndo: (change: Undoable) => void;
+    children: readonly ChildRow[];
+  },
+  chosen: readonly Item[],
+  parent: Item,
+): void {
+  const already = new Set(d.children.filter((row) => row.parentId === parent.id).map((row) => row.childId));
+  const arriving = chosen.filter((item) => !already.has(item.id));
+  if (arriving.length === 0) return;
+  const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId });
+  // As many changes as a change takes Items, for a selection bigger than that.
+  const batches: Item[][] = [];
+  for (let at = 0; at < arriving.length; at += CHILDREN_ADDED_AT_ONCE) {
+    batches.push(arriving.slice(at, at + CHILDREN_ADDED_AT_ONCE));
+  }
+  const answer = Promise.all(
+    batches.map((batch) =>
+      d.send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: batch.map((item) => item.id) } }),
+    ),
+  );
+  // **No way back once one belonged to no Workspace**: going inside settles it
+  // in this one, and taking it out leaves it in this Inbox alone, not in every
+  // Workspace's, as a move withholds its Undo for the same reason.
+  const decides = arriving.some((item) => !workspaceIsDecided(item));
+  d.offerToUndo({
+    what:
+      arriving.length === 1
+        ? `“${itemLabel(arriving[0]!)}” added to ${itemLabel(parent)}`
+        : `${arriving.length} Items added to ${itemLabel(parent)}`,
+    unlessRefused: answer,
+    ...(decides
+      ? {}
+      : {
+          undo: () =>
+            Promise.all(
+              arriving.map((item) =>
+                d.send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: item.id } }),
+              ),
+            ),
+        }),
+  });
+}

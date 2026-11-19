@@ -5,6 +5,7 @@ import { panelAndFilterIdsByItem } from './filters.js';
 import type { Day } from './filters.js';
 import { itemLabel } from './item.js';
 import type { Item } from './item.js';
+import { parentIdsOf } from './item-children.js';
 import { panelGathers } from './panel.js';
 
 /**
@@ -108,16 +109,37 @@ export function indexForFind(snapshot: WorkspaceSnapshot, today: Day): FindIndex
       into.set(itemId, list);
     }
   }
-  const inbox = new Set(itemsInTheInbox(snapshot.items, filings).map((item) => item.id));
+  const children = snapshot.children ?? [];
+  const inbox = new Set(itemsInTheInbox(snapshot.items, filings, children).map((item) => item.id));
+  const open = new Set(snapshot.items.filter(stillOpen).map((item) => item.id));
+  /**
+   * Where an Item is drawn: its own places, or else, held only by Items
+   * ("Brainstorming: an Item can't hold other Items", issue 1825), wherever
+   * an open parent of it is drawn, since its row is unfolded from that one's.
+   */
+  const shownAt = (itemId: string, seen: ReadonlySet<string>): { places: FoundPlace[]; gatheredOn: FoundPlace[]; inInbox: boolean } => {
+    const own = { places: placesOf.get(itemId) ?? [], gatheredOn: gatheredOf.get(itemId) ?? [], inInbox: inbox.has(itemId) };
+    if (own.places.length > 0 || own.gatheredOn.length > 0 || own.inInbox) return own;
+    const under = new Set([...seen, itemId]);
+    for (const parentId of parentIdsOf(children, itemId)) {
+      if (!open.has(parentId) || under.has(parentId)) continue;
+      const parent = shownAt(parentId, under);
+      own.places = [...own.places, ...parent.places.filter((place) => !own.places.some((one) => one.panelId === place.panelId))];
+      own.gatheredOn = [...own.gatheredOn, ...parent.gatheredOn.filter((place) => !own.gatheredOn.some((one) => one.panelId === place.panelId))];
+      own.inInbox ||= parent.inInbox;
+    }
+    return own;
+  };
   const entries: FindEntry[] = [];
   for (const item of snapshot.items) {
     if (!stillOpen(item)) continue;
     const byDashboard = (a: FoundPlace, b: FoundPlace) =>
       (dashboardOrder.get(a.dashboardId) ?? 0) - (dashboardOrder.get(b.dashboardId) ?? 0);
-    const places = (placesOf.get(item.id) ?? []).toSorted(byDashboard);
-    const gatheredOn = (gatheredOf.get(item.id) ?? []).toSorted(byDashboard);
+    const shown = shownAt(item.id, new Set());
+    const places = shown.places.toSorted(byDashboard);
+    const gatheredOn = shown.gatheredOn.toSorted(byDashboard);
     // Filed, but on nothing the snapshot names: on no screen at all, so not offered.
-    if (places.length === 0 && gatheredOn.length === 0 && !inbox.has(item.id)) continue;
+    if (places.length === 0 && gatheredOn.length === 0 && !shown.inInbox) continue;
     entries.push({ item, text: searchTextOf(item), places, gatheredOn });
   }
   return entries.toSorted((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt));

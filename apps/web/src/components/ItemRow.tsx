@@ -8,6 +8,8 @@ import {
   asNextAction,
   itemLabel,
   itemStatus,
+  doneOfHeld,
+  holdsItems,
   panelPlace,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
@@ -24,6 +26,7 @@ import {
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
@@ -39,7 +42,7 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
-import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
+import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type PhoneLinks, type SourceNames } from '../itemSource';
 import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openEntryFor, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -59,6 +62,8 @@ import {
 } from './Menu';
 
 /** The *Wait for reply…* question, fetched the first time a row asks it (WaitForReply.tsx; "Set an Item Waiting for reply", issue 1463). */
+/** The expander of a row holding Items ("Brainstorming: an Item can't hold other Items", issue 1825). */
+const Unfolder = lazy(() => import('./HeldRows').then((loaded) => ({ default: loaded.Unfolder })));
 const WaitPopover = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitPopover })));
 
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
@@ -100,6 +105,7 @@ export function ItemRow({
   item,
   sourceNames,
   messageLinks,
+  phoneLinks,
   workspaceId,
   inInbox = false,
   liftedFrom,
@@ -124,12 +130,24 @@ export function ItemRow({
   recurring,
   conversation,
   mailboxes,
+  onAddAsChildOf,
+  takeOutOf,
 }: {
+  /**
+   * Asked to put this Item inside another one you pick ("Brainstorming: an Item
+   * can't hold other Items", issue 1825): *Add as child of…*. The picker is the
+   * list's, as *Move to…*'s is.
+   */
+  onAddAsChildOf?: ((openedFrom: HTMLElement | null) => void) | undefined;
+  /** The parent this row is drawn under, and taking it out of that one alone: *Take out of <parent>*. */
+  takeOutOf?: { name: string; onTakeOut: () => void } | undefined;
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
   sourceNames?: SourceNames;
   /** The addresses of each source's own messages, from the same snapshot, for opening an Item at one in its text. */
   messageLinks?: MessageLinks;
+  /** How each source's own website wants an address on a phone, from the same snapshot (issue 1837). */
+  phoneLinks?: PhoneLinks;
   workspaceId: string;
   /**
    * That this row is drawn in the Inbox rather than on a Panel or a Filter
@@ -368,7 +386,7 @@ export function ItemRow({
   /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
   const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
   const emailWith = (mailbox: Mailbox) => {
-    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation }, offerToUndo);
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation, ...(phoneLinks ? { phoneLinks } : {}) }, offerToUndo);
   };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
@@ -542,11 +560,13 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  /** That it holds Items, by the count kept on it. */
+  const holds = holdsItems(item);
   /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
   const nextAction = asNextAction(item.nextAction);
-  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks);
+  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks, phoneLinksOnThisDevice(phoneLinks));
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
-  const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
+  const conversationAt = shownConversation ? conversationOpensAt(shownConversation, phoneLinksOnThisDevice(phoneLinks)) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 
@@ -892,6 +912,23 @@ export function ItemRow({
         onRemoveFromHere && (
           <M.Item key="remove-from-here" className={menuItemClass} onSelect={onRemoveFromHere}>
             Remove from this panel
+          </M.Item>
+        ),
+        onAddAsChildOf && (
+          <M.Item
+            key="add-as-child-of"
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onAddAsChildOf(trigger.current);
+            }}
+          >
+            Add as child of…
+          </M.Item>
+        ),
+        takeOutOf && (
+          <M.Item key="take-out-of" className={menuItemClass} onSelect={takeOutOf.onTakeOut}>
+            Take out of {takeOutOf.name}
           </M.Item>
         ),
       ],
@@ -1337,6 +1374,15 @@ export function ItemRow({
                 already use, spelling out the same label the row draws rather
                 than the Item's stored title - so the hover cannot say something
                 different from the text it is explaining. */}
+            {/* An Item holding Items folds and unfolds them under its row,
+                and does nothing else: no open, no pick ("Brainstorming: an
+                Item can't hold other Items", issue 1825). */}
+            {holds && (
+              // Fetched with the child rows it unfolds (`HeldRows`), holding its place meanwhile.
+              <Suspense fallback={<span className="w-3 shrink-0" />}>
+                <Unfolder itemId={item.id} label={label} />
+              </Suspense>
+            )}
             <span
               className="truncate"
               onPointerEnter={(event) =>
@@ -1349,6 +1395,7 @@ export function ItemRow({
             >
               {label}
             </span>
+            {holds && <span className="shrink-0 text-xs text-ink-faint">· {doneOfHeld(item)}</span>}
             {/* The pill sits here on a desk, and under the title on a phone, where
                 the title needs the width (`deadlinePill` above). */}
             {!onAPhone && waitingPill}

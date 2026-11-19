@@ -136,7 +136,7 @@ function removeFrom(itemId: string, panelId: string) {
  * fault in the read.
  */
 async function alsoFileOn(panelId: string, itemId: string, position: number): Promise<void> {
-  await inTheStore((sql) =>
+  await inTheStore((sql) => {
     sql.exec(
       'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
       'tenant-default',
@@ -144,8 +144,17 @@ async function alsoFileOn(panelId: string, itemId: string, position: number): Pr
       itemId,
       position,
       AT,
-    ),
-  );
+    );
+    // Both tables, as every filing writes them: what the Panel's own Item holds is what is read (issue 1825).
+    sql.exec(
+      'INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
+      'tenant-default',
+      panelId,
+      itemId,
+      position,
+      AT,
+    );
+  });
 }
 
 beforeEach(async () => {

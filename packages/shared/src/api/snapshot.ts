@@ -4,6 +4,7 @@ import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { conversationSchema, mailboxSchema } from '../domain/conversation.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
+import { phoneLinkSchema } from '../domain/phone-link.js';
 import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
   FOLLOW_UP_DAYS,
@@ -18,6 +19,7 @@ import {
   itemFormPresentationSchema,
 } from '../domain/item-form-presentation.js';
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
+import { childRowSchema } from '../domain/item-children.js';
 import { seriesSchema } from '../domain/series.js';
 
 /**
@@ -51,6 +53,15 @@ export const workspaceSnapshotSchema = z.object({
   layouts: z.array(layoutSchema),
   /** Which Items are filed on which of those Panels, and in what order ("Panels hold the items filed into them, and the Inbox holds the rest", issue 36; architecture.md §4.4). */
   filings: z.array(filingSchema),
+  /**
+   * Which of the Items above an Item holds, and in what order ("Brainstorming:
+   * an Item can't hold other Items", issue 1825): the rows of those Items' live
+   * parents of this Workspace that are not Panels, which `filings` carries.
+   * Only the Items read here, so a parent's finished children cost nothing; its
+   * counts say how many it holds. Optional: a copy saved by a release that did
+   * not send it holds none.
+   */
+  children: z.array(childRowSchema).optional(),
   associations: z.array(associationSchema),
   /**
    * Every file attached to an Item of this Workspace ("Attach a file to an
@@ -169,6 +180,14 @@ export const workspaceSnapshotSchema = z.object({
   messageLinks: z
     .record(z.string(), z.array(z.object({ host: z.string().max(255), pathStart: z.string().max(255) })).max(20))
     .optional(),
+  /**
+   * How each source's own website wants an address on a phone, by connector id
+   * ("Open a Gmail Item at its email on a phone", issue 1837); the app builds
+   * it only on a phone and names no connector. Optional for the reason
+   * `sourceNames` is: a copy saved by a release that did not send it opens the
+   * stored link.
+   */
+  phoneLinks: z.record(z.string(), phoneLinkSchema).optional(),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as
@@ -194,6 +213,8 @@ export const finishedItemsSchema = z.object({
   attachments: z.array(attachmentSchema),
   /** Their additions, for the reason the snapshot carries its own (issue 1640); optional as there. */
   additions: z.array(additionSchema).optional(),
+  /** The rows of their parents that are Items (issue 1825), for the reason the snapshot carries its own; optional as there. */
+  children: z.array(childRowSchema).optional(),
   /** The newest change this read is built on, as the snapshot's `upTo` says it. */
   upTo: z.iso.datetime().optional(),
 });

@@ -1,7 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { uuidv7, type Mailbox } from '@cockpit/shared';
+import { phoneAddress, uuidv7, type Conversation, type DeclaredPhoneLinks, type Mailbox } from '@cockpit/shared';
 import { DraftRefused, makeADraft } from './api/drafts';
 import { LAST_USED_KEY } from './emailDraft';
+import { followedConversationId } from './itemSource';
+import { phoneLinksOnThisDevice } from './phoneDevice';
 
 /**
  * The part of a click on *Email…* or *Reply…* that waits on the server ("Email…
@@ -21,13 +23,39 @@ function rememberMailbox(workspaceId: string, sourceAccountId: string): void {
 }
 
 /**
+ * Where the draft opens: the address the server returned, except on a phone
+ * (decided now, at the tap) where the source declares its phone address - the
+ * conversation a reply is in, and the Drafts folder for anything else, since a
+ * new message has no conversation until Gmail names one ("Open a Gmail Item at
+ * its email on a phone", issue 1837).
+ */
+function where(link: string, mailbox: Mailbox, followed: Conversation | undefined, declared: DeclaredPhoneLinks): string {
+  const phone = phoneLinksOnThisDevice(declared);
+  return (phone && phoneAddress(phone, mailbox.connectorId, link, followedConversationId(followed))) || link;
+}
+
+/**
  * The draft asked for and the tab opened at the click pointed at it; refused,
  * the tab closes and the reason is answered. The Workspace is read again
  * either way, so the row draws what the server holds.
  */
 export async function makeTheDraft(
   queryClient: QueryClient | undefined,
-  { workspaceId, itemId, mailbox, label }: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string },
+  {
+    workspaceId,
+    itemId,
+    mailbox,
+    label,
+    followed,
+    phoneLinks,
+  }: {
+    workspaceId: string;
+    itemId: string;
+    mailbox: Mailbox;
+    label: string;
+    followed?: Conversation | undefined;
+    phoneLinks?: DeclaredPhoneLinks;
+  },
   tab: Window | null,
   claude?: { points: string },
 ): Promise<string | null> {
@@ -38,8 +66,9 @@ export async function makeTheDraft(
       ...(claude ? { withClaude: true, points: claude.points } : {}),
     });
     rememberMailbox(workspaceId, mailbox.sourceAccountId);
-    if (tab) tab.location.href = link;
-    else window.open(link, '_blank', 'noopener');
+    const opensAt = where(link, mailbox, followed, phoneLinks);
+    if (tab) tab.location.href = opensAt;
+    else window.open(opensAt, '_blank', 'noopener');
     await queryClient?.invalidateQueries({ queryKey: ['snapshot', workspaceId] });
     return null;
   } catch (failure) {

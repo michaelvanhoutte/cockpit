@@ -19,7 +19,7 @@ import { useIsOffline } from '../offline';
 import { PRIORITY_LABELS } from '../priority';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { LoadFailure } from './LoadFailure';
-import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, dayOf } from '@cockpit/shared';
+import { isFiltering, itemIdsWithAttachments, itemIdsWithRun, matchesDashboardFilter, dayOf, whereItSits } from '@cockpit/shared';
 
 /**
  * Every item of the workspace in one table, finished ones included ("Put each
@@ -62,6 +62,8 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
             : data.items,
         },
         sort,
+        // Inside the Items holding it, for one on no Panel, named from every Item read, a filter's left-outs too ("Brainstorming: an Item can't hold other Items", issue 1825).
+        (item) => whereItSits(item, data.filings, data.panels, data.dashboards, data.children, data.items),
       )
     : [];
   const viewKey = JSON.stringify([sort, filter]);

@@ -408,5 +408,26 @@ export async function alsoWorkspaces(): Promise<void> {
         workspace.at,
       );
     });
+    givePanelsTheirItems(sql);
   });
+}
+
+/**
+ * Gives each Panel a fixture wrote straight into the store the Item every
+ * Panel has ("Brainstorming: give every Panel an Item…", issue 1824), as
+ * `0109-panels-become-items` does: what a Panel holds is read from that Item
+ * (issue 1825), so a Panel without one would read as holding nothing.
+ */
+export function givePanelsTheirItems(sql: SqlStorage): void {
+  sql.exec(
+    `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, texts_settled_at, status, unseen, created_at, updated_at)
+       SELECT p.id, p.tenant_id, d.workspace_id, 1, 'internal', p.name, p.created_at, 'to_process', 0, p.created_at, p.created_at
+         FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
+        WHERE p.item_id IS NULL AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+  );
+  sql.exec(
+    `UPDATE panels SET item_id = id
+      WHERE item_id IS NULL AND deleted_at IS NULL
+        AND EXISTS (SELECT 1 FROM dashboards d WHERE d.id = panels.dashboard_id AND d.deleted_at IS NULL)`,
+  );
 }

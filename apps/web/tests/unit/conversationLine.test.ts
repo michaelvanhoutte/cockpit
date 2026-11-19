@@ -163,3 +163,63 @@ describe('Triage', () => {
     });
   });
 });
+
+/** What the Gmail connector declares for a phone (issue 1837). */
+const PHONE = {
+  gmail: {
+    host: 'mail.google.com',
+    path: '/mail/mu/mp/',
+    mailboxParam: 'authuser',
+    conversationFragment: 'cv/All Mail/',
+    draftsFragment: 'tl/Drafts',
+    notAConversationPrefix: 'message:',
+  },
+};
+
+describe('Connector management', () => {
+  describe('on a phone the conversation an Item follows opens on the source’s phone website, a draft not yet named opens nothing', () => {
+    const phoneAt = (id: string) => `https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/${id}`;
+
+    it.each([
+      { situation: 'a conversation, on a phone', conversation: aConversation(), phone: PHONE, opens: phoneAt('t-1') },
+      { situation: 'a conversation, on a computer', conversation: aConversation(), phone: undefined, opens: aConversation().link },
+      {
+        situation: 'a draft started whose conversation Gmail has named, on a phone',
+        conversation: aConversation({ draftStarted: true, link: 'https://mail.google.com/mail/?authuser=anna%40example.com#drafts?compose=1' }),
+        phone: PHONE,
+        opens: phoneAt('t-1'),
+      },
+      {
+        situation: 'Claude’s draft, on a phone',
+        conversation: aConversation({ draftStarted: true, claudeDrafted: true }),
+        phone: PHONE,
+        opens: phoneAt('t-1'),
+      },
+      {
+        situation: 'a draft started that Gmail has not named yet, on a phone',
+        conversation: aConversation({ conversationId: 'draft:abc', link: '', draftStarted: true }),
+        phone: PHONE,
+        opens: null,
+      },
+      {
+        situation: 'a LinkedIn conversation, on a phone',
+        conversation: aConversation({ conversationId: 'linkedin:abc', link: 'https://www.linkedin.com/messaging/thread/abc/' }),
+        phone: PHONE,
+        opens: 'https://www.linkedin.com/messaging/thread/abc/',
+      },
+    ])('$situation', ({ conversation, phone, opens }) => {
+      expect(conversationOpensAt(conversation, phone)).toBe(opens);
+    });
+  });
+
+  describe('the entry an Item offers to open at its source follows the same decision on every surface', () => {
+    const item = { source: 'gmail', sourceLink: aConversation().link, sourceId: 'old', sender: 'Anna', description: null, capturedMessage: null } as unknown as Item;
+
+    it.each([
+      { situation: 'on a phone, from the conversation it follows', phone: PHONE, link: 'https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/t-1' },
+      { situation: 'on a computer', phone: undefined, link: aConversation().link },
+    ])('$situation', ({ phone, link }) => {
+      expect(openEntryFor(item, aConversation(), { gmail: 'Gmail' }, undefined, phone)).toEqual({ name: 'Gmail', link });
+    });
+  });
+});

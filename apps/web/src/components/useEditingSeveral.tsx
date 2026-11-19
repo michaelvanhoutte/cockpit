@@ -39,7 +39,10 @@ export function useEditingSeveral({
   picked,
   filing,
   scope,
+  onAddAsChildOf,
 }: {
+  /** *Add as child of…* on Edit ▾ ("Brainstorming: an Item can't hold other Items", issue 1825), where the bar offers it. */
+  onAddAsChildOf?: (() => void) | undefined;
   workspaceId: string;
   /** Where the selection is held, which a dismissal takes the Items it applied out of. */
   scope: string;
@@ -249,6 +252,7 @@ export function useEditingSeveral({
         onPickDate={() => setPickingDate(true)}
         endRuns={barEntryFor(targets)}
         onEndRuns={() => void endRuns()}
+        onAddAsChildOf={onAddAsChildOf}
       />
     ),
     /** The date field Pick a date… opens, for the bar to draw under its buttons. */

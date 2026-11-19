@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Conversation } from '@cockpit/shared';
+import type { PhoneLinks } from '../itemSource';
 import { conversationCountLine, conversationOpensAt, openLabel, whoWroteWhen } from '../conversationLine';
 
 /**
@@ -17,6 +18,7 @@ export function ConversationSection({
   sourceName,
   now,
   reply,
+  phoneLinks,
 }: {
   conversation: Conversation;
   /** What the source is called, by its connector's name for it (*Gmail*), never its id. */
@@ -24,8 +26,10 @@ export function ConversationSection({
   now: number;
   /** *Reply…*, where a mailbox can make the reply; absent where none can, as on a LinkedIn conversation. */
   reply?: ReactNode;
+  /** How the source's website wants an address on a phone, given only where this is a phone (issue 1837). */
+  phoneLinks?: PhoneLinks;
 }) {
-  const opensAt = conversationOpensAt(conversation);
+  const opensAt = conversationOpensAt(conversation, phoneLinks);
   const countLine = conversationCountLine(conversation, now);
   return (
     <section aria-label="Conversation" className="flex flex-col gap-1.5">

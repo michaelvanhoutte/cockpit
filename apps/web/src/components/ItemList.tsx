@@ -16,6 +16,8 @@ import {
   panelAndFilterIdsByItem,
   itemIdsWithRun,
   itemsOnPanel,
+  holdsItems,
+  parentIdsOf,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
@@ -76,9 +78,15 @@ import { SelectionBar } from './SelectionBar';
 import { FetchedPicker } from './FetchedPicker';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
+import { useAddingAsChild } from './useAddingAsChild';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
+/**
+ * A parent's child rows, fetched once a row holding Items is drawn, folded or
+ * not, so unfolding one finds them here (issue 1825).
+ */
+const HeldRows = lazy(() => import('./HeldRows'));
 // Out of the initial bundle, as the other windows opened from a row are.
 const SendToClaudeWindow = lazy(() => import('./SendToClaudeWindow'));
 
@@ -122,7 +130,18 @@ export function ItemList({
   fillsTheRestOfItsColumn = false,
   groupByProposal = false,
   columns = null,
+  heldBy,
+  onTakeOut,
 }: {
+  /**
+   * The parent these rows are drawn under, unfolded from its row ("Brainstorming:
+   * an Item can't hold other Items", issue 1825): each row can be taken out of
+   * it, and the list is the parent's, so nothing is dropped or reordered here
+   * and it draws no selection bar of its own.
+   */
+  heldBy?: Item | undefined;
+  /** Takes one of those rows out of `heldBy`, and that one alone (`HeldRows`). */
+  onTakeOut?: ((item: Item) => void) | undefined;
   /**
    * That the rows are drawn in columns of at least this width, when the Panel
    * is wide enough ("Split a wide Panel's rows into columns, at a minimum width
@@ -313,8 +332,28 @@ export function ItemList({
   /** Everything a selection put on screen, gone together. */
   const stopSelecting = () => endSelection(scope);
 
-  /** The picked rows this list shows, in the order it shows them. */
-  const picked = pickedInTheList(selection, items);
+  // A Workspace holding Items in Items draws their changes ahead with code of
+  // its own, fetched here on its first draw (`ChildrenDrawn`, drawnAhead.ts).
+  const holdsAny = (data?.children?.length ?? 0) > 0 || items.some(holdsItems);
+  useEffect(() => {
+    if (holdsAny) void import('../childrenDrawnAhead').catch(() => {});
+  }, [holdsAny]);
+  /**
+   * The picked rows this list shows, in the order it shows them. The Inbox's
+   * bar also carries the child rows ticked under its parents, which are lists
+   * of their own (issue 1825); a Dashboard's bar reads every pick already.
+   */
+  const pickedHere = pickedInTheList(selection, items);
+  const held = onDashboard || heldBy ? null : new Set((data?.children ?? []).map((row) => row.childId));
+  const picked =
+    !held || held.size === 0
+      ? pickedHere
+      : [
+          ...pickedHere,
+          ...(data?.items ?? []).filter(
+            (item) => stillOpen(item) && held.has(item.id) && selection.picked.has(item.id) && !pickedHere.includes(item),
+          ),
+        ];
 
   // Says what this list shows, so the scope can drop what none of its lists
   // show any more - **dropped, not merely hidden**, or a row moved out from its
@@ -324,10 +363,17 @@ export function ItemList({
   // there is, so it does its own.
   const shownIds = useMemo(() => items.map((item) => item.id), [items]);
   useShowing(scope, shownIds, hidden);
-  useHeldTo(onDashboard ? null : scope);
+  useHeldTo(onDashboard || heldBy ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const editing = useEditingSeveral({ workspaceId, picked, filing: filingSeveral.filing, scope });
+  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting);
+  const editing = useEditingSeveral({
+    workspaceId,
+    picked,
+    filing: filingSeveral.filing,
+    scope,
+    onAddAsChildOf: () => addingAsChild.ask(picked),
+  });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
   /**
@@ -442,6 +488,13 @@ export function ItemList({
         ...(leaving && panelId !== null ? { fromPanelIds: [leaving] } : {}),
       },
     });
+    // To the Inbox is out of every Item holding it as well, or it would be in
+    // no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825).
+    const leftParents = panelId === null ? parentIdsOf(data?.children ?? [], item.id) : [];
+    const takenOut =
+      leftParents.length > 0
+        ? fetchedChunk(() => import('../puttingBack')).then((loaded) => loaded.takeOutOfParents({ workspaceId, send }, item.id, leftParents))
+        : null;
     // Remembered only once it has happened: a panel a move was refused for is
     // not a panel you have been filing into.
     answer.then(
@@ -459,7 +512,8 @@ export function ItemList({
     if (!decides) void import('../puttingBack').catch(() => {});
     offerToUndo({
       what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
-      unlessRefused: answer,
+      // Taken out of a parent too, or the bar would say it is somewhere it is not.
+      unlessRefused: takenOut ? Promise.all([answer, takenOut]) : answer,
       // The title is what the bar shortens, never where it went.
       split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
       // Every panel it was on, not the first of them: the move above may
@@ -468,7 +522,18 @@ export function ItemList({
       // 142, issue 923). **Withheld for
       // an undecided item**, whose move decides its workspace and cannot
       // be put back (`decides` above); it still gets the two below.
-      ...(decides ? {} : { undo: () => putItBackOn(item, before) }),
+      ...(decides
+        ? {}
+        : {
+            undo: () =>
+              Promise.all([
+                putItBackOn(item, before),
+                leftParents.length > 0 &&
+                  fetchedChunk(() => import('../puttingBack')).then((loaded) =>
+                    loaded.putBackInParents({ workspaceId, send }, item.id, leftParents),
+                  ),
+              ]),
+          }),
       // Onto a panel only: a move to the Inbox has nowhere to show and
       // nothing to also show on ("Show and Also show on… in the undo
       // bar after moving an Item", issue 849).
@@ -496,8 +561,8 @@ export function ItemList({
   const flagged = useMemo(
     // Which items are in the Inbox is half of the rule a pair is offered by,
     // and a filing onto a Filter leaves an item there (`filed` above).
-    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? []),
-    [data?.items, filed, data?.duplicates],
+    () => itemsThatMayBeDuplicates(data?.items ?? [], filed, data?.duplicates ?? [], data?.children),
+    [data?.items, filed, data?.duplicates, data?.children],
   );
 
   /**
@@ -551,7 +616,7 @@ export function ItemList({
 
   /** The note(s) a flagged row may repeat, named for the chip's hover. */
   const duplicateNamesOf = (item: Item): string =>
-    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [])
+    possibleDuplicatesOf(item.id, data?.items ?? [], filed, data?.duplicates ?? [], data?.children)
       .map((other) => `“${itemLabel(other)}”`)
       .join(', ');
 
@@ -580,6 +645,7 @@ export function ItemList({
       // what that mark actually offered.
       filed,
       data?.duplicates ?? [],
+      data?.children,
     ).map((other) => other.id);
     if (others.length === 0) return undefined;
     return () => {
@@ -825,9 +891,14 @@ export function ItemList({
     // The rows themselves, not the line drawn between them: a landing line is
     // a child of the same list, and counting it would move the midpoints under
     // the pointer as the line follows it about.
-    const boxes = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])].map((row) =>
-      row.getBoundingClientRect(),
-    );
+    // Nor a parent's child rows unfolded under it, which are its list's and
+    // not this one's (issue 1825).
+    const boxes = [...(rows.current?.querySelectorAll('[data-item-row]') ?? [])]
+      .filter((row) => {
+        const under = row.closest('[data-child-rows]');
+        return under === null || !rows.current!.contains(under);
+      })
+      .map((row) => row.getBoundingClientRect());
     // In columns a row has a left and a right half to aim at, and the line it
     // is on; in one column only its height says anything.
     if (columns !== null) return landingOnRow(boxes, x, y);
@@ -999,6 +1070,7 @@ export function ItemList({
     group?: readonly Item[],
     landing?: 'before' | 'after',
   ) => (
+    <>
     <ItemRow
       item={item}
       {...(landing ? { landing } : {})}
@@ -1006,9 +1078,11 @@ export function ItemList({
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
       messageLinks={data?.messageLinks}
+      phoneLinks={data?.phoneLinks}
       recurring={recurringOriginOf(item, data?.series)?.rule ?? null}
       workspaceId={workspaceId}
-      inInbox={panelId === null}
+      // A child row under an Inbox parent is not in the Inbox (issue 1825).
+      inInbox={panelId === null && !heldBy}
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}
       selecting={{
         picked: selection.picked.has(item.id),
@@ -1020,8 +1094,9 @@ export function ItemList({
         onEndSelection: stopSelecting,
       }}
       // Not on a Filter panel's row: its place is a consequence of the Item, so
-      // there is no Panel to move it from (it keeps Also show on…).
-      {...(gathered
+      // there is no Panel to move it from (it keeps Also show on…). A child's
+      // row moves it as an Inbox row does, off every Panel.
+      {...(gathered && !heldBy
         ? {}
         : {
             onMoveTo: (from: HTMLElement | null) => {
@@ -1069,7 +1144,23 @@ export function ItemList({
             onAcceptRouting: acceptRoutingFor(item),
             onAcceptSelection: acceptSelection,
           })}
+      onAddAsChildOf={(from: HTMLElement | null) => {
+        addingAsChild.ask([item], from);
+      }}
+      {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
     />
+    {holdsItems(item) && (
+      <Suspense fallback={null}>
+      <HeldRows
+        workspaceId={workspaceId}
+        parent={item}
+        panelId={panelId}
+        openDashboardId={openDashboardId}
+        hidden={hidden}
+      />
+      </Suspense>
+    )}
+    </>
   );
 
   /**
@@ -1330,7 +1421,7 @@ export function ItemList({
 
       {/* A Dashboard's selection has one bar, drawn by its board
           (`DashboardSelection`), so a Panel draws none. */}
-      {!onDashboard && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
+      {!onDashboard && !heldBy && showsABar(picked.length, [filingSeveral.refusal, editing.refusal], several, editing.saving !== null) && (
         <SelectionBar
           count={picked.length}
           filing={filingSeveral.filing}
@@ -1343,6 +1434,7 @@ export function ItemList({
           onClear={stopSelecting}
         />
       )}
+      {addingAsChild.dialog}
 
       {filingSeveral.pickers}
 
@@ -1473,8 +1565,11 @@ export function ItemList({
             : { inboxesOf: allWorkspaces.workspaces })}
           // Left out for an item that belongs to no workspace: it is on no
           // panel, but this workspace's Inbox is still a place it can go, the
-          // one that decides which workspace it belongs to.
-          {...(workspaceIsDecided(moving)
+          // one that decides which workspace it belongs to. Left out too for
+          // one on no panel but inside an Item, which is not in the Inbox
+          // either, so the Inbox is a move for it (issue 1825).
+          {...(workspaceIsDecided(moving) &&
+          (whereItIs(moving).length > 0 || parentIdsOf(data?.children ?? [], moving.id).length === 0)
             ? { alreadyOn: whereItIs(moving).map((at) => at.panelId) }
             : {})}
           openDashboardId={openDashboardId}

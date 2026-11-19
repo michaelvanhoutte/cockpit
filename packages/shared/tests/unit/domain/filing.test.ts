@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Dashboard, Item } from '../../../src/domain/item.js';
 import type { Filing, Panel } from '../../../src/domain/panel.js';
 import { itemsInTheInbox, itemsOnPanel, itemsThatAreFiled, whereItIs } from '../../../src/domain/filing.js';
+import { whereItSits } from '../../../src/domain/held-places.js';
 
 /**
  * L1: what the Inbox holds is a view over the snapshot, so this is pure logic
@@ -139,6 +140,49 @@ describe('Panels', () => {
   });
 
   /**
+   * "Brainstorming: an Item can't hold other Items" (issue 1825): an Item held
+   * by another Item has a parent as surely as one filed on a Panel does. Which
+   * rows the snapshot carries - a dismissed parent's left out - is proved
+   * against a real store in apps/api/tests/integration/http/item-children.test.ts.
+   */
+  describe('the Inbox holds exactly the open Items with no parent', () => {
+    it.each([
+      {
+        situation: 'a child of an Item that is on no Panel',
+        items: [anItem('a'), anItem('chapter')],
+        children: [{ parentId: 'chapter', childId: 'a', position: 0 }],
+        panels: [],
+        inTheInbox: false,
+      },
+      {
+        situation: 'a Panel’s own Item',
+        items: [anItem('a')],
+        children: [],
+        panels: [{ id: 'a' }],
+        inTheInbox: false,
+      },
+      {
+        situation: 'finished, with no parent',
+        items: [anItem('a', FINISHED)],
+        children: [],
+        panels: [],
+        inTheInbox: false,
+      },
+      {
+        situation: 'the parent of another, itself held by none',
+        items: [anItem('a'), anItem('scene')],
+        children: [{ parentId: 'a', childId: 'scene', position: 0 }],
+        panels: [],
+        inTheInbox: true,
+      },
+    ])('$situation', ({ items, children, panels, inTheInbox }) => {
+      const inbox = itemsInTheInbox(items, [], children, panels).map((item) => item.id);
+
+      expect(inbox.includes('a')).toBe(inTheInbox);
+    });
+  });
+
+  /**
    * The complement of `itemsInTheInbox`, built the same direct way rather than
    * by inverting that function's own result ("Flag a duplicate between two
    * cards on dashboards", issue 410) - so it is proved the same way, at the
@@ -219,6 +263,12 @@ describe('Inbox', () => {
       },
     ])('$situation', ({ completedAt, filings, where }) => {
       expect(whereItIs(anItem('x', completedAt), filings, PANELS, DASHBOARDS)).toBe(where);
+    });
+
+    it('names the Item holding one filed nowhere, rather than the Inbox it is not in', () => {
+      const chapter = { ...anItem('chapter', null), title: 'Chapter 3' };
+      const children = [{ parentId: 'chapter', childId: 'x', position: 0 }];
+      expect(whereItSits(anItem('x', null), [], PANELS, DASHBOARDS, children, [chapter])).toBe('Inside Chapter 3');
     });
   });
 });

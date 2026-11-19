@@ -165,7 +165,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, messageLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
+import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, checkableOf, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
@@ -1524,6 +1524,7 @@ const routes = app
         checkable: c.get('visitor').accountName === GUEST_ACCOUNT_NAME ? [] : checkableOf(c.env, connections),
         sourceNames: sourceNames(c.env),
         messageLinks: messageLinks(c.env),
+        phoneLinks: phoneLinks(c.env),
         generatedAt: new Date().toISOString(),
       },
       200,
@@ -1990,6 +1991,8 @@ const routes = app
     }
     return c.json(result, 200);
   })
+  .openapi(commandRoute('add_children'), async (c) => c.json(await change(c, 'add_children', c.req.valid('json')), 200))
+  .openapi(commandRoute('remove_child'), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('wait_for_reply'), async (c) => c.json(await change(c, 'wait_for_reply', c.req.valid('json')), 200))

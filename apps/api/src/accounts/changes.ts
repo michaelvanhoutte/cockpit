@@ -195,6 +195,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     CONNECTOR_ACCOUNTS_OWN_ALIAS,
     ITEM_CHILDREN,
     PANELS_BECOME_ITEMS,
+    FILINGS_COPIED_AGAIN,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -1896,6 +1897,92 @@ function panelsBecomeItems(): Statement[] {
                                 WHERE c.parent_id = items.id AND c.deleted_at IS NULL AND k.deleted_at IS NULL
                                   AND k.completed_at IS NOT NULL)
              WHERE id IN (SELECT item_id FROM panels WHERE item_id IS NOT NULL)`,
+    },
+  ];
+}
+
+/**
+ * The switch's copy step ("Brainstorming: an Item can't hold other Items",
+ * issue 1825): before any read moves to `item_children`, every Panel's Item is
+ * made to hold exactly what `panel_items` says the Panel holds, which an older
+ * Worker went on writing alone during `0109-panels-become-items`'s rollout.
+ * From this release the Workspace's read, a Panel's order, the Inbox and
+ * `find_items` read `item_children`; both tables are still written.
+ *
+ * What an older Worker could have done there, and what each statement puts right:
+ * - **made a Panel**, which has no Item: it gets one, as `0109` gives one;
+ * - **deleted a Panel, or its Dashboard**: the Panel's Item is dismissed then,
+ *   so it holds nothing anybody sees;
+ * - **renamed a Panel**: its Item takes the name;
+ * - **filed, refiled, reordered or unfiled**: each live Panel's Item holds the
+ *   Panel's rows in its order - a row it lacks is put in, one taken out before
+ *   is put back (`DO UPDATE`, where `0109` did nothing), and one the Panel no
+ *   longer has is taken out. An Item parent that is not a Panel is untouched.
+ * - **finished, reopened or dismissed an Item**: every holder's counts are
+ *   counted again.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: rows are added or
+ *   tombstoned, and `panel_items` is only read.
+ * - **Stopping halfway:** one change is one transaction (store.ts), so an
+ *   interruption leaves the account as it was and the next request runs it whole.
+ * - **Running a second time:** each statement touches only rows that still
+ *   disagree with `panel_items`, so a second run changes nothing.
+ * - **The interruption window:** an older Worker still writing `panel_items`
+ *   alone after this has run is what promoting production at
+ *   `0109-panels-become-items`, and at no later commit, until every account has
+ *   been opened on it rules out (the pull request says so).
+ */
+const FILINGS_COPIED_AGAIN: Change = {
+  name: '0110-filings-copied-again',
+  statements: filingsCopiedAgain(),
+};
+
+/** `0110-filings-copied-again`'s statements, in the order each needs the one before. */
+function filingsCopiedAgain(): Statement[] {
+  const livePanel = `p.item_id IS NOT NULL AND p.deleted_at IS NULL AND d.deleted_at IS NULL`;
+  return [
+    // A Panel an older Worker made: its Item and `item_id`, as `0109` gives them.
+    ...panelsBecomeItems().slice(0, 2),
+    {
+      sql: `UPDATE items SET
+              deleted_at = (SELECT coalesce(p.deleted_at, d.deleted_at) FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
+                             WHERE p.item_id = items.id),
+              updated_at = (SELECT coalesce(p.deleted_at, d.deleted_at) FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
+                             WHERE p.item_id = items.id)
+             WHERE deleted_at IS NULL
+               AND id IN (SELECT p.item_id FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
+                           WHERE p.item_id IS NOT NULL AND (p.deleted_at IS NOT NULL OR d.deleted_at IS NOT NULL))`,
+    },
+    {
+      sql: `UPDATE items SET title = (SELECT p.name FROM panels p WHERE p.item_id = items.id), updated_at = ${NOW}
+             WHERE id IN (SELECT p.item_id FROM panels p WHERE p.item_id IS NOT NULL AND p.name IS NOT items.title)`,
+    },
+    {
+      sql: `UPDATE item_children SET deleted_at = ${NOW}
+             WHERE deleted_at IS NULL
+               AND parent_id IN (SELECT p.item_id FROM panels p JOIN dashboards d ON d.id = p.dashboard_id WHERE ${livePanel})
+               AND NOT EXISTS (SELECT 1 FROM panel_items f JOIN panels p ON p.id = f.panel_id
+                                WHERE p.item_id = item_children.parent_id AND f.item_id = item_children.child_id)`,
+    },
+    {
+      sql: `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+              SELECT f.tenant_id, p.item_id, f.item_id, f.position, coalesce(f.filed_at, f.created_at)
+                FROM panel_items f JOIN panels p ON p.id = f.panel_id JOIN dashboards d ON d.id = p.dashboard_id
+               WHERE ${livePanel}
+              ON CONFLICT (parent_id, child_id) DO UPDATE SET
+                position = excluded.position,
+                created_at = CASE WHEN item_children.deleted_at IS NULL THEN item_children.created_at ELSE excluded.created_at END,
+                deleted_at = NULL
+              WHERE item_children.deleted_at IS NOT NULL OR item_children.position <> excluded.position`,
+    },
+    {
+      sql: `UPDATE items SET
+              children_count = (SELECT count(*) FROM item_children c JOIN items k ON k.id = c.child_id
+                                 WHERE c.parent_id = items.id AND c.deleted_at IS NULL AND k.deleted_at IS NULL),
+              children_done = (SELECT count(*) FROM item_children c JOIN items k ON k.id = c.child_id
+                                WHERE c.parent_id = items.id AND c.deleted_at IS NULL AND k.deleted_at IS NULL
+                                  AND k.completed_at IS NOT NULL)
+             WHERE id IN (SELECT parent_id FROM item_children)`,
     },
   ];
 }

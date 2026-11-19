@@ -50,7 +50,10 @@ export function EditSeveralMenu({
   onPickDate,
   endRuns,
   onEndRuns,
+  onAddAsChildOf,
 }: {
+  /** *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue 1825): asks which Item the picked ones go inside. Absent, it is not offered. */
+  onAddAsChildOf?: (() => void) | undefined;
   picked: readonly Item[];
   /** *End Claude run*: on offer where a picked row has an open run, and saying so where none does. */
   endRuns: { available: boolean; why: string | null };
@@ -214,6 +217,16 @@ export function EditSeveralMenu({
             <span>End Claude run</span>
             {endRuns.why && <span className="text-xs text-ink-faint">{endRuns.why}</span>}
           </DropdownMenu.Item>
+          {/* In this menu rather than a button of its own, which the Inbox's
+              bar, a fifth of the screen, has no room for (issue 1825). */}
+          {onAddAsChildOf && (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
+              <DropdownMenu.Item className={menuItemSplitClass} onSelect={onAddAsChildOf}>
+                <span>Add as child of…</span>
+              </DropdownMenu.Item>
+            </>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
