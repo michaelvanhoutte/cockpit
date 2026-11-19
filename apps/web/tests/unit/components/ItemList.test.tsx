@@ -4351,10 +4351,14 @@ describe('Triage', () => {
     afterEach(() => window.history.pushState({}, '', '/'));
 
     /** Two rows picked, Combine… chosen from the Edit menu, and the dialog it opens. */
-    async function combining(items: Item[], picks: Item[] = items.slice(0, 2)) {
+    /** `span` picks the first and shift-clicks the last, for a run of picks too long to click one by one. */
+    async function combining(items: Item[], picks: Item[] = items.slice(0, 2), span = false) {
       held.items = items;
       const user = await showList({ items, openDashboardId: TODAY.id });
-      for (const item of picks) await tick(user, item);
+      if (span) {
+        await tick(user, picks[0]!);
+        await tick(user, picks.at(-1)!, true);
+      } else for (const item of picks) await tick(user, item);
       await user.click(screen.getByRole('button', { name: 'Edit ▾' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Combine…' }));
       return { user, dialog: await screen.findByRole('dialog') };
@@ -4514,7 +4518,7 @@ describe('Triage', () => {
 
     it('offers neither Merge nor a new parent for more than 50 Items, which one command cannot hold', async () => {
       const many = Array.from({ length: 51 }, (_, at) => anItem(`11111111-1111-7111-8111-0000000001${String(at).padStart(2, '0')}`, `Note ${at}`));
-      const { dialog } = await combining([...many, CHAPTER], many);
+      const { dialog } = await combining([...many, CHAPTER], many, true);
 
       expect(within(dialog).getByRole('radio', { name: /Merge into one new Item/ })).toBeDisabled();
       expect(within(dialog).getByRole('radio', { name: /Combine under a new parent/ })).toBeDisabled();
