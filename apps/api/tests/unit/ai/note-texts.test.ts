@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readPanelChoice, readPlace, readProposal } from '../../../src/ai/note-texts.js';
+import { noteAsRead, readPanelChoice, readPlace, readProposal } from '../../../src/ai/note-texts.js';
 
 /**
  * L1: reading an answer back is a pure decision over a string, so every way an
@@ -445,6 +445,28 @@ describe('Triage', () => {
       { situation: 'JSON that is not a panel choice', raw: JSON.stringify({ panel: 'panel-1' }) },
     ])('discards $situation rather than reading it as none fitting', ({ raw }) => {
       expect(readPanelChoice(raw, OFFERED)).toHaveProperty('discarded');
+    });
+  });
+
+  describe("an email is read with its subject, marked, and no other note is", () => {
+    const MAILBOXES = new Map([
+      ['gmail', '(no subject)'],
+      ['outlook', '(no subject)'],
+    ]);
+    const mail = { title: 'Reply to Bryton', textsSettledAt: null, textsProposedAt: null };
+    const marked = 'Email subject: Reply to Bryton\n\nCan you answer before Friday?';
+
+    it.each([
+      { situation: 'a Gmail email', source: 'gmail', read: marked },
+      { situation: 'an Outlook email', source: 'outlook', read: marked },
+      { situation: 'a note typed in Cockpit', source: 'internal', read: 'Can you answer before Friday?' },
+      { situation: 'a Teams message', source: 'teams', read: 'Can you answer before Friday?' },
+      { situation: 'a text message', source: 'twilio', read: 'Can you answer before Friday?' },
+      { situation: 'an email whose texts are already settled', source: 'outlook', textsSettledAt: '2026-10-01T09:00:00.000Z', read: 'Can you answer before Friday?' },
+      { situation: 'an email whose title is already a proposal, as on a retry', source: 'outlook', textsProposedAt: '2026-10-01T09:00:00.000Z', read: 'Can you answer before Friday?' },
+      { situation: 'an email with no subject', source: 'gmail', title: '(no subject)', read: 'Can you answer before Friday?' },
+    ])('reads $situation as it should', ({ source, read, ...changed }) => {
+      expect(noteAsRead({ ...mail, source, ...changed }, 'Can you answer before Friday?', MAILBOXES)).toBe(read);
     });
   });
 });
