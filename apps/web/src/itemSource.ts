@@ -49,7 +49,8 @@ export function followedConversationId(conversation: Conversation | null | undef
  */
 function phoneAddressOfItem(item: Item, conversation: Conversation | null | undefined, phone: PhoneLinks, link: string): string | null {
   const id = conversation && conversation.source === item.source ? followedConversationId(conversation) : null;
-  if (id) return phoneAddress(phone, item.source, conversation!.link, id);
+  const followed = id ? phoneAddress(phone, item.source, conversation!.link, id) : null;
+  if (followed) return followed;
   return item.sourceId ? phoneAddress(phone, item.source, link, item.sourceId) : null;
 }
 
@@ -130,9 +131,10 @@ export function sourceOnARow(item: Pick<Item, 'source' | 'sender'>, names: Sourc
  *
  * **On a phone a source that declares how its website wants an address gets
  * it** (`phoneLinks`, "Open a Gmail Item at its email on a phone", issue 1837):
- * the conversation the Item follows, else its source id where that names one,
- * opened by the source's own phone address; an Item that knows neither keeps
- * its stored link.
+ * the conversation the Item follows at its own source, in that conversation's
+ * own mailbox and never a LinkedIn one, else its source id where that names
+ * one, in the stored link's mailbox; an Item that knows neither keeps its
+ * stored link, and a link the guest demo translated is never turned into one.
  */
 export function openableAtSource(
   item: Item,

@@ -252,6 +252,11 @@ describe('Open at the source', () => {
       expect(openableAtSource(gmailItem('18f3c0'), NAMES, undefined, { links: PHONE, conversation: outlook })?.link).toBe(phoneAt('18f3c0'));
     });
 
+    it('one whose own link opens no phone address leaves the Item at its own conversation', () => {
+      const unusable = followed('19aa11', { link: 'http://mail.google.com/mail/#all/19aa11' });
+      expect(openableAtSource(gmailItem('18f3c0'), NAMES, undefined, { links: PHONE, conversation: unusable })?.link).toBe(phoneAt('18f3c0'));
+    });
+
     it('a LinkedIn conversation leaves the Item at the notification email’s conversation', () => {
       const linkedIn = followed('linkedin:abc', { link: 'linkedin-app://broken' });
       expect(openableAtSource(gmailItem('18f3c0'), NAMES, undefined, { links: PHONE, conversation: linkedIn })?.link).toBe(phoneAt('18f3c0'));

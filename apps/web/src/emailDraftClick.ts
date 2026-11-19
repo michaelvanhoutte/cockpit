@@ -31,7 +31,7 @@ function rememberMailbox(workspaceId: string, sourceAccountId: string): void {
  */
 function where(link: string, mailbox: Mailbox, followed: Conversation | undefined, declared: DeclaredPhoneLinks): string {
   const phone = phoneLinksOnThisDevice(declared);
-  return (phone && phoneAddress(phone, mailbox.connectorId, link, followed?.source === mailbox.connectorId ? followedConversationId(followed) : null)) || link;
+  return (phone && phoneAddress(phone, mailbox.connectorId, link, followedConversationId(followed))) || link;
 }
 
 /**

@@ -201,6 +201,12 @@ describe('Open at the source', () => {
         phone: PHONE,
         opens: null,
       },
+      {
+        situation: 'a LinkedIn conversation, on a phone',
+        conversation: aConversation({ conversationId: 'linkedin:abc', link: 'https://www.linkedin.com/messaging/thread/abc/' }),
+        phone: PHONE,
+        opens: 'https://www.linkedin.com/messaging/thread/abc/',
+      },
     ])('$situation', ({ conversation, phone, opens }) => {
       expect(conversationOpensAt(conversation, phone)).toBe(opens);
     });
