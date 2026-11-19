@@ -61,6 +61,8 @@ const held = vi.hoisted(() => ({
   additions: [] as Addition[],
   conversations: [] as Conversation[],
   mailboxes: [] as Mailbox[],
+  /** How the Workspace's sources want an address on a phone, where a case needs it (issue 1837). */
+  phoneLinks: undefined as Record<string, unknown> | undefined,
   /** Sources the Workspace names beyond the usual three, where a case needs one. */
   alsoNamed: {} as Record<string, string>,
   series: [] as Series[],
@@ -251,6 +253,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         followUpDays: held.followUpDays,
         // What the Workspace calls each source (issue 927).
         sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
+        ...(held.phoneLinks ? { phoneLinks: held.phoneLinks } : {}),
         messageLinks: {
           teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
         },
@@ -450,6 +453,7 @@ beforeEach(() => {
   held.conversations = [];
   held.mailboxes = [];
   held.alsoNamed = {};
+  held.phoneLinks = undefined;
   held.series = [];
   held.itemFormPresentation = 'centered';
   held.openItemId = 'item-1';
@@ -3260,6 +3264,38 @@ describe('Item editing', () => {
       expect(section.getByText('“Thursday is tricky, how about Friday?”')).toBeVisible();
       expect(section.getByText(/^With steven@noels\.be · 4 emails since /)).toBeVisible();
       expect(section.queryByRole('button', { name: /Reply/ })).toBeNull();
+    });
+
+    describe('on a phone the form’s Open in Gmail and the section’s Open go to the conversation on Gmail’s phone website (issue 1837)', () => {
+      const phoneAt = 'https://mail.google.com/mail/mu/mp/?authuser=anna%40example.com#cv/All%20Mail/t-1';
+      const stored = 'https://mail.google.com/mail/?authuser=anna%40example.com#all/t-1';
+
+      it.each([
+        { situation: 'on a phone', mobile: true, href: phoneAt },
+        { situation: 'on a computer', mobile: false, href: stored },
+        { situation: 'a held copy saved before the declaration, on a phone', mobile: true, undeclared: true, href: stored },
+      ])('$situation', async ({ mobile, href, undeclared }) => {
+        if (mobile) vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Chrome/126.0 Mobile Safari/537.36');
+        if (!undeclared) {
+          held.phoneLinks = {
+            gmail: {
+              host: 'mail.google.com',
+              path: '/mail/mu/mp/',
+              mailboxParam: 'authuser',
+              conversationFragment: 'cv/All Mail/',
+              draftsFragment: 'tl/Drafts',
+              notAConversationPrefix: 'message:',
+            },
+          };
+        }
+        held.conversations = [aConversation()];
+        await theForm(anItem({ source: 'gmail', sender: 'Steven', sourceLink: stored, sourceId: 't-1' }));
+
+        expect(screen.getByRole('link', { name: 'Open in Gmail' })).toHaveAttribute('href', href);
+        const section = within(screen.getByRole('region', { name: 'Conversation' }));
+        expect(section.getByRole('link', { name: 'Open the latest email in Gmail' })).toHaveAttribute('href', href);
+        vi.restoreAllMocks();
+      });
     });
 
     it('says You wrote where your message came last', async () => {

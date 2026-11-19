@@ -1078,6 +1078,7 @@ export function ItemList({
       {...(group ? { onFileGroup: () => acceptEach(group) } : {})}
       sourceNames={data?.sourceNames}
       messageLinks={data?.messageLinks}
+      phoneLinks={data?.phoneLinks}
       recurring={recurringOriginOf(item, data?.series)?.rule ?? null}
       workspaceId={workspaceId}
       // A child row under an Inbox parent is not in the Inbox (issue 1825).

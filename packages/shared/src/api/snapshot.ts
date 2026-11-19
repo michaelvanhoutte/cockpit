@@ -4,6 +4,7 @@ import { agentRunSchema } from '../domain/agent-run.js';
 import { attachmentSchema } from '../domain/attachment.js';
 import { conversationSchema, mailboxSchema } from '../domain/conversation.js';
 import { possibleDuplicateSchema } from '../domain/duplicate.js';
+import { phoneLinkSchema } from '../domain/phone-link.js';
 import { emailToCockpitSchema } from '../domain/email-address.js';
 import {
   FOLLOW_UP_DAYS,
@@ -173,6 +174,14 @@ export const workspaceSnapshotSchema = z.object({
   messageLinks: z
     .record(z.string(), z.array(z.object({ host: z.string().max(255), pathStart: z.string().max(255) })).max(20))
     .optional(),
+  /**
+   * How each source's own website wants an address on a phone, by connector id
+   * ("Open a Gmail Item at its email on a phone", issue 1837); the app builds
+   * it only on a phone and names no connector. Optional for the reason
+   * `sourceNames` is: a copy saved by a release that did not send it opens the
+   * stored link.
+   */
+  phoneLinks: z.record(z.string(), phoneLinkSchema).optional(),
   generatedAt: z.iso.datetime(),
   /**
    * POC (own-event refetch): the newest change this snapshot is built on, as

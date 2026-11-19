@@ -22,6 +22,7 @@ export * from './domain/item-children.js';
 export * from './domain/held-places.js';
 export * from './domain/item-form-presentation.js';
 export * from './domain/message-link.js';
+export * from './domain/phone-link.js';
 export * from './domain/plain-words.js';
 export * from './domain/recording.js';
 export * from './domain/recurring-item.js';

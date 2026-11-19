@@ -26,6 +26,7 @@ import {
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { momentWeekdayDayLabel } from '../dateFormat';
@@ -41,7 +42,7 @@ import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
-import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type SourceNames } from '../itemSource';
+import { capturingApp, sourceNamed, sourceOnARow, type MessageLinks, type PhoneLinks, type SourceNames } from '../itemSource';
 import { conversationLine, conversationOpensAt, conversationSourceName, latestText, openEntryFor, openLabel } from '../conversationLine';
 import { howFarItHasGone, whatTheSwipeIsPromising, whatTheSwipeMeant } from '../swipe';
 import { useRoomForTheInbox } from '../roomForTheInbox';
@@ -104,6 +105,7 @@ export function ItemRow({
   item,
   sourceNames,
   messageLinks,
+  phoneLinks,
   workspaceId,
   inInbox = false,
   liftedFrom,
@@ -144,6 +146,8 @@ export function ItemRow({
   sourceNames?: SourceNames;
   /** The addresses of each source's own messages, from the same snapshot, for opening an Item at one in its text. */
   messageLinks?: MessageLinks;
+  /** How each source's own website wants an address on a phone, from the same snapshot (issue 1837). */
+  phoneLinks?: PhoneLinks;
   workspaceId: string;
   /**
    * That this row is drawn in the Inbox rather than on a Panel or a Filter
@@ -382,7 +386,7 @@ export function ItemRow({
   /** *Email…* or *Reply…*, and the mailboxes it offers, last used first (issue 1708); null where the row offers neither. */
   const emailEntry = emailEntryFor(conversation, mailboxes, lastMailboxIn(workspaceId));
   const emailWith = (mailbox: Mailbox) => {
-    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation }, offerToUndo);
+    void emailFromItem(queryClient, { workspaceId, itemId: item.id, mailbox, label: itemLabel(item), followed: conversation, ...(phoneLinks ? { phoneLinks } : {}) }, offerToUndo);
   };
   /** Whether this is a desk-width screen (768px and up): where the Status submenu has room beside the menu, and the row's phone layout's switch (`onAPhone`). Watched, so a window resized under an open menu is answered. */
   const roomBesideTheMenu = useRoomForTheInbox();
@@ -560,9 +564,9 @@ export function ItemRow({
   const holds = holdsItems(item);
   /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
   const nextAction = asNextAction(item.nextAction);
-  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks);
+  const atSource = openEntryFor(item, conversation, sourceNames, messageLinks, phoneLinksOnThisDevice(phoneLinks));
   /** Where the followed conversation's *Open ↗* goes, where the Item follows one with a web address. */
-  const conversationAt = shownConversation ? conversationOpensAt(shownConversation) : null;
+  const conversationAt = shownConversation ? conversationOpensAt(shownConversation, phoneLinksOnThisDevice(phoneLinks)) : null;
   /** What "also in…" reads, whole - the same sentence the tooltip spells out when the row has cut it. */
   const alsoInText = alsoIn.length > 0 ? `also in ${alsoIn.join(', ')}` : null;
 

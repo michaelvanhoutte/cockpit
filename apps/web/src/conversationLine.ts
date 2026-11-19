@@ -1,6 +1,7 @@
 import { isLinkedInConversation, type Conversation, type Item } from '@cockpit/shared';
 import { momentDayMonthLabel } from './dateFormat';
-import { openableAtSource, sourceNamed, whereALinkOpens, type MessageLinks, type SourceNames } from './itemSource';
+import { phoneAddress } from '@cockpit/shared';
+import { followedConversationId, openableAtSource, sourceNamed, whereALinkOpens, type MessageLinks, type PhoneLinks, type SourceNames } from './itemSource';
 
 /**
  * What a row says of the conversation its Item follows ("A Gmail starred
@@ -100,11 +101,14 @@ export function openLabel(conversation: Conversation, sourceName: string): strin
 
 /**
  * Where *Open ↗* goes: the conversation at its source, only ever a web address
- * (`openableAtSource` says why), or nowhere.
+ * (`openableAtSource` says why), or nowhere. On a phone a source that declares
+ * its phone address is opened by that, at the conversation (issue 1837).
  */
-export function conversationOpensAt(conversation: Conversation): string | null {
+export function conversationOpensAt(conversation: Conversation, phone?: PhoneLinks): string | null {
   if (!/^https?:\/\//i.test(conversation.link)) return null;
-  return whereALinkOpens(conversation.link);
+  const id = followedConversationId(conversation);
+  const onThePhone = phone && id ? phoneAddress(phone, conversation.source, conversation.link, id) : null;
+  return onThePhone ?? whereALinkOpens(conversation.link);
 }
 
 /**
@@ -120,12 +124,13 @@ export function openEntryFor(
   conversation: Conversation | null | undefined,
   names: SourceNames,
   messageLinks?: MessageLinks,
+  phone?: PhoneLinks,
 ): { name: string; link: string } | null {
   if (conversation && isLinkedInConversation(conversation)) {
     const link = conversationOpensAt(conversation);
     if (link !== null) return { name: 'LinkedIn', link };
   }
-  return openableAtSource(item, names, messageLinks);
+  return openableAtSource(item, names, messageLinks, { links: phone, conversation });
 }
 
 /**

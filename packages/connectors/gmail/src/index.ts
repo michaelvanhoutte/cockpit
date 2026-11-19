@@ -27,7 +27,23 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
  * called on screen in every environment, whether or not this one can sign in
  * to Gmail.
  */
-export const GMAIL_IDENTITY = { id: 'gmail', displayName: 'Gmail', titleIsSubject: { whenNone: NO_SUBJECT } } as const;
+export const GMAIL_IDENTITY = {
+  id: 'gmail',
+  displayName: 'Gmail',
+  titleIsSubject: { whenNone: NO_SUBJECT },
+  // Gmail's phone website opens an email only from its own address, which names
+  // the conversation: the computer address in the stored link opens its inbox
+  // there ("Open a Gmail Item at its email on a phone", issue 1837). All Mail,
+  // so archived mail opens too.
+  phoneLink: {
+    host: 'mail.google.com',
+    path: '/mail/mu/mp/',
+    mailboxParam: 'authuser',
+    conversationFragment: 'cv/All Mail/',
+    draftsFragment: 'tl/Drafts',
+    notAConversationPrefix: 'message:',
+  },
+} as const;
 
 export function createGmailConnector(config: GmailConnectorConfig): Connector {
   return {
