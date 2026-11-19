@@ -34,6 +34,8 @@ import { NeedsYouChip } from './NeedsYouChip';
 import { isCutOff } from '../cutOff';
 import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { PocChildren } from '../poc/PocChildren';
+import { PocColourDot, PocColourSub, PocRowExtras } from '../poc/rowExtras';
 import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTheAir';
 import { pickedNow } from '../selection';
 import { HOLD_MS, stillHolding } from '../hold';
@@ -542,6 +544,8 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  // POC (throwaway): the whiteboard's own entries, after the row's, when it draws this row's menu.
+  const pocRowExtras = useContext(PocRowExtras);
   /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
   const nextAction = asNextAction(item.nextAction);
   const atSource = openEntryFor(item, conversation, sourceNames, messageLinks);
@@ -800,6 +804,7 @@ export function ItemRow({
    * separator with the same props, which is what lets one list serve both.
    */
   const menuEntries = (M: MenuPrimitive) => {
+    const pocExtras = pocRowExtras;
     const flexItemClass = menuItemSplitClass;
     // The key that does the same from the keyboard, where there is one: an
     // Inbox row at a desk (issue 1111), as C, G and F are shown.
@@ -1001,6 +1006,9 @@ export function ItemRow({
       ],
       // Dismiss.
       [
+        <PocColourSub key="colour" M={M} workspaceId={workspaceId} target={`item:${item.id}`} className={subTriggerClass} />,
+      ],
+      [
         <M.Item
           key="dismiss"
           {...keyed('X')}
@@ -1022,6 +1030,12 @@ export function ItemRow({
               {group}
             </Fragment>
           ))}
+        {pocExtras && (
+          <>
+            <M.Separator className="my-1 h-px bg-shade/10" />
+            {pocExtras(M)}
+          </>
+        )}
       </>
     );
   };
@@ -1333,6 +1347,7 @@ export function ItemRow({
         )}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1 text-sm">
+            <PocColourDot workspaceId={workspaceId} itemId={item.id} />
             {/* A native `title`, as the two marks further along this row
                 already use, spelling out the same label the row draws rather
                 than the Item's stored title - so the hover cannot say something
@@ -1442,6 +1457,7 @@ export function ItemRow({
               <span className="font-semibold text-accent-deep">Next:</span> {nextAction}
             </span>
           )}
+          <PocChildren workspaceId={workspaceId} itemId={item.id} />
           {/* Where it came from, on one line under the title. Its own element,
               so it is a thing on the row rather than part of a sentence. */}
           <span className="flex min-w-0 gap-1 text-xs text-ink-faint">

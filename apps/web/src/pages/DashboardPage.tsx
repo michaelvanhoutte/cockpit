@@ -3,6 +3,8 @@ import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
 import { itemsLeftOut } from '../persistence';
+import { DashboardViews } from '../poc/DashboardViews';
+import { hiddenKey, panelParentsKey, usePoc } from '../poc/store';
 
 /**
  * One dashboard of a workspace ("Add and switch dashboards", issue 32), holding
@@ -18,6 +20,10 @@ export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
   const { data, dataUpdatedAt, isLoading, error, refetch } = useSnapshot(workspaceId);
   const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
+  // POC (throwaway): merged-away Items are hidden.
+  const [hidden] = usePoc<string[]>(hiddenKey(workspaceId), []);
+  // POC (throwaway): a Panel inside another is drawn inside it, not as a Panel of its own.
+  const [panelParents] = usePoc<Record<string, string>>(panelParentsKey(workspaceId), {});
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -29,7 +35,7 @@ export function DashboardPage() {
   const dashboard = data.dashboards.find((d) => d.id === dashboardId);
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex h-full min-w-0 flex-col gap-6">
       {/* No notice here when there is a read held to draw from: the shell
           says it once for the whole window (Layout.tsx), because a workspace
           that cannot be read is a fact about the workspace rather than about
@@ -45,21 +51,31 @@ export function DashboardPage() {
         // Keyed by the dashboard, so switching to another one starts clean: the
         // half-typed panel name, the open question and any arrangement not yet
         // saved all belong to the dashboard being left.
+        <DashboardViews
+          workspaceId={workspaceId}
+          dashboardId={dashboard.id}
+          panels={
         <PanelBoard
           key={dashboard.id}
           workspaceId={workspaceId}
           dashboard={dashboard}
           dashboards={data.dashboards}
-          panels={data.panels.filter((panel) => panel.dashboardId === dashboard.id)}
+          panels={data.panels.filter(
+            (panel) =>
+              panel.dashboardId === dashboard.id &&
+              !data.panels.some((outer) => outer.id === panelParents[panel.id] && outer.dashboardId === dashboard.id),
+          )}
           // Unfiltered, and deliberately beside the line above: whether a
           // filing files is a fact about the Panel it names rather than about
           // the dashboard being drawn (`panelsInWorkspace`, PanelBoard.tsx).
           panelsInWorkspace={data.panels}
           layouts={data.layouts}
-          items={data.items}
+          items={data.items.filter((item) => !hidden.includes(item.id))}
           filings={data.filings}
           attachments={data.attachments}
           agentRuns={data.agentRuns}
+        />
+          }
         />
       )}
     </div>
