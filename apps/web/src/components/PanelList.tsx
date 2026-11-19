@@ -5,13 +5,14 @@ import { isTypedInto, somethingIsOpenOverThePage } from '../inboxCollapsed';
 import { browserStore } from '../lastVisited';
 import { useFindIndex } from '../itemFind';
 import { askToLand, forgetLanding } from '../landOnItem';
+import { unfoldAll } from '../unfoldedParents';
 import { entriesIn, FIND_ITEM_KEY, isListedSection, modeOfKeyPress, PANEL_LIST_KEY, rowsLeftBy, rowsOfRun } from '../panelList';
 import type { PanelListEntry, PanelListing, PanelListMode, PanelListRow } from '../panelList';
 import { usePanelListWidth } from '../panelListWidth';
 import { KEY_CAP } from './keyCap';
 import { useReach } from '../panelReach';
 import type { Reach, ReachDashboard, ReachWorkspace, Scope } from '../panelReach';
-import { dayOf, findItems, type FindScope, type FoundItem } from '@cockpit/shared';
+import { ancestorIdsOf, dayOf, findItems, type FindScope, type FoundItem } from '@cockpit/shared';
 
 const KEY_NAME = PANEL_LIST_KEY.toUpperCase();
 const FIND_NAME = FIND_ITEM_KEY.toUpperCase();
@@ -314,6 +315,9 @@ export function PanelList({
   const showFound = (item: FoundItem, commit: boolean) => {
     const from = start.current;
     const target = item.panel;
+    // One held by an Item is drawn under it once it is unfolded
+    // ("Brainstorming: an Item can't hold other Items", issue 1825).
+    unfoldAll(ancestorIdsOf(reach.snapshot?.children ?? [], item.itemId));
     askToLand({
       itemId: item.itemId,
       place: target ? { kind: 'panel', dashboardId: target.dashboardId, panelId: target.panelId } : { kind: 'inbox' },

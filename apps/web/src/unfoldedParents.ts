@@ -26,6 +26,14 @@ export function toggleUnfolded(itemId: string): void {
   listeners.forEach((listener) => listener());
 }
 
+/** Unfolds these parents, leaving every other as it is: what landing on a child row needs first. */
+export function unfoldAll(itemIds: Iterable<string>): void {
+  const next = new Set([...unfolded, ...itemIds]);
+  if (next.size === unfolded.size) return;
+  unfolded = next;
+  listeners.forEach((listener) => listener());
+}
+
 /** Whether this parent shows its children, and the one way to change it. */
 export function useUnfolded(itemId: string): { unfolded: boolean; toggle: () => void } {
   const open = useSyncExternalStore(

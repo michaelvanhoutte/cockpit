@@ -57,6 +57,7 @@ export default function AllItemsBoard({ workspaceId }: { workspaceId: string }) 
     ? allItemsRows(
         {
           ...data,
+          named: data.items,
           items: filtering
             ? data.items.filter((item) => matchesDashboardFilter(filter, item, withAttachments, today, withRun))
             : data.items,

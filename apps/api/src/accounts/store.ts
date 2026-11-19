@@ -358,6 +358,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         filings: listFilingsInWorkspace(db, accountName, workspaceId, 'finished'),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, 'finished'),
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, 'finished'),
+        children: listChildRowsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
   }

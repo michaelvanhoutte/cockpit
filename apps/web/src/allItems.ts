@@ -100,6 +100,8 @@ export function allItemsRows(
     panels: readonly Panel[];
     dashboards: readonly Dashboard[];
     children?: readonly ChildRow[] | undefined;
+    /** Every Item of the read, a parent a filter leaves out among them, for naming what holds one. */
+    named?: readonly Item[] | undefined;
   },
   sort: AllItemsSort = DEFAULT_SORT,
 ): AllItemsRow[] {
@@ -110,7 +112,7 @@ export function allItemsRows(
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards, snapshot.children, snapshot.items),
+      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards, snapshot.children, snapshot.named ?? snapshot.items),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });

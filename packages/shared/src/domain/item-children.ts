@@ -73,6 +73,22 @@ export function descendantIdsOf(rows: readonly ChildRow[], itemId: string): Set<
   return found;
 }
 
+/** Every Item above this one, as far as the rows go: what has to be unfolded for its row to be drawn. */
+export function ancestorIdsOf(rows: readonly ChildRow[], itemId: string): Set<string> {
+  const found = new Set<string>();
+  const next = [itemId];
+  while (next.length > 0) {
+    const at = next.pop()!;
+    for (const row of rows) {
+      if (row.childId === at && !found.has(row.parentId)) {
+        found.add(row.parentId);
+        next.push(row.parentId);
+      }
+    }
+  }
+  return found;
+}
+
 /** Whether an Item holds anything, by the count kept on it rather than the rows a snapshot happens to carry. */
 export function holdsItems(item: Pick<Item, 'childrenCount'>): boolean {
   return (item.childrenCount ?? 0) > 0;

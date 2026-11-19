@@ -1229,7 +1229,8 @@ export const panelItems = sqliteTable(
  * every change that writes `panel_items` (`item-children.ts`), and every Item
  * held by another ("Brainstorming: an Item can't hold other Items", issue
  * 1825). **What a Panel holds and what the Inbox holds are read from here**;
- * `panel_items` is still written until it is dropped (issue 1833).
+ * `panel_items` is still written until it is dropped ("Brainstorming:
+ * filings are still written to the old Panel-only table", issue 1833).
  *
  * - **Tombstoned, unlike `panel_items`**: taking an Item out sets `deleted_at`,
  *   and putting it back clears it, so the key below is never met twice.

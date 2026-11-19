@@ -198,6 +198,8 @@ export const finishedItemsSchema = z.object({
   attachments: z.array(attachmentSchema),
   /** Their additions, for the reason the snapshot carries its own (issue 1640); optional as there. */
   additions: z.array(additionSchema).optional(),
+  /** The rows of their parents that are Items (issue 1825), for the reason the snapshot carries its own; optional as there. */
+  children: z.array(childRowSchema).optional(),
   /** The newest change this read is built on, as the snapshot's `upTo` says it. */
   upTo: z.iso.datetime().optional(),
 });

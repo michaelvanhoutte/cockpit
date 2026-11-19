@@ -139,9 +139,7 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     case 'set_dismissed':
       // The Workspace read holds open Items only, so a dismissed Item is simply absent.
       // Undoing one has no copy to draw it from and waits for the next read.
-      return change.payload.dismissed
-        ? { ...snapshot, items: snapshot.items.filter((item) => item.id !== change.payload.itemId) }
-        : snapshot;
+      return change.payload.dismissed ? dismissedAhead(snapshot, change.payload.itemId) : snapshot;
     case 'set_duplicate_settled':
       return pairSettled(snapshot, change.payload);
     case 'move_item_to_panel':
@@ -692,6 +690,24 @@ function doneAhead(snapshot: WorkspaceSnapshot, done: CommandPayload<'set_done'>
     (drawn, parentId) => withCounts(drawn, parentId, 0, done.done ? 1 : -1),
     finished,
   );
+}
+
+/**
+ * An Item dismissed: gone from the copy, and from the rows holding it or held
+ * by it ("Brainstorming: an Item can't hold other Items", issue 1825), so what
+ * it held is back in the Inbox and each parent counts it out, as the server will.
+ */
+function dismissedAhead(snapshot: WorkspaceSnapshot, itemId: string): WorkspaceSnapshot {
+  const gone = snapshot.items.find((item) => item.id === itemId);
+  const rows = snapshot.children ?? [];
+  const counted = gone
+    ? parentIdsOf(rows, itemId).reduce((drawn, parentId) => withCounts(drawn, parentId, -1, stillOpen(gone) ? 0 : -1), snapshot)
+    : snapshot;
+  return {
+    ...counted,
+    items: counted.items.filter((item) => item.id !== itemId),
+    ...(snapshot.children ? { children: rows.filter((row) => row.parentId !== itemId && row.childId !== itemId) } : {}),
+  };
 }
 
 /** A parent's two counts moved by these amounts, never below nothing. */

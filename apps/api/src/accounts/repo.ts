@@ -1577,7 +1577,8 @@ export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: str
  * A Panel's order is what its own Item holds ("Brainstorming: an Item can't
  * hold other Items", issue 1825). The old table's row is joined only for the
  * two stamps it alone keeps, which the rewrite of that table writes back as
- * they were until it is dropped (issue 1833).
+ * they were until it is dropped ("Brainstorming: filings are still written
+ * to the old Panel-only table", issue 1833).
  */
 const onThePanelsOwnItem = and(
   eq(itemChildren.tenantId, panels.tenantId),

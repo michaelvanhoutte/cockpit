@@ -827,13 +827,15 @@ export function PanelBoard({
       settleLanding(landing);
       return;
     }
-    if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId)) {
+    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
+    const row = rowOf(cell ?? null, landing.itemId);
+    // Or a child row unfolded under one of its rows, which Find unfolds before
+    // it asks ("Brainstorming: an Item can't hold other Items", issue 1825).
+    if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId) && row === null) {
       if (filteringOn) clearDashboardFilter(browserStore(), dashboard.id);
       else settleLanding(landing);
       return;
     }
-    const cell = rowsRef.current?.querySelector<HTMLElement>('[data-panel-cell="' + panelId + '"]');
-    const row = rowOf(cell ?? null, landing.itemId);
     return stepLanding(landing, row);
   });
   useEffect(

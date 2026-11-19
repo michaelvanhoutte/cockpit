@@ -168,6 +168,22 @@ describe('Item editing', () => {
       expect(read(reopened, LISA)).toMatchObject({ childrenCount: 1, childrenDone: 0 });
     });
 
+    it('puts what a dismissed parent held back in the Inbox, and counts a dismissed child out of its parent', () => {
+      const CHILD = '11111111-1111-7111-8111-000000000003';
+      const copy = {
+        ...workspace([anItem(BART, { childrenCount: 1, childrenDone: 0 }), anItem(LISA, { childrenCount: 1, childrenDone: 0 }), anItem(CHILD)]),
+        children: [
+          { parentId: BART, childId: CHILD, position: 0 },
+          { parentId: LISA, childId: BART, position: 0 },
+        ],
+      };
+
+      const parentGone = drawnAhead(copy, { name: 'set_dismissed', payload: { ...envelope(BART), dismissed: true } } as CommandArgs);
+
+      expect(itemsInTheInbox(parentGone.items, [], parentGone.children).map((item) => item.id)).toContain(CHILD);
+      expect(read(parentGone, LISA)).toMatchObject({ childrenCount: 0, childrenDone: 0 });
+    });
+
     it('takes a dismissed Item out of the Workspace', () => {
       const copy = workspace([anItem(BART), anItem(LISA)]);
 

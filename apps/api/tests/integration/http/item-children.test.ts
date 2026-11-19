@@ -180,6 +180,17 @@ describe('Panels', () => {
       expect(refused.status).toBe(400);
       expect((await snapshot()).children).toEqual(before);
     });
+
+    it.each([
+      { situation: 'into a dismissed parent', dismissed: 'parent' as const },
+      { situation: 'a dismissed child', dismissed: 'child' as const },
+    ])('refuses putting $situation, as no Item is there', async ({ dismissed }) => {
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      expect((await send('set_dismissed', { itemId: dismissed === 'parent' ? chapter : storm, dismissed: true })).status).toBe(200);
+
+      expect((await putInside(chapter, storm)).status).toBe(404);
+    });
   });
 
   describe('a parent’s count and its done count stay true, whatever the Workspace’s read leaves out', () => {

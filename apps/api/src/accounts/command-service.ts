@@ -1982,13 +1982,14 @@ export function runCommand<N extends CommandName>(
     case 'add_children': {
       const cmd = payload as CommandPayload<'add_children'>;
       const parent = getItem(db, tenantId, cmd.parentId);
-      if (!parent || !parent.workspaceDecided || parent.workspaceId !== cmd.workspaceId) {
+      // A dismissed one is gone until it is brought back, so nothing goes inside it, and it goes inside nothing.
+      if (!parent || parent.deletedAt || !parent.workspaceDecided || parent.workspaceId !== cmd.workspaceId) {
         throw new ItemNotFoundError(cmd.parentId);
       }
       const children = cmd.childIds.map((id) => {
         const child = getItem(db, tenantId, id);
         // Another Workspace's Item is not one this Workspace can name, as on a Panel.
-        if (!child || (child.workspaceDecided && child.workspaceId !== parent.workspaceId)) throw new ItemNotFoundError(id);
+        if (!child || child.deletedAt || (child.workspaceDecided && child.workspaceId !== parent.workspaceId)) throw new ItemNotFoundError(id);
         return child;
       });
       const inside = ancestorsAmong(db, tenantId, parent.id, cmd.childIds);
