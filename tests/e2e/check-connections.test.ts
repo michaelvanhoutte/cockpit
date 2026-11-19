@@ -30,7 +30,7 @@ test.describe("Connector management", () => {
   test.describe("Pressing ↻ in the Inbox heading checks the Workspace's connections and brings in what was starred", () => {
     test("shows the starred conversation as an Item and says 1 new", async ({ page, isMobile }) => {
       await openFirstWorkspace(page, isMobile);
-      const workspace = uniqueTitle("Checked at once");
+      const workspace = uniqueTitle("Every connection at once");
       await giveAWorkspace(page, workspace);
       await page.reload();
       await switchTo(page, workspace, isMobile);

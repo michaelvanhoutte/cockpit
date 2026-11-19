@@ -254,7 +254,7 @@ describe('Inbox', () => {
       ended(GMAIL);
       ended(OUTLOOK, { outcome: 'failed', message: 'denied' });
 
-      const note = await screen.findByRole('status');
+      const note = (await screen.findByText(/^Checked 2 connections/)).closest('[aria-live]') as HTMLElement;
       expect(within(note).getByText(/^Checked 2 connections/)).toBeInTheDocument();
       await userEvent.click(within(note).getByRole('button', { name: OUTLOOK.name }));
       expect(opened).toEqual([['ws-privé', OUTLOOK.sourceAccountId]]);
@@ -270,7 +270,7 @@ describe('Inbox', () => {
       ended(GMAIL);
       ended(OUTLOOK, { outcome: 'failed' });
 
-      const note = await screen.findByRole('status');
+      const note = (await screen.findByText(/^Checked 2 connections/)).closest('[aria-live]') as HTMLElement;
       expect(note).toHaveTextContent(`${OUTLOOK.name} failed`);
       expect(within(note).queryByRole('button', { name: OUTLOOK.name })).toBeNull();
     });

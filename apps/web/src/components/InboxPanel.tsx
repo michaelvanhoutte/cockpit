@@ -172,8 +172,12 @@ export function InboxHeading({
           />
         </div>
       </div>
-      {/* Zero tall: the note is drawn over the column under the heading, so the band the heading sits in never changes height. */}
-      <div ref={setNoteSlot} role="status" className="relative" />
+      {/*
+        Zero tall: the note is drawn over the column under the heading, so the band the heading sits in never changes height.
+        Always there and polite, so a screen reader announces the note's first words; not a `status` role, which the
+        undo bar is, so the page keeps one status to find.
+      */}
+      <div ref={setNoteSlot} aria-live="polite" className="relative" />
       {historyOpen && (
         <Suspense fallback={null}>
           <SmartRefinementsWindow
