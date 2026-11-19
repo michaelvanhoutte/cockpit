@@ -40,7 +40,10 @@ export function useEditingSeveral({
   filing,
   scope,
   onAddAsChildOf,
+  onCombine,
 }: {
+  /** *Combine…* on Edit ▾ (issue 1826), where two or more are picked. */
+  onCombine?: ((ids: readonly string[]) => void) | undefined;
   /** *Add as child of…* on Edit ▾ ("Brainstorming: an Item can't hold other Items", issue 1825), where the bar offers it. */
   onAddAsChildOf?: (() => void) | undefined;
   workspaceId: string;
@@ -253,6 +256,7 @@ export function useEditingSeveral({
         endRuns={barEntryFor(targets)}
         onEndRuns={() => void endRuns()}
         onAddAsChildOf={onAddAsChildOf}
+        onCombine={onCombine}
       />
     ),
     /** The date field Pick a date… opens, for the bar to draw under its buttons. */

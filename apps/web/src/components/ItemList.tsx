@@ -373,6 +373,7 @@ export function ItemList({
     filing: filingSeveral.filing,
     scope,
     onAddAsChildOf: () => addingAsChild.ask(picked),
+    onCombine: addingAsChild.combine,
   });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
@@ -1147,6 +1148,8 @@ export function ItemList({
       onAddAsChildOf={(from: HTMLElement | null) => {
         addingAsChild.ask([item], from);
       }}
+      // *Combine with…* from a row's menu: this row, and the Items the window asks to combine it with (issue 1826).
+      onCombine={() => addingAsChild.combine([item.id])}
       {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
     />
     {holdsItems(item) && (

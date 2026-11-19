@@ -1815,6 +1815,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "createdAt"
+            },
+            {
+              "name": "moved_from_item_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "movedFromItemId"
             }
           ],
           "indexes": [
@@ -2854,6 +2863,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "createdAt"
+            },
+            {
+              "name": "from_item_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "fromItemId"
             }
           ],
           "indexes": [
@@ -3828,6 +3846,24 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "childrenDone"
+            },
+            {
+              "name": "merged_into_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "mergedIntoId"
+            },
+            {
+              "name": "keeps_story",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "keepsStory"
             }
           ],
           "indexes": [

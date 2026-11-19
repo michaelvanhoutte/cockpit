@@ -53,6 +53,7 @@ export function DashboardSelection({
     filing: filingSeveral.filing,
     scope,
     onAddAsChildOf: () => addingAsChild.ask(picked),
+    onCombine: addingAsChild.combine,
   });
 
   return (

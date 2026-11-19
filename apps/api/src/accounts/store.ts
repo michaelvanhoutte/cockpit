@@ -130,6 +130,7 @@ import {
   PanelNotFoundError,
   PanelOrderStaleError,
   ItemInsideItselfError,
+  MergeRefusedError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -2061,7 +2062,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // request says, and what is wrong is that moving there is not a move.
         error instanceof PanelAlreadyOnDashboardError ||
         // Same again: every Item is there, and an Item cannot be its own ancestor.
-        error instanceof ItemInsideItselfError
+        error instanceof ItemInsideItselfError ||
+        // A 400 as well: every Item is there, and one from a source is finished at its source.
+        error instanceof MergeRefusedError
       ) {
         return { status: 'refused', what: error.message };
       }

@@ -51,7 +51,10 @@ export function EditSeveralMenu({
   endRuns,
   onEndRuns,
   onAddAsChildOf,
+  onCombine,
 }: {
+  /** *Combine…* ("Brainstorming: related loose notes can't be brought together", issue 1826): merges the picked Items or puts them under a parent. Absent, it is not offered: with fewer than two picked there is nothing to combine. */
+  onCombine?: ((ids: readonly string[]) => void) | undefined;
   /** *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue 1825): asks which Item the picked ones go inside. Absent, it is not offered. */
   onAddAsChildOf?: (() => void) | undefined;
   picked: readonly Item[];
@@ -219,13 +222,16 @@ export function EditSeveralMenu({
           </DropdownMenu.Item>
           {/* In this menu rather than a button of its own, which the Inbox's
               bar, a fifth of the screen, has no room for (issue 1825). */}
+          {onAddAsChildOf && <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />}
+          {onCombine && picked.length >= 2 && (
+            <DropdownMenu.Item className={menuItemSplitClass} onSelect={() => onCombine(picked.map((item) => item.id))}>
+              <span>Combine…</span>
+            </DropdownMenu.Item>
+          )}
           {onAddAsChildOf && (
-            <>
-              <DropdownMenu.Separator className="my-1 h-px bg-shade/10" />
-              <DropdownMenu.Item className={menuItemSplitClass} onSelect={onAddAsChildOf}>
-                <span>Add as child of…</span>
-              </DropdownMenu.Item>
-            </>
+            <DropdownMenu.Item className={menuItemSplitClass} onSelect={onAddAsChildOf}>
+              <span>Add as child of…</span>
+            </DropdownMenu.Item>
           )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

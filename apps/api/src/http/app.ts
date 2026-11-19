@@ -167,6 +167,7 @@ import {
 import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { combineCommandSchemas } from '@cockpit/shared/combine-commands';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
@@ -1183,7 +1184,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     request: {
       body: {
         required: true,
-        content: { 'application/json': { schema: commandSchemas[name] } },
+        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas }[name] } },
       },
     },
     responses: {
@@ -1962,6 +1963,11 @@ const routes = app
   })
   .openapi(commandRoute('add_children'), async (c) => c.json(await change(c, 'add_children', c.req.valid('json')), 200))
   .openapi(commandRoute('remove_child'), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
+  .openapi(commandRoute('merge_items'), async (c) => c.json(await change(c, 'merge_items', c.req.valid('json')), 200))
+  .openapi(commandRoute('unmerge_items'), async (c) => c.json(await change(c, 'unmerge_items', c.req.valid('json')), 200))
+  .openapi(commandRoute('combine_under_new_parent'), async (c) =>
+    c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200),
+  )
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('wait_for_reply'), async (c) => c.json(await change(c, 'wait_for_reply', c.req.valid('json')), 200))

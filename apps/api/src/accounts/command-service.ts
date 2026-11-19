@@ -1,5 +1,5 @@
 import { and, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -9,7 +9,9 @@ import {
   dismissPanelsItems,
   insertPanelsItem,
   isInside,
+  itemParentsHolding,
   mirrorFilingsOf,
+  panelsHeldBy,
   panelsHolding,
   putInside,
   recountHoldersOf,
@@ -444,6 +446,19 @@ export class ItemInsideItselfError extends Error {
   constructor(childTitle: string, parentTitle: string) {
     super(`${parentTitle} is already inside ${childTitle}, so ${childTitle} can't go inside it`);
     this.name = 'ItemInsideItselfError';
+  }
+}
+
+/**
+ * An Item from a source asked to be merged ("Brainstorming: related loose notes
+ * can't be brought together", issue 1826). A 400: it is there, and a Merge would
+ * dismiss it here while its source still holds it open, which finishing it at
+ * the source is what ends.
+ */
+export class MergeRefusedError extends Error {
+  constructor(label: string, source: string) {
+    super(`Can't merge ${label}: it finishes at its source, ${source}, so it can't be replaced by another Item`);
+    this.name = 'MergeRefusedError';
   }
 }
 
@@ -2019,6 +2034,178 @@ export function runCommand<N extends CommandName>(
       applied = isInside(db, tenantId, parent.id, cmd.childId);
       db.transaction((tx) => {
         if (applied) takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'merge_items': {
+      const cmd = payload as CommandPayload<'merge_items'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      const originals = cmd.originalIds.map((id) => {
+        const original = getItem(db, tenantId, id);
+        // Another Workspace's Item is not one this Workspace can name, as on a Panel.
+        if (!original || original.deletedAt || (original.workspaceDecided && original.workspaceId !== cmd.workspaceId)) {
+          throw new ItemNotFoundError(id);
+        }
+        return original;
+      });
+      const sourced = itemFromASource(originals);
+      if (sourced) throw new MergeRefusedError(itemLabel(sourced), sourced.source);
+      // A resend whose command id was lost finds the Item made already, and merges nothing twice.
+      if (getItem(db, tenantId, cmd.itemId)) {
+        applied = false;
+        db.insert(commands).values(commandRow).run();
+        break;
+      }
+      // One of them in every Inbox until now is this Workspace's from here, and gone from every Inbox.
+      if (originals.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
+      // Filed wherever any of them was, at the top as a capture's File on files it.
+      const targets = panelsHeldBy(db, tenantId, cmd.originalIds).flatMap((id) => panelNamedFor(db, tenantId, cmd.workspaceId, id) ?? []);
+      const { item, filings } = decideCaptureFiling(
+        captureItem({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: cmd.itemId, message: cmd.description, title: cmd.title }, tenantId),
+        cmd,
+        targets,
+      );
+      const parents = itemParentsHolding(db, tenantId, cmd.originalIds);
+      // Their words, in the order they were written: what each captured, then what was added to it.
+      const words = originals.flatMap((original) => [
+        ...(original.capturedMessage ? [{ message: original.capturedMessage, createdAt: original.createdAt, from: original.id }] : []),
+        ...db
+          .select({ message: itemAdditions.message, createdAt: itemAdditions.createdAt })
+          .from(itemAdditions)
+          .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, original.id)))
+          .orderBy(itemAdditions.createdAt)
+          .all()
+          .map((addition) => ({ ...addition, from: original.id })),
+      ]);
+      db.transaction((tx) => {
+        tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).run();
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        for (const parentId of parents) putInside(tx, tenantId, parentId, [item.id], cmd.issuedAt);
+        for (const word of words) {
+          tx.insert(itemAdditions)
+            .values({ id: uuidv7(), tenantId, itemId: item.id, message: word.message, fromItemId: word.from, createdAt: word.createdAt })
+            .run();
+        }
+        for (const original of originals) {
+          // Their files move, each remembering where from, and the original is dismissed as merged into it.
+          tx.update(attachments)
+            .set({ itemId: item.id, movedFromItemId: original.id })
+            .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id)))
+            .run();
+          tx.update(items)
+            .set({ deletedAt: cmd.issuedAt, updatedAt: cmd.issuedAt, mergedIntoId: item.id })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
+            .run();
+          recountHoldersOf(tx, tenantId, original.id);
+          endTheOpenRun(tx, tenantId, original.id, cmd.issuedAt);
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'unmerge_items': {
+      const cmd = payload as CommandPayload<'unmerge_items'>;
+      const merged = getItem(db, tenantId, cmd.itemId);
+      if (!merged || merged.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      // Only what the trail on the row says went into this Item comes back, so a second send finds nothing to do.
+      const back = db
+        .select({ id: items.id, workspaceDecided: items.workspaceDecided })
+        .from(items)
+        .where(and(eq(items.tenantId, tenantId), inArray(items.id, cmd.originalIds), eq(items.mergedIntoId, merged.id)))
+        .all();
+      applied = back.length > 0;
+      if (back.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (applied) {
+          for (const original of back) {
+            tx.update(attachments)
+              .set({ itemId: original.id, movedFromItemId: null })
+              .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, merged.id), eq(attachments.movedFromItemId, original.id)))
+              .run();
+            tx.delete(itemAdditions)
+              .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, merged.id), eq(itemAdditions.fromItemId, original.id)))
+              .run();
+            tx.update(items)
+              .set({ deletedAt: null, updatedAt: cmd.issuedAt, mergedIntoId: null })
+              .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
+              .run();
+            recountHoldersOf(tx, tenantId, original.id);
+          }
+          // The Item the Merge made is dismissed, not erased, as every Item is.
+          tx.update(items)
+            .set({ deletedAt: cmd.issuedAt, updatedAt: cmd.issuedAt })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, merged.id), isNull(items.deletedAt)))
+            .run();
+          recountHoldersOf(tx, tenantId, merged.id);
+          endTheOpenRun(tx, tenantId, merged.id, cmd.issuedAt);
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'combine_under_new_parent': {
+      const cmd = payload as CommandPayload<'combine_under_new_parent'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      const children = cmd.childIds.map((id) => {
+        const child = getItem(db, tenantId, id);
+        // Another Workspace's Item is not one this Workspace can name, as on a Panel.
+        if (!child || child.deletedAt || (child.workspaceDecided && child.workspaceId !== cmd.workspaceId)) throw new ItemNotFoundError(id);
+        return child;
+      });
+      // A resend whose command id was lost finds the parent made already, and holds nothing twice.
+      if (getItem(db, tenantId, cmd.parentId) || getPanel(db, tenantId, cmd.parentId)) {
+        applied = false;
+        db.insert(commands).values(commandRow).run();
+        break;
+      }
+      const settling = children.filter((child) => !child.workspaceDecided);
+      if (settling.length > 0) everyWorkspaceSees(commandRow);
+      const settleChildren = (tx: InATransaction) => {
+        for (const child of settling) {
+          // Through `decideWorkspace`, as filing settles one, so its stamp never goes backwards.
+          const settled = decideWorkspace(child, cmd.workspaceId, cmd.issuedAt);
+          if (settled) settleWorkspace(tx, tenantId, child.id, settled);
+        }
+      };
+      const story = cmd.description ?? cmd.title;
+      if (cmd.dashboardId !== null) {
+        // From the Inbox: a new Panel on the Dashboard, which is the parent Item, and what is filed on it is what it holds.
+        const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
+        const name = panelNameForMove(listPanels(db, tenantId, dashboard.id), cmd.title);
+        const appended = appendedAcrossLayouts(db, tenantId, dashboard.id, cmd.parentId);
+        const panel = panelFromCommand({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, dashboardId: dashboard.id, panelId: cmd.parentId, name, kind: 'items' }, tenantId);
+        db.transaction((tx) => {
+          insertPanel(tx, panel, cmd.workspaceId);
+          insertAppended(tx, appended);
+          tx.update(items)
+            .set({ description: story, keepsStory: true })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.parentId)))
+            .run();
+          settleChildren(tx);
+          cmd.childIds.forEach((itemId, position) => {
+            tx.insert(panelItems)
+              .values({ tenantId, panelId: cmd.parentId, itemId, position, createdAt: cmd.issuedAt, filedAt: cmd.issuedAt })
+              .run();
+          });
+          mirrorFilingsOf(tx, tenantId, [cmd.parentId], cmd.issuedAt);
+          tx.insert(commands).values(commandRow).run();
+        });
+        break;
+      }
+      // From a Panel: a new Item filed on it, so a child Panel of it; or with no Panel, one of the Workspace's own.
+      const nested = cmd.panelId === null ? null : panelNamedFor(db, tenantId, cmd.workspaceId, cmd.panelId);
+      if (cmd.panelId !== null && !nested) throw new PanelNotFoundError(cmd.panelId);
+      const { item, filings } = decideCaptureFiling(
+        captureItem({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: cmd.parentId, message: story, title: cmd.title }, tenantId),
+        cmd,
+        nested ? [nested] : [],
+      );
+      db.transaction((tx) => {
+        tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE, keepsStory: true }).run();
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        settleChildren(tx);
+        putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;

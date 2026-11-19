@@ -270,6 +270,12 @@ const commandSenders = {
     api.v1.commands.add_children.$post({ json: p }, o),
   remove_child: (p: CommandPayload<'remove_child'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_child.$post({ json: p }, o),
+  merge_items: (p: CommandPayload<'merge_items'>, o?: ClientRequestOptions) =>
+    api.v1.commands.merge_items.$post({ json: p }, o),
+  unmerge_items: (p: CommandPayload<'unmerge_items'>, o?: ClientRequestOptions) =>
+    api.v1.commands.unmerge_items.$post({ json: p }, o),
+  combine_under_new_parent: (p: CommandPayload<'combine_under_new_parent'>, o?: ClientRequestOptions) =>
+    api.v1.commands.combine_under_new_parent.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
   wait_for_reply: (p: CommandPayload<'wait_for_reply'>, o?: ClientRequestOptions) =>

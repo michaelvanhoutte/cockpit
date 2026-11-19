@@ -1109,6 +1109,21 @@ export const items = sqliteTable(
      */
     childrenCount: integer('children_count').notNull().default(0),
     childrenDone: integer('children_done').notNull().default(0),
+    /**
+     * The Item this one was merged into ("Brainstorming: related loose notes
+     * can't be brought together", issue 1826): set on each original of a Merge
+     * in the transaction that dismisses it, so the dismissal reads as *Merged
+     * into …*, and cleared by `unmerge_items`. Null on every Item that never
+     * was. No REFERENCES, for the reason `proposed_panel_id` has none, and no CHECK.
+     */
+    mergedIntoId: text('merged_into_id'),
+    /**
+     * Whether Claude keeps this Item's description up to date as Items join or
+     * leave it ("Keep its story up to date", issue 1827): stored on for a
+     * parent Combine makes, 0 for every other Item. Nothing reads it before
+     * that issue. A flag with no CHECK, for the reason `unseen` has none.
+     */
+    keepsStory: integer('keeps_story', { mode: 'boolean' }).notNull().default(false),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 
@@ -1738,6 +1753,12 @@ export const attachments = sqliteTable(
     filename: text('filename').notNull(),
     size: integer('size').notNull(),
     contentType: text('content_type').notNull(),
+    /**
+     * The Item this file was on before a Merge moved it ("Brainstorming:
+     * related loose notes can't be brought together", issue 1826), which
+     * `unmerge_items` moves it back to; null for a file that never moved.
+     */
+    movedFromItemId: text('moved_from_item_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
@@ -1773,6 +1794,13 @@ export const itemAdditions = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: 'restrict' }),
     message: text('message').notNull(),
+    /**
+     * The original this Addition was made from when a Merge stitched Items
+     * together ("Brainstorming: related loose notes can't be brought together",
+     * issue 1826), which `unmerge_items` takes the Addition away by; null for
+     * one a person wrote.
+     */
+    fromItemId: text('from_item_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [

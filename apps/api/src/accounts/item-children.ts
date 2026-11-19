@@ -202,3 +202,39 @@ export function isInside(db: AccountDb, tenantId: string, parentId: string, chil
 function recount(tx: InATransaction, tenantId: string, itemId: string): void {
   tx.run(sql`UPDATE items SET ${COUNTS} WHERE tenant_id = ${tenantId} AND id = ${itemId}`);
 }
+
+/**
+ * The Panels any of these Items is filed on, each once, in the order they are
+ * met: where a Merge files the Item it makes ("Brainstorming: related loose
+ * notes can't be brought together", issue 1826).
+ */
+export function panelsHeldBy(db: AccountDb, tenantId: string, itemIds: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const itemId of itemIds) {
+    const rows = db.all<{ panel_id: string }>(
+      sql`SELECT panel_id FROM panel_items WHERE tenant_id = ${tenantId} AND item_id = ${itemId} ORDER BY created_at, panel_id`,
+    );
+    for (const row of rows) if (!found.includes(row.panel_id)) found.push(row.panel_id);
+  }
+  return found;
+}
+
+/**
+ * The Items, not Panels, that hold any of these, each once: a Merge's Item goes
+ * inside every one its originals were inside. A Panel's own Item is left out,
+ * since filing writes that (`writeFiling`).
+ */
+export function itemParentsHolding(db: AccountDb, tenantId: string, itemIds: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const itemId of itemIds) {
+    const rows = db.all<{ parent_id: string }>(
+      sql`SELECT c.parent_id FROM item_children c JOIN items p ON p.id = c.parent_id
+           WHERE c.tenant_id = ${tenantId} AND c.child_id = ${itemId} AND c.deleted_at IS NULL
+             AND p.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM panels WHERE tenant_id = ${tenantId} AND item_id = c.parent_id)
+           ORDER BY c.created_at, c.parent_id`,
+    );
+    for (const row of rows) if (!found.includes(row.parent_id)) found.push(row.parent_id);
+  }
+  return found;
+}
