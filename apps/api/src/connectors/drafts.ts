@@ -101,6 +101,19 @@ export function mailboxesOf(
 }
 
 /**
+ * The Workspace's pulled connections, oldest first, as the Workspace read carries them for the Inbox's ↻ ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835): each named by its source and its account, *Outlook · me@work.com*, as the note says it failed.
+ */
+export function checkableOf(
+  env: Env,
+  connections: readonly { id: string; connectorId: string; displayName: string }[],
+): { sourceAccountId: string; name: string }[] {
+  const pulled = new Map(connectors(env).filter((one) => one.manifest.pulled).map((one) => [one.manifest.id, one.manifest.displayName]));
+  return connections
+    .filter((one) => pulled.has(one.connectorId))
+    .map((one) => ({ sourceAccountId: one.id, name: `${pulled.get(one.connectorId)} · ${one.displayName}` }));
+}
+
+/**
  * Makes the draft one click asked for, and answers where it opens. The click's
  * own id makes resending it safe: a draft already recorded is answered as it
  * is; one asked for and never recorded is asked for again, the worst case

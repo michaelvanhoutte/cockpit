@@ -14,10 +14,11 @@ import type {
 } from '@cockpit/connector-sdk';
 import type { AccountDb } from './client.js';
 import { GUEST_ACCOUNT_NAME } from './new-user.js';
-import { SourceAccountNotFoundError, runCommand } from './command-service.js';
+import { SourceAccountNotFoundError, WorkspaceNotFoundError, runCommand } from './command-service.js';
 import {
   getItem,
   getSourceAccount,
+  getWorkspace,
   listDashboards,
   listFilingsOnPanel,
   listPanels,
@@ -214,6 +215,42 @@ export function checkPulledConnectionNow(
   }
   db.update(pulledConnections).set({ dueAt: now.toISOString(), checkReason: 'check-now' }).where(where).run();
   return 'queued';
+}
+
+/**
+ * *Check now* on every pulled connection of one Workspace ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835): each
+ * connection by the rules of `checkPulledConnectionNow`, oldest first, in one
+ * transaction. Refused as not found for the guest and for a Workspace this
+ * account does not have; a Workspace with no pulled connection answers none.
+ */
+export function checkWorkspaceConnectionsNow(
+  db: AccountDb,
+  accountName: string,
+  workspaceId: string,
+  pulledIds: readonly string[],
+  now: Date,
+): { sourceAccountId: string; status: CheckedNow }[] {
+  if (accountName === GUEST_ACCOUNT_NAME || !getWorkspace(db, accountName, workspaceId)) {
+    throw new WorkspaceNotFoundError(workspaceId);
+  }
+  return db.transaction(() => {
+    const ids = db
+      .select({ id: connectorAccounts.id })
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, accountName),
+          eq(connectorAccounts.workspaceId, workspaceId),
+          inArray(connectorAccounts.connectorId, [...pulledIds]),
+        ),
+      )
+      .orderBy(asc(connectorAccounts.connectedAt), asc(connectorAccounts.id))
+      .all();
+    return ids.map(({ id }) => ({
+      sourceAccountId: id,
+      status: checkPulledConnectionNow(db, accountName, workspaceId, id, pulledIds, now),
+    }));
+  });
 }
 
 /**

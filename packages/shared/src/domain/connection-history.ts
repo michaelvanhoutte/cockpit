@@ -104,3 +104,15 @@ export const checkedNowSchema = z.object({
   at: z.iso.datetime().optional(),
 });
 export type CheckedNow = z.infer<typeof checkedNowSchema>;
+
+/**
+ * What pressing the Inbox's ↻ did ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835): each pulled connection of the
+ * Workspace answered as *Check now* answers it, and `at`, the store's clock at
+ * the press, which a connection's history line must be last run at or after to
+ * be the check the press waits on.
+ */
+export const workspaceCheckedNowSchema = z.object({
+  connections: z.array(z.object({ sourceAccountId: z.string(), status: checkedNowSchema.shape.status })),
+  at: z.iso.datetime(),
+});
+export type WorkspaceCheckedNow = z.infer<typeof workspaceCheckedNowSchema>;

@@ -64,7 +64,7 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useLanding } from '../landOnItem';
 import { usePanelListCollapsed, usePanelListing } from '../panelList';
 import { useConnections } from '../connections';
-import { SettingsOpener } from '../settingsOpener';
+import { ConnectionHistoryOpener, SettingsOpener } from '../settingsOpener';
 import type { ConnectOutcomeFor, SettingsKey } from '../components/SettingsWindow';
 import { useScrollWhileDraggingAnItem } from '../dragScroll';
 import { useOutbox, useSendingCaptures, useWaitingCaptures } from '../captureOutboxSender';
@@ -494,6 +494,8 @@ function TheShell() {
   const [connectOutcome, setConnectOutcome] = useState<ConnectOutcomeFor | undefined>(undefined);
   /** The remembered sentence Settings opens for editing, where a window that used it sent the person there. */
   const [settingsSentence, setSettingsSentence] = useState<string | undefined>(undefined);
+  /** The connection whose history Settings opens on, where the Inbox's ↻ named it as failed ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
+  const [settingsConnection, setSettingsConnection] = useState<{ workspaceId: string; sourceAccountId: string } | undefined>(undefined);
   /** The profile control, which the focus returns to when Settings closes. */
   const profileControl = useRef<HTMLButtonElement>(null);
   /** Open from outside too, since the Offline mark opens the same menu. */
@@ -522,6 +524,7 @@ function TheShell() {
     setSettingsOn(on);
     setConnectOutcome(outcome);
     setSettingsSentence(undefined);
+    setSettingsConnection(undefined);
     setManaging('settings');
   }, []);
   /** Settings on one remembered sentence, over the window that used it (issue 1164). */
@@ -529,6 +532,15 @@ function TheShell() {
     setSettingsOn('remembered');
     setConnectOutcome(undefined);
     setSettingsSentence(sentenceId);
+    setSettingsConnection(undefined);
+    setManaging('settings');
+  }, []);
+  /** Settings › Connections on one connection's history, over the Inbox that named it ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
+  const openConnectionHistory = useCallback((workspaceId: string, sourceAccountId: string) => {
+    setSettingsOn('connections');
+    setConnectOutcome(undefined);
+    setSettingsSentence(undefined);
+    setSettingsConnection({ workspaceId, sourceAccountId });
     setManaging('settings');
   }, []);
 
@@ -730,6 +742,7 @@ function TheShell() {
   return (
     <CaptureOpenerContext.Provider value={openCaptureOn}>
     <SettingsOpener.Provider value={openSentence}>
+    <ConnectionHistoryOpener.Provider value={openConnectionHistory}>
     <div
       className="flex h-dvh flex-col"
       // A click anywhere in the shell, asked whether it landed on a control
@@ -1227,6 +1240,8 @@ function TheShell() {
             outcome={connectOutcome}
             guest={me?.user.id === GUEST_USER_ID}
             sentenceId={settingsSentence}
+            connection={settingsConnection}
+            onConnectionShown={() => setSettingsConnection(undefined)}
             onlyAppearance={!roomForTheInbox}
             onClose={() => setManaging(null)}
             returnFocusTo={profileControl.current}
@@ -1284,6 +1299,7 @@ function TheShell() {
         </Suspense>
       )}
     </div>
+    </ConnectionHistoryOpener.Provider>
     </SettingsOpener.Provider>
     </CaptureOpenerContext.Provider>
   );

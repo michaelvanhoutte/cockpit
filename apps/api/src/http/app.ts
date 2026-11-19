@@ -39,6 +39,7 @@ import {
   ownAliasSchema,
   connectionHistorySchema,
   checkedNowSchema,
+  workspaceCheckedNowSchema,
   uuidv7,
   userAddedSchema,
   userChangedSchema,
@@ -166,7 +167,7 @@ import {
 } from '../auth/register.js';
 import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
-import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
+import { DraftNotMadeError, checkableOf, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
@@ -945,6 +946,29 @@ const checkConnectionNowRoute = createRoute({
 });
 
 /**
+ * *Check now* on every pulled connection of one Workspace, from the Inbox's
+ * heading ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now",
+ * issue 1835): each marked due in one transaction by the rules of the card's
+ * own, answered with its status and the store's time. Refused as the card's is
+ * for the guest and for a Workspace the account does not have.
+ */
+const checkWorkspaceConnectionsNowRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/connections/check-now',
+  request: { params: z.object({ workspaceId: z.string() }) },
+  responses: {
+    200: {
+      description: 'What pressing it did to each pulled connection of the Workspace',
+      content: { 'application/json': { schema: workspaceCheckedNowSchema } },
+    },
+    404: {
+      description: 'Unknown workspace',
+      content: { 'application/json': { schema: errorSchema } },
+    },
+  },
+});
+
+/**
  * The connectors this environment's registry holds that a person can sign in
  * to ("List the registry's connectors in the Connections window", issue 894):
  * what the Connections window draws a card from, so adding a source adds its
@@ -1496,6 +1520,8 @@ const routes = app
         ...snapshot,
         // The connections Email… may use, which only the registry can say (issue 1708).
         mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
+        // The ones the Inbox's ↻ checks, which only the registry can say are pulled; the guest's demo connections are never checked ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835).
+        checkable: c.get('visitor').accountName === GUEST_ACCOUNT_NAME ? [] : checkableOf(c.env, connections),
         sourceNames: sourceNames(c.env),
         messageLinks: messageLinks(c.env),
         phoneLinks: phoneLinks(c.env),
@@ -1598,6 +1624,11 @@ const routes = app
     // Throws where it is not a live pulled connection of this Workspace,
     // which `onError` answers with the 404 every connection route gives.
     return c.json(await account.checkNow(workspaceId, sourceAccountId), 200);
+  })
+  .openapi(checkWorkspaceConnectionsNowRoute, async (c) => {
+    const { workspaceId } = c.req.valid('param');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    return c.json(await account.checkWorkspaceNow(workspaceId), 200);
   })
   .openapi(registeredConnectorsRoute, async (c) => {
     // Listed only where Connect would go through: the sign-in, client and

@@ -22,6 +22,17 @@ export const serverEventSchema = z.discriminatedUnion('type', [
     type: z.literal('connection_history_changed'),
     workspaceId: z.string(),
     sourceAccountId: z.string(),
+    /**
+     * What the newest line says ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835), so a tab waiting on the check
+     * ticks it off without a read: `at` is the line's last time, `broughtIn`
+     * and `closed` what that line did. Optional so an older Worker's
+     * announcement still reads.
+     */
+    outcome: z.enum(['worked', 'failed']).optional(),
+    message: z.string().nullable().optional(),
+    broughtIn: z.number().int().min(0).optional(),
+    closed: z.number().int().min(0).optional(),
+    at: z.iso.datetime().optional(),
   }),
   /**
    * A remembered sentence was kept, reworded or deleted ("Show a

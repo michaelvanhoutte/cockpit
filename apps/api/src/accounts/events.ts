@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, inArray, max } from 'drizzle-orm';
 import { ACCOUNT_WIDE, type CommandName, type ServerEvent } from '@cockpit/shared';
+import type { DidStored } from '../domain/connection-history.js';
 import type { AccountDb } from './client.js';
 import { commands, connectionHistory, connectorAccounts, itemMeanings, items } from './schema.js';
 
@@ -96,25 +97,65 @@ export function collectInvalidations(
    * history", issue 1143). So the lines are a source of their own event, naming
    * the connection and not the snapshot, which they do not change.
    */
+  const lines = new Map<string, HistoryNews>();
   for (const line of historyWrittenSince(db, tenantId, since).all()) {
-    events.push({ type: 'connection_history_changed', workspaceId: line.workspaceId, sourceAccountId: line.sourceAccountId });
+    // Oldest first, so the last line of a connection is the newest and says all of it: its own outcome, message, counts and time.
+    lines.set(line.sourceAccountId, {
+      workspaceId: line.workspaceId,
+      outcome: line.outcome,
+      message: line.outcome === 'failed' ? line.message : null,
+      ...countsOf(line.did),
+      at: line.lastAt,
+    });
     if (line.lastAt > cursor) cursor = line.lastAt;
+  }
+  for (const [sourceAccountId, news] of lines) {
+    events.push({ type: 'connection_history_changed', sourceAccountId, ...news });
   }
   return { events, cursor };
 }
 
 /**
- * The connections of a live Workspace whose history a check wrote to after a
- * cursor, each once with the newest time - a line a quiet check extends moves
- * its `last_at`, so it counts as written too. Unrun, so the test that proves a
- * poll with nothing new reads no line can plan this very statement.
+ * What a line's stored `did` counts as brought in and closed. A line that
+ * cannot be read counts as none: this runs in every open stream's poll, so one
+ * bad row must not end them all.
+ */
+function countsOf(did: string | null): { broughtIn: number; closed: number } {
+  if (did === null) return { broughtIn: 0, closed: 0 };
+  try {
+    const kept = JSON.parse(did) as Partial<DidStored> | null;
+    const count = (value: unknown) => (typeof value === 'number' && value >= 0 ? Math.floor(value) : 0);
+    return { broughtIn: count(kept?.broughtIn?.count), closed: count(kept?.closed?.count) };
+  } catch {
+    return { broughtIn: 0, closed: 0 };
+  }
+}
+
+/** What the newest line a connection wrote since a cursor says, for the announcement of it. */
+type HistoryNews = {
+  workspaceId: string;
+  outcome: 'worked' | 'failed';
+  message: string | null;
+  broughtIn: number;
+  closed: number;
+  at: string;
+};
+
+/**
+ * The lines of a live Workspace's connections that a check wrote or extended
+ * after a cursor, oldest first - a line a quiet check extends moves its
+ * `last_at`, so it counts as written too. Unrun, so a test can plan this very
+ * statement.
  */
 export function historyWrittenSince(db: AccountDb, tenantId: string, since: string) {
   return db
     .select({
       workspaceId: connectorAccounts.workspaceId,
       sourceAccountId: connectionHistory.sourceAccountId,
-      lastAt: max(connectionHistory.lastAt).mapWith(String),
+      outcome: connectionHistory.outcome,
+      message: connectionHistory.message,
+      did: connectionHistory.did,
+      lastAt: connectionHistory.lastAt,
     })
     .from(connectionHistory)
     .innerJoin(connectorAccounts, eq(connectorAccounts.id, connectionHistory.sourceAccountId))
@@ -125,7 +166,7 @@ export function historyWrittenSince(db: AccountDb, tenantId: string, since: stri
         gt(connectionHistory.lastAt, since),
       ),
     )
-    .groupBy(connectorAccounts.workspaceId, connectionHistory.sourceAccountId);
+    .orderBy(connectionHistory.lastAt);
 }
 
 /**

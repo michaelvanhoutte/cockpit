@@ -387,6 +387,8 @@ export interface Account {
   beginPulledRun(sourceAccountId: string): Promise<PulledRunBegun>;
   /** *Check now* on one pulled connection of this Workspace - its check made due at once (issue 1143). */
   checkNow(workspaceId: string, sourceAccountId: string): Promise<{ status: CheckedNow; at: string }>;
+  /** *Check now* on every pulled connection of the Workspace ("Inbox: mail you just labelled waits for the five-minute check, or a Check now per connection in Settings: add a ↻ to the Inbox heading that checks them all now", issue 1835). */
+  checkWorkspaceNow(workspaceId: string): Promise<{ connections: { sourceAccountId: string; status: CheckedNow }[]; at: string }>;
   /** What a run that took its lease may do with its connection, until it ends (issue 891). */
   pulledRun(sourceAccountId: string, runId: string): PulledRun;
   /**
@@ -562,6 +564,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     beginPulledRun: async (sourceAccountId) => unwrap(await store.beginPulledRun(accountName, sourceAccountId)),
     checkNow: async (workspaceId, sourceAccountId) =>
       unwrap(await store.checkPulledConnectionNow(accountName, workspaceId, sourceAccountId)),
+    checkWorkspaceNow: async (workspaceId) => unwrap(await store.checkWorkspaceConnectionsNow(accountName, workspaceId)),
     pulledRun: (sourceAccountId, runId) => ({
       state: async () => unwrap(await store.pulledState(accountName, sourceAccountId, runId)),
       saveState: async (state) => unwrap(await store.savePulledState(accountName, sourceAccountId, runId, state)),
