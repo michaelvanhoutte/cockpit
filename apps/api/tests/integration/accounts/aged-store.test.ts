@@ -56,6 +56,8 @@ import { inStoreAsItIs, storeNamed } from '../seed.js';
 const AT = '2026-08-12T10:00:00.000Z';
 /** A second and two seconds later, so the workspaces below have an order to keep. */
 const LATER = '2026-08-12T10:00:01.000Z';
+/** A person's filing, recorded before the Panel's order was last rewritten. */
+const FILED = '2026-08-01T09:00:00.000Z';
 const LATEST = '2026-08-12T10:00:02.000Z';
 /** When the item that was already finished with was last touched, which is when it was finished. */
 const FINISHED_AT = '2026-08-12T16:00:00.000Z';
@@ -4187,6 +4189,8 @@ describe('Panels', () => {
       file('pn-people', 'it-hero', 2);
       file('pn-acts', 'it-mentor', 0);
       file('pn-acts', 'it-ferry', 1);
+      // Filed by a person before Acts was last reordered, which `created_at` forgets and `filed_at` keeps.
+      sql.exec("UPDATE panel_items SET filed_at = ? WHERE panel_id = 'pn-acts' AND item_id = 'it-mentor'", FILED);
       file('pn-deleted', 'it-left-behind', 0);
       file('pn-orphan', 'it-on-gone', 0);
       for (let n = 0; n < BIG; n += 1) {
@@ -4296,6 +4300,22 @@ describe('Panels', () => {
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
 
       expect((await heldBy(name, panelId)).held).toEqual(held);
+    });
+
+    it.each([
+      { situation: 'a person filed it, from when they did', childId: 'it-mentor', heldFrom: FILED },
+      { situation: 'nobody recorded filing it, from the Panel’s last reorder', childId: 'it-ferry', heldFrom: AT },
+    ])('holds a filing where $situation', async ({ childId, heldFrom }) => {
+      const name = `aged-store-panel-holds-from-${childId}`;
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec("SELECT created_at FROM item_children WHERE parent_id = 'pn-acts' AND child_id = ?", childId).one(),
+        ),
+      ).toEqual({ created_at: heldFrom });
     });
 
     it('keeps a dismissed Item dismissed while it is held', async () => {

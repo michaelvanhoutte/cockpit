@@ -531,8 +531,9 @@ export const panels = sqliteTable(
      * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
      * to hand out, and makes a replay a no-op.
      *
-     * Null until the backfill reaches the Panel, and on a deleted Panel or one
-     * on a deleted Dashboard, which get none. **No REFERENCES**: `items` already
+     * Null until the backfill reaches the Panel, and on a Panel deleted, or on
+     * a Dashboard deleted, before it ran, which get none; a Panel deleted since
+     * keeps its Item, dismissed with it. **No REFERENCES**: `items` already
      * points here through `proposed_panel_id`, and a link back would put the two
      * tables in a circle a restore cannot order (`tablesParentsFirst`,
      * restore.ts). The unique index `panels_item` holds one Panel to an Item.

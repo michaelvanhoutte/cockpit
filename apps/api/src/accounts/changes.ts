@@ -1859,6 +1859,10 @@ const PANELS_BECOME_ITEMS: Change = {
   statements: panelsBecomeItems(),
 };
 
+/**
+ * A filing is held from when a person filed it (`filed_at`), which survives a
+ * Panel's reorders, and otherwise from the Panel's last rewrite (`created_at`).
+ */
 function panelsBecomeItems(): Statement[] {
   return [
     {
@@ -1877,7 +1881,7 @@ function panelsBecomeItems(): Statement[] {
     },
     {
       sql: `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
-              SELECT f.tenant_id, p.item_id, f.item_id, f.position, f.created_at
+              SELECT f.tenant_id, p.item_id, f.item_id, f.position, coalesce(f.filed_at, f.created_at)
                 FROM panel_items f
                 LEFT JOIN panels p ON p.id = f.panel_id
                 LEFT JOIN dashboards d ON d.id = p.dashboard_id
