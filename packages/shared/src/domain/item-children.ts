@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { Item } from './item.js';
-import { stillOpen } from './filing.js';
 
 /**
  * An Item held by another Item ("Brainstorming: an Item can't hold other
@@ -19,74 +18,9 @@ export type ChildRow = z.infer<typeof childRowSchema>;
 /** The most Items one *Add as child of…* takes at once: a screenful of picked rows. */
 export const CHILDREN_ADDED_AT_ONCE = 50;
 
-/** Which of two rows of one parent comes first, as `byPlaceOnPanel` orders a Panel's. */
-function byPlace(a: ChildRow, b: ChildRow): number {
-  return a.position - b.position || (a.childId < b.childId ? -1 : a.childId > b.childId ? 1 : 0);
-}
-
-/**
- * The open Items a parent holds, in its order: what its row unfolds to. An id
- * the snapshot does not carry (finished long ago, dismissed in another tab)
- * is skipped, as `itemsOnPanel` skips one.
- */
-export function childrenOf(rows: readonly ChildRow[], items: readonly Item[], parentId: string): Item[] {
-  const byId = new Map(items.filter(stillOpen).map((item) => [item.id, item]));
-  return rows
-    .filter((row) => row.parentId === parentId)
-    .slice()
-    .sort(byPlace)
-    .map((row) => byId.get(row.childId))
-    .filter((item): item is Item => item !== undefined);
-}
-
 /** The ids of the Items holding this one, in the order the rows came. */
 export function parentIdsOf(rows: readonly ChildRow[], itemId: string): string[] {
   return [...new Set(rows.filter((row) => row.childId === itemId).map((row) => row.parentId))];
-}
-
-/** The ids of the Items this one holds that the snapshot carries, in its order. */
-export function childIdsOf(rows: readonly ChildRow[], itemId: string): string[] {
-  return rows
-    .filter((row) => row.parentId === itemId)
-    .slice()
-    .sort(byPlace)
-    .map((row) => row.childId);
-}
-
-/**
- * Every Item below this one, as far as the rows go: what may not become its
- * parent, since an Item never sits inside itself. The server walks the whole
- * tree and refuses; this only keeps the picker from offering what it would.
- */
-export function descendantIdsOf(rows: readonly ChildRow[], itemId: string): Set<string> {
-  const found = new Set<string>();
-  const next = [itemId];
-  while (next.length > 0) {
-    const at = next.pop()!;
-    for (const row of rows) {
-      if (row.parentId === at && !found.has(row.childId)) {
-        found.add(row.childId);
-        next.push(row.childId);
-      }
-    }
-  }
-  return found;
-}
-
-/** Every Item above this one, as far as the rows go: what has to be unfolded for its row to be drawn. */
-export function ancestorIdsOf(rows: readonly ChildRow[], itemId: string): Set<string> {
-  const found = new Set<string>();
-  const next = [itemId];
-  while (next.length > 0) {
-    const at = next.pop()!;
-    for (const row of rows) {
-      if (row.childId === at && !found.has(row.parentId)) {
-        found.add(row.parentId);
-        next.push(row.parentId);
-      }
-    }
-  }
-  return found;
 }
 
 /** Whether an Item holds anything, by the count kept on it rather than the rows a snapshot happens to carry. */

@@ -5,6 +5,8 @@ import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import { useUnfolded } from '../unfoldedParents';
 import { ItemList } from './ItemList';
+// What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
+import '../childrenDrawnAhead';
 
 /**
  * A parent's children as full rows of their own, indented under its row
@@ -60,5 +62,34 @@ export default function HeldRows({
         emptyMessage=""
       />
     </li>
+  );
+}
+
+/**
+ * A row's ▸ when it holds Items: folds and unfolds them under it, and does
+ * nothing else - no open, no pick - so a press stops here.
+ */
+export function Unfolder({ itemId, label }: { itemId: string; label: string }) {
+  const { unfolded, toggle } = useUnfolded(itemId);
+  const stopHere = (event: React.SyntheticEvent) => event.stopPropagation();
+  return (
+    <button
+      type="button"
+      aria-expanded={unfolded}
+      aria-label={unfolded ? `Fold ${label}` : `Unfold ${label}`}
+      data-unfolds={itemId}
+      onPointerDown={stopHere}
+      onMouseDown={stopHere}
+      onPointerUp={stopHere}
+      onDoubleClick={stopHere}
+      onClick={(event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        toggle();
+      }}
+      className="w-3 shrink-0 text-xs text-accent-deep"
+    >
+      {unfolded ? '▾' : '▸'}
+    </button>
   );
 }

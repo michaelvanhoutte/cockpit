@@ -148,3 +148,25 @@ export async function takeOffAgain(d: Putting, items: readonly Item[], panelId: 
       .map((item) => d.send({ name: 'remove_item_from_panel', payload: { ...envelope(d, item.id), panelId } })),
   );
 }
+
+/**
+ * Takes an Item moved to the Inbox out of every Item holding it, or it would
+ * be in no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825);
+ * here rather than in the list, so it is fetched with the move's Undo.
+ */
+export function takeOutOfParents(d: Pick<Putting, 'workspaceId' | 'send'>, childId: string, parentIds: readonly string[]): Promise<void> {
+  return allBack(
+    parentIds.map((parentId) =>
+      d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
+    ),
+  );
+}
+
+/** Puts it back inside each of them: the other half of the move's Undo. */
+export function putBackInParents(d: Pick<Putting, 'workspaceId' | 'send'>, childId: string, parentIds: readonly string[]): Promise<void> {
+  return allBack(
+    parentIds.map((parentId) =>
+      d.send({ name: 'add_children', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [childId] } }),
+    ),
+  );
+}

@@ -3,6 +3,8 @@ import { WORKSPACE_THEMES, attachmentSchema, itemSchema, itemStatus, itemsInTheI
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { DRAWN_AHEAD, drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+// Fetched by a Workspace holding Items in Items; here, loaded with the cases that draw them.
+import '../../src/childrenDrawnAhead';
 import { forgetEndedRuns, rememberEnded } from '../../src/endedRuns';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 

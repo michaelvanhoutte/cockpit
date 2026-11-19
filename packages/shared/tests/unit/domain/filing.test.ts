@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Dashboard, Item } from '../../../src/domain/item.js';
 import type { Filing, Panel } from '../../../src/domain/panel.js';
 import { itemsInTheInbox, itemsOnPanel, itemsThatAreFiled, whereItIs } from '../../../src/domain/filing.js';
+import { whereItSits } from '../../../src/domain/held-places.js';
 
 /**
  * L1: what the Inbox holds is a view over the snapshot, so this is pure logic
@@ -267,7 +268,7 @@ describe('Inbox', () => {
     it('names the Item holding one filed nowhere, rather than the Inbox it is not in', () => {
       const chapter = { ...anItem('chapter', null), title: 'Chapter 3' };
       const children = [{ parentId: 'chapter', childId: 'x', position: 0 }];
-      expect(whereItIs(anItem('x', null), [], PANELS, DASHBOARDS, children, [chapter])).toBe('Inside Chapter 3');
+      expect(whereItSits(anItem('x', null), [], PANELS, DASHBOARDS, children, [chapter])).toBe('Inside Chapter 3');
     });
   });
 });

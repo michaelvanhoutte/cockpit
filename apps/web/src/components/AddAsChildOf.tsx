@@ -12,6 +12,8 @@ import {
 } from '@cockpit/shared';
 import type { CommandArgs } from '../api/queries';
 import type { Undoable } from '../undo';
+// What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
+import '../childrenDrawnAhead';
 
 /** The most Items the picker lists at once; typing narrows it. */
 const LISTED = 8;

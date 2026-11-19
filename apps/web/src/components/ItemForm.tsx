@@ -34,11 +34,9 @@ import {
   type Priority,
   type StatusState,
   filingsThatFile,
-  insideOf,
 } from '@cockpit/shared';
 import { attachmentUrl, uploadAttachment } from '../api/client';
 import { changes } from '../api/changes';
-import { useRelationCount } from './ItemRelations';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
@@ -93,8 +91,11 @@ import { useCockpitChanges } from '../useCockpitChanges';
 
 /** The tab's list and its before-and-after, loaded the first time the tab is opened; only the note's check is in the form's own code (issue 690). */
 const WhatCockpitChangedList = lazy(() => import('./WhatCockpitChangedList'));
-/** The Relations tab, fetched when it opens (issue 1825). */
+/** The Relations tab, fetched when it opens ("Brainstorming: an Item can't hold other Items", issue 1825). */
 const ItemRelationsTab = lazy(() => import('./ItemRelationsTab'));
+/** The Relations count and where a held Item is, fetched with the form's first draw (issue 1825). */
+const RelationCount = lazy(() => import('./ItemFormHeld').then((loaded) => ({ default: loaded.RelationCount })));
+const InsideOrInbox = lazy(() => import('./ItemFormHeld').then((loaded) => ({ default: loaded.InsideOrInbox })));
 
 /** The *On panels* field, loaded behind the form like the editor, so the initial bundle does not carry it (issue 1106). */
 const FileOnLine = lazy(() => import('./FileOnLine').then((loaded) => ({ default: loaded.FileOnLine })));
@@ -1027,8 +1028,6 @@ function TheForm({
    */
   const [tab, setTab] = useState<(typeof TABS)[number]>('item');
   const formId = useId();
-  /** Its parents and children, for the Relations tab's title ("Brainstorming: an Item can't hold other Items", issue 1825). */
-  const relationCount = useRelationCount(workspaceId, item);
   /** Opening the tab is seeing what Cockpit changed, so the note under the tabs goes, and stays gone for that change. */
   const seeChanges = cockpit.markSeen;
   useEffect(() => {
@@ -1990,11 +1989,10 @@ function TheForm({
                     >
                       {TAB_NAMES[which]}
                       {/* Titled with how many, as the POC's (issue 1825). */}
-                      {which === 'relations' && relationCount > 0 && (
-                        <>
-                          {' '}
-                          <span className="text-ink-faint">· {relationCount}</span>
-                        </>
+                      {which === 'relations' && item && (
+                        <Suspense fallback={null}>
+                          <RelationCount workspaceId={workspaceId} item={item} />
+                        </Suspense>
                       )}
                       {which === 'attachments' && anyFiles && (
                         <>
@@ -2284,10 +2282,12 @@ function TheForm({
                           <p className="text-sm text-ink-soft">
                             {onPanels.shown.length > 0
                               ? `On ${onPanels.shown.map((one) => one.name).join(', ')}`
-                              : // Held by an Item is out of the Inbox too (issue 1825).
-                                insideOf(itemId, data?.children ?? [], data?.items ?? []).length > 0
-                                ? `Inside ${insideOf(itemId, data?.children ?? [], data?.items ?? []).join(', ')}`
-                                : 'In the Inbox'}
+                              : (
+                                  // Held by an Item is out of the Inbox too (issue 1825).
+                                  <Suspense fallback={null}>
+                                    <InsideOrInbox workspaceId={workspaceId} itemId={itemId} />
+                                  </Suspense>
+                                )}
                           </p>
                         ) : onPanelsFailed ? (
                           <p role="alert" className="text-sm text-over-ink">

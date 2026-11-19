@@ -18,7 +18,6 @@ import {
   itemsOnPanel,
   holdsItems,
   parentIdsOf,
-  descendantIdsOf,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
@@ -333,25 +332,26 @@ export function ItemList({
   /** Everything a selection put on screen, gone together. */
   const stopSelecting = () => endSelection(scope);
 
+  // A Workspace holding Items in Items draws their changes ahead with code of
+  // its own, fetched here on its first draw (`ChildrenDrawn`, drawnAhead.ts).
+  const holdsAny = (data?.children?.length ?? 0) > 0 || items.some(holdsItems);
+  useEffect(() => {
+    if (holdsAny) void import('../childrenDrawnAhead').catch(() => {});
+  }, [holdsAny]);
   /**
    * The picked rows this list shows, in the order it shows them. The Inbox's
    * bar also carries the child rows ticked under its parents, which are lists
    * of their own (issue 1825); a Dashboard's bar reads every pick already.
    */
   const pickedHere = pickedInTheList(selection, items);
-  const heldUnderRows = useMemo(() => {
-    const below = new Set<string>();
-    if (onDashboard || heldBy) return below;
-    for (const item of items) if (holdsItems(item)) for (const id of descendantIdsOf(data?.children ?? [], item.id)) below.add(id);
-    return below;
-  }, [onDashboard, heldBy, items, data?.children]);
+  const held = onDashboard || heldBy ? null : new Set((data?.children ?? []).map((row) => row.childId));
   const picked =
-    heldUnderRows.size === 0
+    !held || held.size === 0
       ? pickedHere
       : [
           ...pickedHere,
           ...(data?.items ?? []).filter(
-            (item) => stillOpen(item) && heldUnderRows.has(item.id) && selection.picked.has(item.id) && !pickedHere.includes(item),
+            (item) => stillOpen(item) && held.has(item.id) && selection.picked.has(item.id) && !pickedHere.includes(item),
           ),
         ];
 
@@ -491,10 +491,10 @@ export function ItemList({
     // To the Inbox is out of every Item holding it as well, or it would be in
     // no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825).
     const leftParents = panelId === null ? parentIdsOf(data?.children ?? [], item.id) : [];
-    const childEnvelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
-    const takenOut = leftParents.map((parentId) =>
-      send({ name: 'remove_child', payload: { ...childEnvelope(), parentId, childId: item.id } }),
-    );
+    const takenOut =
+      leftParents.length > 0
+        ? fetchedChunk(() => import('../puttingBack')).then((loaded) => loaded.takeOutOfParents({ workspaceId, send }, item.id, leftParents))
+        : null;
     // Remembered only once it has happened: a panel a move was refused for is
     // not a panel you have been filing into.
     answer.then(
@@ -513,7 +513,7 @@ export function ItemList({
     offerToUndo({
       what: `“${itemLabel(item)}” moved to ${nameOf(panelId)}`,
       // Taken out of a parent too, or the bar would say it is somewhere it is not.
-      unlessRefused: takenOut.length > 0 ? Promise.all([answer, ...takenOut]) : answer,
+      unlessRefused: takenOut ? Promise.all([answer, takenOut]) : answer,
       // The title is what the bar shortens, never where it went.
       split: { title: `“${itemLabel(item)}”`, rest: ` moved to ${nameOf(panelId)}` },
       // Every panel it was on, not the first of them: the move above may
@@ -528,9 +528,10 @@ export function ItemList({
             undo: () =>
               Promise.all([
                 putItBackOn(item, before),
-                ...leftParents.map((parentId) =>
-                  send({ name: 'add_children', payload: { ...childEnvelope(), parentId, childIds: [item.id] } }),
-                ),
+                leftParents.length > 0 &&
+                  fetchedChunk(() => import('../puttingBack')).then((loaded) =>
+                    loaded.putBackInParents({ workspaceId, send }, item.id, leftParents),
+                  ),
               ]),
           }),
       // Onto a panel only: a move to the Inbox has nowhere to show and

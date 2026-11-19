@@ -14,6 +14,8 @@ import { putSeveralBack, takeOffAgain, type Putting, type WasOn } from './puttin
 import { rememberRecentPanel } from './recentPanels';
 import { dashboardOfScope, updateSelection } from './selection';
 import type { Undoable } from './undo';
+// What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
+import './childrenDrawnAhead';
 
 /**
  * Filing everything a selection holds onto one panel, or one more

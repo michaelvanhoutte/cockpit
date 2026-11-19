@@ -8,7 +8,6 @@ import {
   type ItemStatus,
   type Panel,
   type Priority,
-  type ChildRow,
 } from '@cockpit/shared';
 
 /**
@@ -99,11 +98,10 @@ export function allItemsRows(
     filings: readonly Filing[];
     panels: readonly Panel[];
     dashboards: readonly Dashboard[];
-    children?: readonly ChildRow[] | undefined;
-    /** Every Item of the read, a parent a filter leaves out among them, for naming what holds one. */
-    named?: readonly Item[] | undefined;
   },
   sort: AllItemsSort = DEFAULT_SORT,
+  /** What its *Where it is* column says of an Item: where it is filed, unless the board says more (`whereItSits`). */
+  whereOf: (item: Item) => string = (item) => whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards),
 ): AllItemsRow[] {
   const rows = snapshot.items.map((item): AllItemsRow => {
     return {
@@ -112,7 +110,7 @@ export function allItemsRows(
       status: itemStatus(item),
       priority: item.priority ?? null,
       due: item.dueDate ?? null,
-      where: whereItIs(item, snapshot.filings, snapshot.panels, snapshot.dashboards, snapshot.children, snapshot.named ?? snapshot.items),
+      where: whereOf(item),
       changedAt: item.completedAt ?? item.updatedAt,
     };
   });

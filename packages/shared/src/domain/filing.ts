@@ -1,6 +1,6 @@
 import { panelPlace, panelGathers, panelTakesItems } from './panel.js';
 import type { Filing, Panel } from './panel.js';
-import { itemLabel, type Dashboard, type Item } from './item.js';
+import type { Dashboard, Item } from './item.js';
 import type { ChildRow } from './item-children.js';
 
 /**
@@ -177,33 +177,16 @@ export function placesFiledOn(
 }
 
 /**
- * What *All items* says in its *Where it is* column: each Panel the item is
- * filed on (`placesFiledOn`), joined with a comma, else the Items holding it
- * (`insideOf`), else *Inbox*.
+ * Where an item is filed, joined with a comma, or *Inbox* for an item filed
+ * nowhere. *All items* says `whereItSits` (held-places.ts), which also names
+ * the Items holding one.
  */
 export function whereItIs(
   item: Item,
   filings: readonly Filing[],
   panels: readonly Panel[],
   dashboards: readonly Dashboard[],
-  children: readonly ChildRow[] = [],
-  items: readonly Item[] = [],
 ): string {
   const places = placesFiledOn(item, filings, panels, dashboards);
-  if (places.length > 0) return places.join(', ');
-  const inside = insideOf(item.id, children, items);
-  return inside.length > 0 ? `Inside ${inside.join(', ')}` : 'Inbox';
-}
-
-/**
- * The names of the Items holding this one ("Brainstorming: an Item can't hold
- * other Items", issue 1825), for saying where it is when it is on no Panel:
- * then it is not in the Inbox either. One the Items given leave out is "an Item".
- */
-export function insideOf(itemId: string, children: readonly ChildRow[], items: readonly Item[]): string[] {
-  const byId = new Map(items.map((one) => [one.id, one]));
-  return [...new Set(children.filter((row) => row.childId === itemId).map((row) => row.parentId))].map((id) => {
-    const parent = byId.get(id);
-    return parent ? itemLabel(parent) : 'an Item';
-  });
+  return places.length > 0 ? places.join(', ') : 'Inbox';
 }
