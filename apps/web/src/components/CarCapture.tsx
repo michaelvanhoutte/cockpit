@@ -394,7 +394,7 @@ function Driving({
             ? 'starting'
             : 'idle';
   /** Why nothing could be captured, in large text: shown in place of the idle line. */
-  const problem = phase === 'idle' ? (why ?? dictation.error) : null;
+  const problem = phase === 'idle' ? (why ?? dictation.error ?? dictation.notice) : null;
   const status = problem ?? STATUS[phase];
   const listening = phase === 'listening';
   const settled = phase === 'captured';

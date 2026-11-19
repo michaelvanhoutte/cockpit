@@ -1,4 +1,5 @@
 import type { Connector } from '@cockpit/connector-sdk';
+import { NO_SUBJECT } from './messages.js';
 import { refreshTokenToRevoke } from './credential.js';
 import { findGmailDraft, makeGmailDraft, readGmailConversationForReply, rewriteGmailDraft } from './drafts.js';
 import { listGmailSent } from './sent.js';
@@ -29,6 +30,7 @@ import { mirrorOpenStates, syncMailbox } from './sync.js';
 export const GMAIL_IDENTITY = {
   id: 'gmail',
   displayName: 'Gmail',
+  titleIsSubject: { whenNone: NO_SUBJECT },
   // Gmail's phone website opens an email only from its own address, which names
   // the conversation: the computer address in the stored link opens its inbox
   // there ("Open a Gmail Item at its email on a phone", issue 1837). All Mail,

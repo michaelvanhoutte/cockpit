@@ -193,8 +193,10 @@ export interface OutlookMessage {
   readonly messageId: string;
   /** The subject, or what says there is none. */
   readonly title: string;
-  /** The plain text of the message - never empty, the title standing in where it is. */
+  /** The plain text of the message, a phone's signature removed - never empty, the title standing in where it is. */
   readonly text: string;
+  /** Whether the message had no words of its own, so `text` is only the title standing in. */
+  readonly titleIsAll: boolean;
   /** Who sent it: the name, or the address where it gives none. */
   readonly sender: string | null;
   /** Where Outlook on the web shows the message. */
@@ -217,12 +219,14 @@ export function messageFrom(answer: unknown, mark: Mark, deletedItems: string): 
   if (message.parentFolderId === deletedItems || !isMarked(message, mark)) return null;
 
   const title = cutTo(oneLine(typeof message.subject === 'string' ? message.subject : ''), TITLE_LENGTH) || NO_SUBJECT;
-  const text = cutTo(bodyText(message.body).trim(), DESCRIPTION_LENGTH) || title;
+  // The mail app's own lines go before the cut, so one past the limit never survives it.
+  const words = cutTo(withoutPhoneSignature(bodyText(message.body)).trim(), DESCRIPTION_LENGTH);
   const received = typeof message.receivedDateTime === 'string' ? Date.parse(message.receivedDateTime) : NaN;
   return {
     messageId: message.id,
     title,
-    text,
+    text: words || title,
+    titleIsAll: !words,
     sender: senderIn(message.from),
     link:
       typeof message.webLink === 'string' && message.webLink
@@ -327,6 +331,51 @@ export function withoutQuotedText(text: string): string {
     if (found && found.index < at) at = found.index;
   }
   return text.slice(0, at).trim() || text;
+}
+
+/**
+ * The lines a phone's mail app adds to a message: "Sent from my iPhone",
+ * "Verstuurd vanaf mijn iPad", "Sent from my Samsung Galaxy smartphone.",
+ * "Verzonden vanaf Outlook voor Android" and Outlook's "Get Outlook for
+ * Android" - each with the aka.ms link it carries, as plain text, as `<link>`
+ * or as a Markdown link. A whole line only: the same words inside a sentence are
+ * somebody's own. Kept equal to the other mail connector's copy by the shared
+ * list in `packages/connectors/phone-signatures.json`, which both connectors'
+ * tests run.
+ *
+ * **Matched on the trimmed line, and never on a long one**: the pieces between
+ * the phrase and the link do not overlap, so a line cannot make the match
+ * backtrack, and a line over `LONGEST_SIGNATURE_LINE` is somebody's own anyway.
+ */
+const APP_LINK = String.raw`(?:\[[^\]]*\]\(\s*<?https?://aka\.ms/[^\s)>]*>?\s*\)|<?https?://aka\.ms/[^\s>]*>?)`;
+const FROM_MY = String.raw`(?:sent from my|verzonden vanaf mijn|verstuurd vanaf mijn)`;
+const SIGNATURE_PHRASE = String.raw`(?:(?:verzonden vanaf|verstuurd vanaf|sent from) outlook (?:voor|for) (?:android|ios)|(?:get|download) outlook (?:voor|for) (?:android|ios)|haal outlook voor (?:android|ios) op|${FROM_MY} (?:iphone|ipad)|${FROM_MY} (?:samsung )?galaxy(?:[ -]smartphone)?)`;
+const SIGNATURE_LINE = new RegExp(String.raw`^${SIGNATURE_PHRASE}[\s:.]*(?:${APP_LINK})?$`, 'i');
+const LINK_LINE = new RegExp(String.raw`^${APP_LINK}$`, 'i');
+const LONGEST_SIGNATURE_LINE = 200;
+
+/**
+ * A message's text without the lines a phone's mail app adds (`SIGNATURE_LINE`),
+ * and the line of link a signature leaves under it. Whatever else the message
+ * holds - its words, a forwarded or quoted email - is kept as it was: a text
+ * with no such line comes back unchanged, and one with a removed line has the
+ * gap it left closed up to one blank line.
+ */
+export function withoutPhoneSignature(text: string): string {
+  let afterSignature = false;
+  let removed = false;
+  const kept: string[] = [];
+  for (const line of text.split('\n')) {
+    const bare = line.trim();
+    if (bare.length <= LONGEST_SIGNATURE_LINE && (SIGNATURE_LINE.test(bare) || (afterSignature && LINK_LINE.test(bare)))) {
+      afterSignature = true;
+      removed = true;
+      continue;
+    }
+    if (bare !== '') afterSignature = false;
+    kept.push(line);
+  }
+  return removed ? kept.join('\n').replace(/\n{3,}/g, '\n\n').trim() : text;
 }
 
 export function oneLine(text: string): string {

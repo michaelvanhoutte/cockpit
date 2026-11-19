@@ -1,4 +1,5 @@
 import { act } from '@testing-library/react';
+import { CommandRefused } from '../../../src/api/client';
 import { TooManyTranscriptions } from '../../../src/api/transcription';
 import type { RecordingEvents, RecordingSession, StartRecording } from '../../../src/recording';
 
@@ -9,13 +10,31 @@ import type { RecordingEvents, RecordingSession, StartRecording } from '../../..
  * was stopped or let go, and what the transcription answers and when.
  */
 
+/**
+ * How long the last recording lasted, added to `Date.now` from its stop until
+ * the next one starts, so a test that taps the mic twice straight away still has
+ * a recording of the length it says, which the hook reads off the clock. Never
+ * more than one recording's length, so the clock never drifts far from `new
+ * Date()`. A test on fake timers moves its own clock instead.
+ */
+let lasted = 0;
+const realNow = Date.now.bind(Date);
+Date.now = () => realNow() + lasted;
+
+/** What a recording is by default: long enough to be kept and sent. */
+const SECONDS_BY_DEFAULT = 2000;
+
 export class FakeRecording implements RecordingSession {
   stopped = false;
   cancelled = false;
-  constructor(private readonly events: RecordingEvents = {}) {}
+  constructor(
+    private readonly events: RecordingEvents = {},
+    private readonly how: { lastsMs: number; sound: boolean } = { lastsMs: SECONDS_BY_DEFAULT, sound: true },
+  ) {}
   stop(): Promise<Blob> {
     this.stopped = true;
-    return Promise.resolve(new Blob(['audio'], { type: 'audio/webm' }));
+    lasted = this.how.lastsMs;
+    return Promise.resolve(new Blob(this.how.sound ? ['audio'] : [], { type: 'audio/webm' }));
   }
   cancel(): void {
     this.cancelled = true;
@@ -32,9 +51,11 @@ export function aRecorder() {
   let refusal: { name: string } | null = null;
   let held: ((session: FakeRecording) => void) | null = null;
   let holdNext = false;
+  const how = { lastsMs: SECONDS_BY_DEFAULT, sound: true };
   const record: StartRecording = (events) => {
     if (refusal) return Promise.reject(Object.assign(new Error('refused'), refusal));
-    const session = new FakeRecording(events);
+    lasted = 0;
+    const session = new FakeRecording(events, { ...how });
     made.push(session);
     if (holdNext) {
       holdNext = false;
@@ -50,6 +71,14 @@ export function aRecorder() {
     recordings: () => made,
     /** The recording in progress now. */
     current: () => made.at(-1)!,
+    /** Recordings made from here on last this long, in milliseconds, when stopped. */
+    lasts(ms: number) {
+      how.lastsMs = ms;
+    },
+    /** Recordings made from here on come back with no bytes. */
+    recordsNoSound() {
+      how.sound = false;
+    },
     /** The next ask for the microphone is refused the way `getUserMedia` refuses: by the error's name. */
     refusesWith(name: string) {
       refusal = { name };
@@ -101,5 +130,8 @@ export function aTranscriber() {
     fails: () => settle((one) => one.reject(new Error('no connection'))),
     /** The Worker held the account to its transcriptions a minute. */
     isTurnedAway: () => settle((one) => one.reject(new TooManyTranscriptions())),
+    /** The Worker refused it as empty. */
+    isRefusedAsEmpty: () =>
+      settle((one) => one.reject(new CommandRefused(400, 'The recording could not be transcribed (400).'))),
   };
 }

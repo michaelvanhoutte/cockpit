@@ -42,9 +42,13 @@ import {
   DICTATION_KEPT_TO_RETRY,
   DICTATION_TOO_MANY,
   DICTATION_STOPPED_AT_THE_LIMIT,
+  DICTATION_NOTHING_RECORDED,
+  DICTATION_RECORDING_EMPTY,
   type StartRecording,
 } from '../../../src/recording';
 import { aRecorder, aTranscriber } from '../support/recording';
+import { aWakeLock } from '../support/wakeLock';
+import type { WakeLockApi } from '../../../src/wakeLock';
 import { whatArrived, type Arrived } from '../../../src/shares';
 import { aShare, aSharedPhoto } from '../support/shares';
 import { deviceIsIn } from '../support/timeZone';
@@ -190,6 +194,7 @@ async function thePage({
   store = browserOutboxStore(),
   online = true,
   dictating,
+  wakeLock,
   arrived,
   onPutOn,
   onCaptured,
@@ -238,6 +243,8 @@ async function thePage({
     transcriber?: boolean;
     limitSeconds?: number;
   };
+  /** The browser's wake lock, or a fake; left out, the browser's own, which jsdom has none of. */
+  wakeLock?: () => WakeLockApi | undefined;
   /** What the share sheet handed over, as the page claimed it. */
   arrived?: Arrived | null;
   onPutOn?: () => void;
@@ -290,7 +297,7 @@ async function thePage({
       <OutboxProvider value={outbox}>
         <KeptRecordingsProvider value={kept}>
           <UndoWhatJustHappened>
-          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
+          <CaptureNote shownAs={shownAs} startsIn={startsIn} startsOn={startsOn} dictating={dictating} wakeLock={wakeLock} arrived={arrived} onPutOn={onPutOn} onCaptured={onCaptured} onKept={onKept} />
           </UndoWhatJustHappened>
         </KeptRecordingsProvider>
       </OutboxProvider>
@@ -3133,6 +3140,7 @@ describe('Capture', () => {
       expect(recorder.current().cancelled).toBe(true);
       expect(mic()).toHaveAttribute('aria-pressed', 'false');
       expect(transcriber.sent()).toBe(0);
+      expect(await screen.findByText(DICTATION_NOTHING_RECORDED)).toBeInTheDocument();
     });
 
     it.each([
@@ -3569,6 +3577,129 @@ describe('Capture', () => {
     });
   });
 
+  describe('a recording under a second is neither kept nor sent, and says so', () => {
+    it.each([
+      { situation: 'the mic is tapped off 0.4 seconds in', lasts: 400, sound: true },
+      { situation: 'the recorder answers no sound after two seconds', lasts: 2000, sound: false },
+    ])('when $situation', async ({ lasts, sound }) => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(lasts);
+      if (!sound) recorder.recordsNoSound();
+      const user = await thePage({ dictating });
+
+      await user.click(mic());
+      await user.click(mic());
+
+      expect(await screen.findByRole('status')).toHaveTextContent(DICTATION_NOTHING_RECORDED);
+      expect(DICTATION_NOTHING_RECORDED).toBe('Nothing was recorded.');
+      expect(transcriber.sent()).toBe(0);
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(retries()).toHaveLength(0);
+      expect(mic()).toBeEnabled();
+    });
+
+    it('clears the line, and starts recording, on the next tap', async () => {
+      const { dictating, recorder } = dictate();
+      recorder.lasts(400);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+      await screen.findByText(DICTATION_NOTHING_RECORDED);
+
+      await user.click(mic());
+
+      expect(screen.queryByText(DICTATION_NOTHING_RECORDED)).toBeNull();
+      expect(mic()).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('sends nothing and keeps nothing when the page is hidden 0.3 seconds in', async () => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(300);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      try {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+
+        expect(await screen.findByText(DICTATION_NOTHING_RECORDED)).toBeInTheDocument();
+        expect(transcriber.sent()).toBe(0);
+        expect(await keptOnTheDevice()).toBe(0);
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    });
+
+    it('sends and transcribes a recording of exactly one second', async () => {
+      const { dictating, recorder, transcriber } = dictate();
+      recorder.lasts(1000);
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+
+      await transcriber.answers('buy oat milk');
+
+      expect(box()).toHaveValue('buy oat milk');
+      expect(screen.queryByText(DICTATION_NOTHING_RECORDED)).toBeNull();
+    });
+  });
+
+  describe('a waiting recording the Worker refuses as empty is deleted, and says so', () => {
+    it('on Retry', async () => {
+      const { user, transcriber } = await dictatedAndFailed();
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+      await transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(DICTATION_RECORDING_EMPTY).toBe('That recording was empty.');
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+    });
+
+    it('on a first attempt, never offering it for Retry', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating });
+      await user.click(mic());
+      await user.click(mic());
+
+      await transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(retries()).toHaveLength(0);
+      expect(await keptOnTheDevice()).toBe(0);
+    });
+
+    it('on Retry of one under a second kept before, without sending it', async () => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating, waitingRecordings: [aKeptRecording(0, '2026-10-12T09:00:00.000Z')] });
+
+      await user.click(await screen.findByRole('button', { name: 'Retry' }));
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      await waitFor(() => expect(retries()).toHaveLength(0));
+      expect(await keptOnTheDevice()).toBe(0);
+      expect(transcriber.sent()).toBe(0);
+    });
+
+    it('still says it was empty, throwing nothing, when storage will not delete it', async () => {
+      const dictation = dictate();
+      const user = await thePage({
+        dictating: dictation.dictating,
+        recordingStore: { ...browserRecordingStore(), remove: () => Promise.reject(new Error('storage refused')) },
+      });
+      await user.click(mic());
+      await user.click(mic());
+
+      await dictation.transcriber.isRefusedAsEmpty();
+
+      expect(await screen.findByText(DICTATION_RECORDING_EMPTY)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).toBeNull();
+      // Still on the device, to be offered again on the next load.
+      expect(await keptOnTheDevice()).toBe(1);
+    });
+  });
+
   describe('a recording cut off mid-way keeps what was recorded, to transcribe', () => {
     it.each([
       {
@@ -3599,6 +3730,169 @@ describe('Capture', () => {
       } finally {
         Reflect.deleteProperty(document, 'visibilityState');
       }
+    });
+  });
+
+  describe('Write keeps the screen on exactly while its mic is recording', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'visibilityState');
+    });
+
+    const held = (screenLock: ReturnType<typeof aWakeLock>) => screenLock.taken.filter((one) => !one.released).length;
+
+    it.each(['page', 'window'] as const)('holds a screen lock while recording, on the %s', async (shownAs) => {
+      const { dictating } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api, shownAs });
+
+      await user.click(mic());
+
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+      expect(screenLock.request).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes no lock while the microphone is still being asked for', async () => {
+      const { dictating, recorder } = dictate();
+      recorder.holdsTheNextAsk();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+
+      await user.click(mic());
+      await settled();
+      expect(screenLock.request).not.toHaveBeenCalled();
+
+      await recorder.allows();
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+    });
+
+    it('lets the screen go once the mic is tapped off, and holds none through Transcribing…', async () => {
+      const { dictating, transcriber } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+      await user.click(mic());
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+
+      await user.click(mic());
+
+      expect(screen.getByText('Transcribing…')).toBeInTheDocument();
+      expect(held(screenLock)).toBe(0);
+      await transcriber.answers('buy oat milk');
+      expect(screenLock.request).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets the screen go at the five-minute limit', async () => {
+      const { dictating } = dictate();
+      const screenLock = aWakeLock();
+      await thePage({ dictating: { ...dictating, limitSeconds: 300 }, wakeLock: screenLock.api });
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
+
+      fireEvent.click(mic());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(held(screenLock)).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000);
+      });
+
+      expect(screen.getByText('Transcribing…')).toBeInTheDocument();
+      expect(held(screenLock)).toBe(0);
+    });
+
+    it('lets the screen go when the recorder ends by itself', async () => {
+      const { dictating, recorder } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+      await user.click(mic());
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+
+      await recorder.current().endsByItself();
+
+      expect(held(screenLock)).toBe(0);
+    });
+
+    it('lets the screen go when Capture is closed mid-recording', async () => {
+      const { dictating } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+      await user.click(mic());
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+
+      user.unmount();
+
+      await waitFor(() => expect(held(screenLock)).toBe(0));
+    });
+
+    it('stops with the page hidden and takes no lock when it is shown again', async () => {
+      const { dictating, recorder } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+      await user.click(mic());
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      // The browser lets go of the lock as it hides the page.
+      screenLock.taken[0]!.takenBack();
+      expect(recorder.current().stopped).toBe(true);
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      await settled();
+
+      expect(held(screenLock)).toBe(0);
+      expect(screenLock.request).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { situation: 'the microphone is blocked', refuses: 'NotAllowedError' },
+      { situation: 'there is no microphone', refuses: 'NotFoundError' },
+    ])('requests no lock when $situation', async ({ refuses }) => {
+      const { dictating, recorder } = dictate();
+      recorder.refusesWith(refuses);
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+
+      await user.click(mic());
+      await screen.findByRole('alert');
+
+      expect(screenLock.request).not.toHaveBeenCalled();
+    });
+
+    it('holds a fresh lock for a second recording, never two at once', async () => {
+      const { dictating, transcriber } = dictate();
+      const screenLock = aWakeLock();
+      const user = await thePage({ dictating, wakeLock: screenLock.api });
+      await user.click(mic());
+      await waitFor(() => expect(held(screenLock)).toBe(1));
+      await user.click(mic());
+      await transcriber.answers('buy oat milk');
+      expect(held(screenLock)).toBe(0);
+
+      await user.click(mic());
+
+      await waitFor(() => expect(screenLock.taken).toHaveLength(2));
+      expect(held(screenLock)).toBe(1);
+      expect(screenLock.taken[0]!.released).toBe(true);
+    });
+
+    it.each([
+      { situation: 'the browser has no wake lock', screenLock: () => () => undefined },
+      { situation: 'the lock is refused, as under battery saver', screenLock: () => aWakeLock(true).api },
+    ])('dictates as before and says nothing about the screen when $situation', async ({ screenLock }) => {
+      const { dictating, transcriber } = dictate();
+      const user = await thePage({ dictating, wakeLock: screenLock() });
+
+      await user.click(mic());
+      expect(await screen.findByText(/^Listening/)).toBeInTheDocument();
+      await user.click(mic());
+      await transcriber.answers('buy oat milk');
+
+      expect(box()).toHaveValue('buy oat milk');
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.queryByText(/screen/i)).toBeNull();
     });
   });
 

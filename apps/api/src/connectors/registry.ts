@@ -148,6 +148,7 @@ const KNOWN_CONNECTORS: readonly {
   readonly itemSourceName?: string;
   readonly messageLinks?: readonly { readonly host: string; readonly pathStart: string }[];
   readonly phoneLink?: PhoneLinkDeclaration;
+  readonly titleIsSubject?: { readonly whenNone: string };
 }[] = [
   GMAIL_IDENTITY,
   OUTLOOK_IDENTITY,
@@ -200,6 +201,20 @@ export function phoneLinks(env: Env): Record<string, PhoneLinkDeclaration> {
   const declared: Record<string, PhoneLinkDeclaration> = {};
   for (const { id, phoneLink } of KNOWN_CONNECTORS) if (phoneLink) declared[id] = { ...phoneLink };
   for (const { manifest } of connectors(env)) if (manifest.phoneLink) declared[manifest.id] = { ...manifest.phoneLink };
+  return declared;
+}
+
+/**
+ * The sources whose Items are titled with their sender's subject, each with the
+ * title it carries where there was none ("Mail Items: an email whose only text
+ * is a phone signature is titled with that signature…", issue 1836): declared
+ * by every connector package and registered connector, as `messageLinks` is,
+ * so the app names none.
+ */
+export function sourcesTitledBySubject(env: Env): ReadonlyMap<string, string> {
+  const declared = new Map<string, string>();
+  for (const known of KNOWN_CONNECTORS) if (known.titleIsSubject) declared.set(known.id, known.titleIsSubject.whenNone);
+  for (const { manifest } of connectors(env)) if (manifest.titleIsSubject) declared.set(manifest.id, manifest.titleIsSubject.whenNone);
   return declared;
 }
 
