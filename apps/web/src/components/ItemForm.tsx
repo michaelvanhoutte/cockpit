@@ -73,6 +73,7 @@ import {
   useSettleQuietOpening,
 } from '../itemForm';
 import { capturingApp, sourceNamed } from '../itemSource';
+import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { openEntryFor } from '../conversationLine';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
@@ -356,7 +357,7 @@ function TheForm({
   useEffect(() => {
     if (item || !isFetching) setArriving(false);
   }, [item, isFetching]);
-  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks) : null;
+  const atSource = item ? openEntryFor(item, conversationOf(data?.conversations, itemId), data?.sourceNames, data?.messageLinks, phoneLinksOnThisDevice(data?.phoneLinks)) : null;
   /**
    * Whether this Item is filed on a Panel, which is what a link to it needs ("Copy an
    * Item's link from its menu and its form", issue 1247): in the Inbox it is
@@ -2254,6 +2255,7 @@ function TheForm({
                           conversations={data?.conversations}
                           mailboxes={data?.mailboxes}
                           sourceNames={data?.sourceNames}
+                          phoneLinks={data?.phoneLinks}
                         />
                       </Suspense>
 

@@ -293,6 +293,11 @@ turns:
   `messages.list` with `q=from:` finds it. Both are reconstructed from the
   format as publicly seen; the contract suite covers neither.
 
+- **Whether Gmail's phone website still opens the address the manifest's
+  `phoneLink` declares** (`/mail/mu/mp/?authuser=<mailbox>#cv/All%20Mail/<conversation id>`,
+  and `#tl/Drafts` for the Drafts folder). Gmail does not document it, and its
+  phone site ignores the computer link in `#all/…`, so on a phone the app opens
+  the declared address instead; only a real phone shows if Google changes it.
 - **Whether Gmail opens a link to one email (`#all/<message id>`) at that email
   in conversation view as well as with it off.** The Item links the email by
   its own id; only a real mailbox shows how each view treats it.

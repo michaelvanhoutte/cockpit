@@ -164,7 +164,7 @@ import {
   signInAsGuest,
   signInWithGoogle,
 } from '../auth/register.js';
-import { connectors, getConnector, messageLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
+import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds, pushedConnectorIds, sourceNames } from '../connectors/registry.js';
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
@@ -1498,6 +1498,7 @@ const routes = app
         mailboxes: mailboxesOf(c.env, connections, claudeMayDraft(c.env, c.get('visitor').accountName)),
         sourceNames: sourceNames(c.env),
         messageLinks: messageLinks(c.env),
+        phoneLinks: phoneLinks(c.env),
         generatedAt: new Date().toISOString(),
       },
       200,

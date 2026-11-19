@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { aTab, askForPoints } from './draftAsk';
-import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, type Conversation, type Mailbox } from '@cockpit/shared';
+import { DRAFT_STARTING_PREFIX, isDraftStarting, isLinkedInConversation, type Conversation, type DeclaredPhoneLinks, type Mailbox } from '@cockpit/shared';
 
 /**
  * *Email…* and *Reply…* ("Email… makes a Gmail draft the Item then follows",
@@ -122,7 +122,15 @@ export function useDraftStarting(itemId: string): string | null {
  */
 export async function emailFromItem(
   queryClient: QueryClient | undefined,
-  ask: { workspaceId: string; itemId: string; mailbox: Mailbox; label: string; followed?: Conversation | undefined },
+  ask: {
+    workspaceId: string;
+    itemId: string;
+    mailbox: Mailbox;
+    label: string;
+    followed?: Conversation | undefined;
+    /** How each source's website wants an address on a phone: where the device is one, the draft opens there (issue 1837). */
+    phoneLinks?: DeclaredPhoneLinks;
+  },
   offer: (undo: { what: string }) => void,
 ): Promise<void> {
   const { itemId, mailbox } = ask;
