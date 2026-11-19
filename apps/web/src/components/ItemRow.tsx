@@ -8,6 +8,8 @@ import {
   asNextAction,
   itemLabel,
   itemStatus,
+  doneOfHeld,
+  holdsItems,
   panelPlace,
   runBlocksAStart,
   STARTING_GIVES_UP_AFTER_MS,
@@ -60,6 +62,8 @@ import {
 } from './Menu';
 
 /** The *Wait for reply…* question, fetched the first time a row asks it (WaitForReply.tsx; "Set an Item Waiting for reply", issue 1463). */
+/** The expander of a row holding Items ("Brainstorming: an Item can't hold other Items", issue 1825). */
+const Unfolder = lazy(() => import('./HeldRows').then((loaded) => ({ default: loaded.Unfolder })));
 const WaitPopover = lazy(() => import('./WaitForReply').then((loaded) => ({ default: loaded.WaitPopover })));
 
 /** What the item menu is drawn with: Radix's dropdown menu and context menu share these parts. */
@@ -126,7 +130,17 @@ export function ItemRow({
   recurring,
   conversation,
   mailboxes,
+  onAddAsChildOf,
+  takeOutOf,
 }: {
+  /**
+   * Asked to put this Item inside another one you pick ("Brainstorming: an Item
+   * can't hold other Items", issue 1825): *Add as child of…*. The picker is the
+   * list's, as *Move to…*'s is.
+   */
+  onAddAsChildOf?: ((openedFrom: HTMLElement | null) => void) | undefined;
+  /** The parent this row is drawn under, and taking it out of that one alone: *Take out of <parent>*. */
+  takeOutOf?: { name: string; onTakeOut: () => void } | undefined;
   item: Item;
   /** What each source is called, from the Workspace's snapshot, handed in by the list rather than looked up per row. */
   sourceNames?: SourceNames;
@@ -546,6 +560,8 @@ export function ItemRow({
 
   /** The best label this Item has, worked out once for the two places the row draws it. */
   const label = itemLabel(item);
+  /** That it holds Items, by the count kept on it. */
+  const holds = holdsItems(item);
   /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
   const nextAction = asNextAction(item.nextAction);
   const atSource = openEntryFor(item, conversation, sourceNames, messageLinks, phoneLinksOnThisDevice(phoneLinks));
@@ -896,6 +912,23 @@ export function ItemRow({
         onRemoveFromHere && (
           <M.Item key="remove-from-here" className={menuItemClass} onSelect={onRemoveFromHere}>
             Remove from this panel
+          </M.Item>
+        ),
+        onAddAsChildOf && (
+          <M.Item
+            key="add-as-child-of"
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onAddAsChildOf(trigger.current);
+            }}
+          >
+            Add as child of…
+          </M.Item>
+        ),
+        takeOutOf && (
+          <M.Item key="take-out-of" className={menuItemClass} onSelect={takeOutOf.onTakeOut}>
+            Take out of {takeOutOf.name}
           </M.Item>
         ),
       ],
@@ -1341,6 +1374,15 @@ export function ItemRow({
                 already use, spelling out the same label the row draws rather
                 than the Item's stored title - so the hover cannot say something
                 different from the text it is explaining. */}
+            {/* An Item holding Items folds and unfolds them under its row,
+                and does nothing else: no open, no pick ("Brainstorming: an
+                Item can't hold other Items", issue 1825). */}
+            {holds && (
+              // Fetched with the child rows it unfolds (`HeldRows`), holding its place meanwhile.
+              <Suspense fallback={<span className="w-3 shrink-0" />}>
+                <Unfolder itemId={item.id} label={label} />
+              </Suspense>
+            )}
             <span
               className="truncate"
               onPointerEnter={(event) =>
@@ -1353,6 +1395,7 @@ export function ItemRow({
             >
               {label}
             </span>
+            {holds && <span className="shrink-0 text-xs text-ink-faint">· {doneOfHeld(item)}</span>}
             {/* The pill sits here on a desk, and under the title on a phone, where
                 the title needs the width (`deadlinePill` above). */}
             {!onAPhone && waitingPill}

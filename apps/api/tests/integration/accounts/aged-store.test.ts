@@ -4406,4 +4406,95 @@ describe('Panels', () => {
       expect(await ledgerHas(name)).toBe(false);
     });
   });
+  /**
+   * `0110-filings-copied-again`, the switch's copy step ("Brainstorming: an
+   * Item can't hold other Items", issue 1825): a store `0109` had already
+   * reached, where an older Worker then went on writing `panel_items` alone.
+   */
+  describe('the switch brings over what an older release filed on its own, once', () => {
+    const COPIED_AGAIN = '0110-filings-copied-again';
+
+    /** The Panels store after `0109`, then everything an older Worker could write there alone. */
+    async function writtenByAnOlderRelease(name: string): Promise<void> {
+      await storeOfPanels(name);
+      await applyChange(name, PANELS_BECOME_ITEMS);
+      await inStoreAsItIs(name, (sql) => {
+        const at = '2026-08-13T10:00:00.000Z';
+        // Filed: on Acts, at its foot.
+        sql.exec("INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at, filed_at) VALUES (?, 'pn-acts', 'it-loose', 5, ?, ?)", name, at, at);
+        // Unfiled: Villain off People.
+        sql.exec("DELETE FROM panel_items WHERE panel_id = 'pn-people' AND item_id = 'it-villain'");
+        // Reordered: Hero above Mentor on People.
+        sql.exec("UPDATE panel_items SET position = 0 WHERE panel_id = 'pn-people' AND item_id = 'it-hero'");
+        // Filed again after this release took it off: Mentor off Acts in both tables, then back on in one.
+        sql.exec("UPDATE item_children SET deleted_at = ? WHERE parent_id = 'pn-acts' AND child_id = 'it-mentor'", at);
+        // Made: a Panel with no Item, holding a Scene.
+        sql.exec(
+          "INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, kind, created_at) VALUES ('pn-made', ?, 'db-live', 'Made', 'made', 'items', ?)",
+          name,
+          at,
+        );
+        sql.exec("INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, 'pn-made', 'it-big-000', 0, ?)", name, at);
+        // Renamed, deleted and finished alone.
+        sql.exec("UPDATE panels SET name = 'Cast', folded_name = 'cast' WHERE id = 'pn-big'");
+        sql.exec("UPDATE panels SET deleted_at = ? WHERE id = 'pn-due'", at);
+        sql.exec("UPDATE items SET completed_at = ? WHERE id = 'it-mentor'", at);
+      });
+    }
+
+    it.each([
+      { situation: 'a filing it made', panelId: 'pn-acts', held: ['it-mentor', 'it-ferry', 'it-loose'] },
+      { situation: 'a filing it took away, and an order it changed', panelId: 'pn-people', held: ['it-hero', 'it-mentor'] },
+      { situation: 'a Panel it made', panelId: 'pn-made', held: ['it-big-000'] },
+    ])('holds what the Panel holds: $situation', async ({ panelId, held }) => {
+      const name = `aged-store-copied-again-${panelId}`;
+      await writtenByAnOlderRelease(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect((await heldBy(name, panelId)).held).toEqual(held);
+    });
+
+    it('names, dismisses and counts each Panel’s Item as the Panel now stands', async () => {
+      const name = 'aged-store-copied-again-panels';
+      await writtenByAnOlderRelease(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const items = await inStoreAsItIs(name, (sql) =>
+        sql
+          .exec<{ id: string; title: string; dismissed: number }>(
+            "SELECT id, title, deleted_at IS NOT NULL AS dismissed FROM items WHERE id IN ('pn-big', 'pn-due', 'pn-made') ORDER BY id",
+          )
+          .toArray(),
+      );
+      expect(items).toEqual([
+        { id: 'pn-big', title: 'Cast', dismissed: 0 },
+        { id: 'pn-due', title: 'Due', dismissed: 1 },
+        { id: 'pn-made', title: 'Made', dismissed: 0 },
+      ]);
+      expect((await heldBy(name, 'pn-people')).counts).toEqual({ children_count: 2, children_done: 2 });
+      expect(await inboxOf(name)).toContain('Villain');
+    });
+
+    it('adds and changes nothing when it runs a second time', async () => {
+      const name = 'aged-store-copied-again-twice';
+      await writtenByAnOlderRelease(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const rows = (sql: SqlStorage) => ({
+        counts: rowCountsOf(sql),
+        held: sql.exec('SELECT * FROM item_children ORDER BY parent_id, child_id').toArray(),
+        items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+      });
+      const once = await inStoreAsItIs(name, rows);
+
+      await inStoreAsItIs(name, (sql) => {
+        for (const statement of accountChanges(name).find((change) => change.name === COPIED_AGAIN)!.statements) {
+          sql.exec(statement.sql, ...(statement.params ?? []));
+        }
+      });
+
+      expect(await inStoreAsItIs(name, rows)).toEqual(once);
+    });
+  });
 });

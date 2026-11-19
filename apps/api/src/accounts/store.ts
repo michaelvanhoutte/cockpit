@@ -18,6 +18,7 @@ import type {
 import {
   ACCOUNT_WIDE,
   itemIdsWithRun,
+  itemLabel,
   panelTakesItems,
   placesFiledOn,
   uuidv7,
@@ -128,6 +129,7 @@ import {
   PanelNameTakenError,
   PanelNotFoundError,
   PanelOrderStaleError,
+  ItemInsideItselfError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -174,6 +176,7 @@ import {
   listDashboards,
   listLayoutsInWorkspace,
   listFilingsInWorkspace,
+  listChildRowsInWorkspace,
   meaningsOfItems,
   listItemsToSearch,
   listOpenItems,
@@ -312,6 +315,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         panels: listPanelsInWorkspace(db, accountName, workspaceId),
         layouts: listLayoutsInWorkspace(db, accountName, workspaceId),
         filings: listFilingsInWorkspace(db, accountName, workspaceId, ofTheRead),
+        children: listChildRowsInWorkspace(db, accountName, workspaceId, ofTheRead),
         associations: listAssociationsForWorkspace(db, accountName, workspaceId, ofTheRead),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, ofTheRead),
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, ofTheRead),
@@ -354,6 +358,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         filings: listFilingsInWorkspace(db, accountName, workspaceId, 'finished'),
         attachments: listAttachmentsInWorkspace(db, accountName, workspaceId, 'finished'),
         additions: listAdditionsInWorkspace(db, accountName, workspaceId, 'finished'),
+        children: listChildRowsInWorkspace(db, accountName, workspaceId, 'finished'),
       };
     });
   }
@@ -1037,7 +1042,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         items: page.items.map((item) =>
           foundItem(
             item,
-            placesFiledOn(item, where.filings, where.panels, where.dashboards),
+            [
+              ...placesFiledOn(item, where.filings, where.panels, where.dashboards),
+              // Inside an Item rather than on a Panel ("Brainstorming: an Item can't hold other Items", issue 1825): not in the Inbox either.
+              ...where.parents.filter((parent) => parent.childId === item.id).map((parent) => `inside ${itemLabel(parent)}`),
+            ],
             files.filter((file) => file.itemId === item.id).map(({ id, filename }) => ({ id, filename })),
           ),
         ),
@@ -2050,7 +2059,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof PanelHoldsSomethingElseError ||
         // Same reason: the panel and the dashboard are both exactly what the
         // request says, and what is wrong is that moving there is not a move.
-        error instanceof PanelAlreadyOnDashboardError
+        error instanceof PanelAlreadyOnDashboardError ||
+        // Same again: every Item is there, and an Item cannot be its own ancestor.
+        error instanceof ItemInsideItselfError
       ) {
         return { status: 'refused', what: error.message };
       }

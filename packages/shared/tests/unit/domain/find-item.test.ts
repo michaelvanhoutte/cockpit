@@ -132,6 +132,18 @@ describe('Dashboards', () => {
       expect(rowsFor(snapshot, 'b', 2).rows[0]?.where).toBe('Inbox');
     });
 
+    it('names where its parent is drawn for an Item held only by an Item, in the Inbox or on a Panel', () => {
+      const snapshot = {
+        ...aSnapshot([anItem('scene'), anItem('chapter'), anItem('beat'), anItem('act')], [['act', 'plan']]),
+        children: [
+          { parentId: 'chapter', childId: 'scene', position: 0 },
+          { parentId: 'act', childId: 'beat', position: 0 },
+        ],
+      };
+      expect(rowsFor(snapshot, 'scene', 2).rows[0]?.where).toBe('Inbox');
+      expect(rowsFor(snapshot, 'beat', 2).rows[0]?.where).toBe('Today ▸ Plan');
+    });
+
     it('puts the Dashboard on screen’s Panel first for an Item on another Dashboard too', () => {
       const snapshot = aSnapshot([anItem('a')], [['a', 'review'], ['a', 'urgent']]);
       expect(rowsFor(snapshot, 'a', 2).rows[0]?.panel?.panelId).toBe('urgent');

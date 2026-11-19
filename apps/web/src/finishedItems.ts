@@ -45,5 +45,9 @@ export function withFinishedItems(snapshot: WorkspaceSnapshot, finished: Finishe
       ...(snapshot.additions ?? []).filter((addition) => !taken.has(addition.itemId)),
       ...(finished.additions ?? []).filter((addition) => taken.has(addition.itemId)),
     ],
+    children: [
+      ...(snapshot.children ?? []).filter((row) => !taken.has(row.childId)),
+      ...(finished.children ?? []).filter((row) => taken.has(row.childId)),
+    ],
   };
 }

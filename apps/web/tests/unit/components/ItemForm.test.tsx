@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
   Addition,
+  ChildRow,
   Attachment,
   Conversation,
   Mailbox,
@@ -51,6 +52,8 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 const held = vi.hoisted(() => ({
   items: [] as Item[],
   filings: [] as Filing[],
+  /** Which Item holds which (issue 1825). */
+  children: [] as ChildRow[],
   panels: [] as Panel[],
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
@@ -219,6 +222,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       workspaceId,
       held.items,
       held.filings,
+      held.children,
       held.panels,
       held.dashboards,
       held.duplicates,
@@ -235,6 +239,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         workspace: { id: 'ws-work', tenantId: 'tenant' },
         items: held.items,
         filings: held.filings,
+        children: held.children,
         panels: held.panels,
         dashboards: held.dashboards,
         duplicates: held.duplicates,
@@ -441,6 +446,7 @@ beforeEach(() => {
   held.agentRuns = [];
   held.panels = [];
   held.dashboards = [];
+  held.children = [];
   held.duplicates = [];
   held.attachments = [];
   held.additions = [];
@@ -3213,9 +3219,9 @@ describe('Item editing', () => {
       expect(screen.getByLabelText('Title')).toHaveValue(`${anItem().title} extra`);
     });
 
-    it('moves between the four tabs, in order, with the arrow keys', async () => {
+    it('moves between the tabs, in order, with the arrow keys', async () => {
       const user = await theForm();
-      expect(screen.getAllByRole('tab').map((one) => one.textContent)).toEqual(['Item', 'Attachments', 'Details', 'Suggestions']);
+      expect(screen.getAllByRole('tab').map((one) => one.textContent)).toEqual(['Item', 'Attachments', 'Details', 'Relations', 'Suggestions']);
 
       screen.getByRole('tab', { name: 'Item' }).focus();
       await user.keyboard('{ArrowRight}{ArrowRight}');
@@ -4268,7 +4274,7 @@ describe('Item editing', () => {
 
 /**
  * "Show what Cockpit changed on the item itself, and name it for what it is"
- * (issue 690): the fourth tab on an item's form, and a note under the tabs. What
+ * (issue 690): the last tab on an item's form, and a note under the tabs. What
  * decides the note from the history and what has been seen is
  * tests/unit/cockpitChanges.test.ts; what is asked here is what the form draws
  * and when it reads.
@@ -4861,6 +4867,59 @@ describe('Item editing', () => {
       } finally {
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: original });
       }
+    });
+  });
+});
+
+describe('Item editing', () => {
+  /**
+   * The POC's Relations tab ("Brainstorming: an Item can't hold other Items",
+   * issue 1825). Which rows the snapshot carries is proved against a real store
+   * (apps/api/tests/integration/http/item-children.test.ts).
+   */
+  describe('Relations lists the Items holding this one and the Items it holds, and each opens', () => {
+    const PEOPLE = anItem({ id: 'item-people', title: 'People' });
+    const MENTOR = anItem({ id: 'item-mentor', title: 'Mentor' });
+
+    beforeEach(() => {
+      held.children = [
+        { parentId: PEOPLE.id, childId: 'item-1', position: 0 },
+        { parentId: 'item-1', childId: MENTOR.id, position: 0 },
+      ];
+      held.open = vi.fn();
+    });
+
+    it('is titled with how many, and lists Parents and Children', async () => {
+      const user = await theForm(anItem({ childrenCount: 2, childrenDone: 0 }), [PEOPLE, MENTOR]);
+
+      await user.click(screen.getByRole('tab', { name: 'Relations · 3' }));
+
+      // Fetched when the tab opens, so it is waited for.
+      const relations = await screen.findByRole('region', { name: 'Relations' });
+      expect(within(relations).getByRole('heading', { name: 'Parents' }).nextElementSibling).toHaveTextContent('People');
+      expect(within(relations).getByRole('heading', { name: 'Children' }).nextElementSibling).toHaveTextContent('Mentor');
+      expect(within(relations).getByText('1 more, finished earlier')).toBeVisible();
+    });
+
+    it.each([
+      { situation: 'a parent', name: 'People', id: 'item-people' },
+      { situation: 'a child', name: 'Mentor', id: 'item-mentor' },
+    ])('opens $situation', async ({ name, id }) => {
+      const user = await theForm(anItem({ childrenCount: 1, childrenDone: 0 }), [PEOPLE, MENTOR]);
+      await user.click(screen.getByRole('tab', { name: /^Relations/ }));
+
+      await user.click(within(await screen.findByRole('region', { name: 'Relations' })).getByRole('button', { name }));
+
+      expect(held.open).toHaveBeenCalledWith(id);
+    });
+
+    it('says there are none, with no count, for an Item in nothing and holding nothing', async () => {
+      held.children = [];
+      const user = await theForm();
+
+      await user.click(screen.getByRole('tab', { name: 'Relations' }));
+
+      expect(await screen.findByText('No parents or children yet.')).toBeVisible();
     });
   });
 });

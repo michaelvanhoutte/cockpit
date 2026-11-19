@@ -1,5 +1,6 @@
 import {
   pairedWith,
+  type ChildRow,
   type Filing,
   type Item,
   type PossibleDuplicate,
@@ -57,9 +58,11 @@ export function possibleDuplicatesOf(
   items: readonly Item[],
   filings: readonly Filing[],
   duplicates: readonly PossibleDuplicate[],
+  /** Held by an Item is out of the Inbox, as filed is ("Brainstorming: an Item can't hold other Items", issue 1825). */
+  children: readonly ChildRow[] = [],
 ): Item[] {
-  const inbox = new Set(itemsInTheInbox(items, filings).map((item) => item.id));
-  const filed = new Set(itemsThatAreFiled(items, filings).map((item) => item.id));
+  const inbox = new Set(itemsInTheInbox(items, filings, children).map((item) => item.id));
+  const filed = new Set(itemsThatAreFiled(items, filings, children).map((item) => item.id));
   if (!isOpen(itemId, inbox, filed)) return [];
   const byId = new Map(items.map((item) => [item.id, item]));
   return pairedWith(itemId, duplicates)
@@ -78,9 +81,10 @@ export function itemsThatMayBeDuplicates(
   items: readonly Item[],
   filings: readonly Filing[],
   duplicates: readonly PossibleDuplicate[],
+  children: readonly ChildRow[] = [],
 ): Set<string> {
-  const inbox = new Set(itemsInTheInbox(items, filings).map((item) => item.id));
-  const filed = new Set(itemsThatAreFiled(items, filings).map((item) => item.id));
+  const inbox = new Set(itemsInTheInbox(items, filings, children).map((item) => item.id));
+  const filed = new Set(itemsThatAreFiled(items, filings, children).map((item) => item.id));
   const flagged = new Set<string>();
   for (const pair of duplicates) {
     if (eligiblePartner(pair.itemId, pair.otherItemId, inbox, filed)) flagged.add(pair.itemId);

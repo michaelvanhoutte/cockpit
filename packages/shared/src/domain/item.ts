@@ -197,6 +197,14 @@ export const itemSchema = z.object({
 
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
+  /**
+   * How many Items this one holds, and how many of those are done ("Brainstorming: an
+   * Item can't hold other Items", issue 1825): "2 of 3 done", true whatever the
+   * snapshot leaves out. Kept by the store; optional, since a copy saved by an
+   * older release holds none.
+   */
+  childrenCount: z.number().int().nonnegative().optional(),
+  childrenDone: z.number().int().nonnegative().optional(),
 });
 export type Item = z.infer<typeof itemSchema>;
 

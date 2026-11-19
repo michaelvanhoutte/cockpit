@@ -1,6 +1,7 @@
 import { panelPlace, panelGathers, panelTakesItems } from './panel.js';
 import type { Filing, Panel } from './panel.js';
 import type { Dashboard, Item } from './item.js';
+import type { ChildRow } from './item-children.js';
 
 /**
  * What a panel holds and what the Inbox holds, derived from one Workspace's
@@ -32,27 +33,52 @@ export function stillOpen(item: Item): boolean {
 }
 
 /**
- * Everything still to deal with that is filed nowhere - the Inbox.
+ * Everything still to deal with that has no parent - the Inbox ("Brainstorming:
+ * an Item can't hold other Items", issue 1825): filed on no Panel, held by no
+ * Item, and not itself a Panel's own Item.
  *
- * The snapshot leaves out the filings of deleted panels, so an item whose only
- * panel has gone is back here without anything on this side knowing that a
- * panel was ever deleted.
+ * The snapshot leaves out the filings of deleted panels and the rows of a
+ * dismissed parent, so an item whose only parent has gone is back here without
+ * anything on this side knowing that a parent was ever deleted.
  */
-export function itemsInTheInbox(items: readonly Item[], filings: readonly Filing[]): Item[] {
-  const filed = new Set(filings.map((filing) => filing.itemId));
-  return items.filter((item) => stillOpen(item) && !filed.has(item.id));
+export function itemsInTheInbox(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  children: readonly ChildRow[] = [],
+  panels: readonly Pick<Panel, 'id'>[] = [],
+): Item[] {
+  const held = withAParent(filings, children, panels);
+  return items.filter((item) => stillOpen(item) && !held.has(item.id));
+}
+
+/** Every Item id with a parent: a Panel it is filed on, an Item holding it, or the Panel it is itself. */
+function withAParent(
+  filings: readonly Filing[],
+  children: readonly ChildRow[],
+  panels: readonly Pick<Panel, 'id'>[],
+): Set<string> {
+  return new Set([
+    ...filings.map((filing) => filing.itemId),
+    ...children.map((row) => row.childId),
+    // A Panel's own Item takes the Panel's id (`0109-panels-become-items`).
+    ...panels.map((panel) => panel.id),
+  ]);
 }
 
 /**
- * Everything still to deal with that is filed somewhere - the complement of
- * `itemsInTheInbox`, built the same direct way from `filings` rather than by
+ * Everything still to deal with that has a parent - the complement of
+ * `itemsInTheInbox`, built the same direct way from the rows rather than by
  * inverting that function's own result, so a caller needing both sides of the
  * partition (`possibleDuplicatesOf`, issue 410) pays for one scan each rather
  * than one twice over.
  */
-export function itemsThatAreFiled(items: readonly Item[], filings: readonly Filing[]): Item[] {
-  const filed = new Set(filings.map((filing) => filing.itemId));
-  return items.filter((item) => stillOpen(item) && filed.has(item.id));
+export function itemsThatAreFiled(
+  items: readonly Item[],
+  filings: readonly Filing[],
+  children: readonly ChildRow[] = [],
+): Item[] {
+  const held = withAParent(filings, children, []);
+  return items.filter((item) => stillOpen(item) && held.has(item.id));
 }
 
 /**
@@ -151,9 +177,9 @@ export function placesFiledOn(
 }
 
 /**
- * What *All items* says in its *Where it is* column: each Panel the item is
- * filed on (`placesFiledOn`), joined with a comma, or *Inbox* for an item never
- * filed.
+ * Where an item is filed, joined with a comma, or *Inbox* for an item filed
+ * nowhere. *All items* says `whereItSits` (held-places.ts), which also names
+ * the Items holding one.
  */
 export function whereItIs(
   item: Item,

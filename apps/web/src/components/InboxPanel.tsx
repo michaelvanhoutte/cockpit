@@ -20,7 +20,7 @@ const SmartRefinementsWindow = lazy(() => import('./SmartRefinementsWindow'));
 function useInboxCount(workspaceId: string): number | null {
   const { data } = useSnapshot(workspaceId);
   return data
-    ? itemsInTheInbox(data.items, filingsThatFile(data.filings, data.panels)).length
+    ? itemsInTheInbox(data.items, filingsThatFile(data.filings, data.panels), data.children).length
     : null;
 }
 
@@ -219,7 +219,8 @@ export function InboxPanel({ workspaceId }: { workspaceId: string }) {
   // A filing onto a Filter is no filing at all (`filingsThatFile`), so the item
   // it names is still here - which is the whole of what makes one harmless.
   const filed = filingsThatFile(data.filings, data.panels);
-  const inbox = itemsInTheInbox(data.items, filed);
+  // Held by an Item is out of it too ("Brainstorming: an Item can't hold other Items", issue 1825), as filed on a Panel is.
+  const inbox = itemsInTheInbox(data.items, filed, data.children);
 
   /* No box of its own and no heading: the column it is drawn in is the hollow
      in the sheet (pages/Layout.tsx), and the name and count are up in the band

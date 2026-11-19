@@ -3,6 +3,8 @@ import { WORKSPACE_THEMES, attachmentSchema, itemSchema, itemStatus, itemsInTheI
 import type { CommandArgs } from '../../src/api/queries';
 import { createChangeQueue } from '../../src/changeQueue';
 import { DRAWN_AHEAD, drawnAhead, drawnOver, listDrawnOver, noSnapshotYet, type Drawn } from '../../src/drawnAhead';
+// Fetched by a Workspace holding Items in Items; here, loaded with the cases that draw them.
+import '../../src/childrenDrawnAhead';
 import { forgetEndedRuns, rememberEnded } from '../../src/endedRuns';
 import { itemsThatMayBeDuplicates } from '../../src/duplicates';
 
@@ -153,6 +155,35 @@ describe('Item editing', () => {
       // The other Item and the copy the server sent are as they were.
       expect(read(drawn, LISA)).toEqual(read(copy, LISA));
       expect(shown(read(copy, BART)!)).not.toEqual(expected);
+    });
+
+    it('moves the done count of the Item holding it as it is finished and reopened', () => {
+      const copy = {
+        ...workspace([anItem(BART), anItem(LISA, { childrenCount: 1, childrenDone: 0 })]),
+        children: [{ parentId: LISA, childId: BART, position: 0 }],
+      };
+
+      const finished = drawnAhead(copy, { name: 'set_done', payload: { ...envelope(BART), done: true } } as CommandArgs);
+      const reopened = drawnAhead(finished, { name: 'set_done', payload: { ...envelope(BART), done: false } } as CommandArgs);
+
+      expect(read(finished, LISA)).toMatchObject({ childrenCount: 1, childrenDone: 1 });
+      expect(read(reopened, LISA)).toMatchObject({ childrenCount: 1, childrenDone: 0 });
+    });
+
+    it('puts what a dismissed parent held back in the Inbox, and counts a dismissed child out of its parent', () => {
+      const CHILD = '11111111-1111-7111-8111-000000000003';
+      const copy = {
+        ...workspace([anItem(BART, { childrenCount: 1, childrenDone: 0 }), anItem(LISA, { childrenCount: 1, childrenDone: 0 }), anItem(CHILD)]),
+        children: [
+          { parentId: BART, childId: CHILD, position: 0 },
+          { parentId: LISA, childId: BART, position: 0 },
+        ],
+      };
+
+      const parentGone = drawnAhead(copy, { name: 'set_dismissed', payload: { ...envelope(BART), dismissed: true } } as CommandArgs);
+
+      expect(itemsInTheInbox(parentGone.items, [], parentGone.children).map((item) => item.id)).toContain(CHILD);
+      expect(read(parentGone, LISA)).toMatchObject({ childrenCount: 0, childrenDone: 0 });
     });
 
     it('takes a dismissed Item out of the Workspace', () => {

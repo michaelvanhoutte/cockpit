@@ -46,7 +46,7 @@ export function isStale(item: Item, issuedAt: string): boolean {
 const CAPTURED_HERE = 'internal';
 
 /** An Item as its row holds it: the one source field written as the two columns there are. */
-export type StoredItem = Omit<Item, 'source'> & {
+export type StoredItem = Omit<Item, 'source' | 'childrenCount' | 'childrenDone'> & {
   source: typeof CAPTURED_HERE;
   sourceConnector: Source | null;
 };
@@ -63,9 +63,15 @@ export type StoredItem = Omit<Item, 'source'> & {
  * capture are stored alike, the source said once, by whoever carried it in.
  * The read coalesces the two back into one (`itemColumns`, accounts/repo.ts),
  * so this is the only place either half is seen.
+ *
+ * **The counts of what it holds are never written from an Item** ("Brainstorming:
+ * an Item can't hold other Items", issue 1825): the store counts them again in
+ * the transaction of each change to a child, so a copy read before that change
+ * cannot put an old count back.
  */
 export function asStored(item: Item): StoredItem {
-  return { ...item, source: CAPTURED_HERE, sourceConnector: item.source === CAPTURED_HERE ? null : item.source };
+  const { childrenCount: _count, childrenDone: _done, ...row } = item;
+  return { ...row, source: CAPTURED_HERE, sourceConnector: item.source === CAPTURED_HERE ? null : item.source };
 }
 
 export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {

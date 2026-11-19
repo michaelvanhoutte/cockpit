@@ -1,5 +1,5 @@
 import { type Page, type Response } from '@playwright/test';
-import { giveADashboard, giveToAPanel, giveToTheInbox } from './support/arrange';
+import { arrange, giveADashboard, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
   choosePanelAction,
@@ -760,6 +760,53 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, panel), { timeout: AT_ONCE_MS }).toEqual([second, third, first]);
       expect((await answered).status()).toBe(200);
       await expect.poll(() => itemsOn(page, panel)).toEqual([second, third, first]);
+    });
+  });
+});
+
+/**
+ * "Brainstorming: an Item can't hold other Items" (issue 1825): a parent's
+ * children unfold under its row as full rows, and one can be dragged out like
+ * any other. F3, and only in a browser: the drag is a gesture. That unfolding
+ * folds and never picks, and that a child's menu acts on the child, is
+ * apps/web/tests/unit/components/ItemList.test.tsx; which children the read
+ * carries, apps/api/tests/integration/http/item-children.test.ts.
+ *
+ * Desktop only, for the reason the other drag walks are.
+ */
+test.describe('Panels', () => {
+  test.describe('a parent’s children are rows of their own under it', () => {
+    test('files a child dragged from under its parent onto another Panel', async ({ page, isMobile }) => {
+      test.skip(isMobile, 'two panels are not on one screen here');
+      const dashboard = uniqueTitle('Today');
+      const panel = uniqueTitle('Falcon');
+      const second = uniqueTitle('Anna');
+      const parent = uniqueTitle('Chapter 3');
+      const child = uniqueTitle('Storm scene');
+      await signIn(page, ADA, isMobile);
+      const board = await giveADashboard(page, dashboard, [panel, second]);
+      await giveToAPanel(page, board.panels[0]!, [parent]);
+      const parentId = board.panels[0]!.itemIds[0]!;
+      const [childId] = await giveToTheInbox(page, [child]);
+      await arrange(page, 'add_children', { parentId, childIds: [childId] });
+      await page.reload();
+      await goToTheDashboard(page, dashboard, isMobile);
+      const falcon = page.getByRole('region', { name: panel });
+      await expect(falcon.getByText('· 0 of 1 done')).toBeVisible();
+
+      await press(falcon.getByRole('button', { name: `Unfold ${parent}` }), isMobile);
+      const row = falcon.locator(`[data-child-rows="${parentId}"]`).getByRole('listitem').filter({ hasText: child });
+      await expect(row).toBeVisible();
+      const target = page.getByRole('region', { name: second });
+      const to = await target.boundingBox();
+      if (!to) throw new Error('the second panel is not on screen');
+      const filed = answerTo(page, 'move_item_to_panel');
+      await row.dragTo(target, { targetPosition: { x: to.width / 2, y: to.height / 2 } });
+      await filed;
+
+      await expect(target.getByText(child)).toBeVisible();
+      // Still inside its parent: filing it elsewhere does not take it out.
+      await expect(row).toBeVisible();
     });
   });
 });
