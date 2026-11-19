@@ -19,6 +19,7 @@ import {
   childrenOf,
   holdsItems,
   parentIdsOf,
+  descendantIdsOf,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
@@ -332,13 +333,19 @@ export function ItemList({
    * of their own (issue 1825); a Dashboard's bar reads every pick already.
    */
   const pickedHere = pickedInTheList(selection, items);
+  const heldUnderRows = useMemo(() => {
+    const below = new Set<string>();
+    if (onDashboard || heldBy) return below;
+    for (const item of items) if (holdsItems(item)) for (const id of descendantIdsOf(data?.children ?? [], item.id)) below.add(id);
+    return below;
+  }, [onDashboard, heldBy, items, data?.children]);
   const picked =
-    onDashboard || heldBy
+    heldUnderRows.size === 0
       ? pickedHere
       : [
           ...pickedHere,
           ...(data?.items ?? []).filter(
-            (item) => stillOpen(item) && selection.picked.has(item.id) && !pickedHere.includes(item),
+            (item) => stillOpen(item) && heldUnderRows.has(item.id) && selection.picked.has(item.id) && !pickedHere.includes(item),
           ),
         ];
 
