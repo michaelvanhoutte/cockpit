@@ -740,7 +740,9 @@ function removedFromItsLayouts(
 /**
  * A new Panel and the Item it is, in one transaction (issue 1824). `replayed:
  * 'changes nothing'` is for a command whose replay carries the same Panel id,
- * named at the primary key so a title collision still raises.
+ * named at the primary key so a title collision still raises. The Item is
+ * written only when the Panel was, so a replay that finds a Panel an older
+ * Worker made, with no Item, leaves no Item standing for nothing in the Inbox.
  */
 function insertPanel(
   tx: InATransaction,
@@ -748,10 +750,14 @@ function insertPanel(
   workspaceId: string,
   { replayed }: { replayed?: 'changes nothing' } = {},
 ): void {
-  insertPanelsItem(tx, panel.tenantId, panel, workspaceId, panel.createdAt);
   const inserting = tx.insert(panels).values({ ...panel, itemId: panel.id });
-  if (replayed) inserting.onConflictDoNothing({ target: panels.id }).run();
-  else inserting.run();
+  if (replayed) {
+    const made = inserting.onConflictDoNothing({ target: panels.id }).returning({ id: panels.id }).all();
+    if (made.length === 0) return;
+  } else {
+    inserting.run();
+  }
+  insertPanelsItem(tx, panel.tenantId, panel, workspaceId, panel.createdAt);
 }
 
 /**
@@ -1381,7 +1387,9 @@ export function runCommand<N extends CommandName>(
       // every read of either joins to a live dashboard (repo.ts), so
       // tombstoning this one takes them off every screen at once. That is
       // "tombstones, not deletes" doing its job rather than being worked
-      // around - restoring the dashboard by hand would bring them all back.
+      // around. Only the Panels' own Items are dismissed with it (issue 1824),
+      // so restoring the dashboard by hand brings them all back once those
+      // Items' `deleted_at` is cleared as well.
       db.transaction((tx) => {
         tx.update(dashboards)
           .set({ deletedAt: cmd.issuedAt })

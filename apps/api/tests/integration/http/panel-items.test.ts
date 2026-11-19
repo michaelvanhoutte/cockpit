@@ -1089,5 +1089,34 @@ describe('Panels', () => {
         await inTheStore((sql) => sql.exec('SELECT deleted_at FROM items WHERE id = ?', falcon).one()),
       ).toEqual({ deleted_at: AT });
     });
+
+    it.each([
+      { command: 'set_done', change: { done: true } },
+      { command: 'set_dismissed', change: { dismissed: true } },
+      { command: 'set_title', change: { title: 'Renamed' } },
+    ])('$command naming a Panel’s id finds no Item and changes nothing', async ({ command, change }) => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const before = await inTheStore((sql) => sql.exec('SELECT * FROM items WHERE id = ?', falcon).one());
+
+      expect((await send(command, { workspaceId: WORKSPACE_ID, itemId: falcon, ...change })).status).toBe(404);
+
+      expect(await inTheStore((sql) => sql.exec('SELECT * FROM items WHERE id = ?', falcon).one())).toEqual(before);
+    });
+
+    it('add_panel resent for a Panel an older release made, with no Item, writes no Item', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      await inTheStore((sql) => {
+        sql.exec('UPDATE panels SET item_id = NULL WHERE id = ?', falcon);
+        sql.exec('DELETE FROM items WHERE id = ?', falcon);
+      });
+
+      expect(
+        (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId: today, panelId: falcon, name: 'Falcon again' })).status,
+      ).toBe(200);
+
+      expect(await inTheStore((sql) => sql.exec('SELECT count(*) AS n FROM items WHERE id = ?', falcon).one())).toEqual({ n: 0 });
+    });
   });
 });

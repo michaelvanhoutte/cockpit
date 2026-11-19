@@ -978,7 +978,9 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
     db
       .select(itemColumns)
       .from(items)
-      .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId)))
+      // A Panel's own Item is not an Item any command or connected app can
+      // name until the switch (issue 1825), so its id reads as no Item.
+      .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId), notAPanelsOwnItem()))
       .get() ?? null
   );
 }
