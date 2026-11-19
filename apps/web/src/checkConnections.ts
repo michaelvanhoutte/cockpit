@@ -66,11 +66,11 @@ export function heard(run: CheckRun, workspaceId: string, sourceAccountId: strin
   return { ...run, heard: [...run.heard, { sourceAccountId, ended }] };
 }
 
-/** How a connection's own history says it ended since a time, for a connection whose announcement was missed: its newest line, as the announcement would have said it. */
+/** How a connection's own history says it ended since a time, for a connection whose announcement was missed: the first line at or after it, which is the check the press waits on. */
 export function endedByHistory(history: ConnectionHistory, since: string): Ended | null {
-  const newest = history.lines[0];
-  if (!newest || newest.lastAt < since) return null;
-  return { failed: newest.outcome === 'failed', broughtIn: newest.did.broughtIn.count, closed: newest.did.closed.count, at: newest.lastAt };
+  const first = history.lines.findLast((line) => line.lastAt >= since);
+  if (!first) return null;
+  return { failed: first.outcome === 'failed', broughtIn: first.did.broughtIn.count, closed: first.did.closed.count, at: first.lastAt };
 }
 
 /** What each connection asked for has ended with, once the server's time is known: the first announcement at or after it. */

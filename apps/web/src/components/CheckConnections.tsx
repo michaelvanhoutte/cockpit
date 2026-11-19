@@ -20,6 +20,7 @@ export default function CheckConnections({
   const room = useRoomForTheInbox();
   const openHistory = useOpenConnectionHistory();
   const { note } = check;
+  const settled = note !== null && !note.working;
   return (
     <>
       <button
@@ -36,21 +37,38 @@ export default function CheckConnections({
       {note &&
         noteSlot &&
         createPortal(
-          <div role="status" className={`absolute inset-x-0 top-1 z-20 rounded-md bg-surface px-2 py-1 text-xs shadow-sm ${note.ok ? 'text-ink-soft' : 'text-over-ink'}`}>
-            <p>{note.text}</p>
-            {note.failed.map((one) => (
-              <p key={one.sourceAccountId}>
-                {/* A desk opens the connection's history in Settings; a phone has no Connections to open it in. */}
-                {room && openHistory ? (
-                  <button type="button" className="underline" onClick={() => openHistory(workspaceId, one.sourceAccountId)}>
-                    {one.name}
-                  </button>
-                ) : (
-                  one.name
-                )}{' '}
-                failed
-              </p>
-            ))}
+          <div
+            onClick={check.dismiss}
+            className={`absolute inset-x-0 top-1 z-20 flex items-start gap-1 rounded-md bg-surface px-2 py-1 text-xs shadow-sm ${note.ok ? 'text-ink-soft' : 'text-over-ink'}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p>{note.text}</p>
+              {note.failed.map((one) => (
+                <p key={one.sourceAccountId}>
+                  {/* A desk opens the connection's history in Settings; a phone has no Connections to open it in. */}
+                  {room && openHistory ? (
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openHistory(workspaceId, one.sourceAccountId);
+                      }}
+                    >
+                      {one.name}
+                    </button>
+                  ) : (
+                    one.name
+                  )}{' '}
+                  failed
+                </p>
+              ))}
+            </div>
+            {settled && (
+              <button type="button" aria-label="Dismiss" className="px-1 leading-none text-ink-faint hover:text-ink" onClick={check.dismiss}>
+                ×
+              </button>
+            )}
           </div>,
           noteSlot,
         )}

@@ -173,7 +173,7 @@ export function InboxHeading({
         </div>
       </div>
       {/* Zero tall: the note is drawn over the column under the heading, so the band the heading sits in never changes height. */}
-      <div ref={setNoteSlot} className="relative" />
+      <div ref={setNoteSlot} role="status" className="relative" />
       {historyOpen && (
         <Suspense fallback={null}>
           <SmartRefinementsWindow

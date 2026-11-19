@@ -7,6 +7,7 @@ import { announceCheckEnded } from '../../../src/checkEnds';
 import { ConnectionHistoryOpener } from '../../../src/settingsOpener';
 import { rememberChosen, resetStanding, stand } from '../../../src/offline';
 import { RECONNECTED } from '../../../src/updating';
+import { forgetCheckRuns, NOTE_STAYS_MS } from '../../../src/checkRuns';
 import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 
 /**
@@ -25,7 +26,7 @@ const LATER = '2026-10-05T10:00:03.000Z';
 const held = vi.hoisted(() => ({
   checkable: [] as { sourceAccountId: string; name: string }[] | undefined,
   /** Whether the request answers for the Workspace's checkable connections, fails, or waits to be released; and how often it was sent. */
-  answer: { kind: 'answers' } as { kind: 'answers' } | { kind: 'fails' } | { kind: 'waits'; release: (() => void) | null },
+  answer: { kind: 'answers' } as { kind: 'answers' } | { kind: 'fails' } | { kind: 'hangs' } | { kind: 'waits'; release: (() => void) | null },
   sent: 0,
   /** What each connection's history read answers with, and which were read. */
   histories: {} as Record<string, unknown>,
@@ -58,6 +59,7 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
                 held.sent += 1;
                 const answer = held.answer;
                 if (answer.kind === 'fails') return new Response('', { status: 500 });
+                if (answer.kind === 'hangs') return new Promise<Response>(() => {});
                 if (answer.kind === 'waits') await new Promise<void>((resolve) => (answer.release = resolve));
                 return Response.json({
                   at: PRESSED_AT,
@@ -143,6 +145,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetCheckRuns();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   resetStanding();
@@ -269,7 +272,7 @@ describe('Inbox', () => {
 
       const note = await screen.findByRole('status');
       expect(note).toHaveTextContent(`${OUTLOOK.name} failed`);
-      expect(within(note).queryByRole('button')).toBeNull();
+      expect(within(note).queryByRole('button', { name: OUTLOOK.name })).toBeNull();
     });
 
     it('says which connection is still out after a minute, and still ends when it does', async () => {
@@ -341,15 +344,60 @@ describe('Inbox', () => {
     });
 
     it.each([
-      { situation: 'the server refuses', answer: { kind: 'fails' } as const },
-    ])('stops spinning and says so when $situation', async ({ answer }) => {
+      { situation: 'the server refuses', answer: { kind: 'fails' } as const, waited: 0 },
+      { situation: 'the server does not answer', answer: { kind: 'hangs' } as const, waited: 15_000 },
+    ])('stops spinning and says so when $situation', async ({ answer, waited }) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       held.answer = answer;
       await heading();
 
       await userEvent.click(refresh()!);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(waited);
+      });
 
       expect(await screen.findByText('That did not reach the server. Try again.')).toBeInTheDocument();
       expect(refresh()!.querySelector('.animate-spin')).toBeNull();
+    });
+
+    it('takes a note that says how it ended down after a few seconds, or when it is clicked, but keeps one naming a failure', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      await heading();
+      await pressed();
+      await waitFor(() => expect(held.sent).toBe(1));
+      ended(GMAIL);
+      ended(OUTLOOK);
+      expect(await screen.findByText('Checked 2 connections · nothing new')).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NOTE_STAYS_MS);
+      });
+      expect(screen.queryByText(/^Checked/)).toBeNull();
+
+      await userEvent.click(refresh()!);
+      await waitFor(() => expect(held.sent).toBe(2));
+      ended(GMAIL, { at: '2026-10-05T10:00:09.000Z' });
+      ended(OUTLOOK, { outcome: 'failed', at: '2026-10-05T10:00:09.000Z' });
+      expect(await screen.findByText(/^Checked 2 connections/)).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NOTE_STAYS_MS * 3);
+      });
+      expect(screen.getByText(/^Checked 2 connections/)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText(/^Checked/)).toBeNull();
+    });
+
+    it('keeps a press when the heading is drawn again, with its note', async () => {
+      const drawn = await heading();
+      await pressed();
+      await waitFor(() => expect(held.sent).toBe(1));
+      drawn.unmount();
+
+      ended(GMAIL, { broughtIn: 1 });
+      ended(OUTLOOK);
+      await heading();
+
+      expect(await screen.findByText('Checked 2 connections · 1 new')).toBeInTheDocument();
     });
 
     it('is refused while working offline, and sends nothing', async () => {
