@@ -259,7 +259,7 @@ function theListBox(): HTMLElement {
  * and does not carry a pointer position through a drop event, so which gap a
  * position picks out is tests/unit/dropAt.test.ts's rule and the browser walk's.
  */
-async function dropOnto(itemId: string, clientY = 1) {
+async function dropOnto(itemId: string, clientY = 1, keys: { shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean } = {}) {
   await act(async () => {});
   await act(async () => {});
   const dataTransfer = {
@@ -269,7 +269,10 @@ async function dropOnto(itemId: string, clientY = 1) {
     dropEffect: '',
   };
   fireEvent.dragOver(theListBox(), { dataTransfer, clientY });
-  fireEvent.drop(theListBox(), { dataTransfer, clientY });
+  // jsdom carries no key through a drag event, so each is put on the event itself, as `drag` does for a drop onto a row.
+  const letGo = createEvent.drop(theListBox(), { dataTransfer, clientY });
+  for (const [key, value] of Object.entries(keys)) Object.defineProperty(letGo, key, { value });
+  fireEvent(theListBox(), letGo);
 }
 
 /** The cache the list reads the snapshot from, so a test can say what the re-read after a change finds. */
@@ -1454,6 +1457,25 @@ describe('Panels', () => {
       const question = await screen.findByRole('alertdialog');
       expect(question).toHaveTextContent('Move “Reply to Bart” to Falcon, or add it there as well?');
       expect(held.mutate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { key: 'Shift', keys: { shiftKey: true }, sends: 'move_item_to_panel' },
+      { key: 'Ctrl', keys: { ctrlKey: true }, sends: 'add_item_to_panel' },
+      { key: 'Option', keys: { altKey: true }, sends: 'add_item_to_panel' },
+    ])('answers without asking when $key is held: sends $sends', async ({ keys, sends }) => {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
+      await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await dropOnto(BART.id, 1, keys);
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(held.mutate).toHaveBeenCalledTimes(1);
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: sends,
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+      );
     });
 
     it.each([
@@ -3965,15 +3987,26 @@ describe('Triage', () => {
       // Another Dashboard's Panel, which a move from this Dashboard leaves alone.
       const ON_READING = { panelId: 'p-reading', itemId: CHASE.id, position: 0 };
 
-      async function droppedOnFalcon() {
+      async function droppedOnFalcon(keys: Parameters<typeof dropOnto>[2] = {}) {
         held.items = THREE;
         held.filings = [ON_ANNA, ON_READING];
         sendThatFiles();
         const user = await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
         carry(BART, THREE);
-        await dropOnto(BART.id);
+        await dropOnto(BART.id, 1, keys);
         return user;
       }
+
+      it.each([
+        { key: 'Shift', keys: { shiftKey: true }, sends: ['move_item_to_panel', 'move_item_to_panel', 'add_item_to_panel'] },
+        { key: 'Ctrl', keys: { ctrlKey: true }, sends: Array(3).fill('add_item_to_panel') as string[] },
+      ])('answers for all of them without asking when $key is held', async ({ keys, sends }) => {
+        await droppedOnFalcon(keys);
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+        expect(sentCalls().map(([name]) => name)).toEqual(sends);
+      });
 
       it('asks one question naming how many and where, and files nothing yet', async () => {
         await droppedOnFalcon();

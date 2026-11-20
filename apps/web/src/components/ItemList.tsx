@@ -96,6 +96,12 @@ const SendToClaudeWindow = lazy(() => import('./SendToClaudeWindow'));
 const PROPOSAL_HEADER =
   'sticky top-0 z-[1] flex items-baseline gap-2 border-b border-shade/10 bg-surface px-4 pb-1 pt-2.5 text-xs text-ink-faint';
 
+/** The keys held as a row was let go: Shift moves it, Ctrl (Option on a Mac) also adds it, each without asking (issue 1830). */
+interface DropKeys {
+  move: boolean;
+  add: boolean;
+}
+
 /**
  * A list of items, in the Inbox or on a panel, and the one way to move one out
  * of it ("Panels hold the items filed into them, and the Inbox holds the rest",
@@ -124,6 +130,7 @@ export function ItemList({
   openDashboardId,
   panelId = null,
   gathered = false,
+  onTakeOffTheWhiteboard,
   hidden = false,
   sorted = false,
   groups,
@@ -181,6 +188,8 @@ export function ItemList({
    * consequence of the Item, not a filing anybody made.
    */
   gathered?: boolean;
+  /** Draws *Take off the whiteboard* on each row's menu: the list is a card's menu on a whiteboard (issue 1830). */
+  onTakeOffTheWhiteboard?: (() => void) | undefined;
   /**
    * That the list is mounted but not on screen - a Panel collapsed on a phone.
    * Its rows stay known to the selection, which keeps what was picked, but
@@ -935,7 +944,7 @@ export function ItemList({
    * stop showing it), and is not dropped. Read from the snapshot at the moment
    * of the drop, for the same reason.
    */
-  const dropSelection = (carrying: SelectionInTheAir, x: number, y: number) => {
+  const dropSelection = (carrying: SelectionInTheAir, x: number, y: number, keys: DropKeys) => {
     // Read before the drop ends the drag. A selection that crossed to this
     // Dashboard is over once the drop is answered: it is on a Dashboard it was
     // not picked on, where nothing shows what is left of it (issue 1218).
@@ -978,6 +987,13 @@ export function ItemList({
     // being reordered.
     const arriving = (item: Item) => !held.includes(item.id) && filedOn(item).length > 0;
     if (chosen.some(arriving)) {
+      // Shift moves and Ctrl (Option on a Mac) also adds, either one answering the question already ("Brainstorming: cards on the whiteboard can't be nested, combined or moved between boxes", issue 1830).
+      if (keys.move || keys.add) {
+        void filingSeveral
+          .dropOnto(chosen, panelId, { at, scope: carrying.scope, ...(keys.move ? {} : { alsoShow: true }) })
+          .finally(leave);
+        return;
+      }
       setFailure(null);
       setAskingSeveral({ items: chosen, at, scope: carrying.scope, across });
       return;
@@ -1010,8 +1026,9 @@ export function ItemList({
     setLandingAt(null);
     if (!itemId) return;
     const carrying = selectionCarried();
+    const keys = { move: event.shiftKey, add: event.ctrlKey || event.altKey };
     if (carrying?.ids.includes(itemId)) {
-      dropSelection(carrying, event.clientX, event.clientY);
+      dropSelection(carrying, event.clientX, event.clientY, keys);
       return;
     }
 
@@ -1054,6 +1071,9 @@ export function ItemList({
     // answer to "move or add" that would leave it there.
     const onAPanelAlready = filed.some((filing) => filing.itemId === itemId);
     if (panelId && (wasAt === -1 || fromAnotherPanel) && onAPanelAlready) {
+      // Shift moves and Ctrl (Option on a Mac) also adds, without asking (issue 1830).
+      if (keys.move) return move(moving, panelId, gap, undefined, cameFrom ?? undefined);
+      if (keys.add) return add(moving, panelId, gap);
       setFailure(null);
       setAsking({ item: moving, at: gap, from: cameFrom });
       return;
@@ -1167,6 +1187,7 @@ export function ItemList({
       // *Split…* from a row's menu: the Item as blocks to take apart (issue 1828).
       onSplit={(from: HTMLElement | null) => addingAsChild.split(item.id, from)}
       {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
+      onTakeOffTheWhiteboard={onTakeOffTheWhiteboard}
     />
     {holdsItems(item) && (
       <Suspense fallback={null}>
