@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ReadPastedLinkCommand } from '@cockpit/shared';
 import type { Env } from '../env.js';
 import type { GuestArrivalSource } from './guest-arrival.js';
 import type { Account } from '../accounts/index.js';
@@ -25,6 +26,8 @@ import {
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import { sourceNames, sourcesTitledBySubject } from '../connectors/registry.js';
 import { pastedLinkIn, readThePastedLink, type PastedLinkRead } from '../connectors/pasted-link.js';
+import { readTheWebPage, textsOfThePage, webLinkIn, type WebRead } from './web-page.js';
+import { WEB } from '../domain/named-sources.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from '../accounts/debounce.js';
@@ -490,9 +493,22 @@ export async function cleanUpACapturedNote(
   if (fromLink) say(job.itemId, `read the message its pasted link names from ${fromLink.capturedFrom.source}`);
   // From here the note is the read one: her message, then your words as its note.
   const item = found && fromLink ? { ...found, capturedMessage: fromLink.capturedMessage } : found;
+  /**
+   * The web page the note's first link names, asked of the model while the note
+   * is cleaned up, which never sees it ("Capture link summaries", issue 1853).
+   * Null where the note holds no link to read. A call that fails rejects, and
+   * is awaited wherever the page is written, so the job fails whole and the
+   * queue tries it again.
+   */
+  let webPage: Promise<WebRead | null> | null = null;
   /** The read written with nothing else, where no reading of the note goes with it. */
   const readAlone = async () => {
     if (item && fromLink) await writeThePastedLinkRead(env, account, job, item, fromLink);
+    const web = await webPage;
+    if (item && web) {
+      const texts = textsOfThePage(web, { description: web.wordsBeside, readings: [] });
+      await writeThePastedLinkRead(env, account, job, item, { capturedFrom: web.capturedFrom, capturedMessage: web.capturedMessage }, texts);
+    }
   };
 
   const ai = aiFor(env);
@@ -516,6 +532,12 @@ export async function cleanUpACapturedNote(
   // recorded either, for the same reason the register check above records
   // nothing: there is no item left to describe a before/after against.
   if (!item) return say(job.itemId, 'nothing was enriched: no such item in this account');
+  // Where the Teams step read nothing, the first web page or PDF the note links.
+  const webLink = fromLink ? null : webLinkIn(env, item);
+  if (webLink) {
+    webPage = readTheWebPage(ai, item, webLink, { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null }, delivery.lastAttempt);
+    webPage.catch(() => {});
+  }
   // Nothing to read. Only capture writes this column, and it writes what was
   // typed, so this is an Item that arrived by some other door.
   if (!item.capturedMessage) {
@@ -530,6 +552,17 @@ export async function cleanUpACapturedNote(
   // A redelivery after a proposal landed for an email: the first proposal was written from the subject
   // and the text together, and reading the body alone now would replace it ("Mail Items: an email whose
   // only text is a phone signature is titled with that signature…", issue 1836).
+  // The same for a page already read: its texts were written from the page and the words together, and a redelivered job must not
+  // ask again or write them over ("Capture link summaries", issue 1853).
+  if (item.textsProposedAt !== null && item.textsSettledAt === null && item.source === WEB) {
+    await recordHistory(() =>
+      account.recordRewriteOutcome(attemptId, {
+        status: 'left-as-is',
+        message: 'nothing was proposed: the texts were already proposed from the page and the note',
+      }),
+    );
+    return say(job.itemId, 'nothing was proposed: the texts were already proposed from the page and the note');
+  }
   if (item.textsProposedAt !== null && item.textsSettledAt === null && sourcesTitledBySubject(env).has(item.source)) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
@@ -632,9 +665,12 @@ export async function cleanUpACapturedNote(
     return say(job.itemId, `nothing was proposed: ${read.discarded}`);
   }
 
+  // The page, if the note had one to read: a failed call throws here, before anything is written.
+  const web = await webPage;
+  if (web) say(job.itemId, `read the page its pasted link names from ${web.capturedFrom.sourceLink}`);
   let written;
   try {
-    const texts = {
+    const proposed = {
       title: read.proposal.title,
       description: read.proposal.message,
       // Left out where the note states no next step (issue 1791).
@@ -648,6 +684,9 @@ export async function cleanUpACapturedNote(
         meaning: candidate.meaning,
       })),
     };
+    const texts = web
+      ? textsOfThePage(web, { description: proposed.description, readings: proposed.readings, ...(proposed.nextAction === undefined ? {} : { nextAction: proposed.nextAction }) })
+      : proposed;
     const envelope = {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
@@ -661,9 +700,10 @@ export async function cleanUpACapturedNote(
     // one change, so the device hears of it once ("Read pasted Teams links",
     // issue 1755); the texts land only where nobody has made them their own,
     // as any reading's do, which the store says as it writes.
-    written = fromLink
+    const sourceRead = fromLink ?? (web ? { capturedFrom: web.capturedFrom, capturedMessage: web.capturedMessage } : null);
+    written = sourceRead
       ? await account
-          .applyChange('read_pasted_link', { ...envelope, ...fromLink, texts })
+          .applyChange('read_pasted_link', { ...envelope, capturedFrom: sourceRead.capturedFrom, capturedMessage: sourceRead.capturedMessage, texts })
           .then((result) => ({ ...result, applied: result.textsWritten === true, readLanded: result.applied }))
       : { ...(await account.applyChange('propose_item_texts', { ...envelope, ...texts })), readLanded: false };
   } catch (error) {
@@ -904,6 +944,7 @@ async function writeThePastedLinkRead(
   job: CleanUpJob,
   item: { id: string; workspaceId: string },
   read: PastedLinkRead,
+  texts?: ReadPastedLinkCommand['texts'],
 ): Promise<void> {
   let written;
   try {
@@ -912,7 +953,9 @@ async function writeThePastedLinkRead(
       issuedAt: new Date().toISOString(),
       workspaceId: item.workspaceId,
       itemId: item.id,
-      ...read,
+      capturedFrom: read.capturedFrom,
+      capturedMessage: read.capturedMessage,
+      ...(texts ? { texts } : {}),
     });
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return;
