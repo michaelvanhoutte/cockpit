@@ -132,6 +132,7 @@ import {
   PanelOrderStaleError,
   ItemInsideItselfError,
   MergeRefusedError,
+  StoryRefusedError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -157,11 +158,13 @@ import {
   getEmailLocalPart,
   getWorkspace,
   isItemFiled,
+  storySources,
   claudeProposalContext,
   sendToOfferOn,
   listRememberedSentences,
   openItemsASentenceMayFit,
   type ClaudeProposalContext,
+  type StorySources,
   type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
@@ -690,6 +693,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   recentCapturedTimeZones(accountName: string): Answer<string[]> {
     return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
+  }
+
+  /** What a rewrite of a parent's story is made from ("Keep its story up to date", issue 1827). */
+  storySources(accountName: string, itemId: string, limit: number): Answer<StorySources | null> {
+    return this.#answer(accountName, (db) => storySources(db, accountName, itemId, limit));
   }
 
   /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */
@@ -2090,7 +2098,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // Same again: every Item is there, and an Item cannot be its own ancestor.
         error instanceof ItemInsideItselfError ||
         // A 400 as well: every Item is there, and one from a source is finished at its source.
-        error instanceof MergeRefusedError
+        error instanceof MergeRefusedError ||
+        // A 400 as well: the Item is there, and holds nothing a story could be written from.
+        error instanceof StoryRefusedError
       ) {
         return { status: 'refused', what: error.message };
       }

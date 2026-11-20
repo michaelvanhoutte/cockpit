@@ -9,7 +9,7 @@ import {
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, putAttachment, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/enrichment.js';
+import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose, enqueueStoryRewrite } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import {
@@ -142,7 +142,9 @@ export async function answerMcp(request: Request, env: Env, ctx: ProtectedContex
             : params.name === UPDATE_ITEM
               ? await update(env, ctx, account, holder.accountName, app, params.arguments)
               : params.name === DELETE_ITEM || params.name === RESTORE_ITEM
-                ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments)
+                ? await dismiss(account, app, params.name === DELETE_ITEM, params.arguments, (parentId) =>
+                    ctx.waitUntil(enqueueStoryRewrite(env, holder.accountName, parentId)),
+                  )
                 : await capture(env, ctx, account, holder.accountName, app, params.arguments);
       return 'refusal' in said ? toolError(said.refusal) : { content: [{ type: 'text', text: said.reply }] };
     } catch (error) {
@@ -518,6 +520,7 @@ async function dismiss(
   app: { grantId: string },
   dismissed: boolean,
   args: unknown,
+  askForStoryOf: (parentId: string) => void,
 ): Promise<{ reply: string } | { refusal: string }> {
   if ((await account.appCaptureArrived(app.grantId, new Date().toISOString())) === 'too-many') {
     return { refusal: 'Too many calls in the last minute. Wait a minute and try again.' };
@@ -548,6 +551,8 @@ async function dismiss(
       if (!result.applied) {
         return { refusal: 'Cockpit could not change that item just now because it was changed a moment ago. Try again.' };
       }
+      // It left, or rejoined, every Item holding it that keeps its story up to date ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
+      for (const parentId of result.rewriteStoryOf ?? []) askForStoryOf(parentId);
     } catch (error) {
       // Gone between the read and the write.
       if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };

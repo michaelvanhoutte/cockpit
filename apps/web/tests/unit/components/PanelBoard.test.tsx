@@ -615,6 +615,18 @@ describe('Panels', () => {
       }
     });
 
+    // A Panel holds Items but tells no story ("Keep its story up to date", issue 1827): that is a parent Item's.
+    it('offers neither Keep its story up to date nor Rewrite from its children on a panel of items', async () => {
+      showBoard({ panels: [aPanel('falcon', 'Project Falcon')] });
+
+      openMenu('Project Falcon');
+
+      await screen.findByRole('menuitem', { name: 'Settings…' });
+      expect(screen.queryByRole('menuitem', { name: /Keep its story up to date/ })).toBeNull();
+      expect(screen.queryByRole('menuitemcheckbox', { name: /Keep its story up to date/ })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Rewrite from its children' })).toBeNull();
+    });
+
     it('can be reached by keyboard, so the browser’s own menu key has something to open it from', () => {
       showBoard();
 

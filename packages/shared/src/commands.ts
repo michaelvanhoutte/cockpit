@@ -24,6 +24,7 @@ import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
 import type { combineCommandSchemas } from './commands-combine.js';
+import type { storyCommandSchemas } from './commands-story.js';
 import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
@@ -1403,7 +1404,7 @@ export const commandSchemas = {
  * (`commands-combine.ts`, its own entry point so the app does not carry their
  * schemas in its initial bundle - the API mounts both, `apps/api/src/http/app.ts`).
  */
-type Registered = typeof commandSchemas & typeof combineCommandSchemas;
+type Registered = typeof commandSchemas & typeof combineCommandSchemas & typeof storyCommandSchemas;
 export type CommandName = keyof Registered;
 export type CommandPayload<N extends CommandName> = z.infer<Registered[N]>;
 
@@ -1418,6 +1419,8 @@ export type SelfSentCommandName =
   | 'propose_item_panel'
   | 'propose_item_fields'
   | 'propose_item_for_claude'
+  // Claude's rewrite of a parent's story ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
+  | 'propose_story'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
@@ -1455,6 +1458,13 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * and racily, before it ("Re-propose the rest of the inbox the moment you
  * file one", issue 300).
  *
+ * `rewriteStoryOf` names the parents whose story a change asks Claude to
+ * rewrite - the ones a child joined or left that keep their story up to date,
+ * read off the same atomic call for the reason `settledRouting` is ("Keep its
+ * story up to date", issue 1827). `storyAskedOf` names the ones asked for
+ * whatever their setting: *Rewrite from its children*, and the first story of
+ * what a Merge or Combine made. Each is absent where there are none.
+ *
  * `recordedCorrection` is `true` only for `set_title`/`set_description`, and
  * only where the write recorded or updated a `text_corrections` row - the
  * same fact `command-service.ts` computes once, atomically, to decide whether
@@ -1482,8 +1492,9 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * Cockpit address, and receive mail at it", issue 1466). Read off the same
  * atomic call for the reason `settledRouting` is, and never sent to the browser.
  *
- * `textsWritten` is present only for `read_pasted_link`, and only where it
- * applied: whether the title and description changed too (the texts it
+ * `textsWritten` is present only for `read_pasted_link` and `propose_story`
+ * (where it says whether the description was replaced rather than held for a
+ * Review), and only where it applied: whether the title and description changed too (the texts it
  * carried, else the ones a capture makes of the message read), which they do
  * not where a person made the texts their own first. Read off the same
  * atomic call for the reason `settledRouting` is.
@@ -1496,6 +1507,8 @@ export const commandResultSchema = z.object({
   applied: z.boolean(),
   at: z.iso.datetime().optional(),
   settledRouting: z.boolean().optional(),
+  rewriteStoryOf: z.array(z.string()).optional(),
+  storyAskedOf: z.array(z.string()).optional(),
   recordedCorrection: z.boolean().optional(),
   addressLetGo: z.string().optional(),
   textsWritten: z.boolean().optional(),
