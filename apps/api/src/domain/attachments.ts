@@ -12,6 +12,15 @@ export function attachmentR2Key(tenantId: string, itemId: string, attachmentId: 
   return `${tenantId}/${itemId}/${attachmentId}`;
 }
 
+/**
+ * Where an attachment's thumbnail copy is stored: beside the original, under
+ * its key and a fixed suffix ("Item form: there is no way to mark which image
+ * stands for an Item", issue 1863). A pick again writes the same object.
+ */
+export function thumbnailR2Key(r2Key: string): string {
+  return `${r2Key}.thumbnail`;
+}
+
 /** One row of `attachments` (`accounts/schema.ts`), from the command that creates it. */
 export interface AttachmentRow {
   id: string;

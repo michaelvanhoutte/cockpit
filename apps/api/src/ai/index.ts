@@ -6,6 +6,8 @@ import { recorderFor } from '../gateway/send.js';
 import { buildCleanUpANote } from './prompts/clean-up-a-note.v19.js';
 import { buildChooseAPanel, type ItemToPlace } from './prompts/choose-a-panel.v3.js';
 import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
+import { buildSummariseAPage } from './prompts/summarise-a-page.v1.js';
+import { readPage, type AnswerBlock, type PageRead } from './page-summary.js';
 import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v4.js';
 import { buildRememberASentence, type EditToRemember } from './prompts/remember-a-sentence.v1.js';
 import { buildDraftAReply, REPLY_LIMITS, type ReplyBrief } from './prompts/draft-a-reply.v1.js';
@@ -25,6 +27,7 @@ import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { TextCorrectionEntry, WhatStood } from '../domain/text-corrections.js';
 
 export type { NoteTexts, PanelRead, PlaceRead, ProposalRead, ReadingCandidate, RoutingCandidate } from './note-texts.js';
+export type { PageRead, PageSummary } from './page-summary.js';
 export type { ItemToPlace } from './prompts/choose-a-panel.v3.js';
 export type { ItemToPropose } from './prompts/propose-for-claude.v4.js';
 export type { EditToRemember } from './prompts/remember-a-sentence.v1.js';
@@ -47,6 +50,7 @@ const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';
 const REMEMBER_A_SENTENCE = 'remember-a-sentence.v1';
 const DRAFT_A_REPLY = 'draft-a-reply.v1';
+const SUMMARISE_A_PAGE = 'summarise-a-page.v1';
 const WRITE_A_STORY = 'write-a-story.v1';
 const PROPOSE_A_SPLIT = 'propose-a-split.v1';
 
@@ -149,6 +153,15 @@ export interface AiService {
    * terms as `cleanUpNote`.
    */
   resolvePlace(words: string, tree: readonly PlaceTreeWorkspace[], callFor: CallFor): Promise<PlaceRead>;
+
+  /**
+   * What the page or PDF at `link` says, read by Anthropic's web fetch and
+   * summarised as a title, a gist and 3 to 5 bullets (`summarise-a-page.v1`,
+   * "Capture link summaries", issue 1853). The call carries the link alone. An
+   * answer outside the schema, or a page that cannot be read, answers
+   * `notReadable`; a call that *fails* throws, as `cleanUpNote`'s does.
+   */
+  summarisePage(link: string, wordsBeside: string, callFor: CallFor): Promise<PageRead>;
 
   /**
    * Which of `panels` an Item belongs on, and nothing else - for a settled
@@ -352,6 +365,46 @@ export class ClaudeAiService implements AiService {
     const prompt = buildResolveAPlace(words, tree);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'resolve-a-place', promptVersion: RESOLVE_A_PLACE });
     return 'refused' in answer ? { discarded: answer.refused } : readPlace(answer.text);
+  }
+
+  async summarisePage(link: string, wordsBeside: string, callFor: CallFor): Promise<PageRead> {
+    const prompt = buildSummariseAPage(link, wordsBeside);
+    const about: CallAbout = {
+      ...callFor,
+      operation: 'summarise-a-page',
+      promptVersion: SUMMARISE_A_PAGE,
+      provider: 'anthropic',
+      model: prompt.model,
+      paidBy: this.#paidBy,
+    };
+    const answer = await callThrough(
+      about,
+      async () => {
+        const message = await this.#client.messages.create({
+          model: prompt.model,
+          max_tokens: 8_192,
+          system: [{ type: 'text', text: prompt.system.instructions }],
+          messages: [{ role: 'user', content: prompt.message }],
+          // The SDK's types predate the web fetch tool and `effort`; both are fields of the wire request.
+          tools: prompt.tools as unknown as Anthropic.ToolUnion[],
+          output_config: { format: { type: 'json_schema', schema: prompt.schema }, effort: prompt.effort } as Anthropic.OutputConfig,
+        });
+        const usage = message.usage;
+        return {
+          value: message,
+          tokens: {
+            tokensIn: usage.input_tokens,
+            cacheRead: usage.cache_read_input_tokens ?? null,
+            cacheWrite: usage.cache_creation_input_tokens ?? null,
+            tokensOut: usage.output_tokens,
+          },
+        };
+      },
+      CLAUDE_RETRIES,
+      inRealTime(this.#record),
+    );
+    this.#onUsage?.(prompt.model, answer.usage);
+    return readPage(answer.content as unknown as AnswerBlock[], answer.stop_reason);
   }
 
   async offerSentence(edit: EditToRemember, workspaces: readonly { id: string; name: string }[], callFor: CallFor): Promise<SentenceOfferRead> {

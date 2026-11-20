@@ -103,3 +103,34 @@ export const attachmentSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export type Attachment = z.infer<typeof attachmentSchema>;
+
+/** What may stand for an Item as its thumbnail: the attachments that are pictures. */
+export const THUMBNAIL_SOURCE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+/** Whether an attachment of this type may be picked as its Item's thumbnail. */
+export function canBeThumbnail(contentType: string): boolean {
+  return THUMBNAIL_SOURCE_TYPES.includes(contentType);
+}
+
+/** What the device's small copy may be: the three types a canvas encodes to and a browser draws. */
+export const THUMBNAIL_COPY_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export const thumbnailCopyTypeSchema = z.enum(THUMBNAIL_COPY_TYPES);
+
+/** The copy's side in pixels, and the most bytes the upload route takes of it. */
+export const THUMBNAIL_SIDE = 96;
+export const MAX_THUMBNAIL_SIZE = 64 * 1024;
+
+/** Where the signed-in app reads an attachment's thumbnail copy. */
+export function thumbnailAddress(attachmentId: string): string {
+  return `/v1/attachments/${encodeURIComponent(attachmentId)}/thumbnail`;
+}
+
+/**
+ * The part of an image its thumbnail is made from: the largest square, centred
+ * ("Item form: there is no way to mark which image stands for an Item", issue
+ * 1863). Whole pixels, so the canvas is never asked for half of one.
+ */
+export function thumbnailSource(width: number, height: number): { x: number; y: number; side: number } {
+  const side = Math.floor(Math.min(width, height));
+  return { x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), side };
+}

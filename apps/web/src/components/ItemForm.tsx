@@ -18,6 +18,7 @@ import {
   NEXT_ACTION_LENGTH,
   TITLE_LENGTH,
   additionsOf,
+  canBeThumbnail,
   dayOf,
   daysOnFrom,
   conversationOf,
@@ -35,7 +36,7 @@ import {
   type StatusState,
   filingsThatFile,
 } from '@cockpit/shared';
-import { attachmentUrl, uploadAttachment } from '../api/client';
+import { CommandRefused, attachmentUrl, uploadAttachment, uploadThumbnail } from '../api/client';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -648,6 +649,53 @@ function TheForm({
       });
     } catch (failure) {
       setAttachmentError(failure instanceof Error ? failure.message : 'That could not be removed');
+    }
+  };
+
+  /** The picture whose tag has been pressed, which then offers *Stop using as thumbnail*. */
+  const [stopOffered, setStopOffered] = useState<string | null>(null);
+  /**
+   * *Use as thumbnail* and *Stop using as thumbnail* ("Item form: there is no
+   * way to mark which image stands for an Item", issue 1863). The tag moves at
+   * once, drawn over the held copy by the queue; a pick makes the small copy
+   * and uploads it as its own send, and a refusal puts the tag back and says
+   * why in the undo bar.
+   */
+  const chooseThumbnail = async (attachment: Attachment | null) => {
+    setStopOffered(null);
+    setAttachmentError(null);
+    const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId };
+    // Started now, outside the queue, so the decode has a head start; the request below only awaits it.
+    const decoding = new AbortController();
+    // Loaded only on a pick, so the copy's code stays out of the initial bundle. A picture
+    // that cannot be read says so; a dropped load or an abort reads as not reached.
+    const made = attachment
+      ? import('../thumbnailCopy').then(({ makeThumbnailCopy, ThumbnailUnreadable }) =>
+          makeThumbnailCopy(attachmentUrl(attachment.id), decoding.signal).catch((failure: unknown) => {
+            throw failure instanceof ThumbnailUnreadable ? new CommandRefused(0, failure.message) : failure;
+          }),
+        )
+      : undefined;
+    made?.catch(() => {});
+    try {
+      refuseWhileOffline();
+      const answer = await changes.enqueue(
+        { name: 'set_thumbnail', payload: { ...envelope, attachmentId: attachment?.id ?? null } },
+        (result) => readAfterOwnChange(queryClient, workspaceId, result.at),
+        undefined,
+        attachment
+          ? async (signal) => {
+              signal.addEventListener('abort', () => decoding.abort());
+              refuseWhileOffline();
+              const copy = await made!;
+              return uploadThumbnail({ ...envelope, attachmentId: attachment.id, copy, signal });
+            }
+          : undefined,
+      );
+      return answer;
+    } catch (failure) {
+      decoding.abort();
+      offerToUndo({ what: `The thumbnail was not changed. ${whyNotDone(failure)}` });
     }
   };
 
@@ -1503,9 +1551,11 @@ function TheForm({
     anyFiles ? (
       <div className="flex w-full flex-col gap-1.5">
         {attachments.map((attachment) => (
+          <div key={attachment.id} className="flex flex-col gap-1">
           <div
-            key={attachment.id}
-            className="flex items-center gap-2 rounded-md border border-shade/10 bg-field px-3 py-2 text-sm"
+            className={`flex items-center gap-2 rounded-md border bg-field px-3 py-2 text-sm ${
+              item?.thumbnailAttachmentId === attachment.id ? 'border-accent' : 'border-shade/10'
+            }`}
           >
             <a
               href={attachmentUrl(attachment.id)}
@@ -1543,6 +1593,36 @@ function TheForm({
             >
               ✕
             </button>
+          </div>
+          {canBeThumbnail(attachment.contentType) &&
+            (item?.thumbnailAttachmentId === attachment.id ? (
+              stopOffered === attachment.id ? (
+                <button
+                  type="button"
+                  onClick={() => void chooseThumbnail(null)}
+                  className="self-start rounded-full border border-accent bg-field px-2 py-0.5 text-xs text-ink hover:bg-accent-tint"
+                >
+                  Stop using as thumbnail
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-pressed="true"
+                  onClick={() => setStopOffered(attachment.id)}
+                  className="self-start rounded-full bg-accent-tint px-2 py-0.5 text-xs font-semibold text-ink"
+                >
+                  Thumbnail
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => void chooseThumbnail(attachment)}
+                className="self-start rounded-full border border-accent bg-field px-2 py-0.5 text-xs text-ink hover:bg-accent-tint"
+              >
+                Use as thumbnail
+              </button>
+            ))}
           </div>
         ))}
         {pendingAttachments.map((pending) => (

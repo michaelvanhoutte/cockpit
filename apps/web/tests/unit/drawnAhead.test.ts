@@ -995,6 +995,46 @@ describe('Item editing', () => {
       expect(drawnOver(inWork(), [uploaded(), removed(SCAN)]).attachments).toEqual([]);
     });
   });
+
+  describe('a thumbnail picked, stopped or taken away with its file shows the moment it is, before the server has answered', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const NOTE = '11111111-1111-7111-8111-0000000000a2';
+    const thumbnail = (attachmentId: string | null, over: Record<string, unknown> = {}): Drawn => ({
+      name: 'set_thumbnail',
+      payload: { ...envelope(BART), attachmentId, ...over },
+    });
+    const withThumbnail = (id: string | null) => workspace([anItem(BART, { thumbnailAttachmentId: id })]);
+    const thumbnailOf = (copy: WorkspaceSnapshot) => read(copy, BART)?.thumbnailAttachmentId;
+
+    it('moves the tag to the picture picked, replacing the one before, and to none on Stop using', () => {
+      const first = drawnOver(withThumbnail(null), [thumbnail(SCAN)]);
+      const second = drawnOver(first, [thumbnail(NOTE)]);
+      const stopped = drawnOver(second, [thumbnail(null)]);
+
+      expect([thumbnailOf(first), thumbnailOf(second), thumbnailOf(stopped)]).toEqual([SCAN, NOTE, null]);
+    });
+
+    it('draws nothing for an Item the Workspace does not hold, and leaves the copy it was given as it was', () => {
+      const copy = withThumbnail(null);
+
+      expect(drawnAhead(copy, thumbnail(SCAN, { itemId: LISA }))).toEqual(copy);
+      drawnAhead(copy, thumbnail(SCAN));
+      expect(thumbnailOf(copy)).toBeNull();
+    });
+
+    it('takes the thumbnail away with the file that was it, and keeps it when another file is removed', () => {
+      const removal = (attachmentId: string): CommandArgs =>
+        ({ name: 'remove_attachment', payload: { ...envelope(BART), attachmentId } }) as CommandArgs;
+      const copy = { ...withThumbnail(SCAN), workspace: { id: 'ws-work', tenantId: 'tenant' }, attachments: [] } as unknown as WorkspaceSnapshot;
+
+      expect(thumbnailOf(drawnAhead(copy, removal(SCAN)))).toBeNull();
+      expect(thumbnailOf(drawnAhead(copy, removal(NOTE)))).toBe(SCAN);
+    });
+
+    it('is kept drawn once answered, until a read covers it', () => {
+      expect(DRAWN_AHEAD.has('set_thumbnail')).toBe(true);
+    });
+  });
 });
 
 /**

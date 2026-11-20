@@ -43,6 +43,32 @@ export function firstMessageLink(
 }
 
 /**
+ * The first web page or PDF link in a text ("Capture link summaries", issue
+ * 1853): the first `http` or `https` address, found as `firstMessageLink` finds
+ * one, that no connector declared, so a Teams link a connector reads or cannot
+ * read is never taken for a page. Null where there is none.
+ */
+export function firstWebLink(text: string | null | undefined, messageLinks: DeclaredMessageLinks): string | null {
+  if (!text) return null;
+  for (const [run] of text.matchAll(/https?:\/\/[^\s\]>"<]+/gi)) {
+    const candidate = withoutTrailingPunctuation(run);
+    let url: URL;
+    try {
+      url = new URL(candidate);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+    const host = url.hostname.toLowerCase();
+    const declared = Object.values(messageLinks ?? {}).some((links) =>
+      links.some((one) => one.host.toLowerCase() === host && url.pathname.startsWith(one.pathStart)),
+    );
+    if (!declared) return candidate;
+  }
+  return null;
+}
+
+/**
  * What a person typed beside a message link they pasted, the link taken out
  * ("Read pasted Teams links", issue 1755): the words before and after it,
  * joined by one space on the line it stood on, and the Markdown around it

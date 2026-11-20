@@ -19,7 +19,15 @@ export const CLAUDE_CODE = 'claude-code';
 /** What Claude Code is called on screen. */
 export const CLAUDE_CODE_NAME = 'Claude Code';
 
+/**
+ * An Own note whose pasted web page or PDF link was read ("Capture link
+ * summaries", issue 1853). Not a connector: there is no connection to read it
+ * with, so the core names it, here.
+ */
+export const WEB = 'web';
+
 /** Each by what it is called on screen, as a registered connector's manifest says it of itself. */
 export const NAMED_SOURCES: Readonly<Record<string, string>> = {
   [CLAUDE_CODE]: CLAUDE_CODE_NAME,
+  [WEB]: 'Web',
 };

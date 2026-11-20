@@ -84,6 +84,6 @@ export function panelTheFirstIsOn(
 
 /** The Item among these that comes from a source, which a Merge refuses: it is finished at its source, not here. */
 export function itemFromASource<T extends Pick<Item, 'source'>>(items: readonly T[]): T | undefined {
-  // An app's capture over MCP (`mcp`) has no source it finishes at, so it merges as a note does.
-  return items.find((item) => item.source !== 'internal' && item.source !== 'mcp');
+  // A capture over MCP (`mcp`) and a note read as a web page (`web`) have no source they finish at, so they merge as a note does.
+  return items.find((item) => item.source !== 'internal' && item.source !== 'mcp' && item.source !== 'web');
 }
