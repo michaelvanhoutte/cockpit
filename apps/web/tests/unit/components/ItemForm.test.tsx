@@ -56,7 +56,7 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   /** Which Item holds which (issue 1825). */
   children: [] as ChildRow[],
-  /** The Workspace's whiteboards (issue 1829). */
+  /** The Workspace's whiteboards ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829). */
   whiteboards: undefined as Whiteboards | undefined,
   navigate: vi.fn(),
   panels: [] as Panel[],

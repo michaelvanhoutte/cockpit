@@ -112,6 +112,19 @@ describe('Whiteboard', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull();
     });
 
+    it('asks again for a change made separately, after the question was answered', async () => {
+      aServerRefusing({ a: novel('a', 'Ferry scene'), b: novel('b', 'Storm scene') });
+      onScreen();
+      const first = send(removal('a'));
+      first.catch(() => {});
+      await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+      await first.catch(() => {});
+      const second = send(removal('b'));
+      expect(await screen.findByText('Storm scene is also on the whiteboard of Novel. Take it off there too?')).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Take off both' }));
+      await second;
+    });
+
     it('asks nothing for an Item with no cards, or a change refused for another reason', async () => {
       aServerRefusing({});
       onScreen();

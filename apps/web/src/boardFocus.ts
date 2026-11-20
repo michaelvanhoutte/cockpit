@@ -45,6 +45,11 @@ export function cardWanted(dashboardId: string): string | null {
   return cardId;
 }
 
+/** Whether a card is waiting to be shown on this board, without taking it: what opens a phone's board. */
+export function aCardIsWanted(dashboardId: string): boolean {
+  return wanted?.dashboardId === dashboardId;
+}
+
 /** Changes whenever a card is asked to be shown, for a board already drawn to hear of it. */
 export function useCardWanted(): unknown {
   return useSyncExternalStore(subscribe, () => wanted, () => null);

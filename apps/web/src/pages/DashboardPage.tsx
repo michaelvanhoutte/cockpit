@@ -1,10 +1,11 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useSnapshot } from '../api/useSnapshot';
 import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
 import { itemsLeftOut } from '../persistence';
 import { boardLayoutOf } from '../boardLayout';
+import { aCardIsWanted, useCardWanted } from '../boardFocus';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The whiteboard and the panes around it, with `@xyflow/react`: a chunk of their own, fetched once a board is shown. */
@@ -27,6 +28,11 @@ export function DashboardPage() {
   // A phone shows the Panels or the whiteboard, one at a time; this is the Dashboard whose board it shows.
   const [boardOnPhone, setBoardOnPhone] = useState<string | null>(null);
   const phone = !useRoomForTheInbox();
+  // A card asked to be shown (Relations' *On whiteboards*) opens a phone's board.
+  const wanted = useCardWanted();
+  useEffect(() => {
+    if (phone && aCardIsWanted(dashboardId)) setBoardOnPhone(dashboardId);
+  }, [wanted, phone, dashboardId]);
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -96,6 +102,8 @@ export function DashboardPage() {
           return (
             <Suspense fallback={<p className="text-sm text-ink-faint">Loading the whiteboard…</p>}>
               <DashboardViews
+                // Keyed for the reason the Panels are: each board's camera, tool and half-drawn box are its own.
+                key={dashboard.id}
                 workspaceId={workspaceId}
                 dashboardId={dashboard.id}
                 view={phone ? 'board' : view}

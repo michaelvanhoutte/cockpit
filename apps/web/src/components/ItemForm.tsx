@@ -574,6 +574,8 @@ function TheForm({
     });
     offerToUndo({
       what: `“${label}” dismissed`,
+      // Gone with a refusal, *Cancel* at "Take it off there too?" included: nothing was dismissed.
+      unlessRefused: answer,
       undo: putCardsBackAfter(send, workspaceId, [answer], () => send({ name: 'set_dismissed', payload: endedFor(false) })),
     });
   };

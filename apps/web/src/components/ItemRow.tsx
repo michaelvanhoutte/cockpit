@@ -1400,7 +1400,7 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
-      // Its card selected on the Dashboard's whiteboard: the selection follows from the card to the row (issue 1829).
+      // Its card selected on the Dashboard's whiteboard: the selection follows from the card to the row ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
       data-card-selected={cardSelected ? '' : undefined}
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none ${
         selecting?.picked ? 'row-picked hover:row-picked-hover' : 'hover:bg-row-hover'

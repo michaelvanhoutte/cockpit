@@ -24,11 +24,12 @@ export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: s
   }
   /** Goes to the card: its Dashboard, with the whiteboard beside its Panels where only they were shown, the card selected and in view. */
   const goToCard = (place: (typeof places)[number]) => {
-    if (atADesk && boardLayoutOf(data, place.dashboardId).view === 'panels') {
-      void send({
-        name: 'set_dashboard_view',
-        payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, dashboardId: place.dashboardId, view: 'side' },
-      }).catch(() => {});
+    const { view, splitShare } = boardLayoutOf(data, place.dashboardId);
+    const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, dashboardId: place.dashboardId };
+    if (atADesk && view === 'panels') void send({ name: 'set_dashboard_view', payload: { ...envelope, view: 'side' } }).catch(() => {});
+    // A board its divider has shut is opened again.
+    if (atADesk && view !== 'panels' && view !== 'board' && splitShare === 1) {
+      void send({ name: 'set_dashboard_split', payload: { ...envelope, splitShare: 0.4 } }).catch(() => {});
     }
     showTheCard(place.dashboardId, place.cardId);
     void navigate({ to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId, dashboardId: place.dashboardId }, search: {} });

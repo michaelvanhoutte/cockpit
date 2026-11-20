@@ -21,37 +21,49 @@ export interface WhiteboardQuestion {
 }
 
 interface Open extends WhiteboardQuestion {
-  /** The earliest change waiting on the question, on `madeAt`'s clock. */
-  from: number;
+  /** The runs of changes waiting on the question (`changeMade`). */
+  runs: Set<number>;
   answers: ((takeOff: boolean) => void)[];
 }
 
 let open: Open | null = null;
-/** The last question answered: the changes made from its first up to the answer take its answer. */
-let answered: { from: number; upTo: number; takeOff: boolean } | null = null;
-let clock = 0;
+/** The last question answered: a later refusal from one of its runs takes its answer. */
+let answered: { runs: ReadonlySet<number>; takeOff: boolean } | null = null;
+let run = 0;
+let runOpen = false;
 const listeners = new Set<() => void>();
 const tell = () => listeners.forEach((listener) => listener());
 
-/** A change that may be asked about is being made: its place on the question's clock. */
+/**
+ * A change that may be asked about is being made: the run it belongs to. Every
+ * change made in one turn of the page is one run, which is how a selection
+ * sends its one change per Item.
+ */
 export function changeMade(): number {
-  clock += 1;
-  return clock;
+  if (!runOpen) {
+    runOpen = true;
+    run += 1;
+    queueMicrotask(() => {
+      runOpen = false;
+    });
+  }
+  return run;
 }
 
 /**
  * Asks whether to take these Items off their whiteboards too, answering true
- * for *Take off both* and false for *Cancel*. `madeAt` is when the change that
- * was refused was made (`changeMade`).
+ * for *Take off both* and false for *Cancel*. `madeIn` is the run the refused
+ * change was made in (`changeMade`). A refusal arriving while the question is
+ * open joins it, its Items named with the rest.
  */
-export function takeThemOff(items: readonly ItemOnWhiteboards[], madeAt: number): Promise<boolean> {
-  if (!open && answered && madeAt >= answered.from && madeAt <= answered.upTo) return Promise.resolve(answered.takeOff);
+export function takeThemOff(items: readonly ItemOnWhiteboards[], madeIn: number): Promise<boolean> {
+  if (!open && answered?.runs.has(madeIn)) return Promise.resolve(answered.takeOff);
   return new Promise((resolve) => {
     if (open) {
       const known = new Set(open.items.map((item) => item.itemId));
-      open = { ...open, from: Math.min(open.from, madeAt), items: [...open.items, ...items.filter((item) => !known.has(item.itemId))], answers: [...open.answers, resolve] };
+      open = { items: [...open.items, ...items.filter((item) => !known.has(item.itemId))], runs: new Set([...open.runs, madeIn]), answers: [...open.answers, resolve] };
     } else {
-      open = { items, from: madeAt, answers: [resolve] };
+      open = { items, runs: new Set([madeIn]), answers: [resolve] };
     }
     tell();
   });
@@ -62,7 +74,7 @@ export function answerTheQuestion(takeOff: boolean): void {
   const was = open;
   if (!was) return;
   open = null;
-  answered = { from: was.from, upTo: clock, takeOff };
+  answered = { runs: was.runs, takeOff };
   tell();
   for (const answer of was.answers) answer(takeOff);
 }
@@ -103,7 +115,7 @@ export function cardsTakenOffBy(answer: unknown): string[] {
  * then those cards put back where they were, behind it in the queue.
  */
 export function putCardsBackAfter(
-  send: (args: { name: 'put_cards_back'; payload: CommandPayload<'put_cards_back'> }) => Promise<unknown>,
+  send: SendsCardsBack,
   workspaceId: string,
   answers: readonly Promise<unknown>[],
   inverse: () => Promise<unknown>,
@@ -113,18 +125,22 @@ export function putCardsBackAfter(
     const undone = inverse();
     const taken = (await Promise.allSettled(answers)).flatMap((one) => (one.status === 'fulfilled' ? cardsTakenOffBy(one.value) : []));
     if (taken.length === 0) return undone;
-    const back = [];
-    for (let at = 0; at < taken.length; at += 100) {
-      back.push(
-        send({
-          name: 'put_cards_back',
-          payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, cardIds: taken.slice(at, at + 100) },
-        }),
-      );
-    }
-    return Promise.all([undone, ...back]);
+    // Behind every change the inverse sends, some of which it makes only after a read: a card comes back only to an Item out of the Inbox.
+    await undone;
+    return putCardsBack(send, workspaceId, taken);
   };
 }
+
+/** Cards taken off brought back, a hundred to a change (`CARDS_PUT_BACK_AT_ONCE`). */
+export function putCardsBack(send: SendsCardsBack, workspaceId: string, cardIds: readonly string[]): Promise<unknown> {
+  const back = [];
+  for (let at = 0; at < cardIds.length; at += 100) {
+    back.push(send({ name: 'put_cards_back', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, cardIds: cardIds.slice(at, at + 100) } }));
+  }
+  return Promise.all(back);
+}
+
+type SendsCardsBack = (args: { name: 'put_cards_back'; payload: CommandPayload<'put_cards_back'> }) => Promise<unknown>;
 
 /** For tests: forgets any question and answer. */
 export function forgetTheQuestion(): void {

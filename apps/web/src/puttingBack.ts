@@ -2,6 +2,7 @@ import { childIdsOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 import { allAnswered, filedOrderOnPanel } from './filing';
 import { uuidv7 } from '@cockpit/shared';
+import { KeptOnTheWhiteboard } from './whiteboardQuestion';
 
 /**
  * Putting back what a filing took ("Undo what just happened", issue 144):
@@ -158,7 +159,15 @@ export async function takeOutOfParents(d: Pick<Putting, 'workspaceId' | 'send'>,
   const sends = parentIds.map((parentId) =>
     d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
   );
-  await allBack(sends);
+  const settled = await Promise.allSettled(sends);
+  const refused = settled.find((one) => one.status === 'rejected');
+  if (refused) {
+    // Kept on a whiteboard at "Take it off there too?": back inside the parents it did leave, so Cancel changes nothing.
+    if (refused.reason instanceof KeptOnTheWhiteboard) {
+      await putBackInParents(d, childId, parentIds.filter((_, at) => settled[at]!.status === 'fulfilled'));
+    }
+    throw refused.reason;
+  }
   // The answers, for the cards the last of them may have taken off (`putCardsBackAfter`).
   return Promise.all(sends);
 }

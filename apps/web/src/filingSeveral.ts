@@ -1,6 +1,6 @@
 import { itemLabel, parentIdsOf, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
 import { refusalFrom, type CommandArgs } from './api/queries';
-import { putCardsBackAfter } from './whiteboardQuestion';
+import { KeptOnTheWhiteboard, putCardsBackAfter } from './whiteboardQuestion';
 import {
   allAnswered,
   filedOrderOnPanel,
@@ -206,6 +206,22 @@ export async function fileOnto(
   const decides = chosen.some((item) => !workspaceIsDecided(item));
   // Heard here as well, for a run offering no way back to withdraw.
   for (const one of takenOut) one.catch(() => {});
+  // Kept on a whiteboard at "Take it off there too?": what did move goes back,
+  // into the parents it left and onto its Panels, so Cancel changes nothing.
+  if (takenOut.length > 0) {
+    const pairs = [...leftParents].flatMap(([childId, parentIds]) => parentIds.map((parentId) => ({ childId, parentId })));
+    void Promise.allSettled(takenOut).then(async (settled) => {
+      if (!settled.some((one) => one.status === 'rejected' && one.reason instanceof KeptOnTheWhiteboard)) return;
+      const { landed } = await answered;
+      pairs.forEach(({ childId, parentId }, at) => {
+        if (settled[at]!.status !== 'fulfilled') return;
+        void d
+          .send({ name: 'add_children', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [childId] } })
+          .catch(() => {});
+      });
+      await putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed, wasOn).catch(() => {});
+    });
+  }
   // Onto a panel only, as a single move does: the Inbox has nowhere to show
   // and nothing to also show on. Show and Also show on… cover exactly what
   // moved, and an undecided item withholds Undo alone.
