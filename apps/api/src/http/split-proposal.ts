@@ -2,7 +2,7 @@ import { splitBlocksOf, type SplitProposal } from '@cockpit/shared';
 import { NotFoundInAccountError, type Account } from '../accounts/index.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
 import type { Env } from '../env.js';
-import { aiFor } from './index.js';
+import { aiFor } from '../ai/index.js';
 
 /**
  * The cards Claude proposes for Split ("Brainstorming: a note holding several

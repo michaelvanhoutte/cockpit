@@ -171,7 +171,7 @@ import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, checkableOf, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { combineCommandSchemas } from '@cockpit/shared/combine-commands';
 import { splitCommandSchemas } from '@cockpit/shared/split-commands';
-import { proposeASplit } from '../ai/split-proposal.js';
+import { proposeASplit } from './split-proposal.js';
 import { storyCommandSchemas } from '@cockpit/shared/story-commands';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
