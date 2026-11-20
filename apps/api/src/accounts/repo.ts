@@ -1126,6 +1126,36 @@ export function storySources(
   return { workspaceId: holder.workspaceId, title: holder.title, description: holder.description, keepsStory: holder.keepsStory === true, children, held };
 }
 
+/** What `splitSources` reads: the Item's words, Additions and files, which `splitBlocksOf` makes blocks of. */
+export interface SplitSources {
+  workspaceId: string;
+  workspaceDecided: boolean;
+  title: string;
+  description: string | null;
+  additions: { id: string; message: string; createdAt: string }[];
+  attachments: { id: string; filename: string; contentType: string }[];
+}
+
+/** What a Split is proposed and made from, or null where the Item is gone or dismissed ("Brainstorming: a note holding several ideas can't be taken apart", issue 1828). */
+export function splitSources(db: AccountDb, tenantId: string, itemId: string): SplitSources | null {
+  const item = getItem(db, tenantId, itemId);
+  if (!item || item.deletedAt) return null;
+  const additions = db
+    .select({ id: itemAdditions.id, message: itemAdditions.message, createdAt: itemAdditions.createdAt })
+    .from(itemAdditions)
+    .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, itemId)))
+    .orderBy(itemAdditions.createdAt, itemAdditions.id)
+    .all();
+  return {
+    workspaceId: item.workspaceId,
+    workspaceDecided: item.workspaceDecided,
+    title: item.title,
+    description: item.description,
+    additions,
+    attachments: listAttachmentsOfItem(db, tenantId, itemId),
+  };
+}
+
 /** One series as its row holds it, with what each copy is made from, or null where the account has none by that id. */
 export function getSeries(db: AccountDb, tenantId: string, seriesId: string): MasterRow | null {
   return (

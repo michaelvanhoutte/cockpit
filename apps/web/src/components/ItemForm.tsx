@@ -109,6 +109,8 @@ const KeepWhichNote = lazy(() => import('./KeepWhichNote').then((loaded) => ({ d
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
 /** The conversation an Item follows (issue 1706), with Reply…, or Email… where it follows none (issue 1708): fetched the first time a form opens. */
+/** *Split…* under the description, with its window (issue 1828): fetched with the form, not in the initial bundle. */
+const ItemFormSplit = lazy(() => import('./ItemFormSplit'));
 const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((loaded) => ({ default: loaded.ItemFormConversation })));
 
 const DESCRIPTION_LIMIT = 60_000;
@@ -2354,6 +2356,13 @@ function TheForm({
                           onAPage={onAPage}
                         />
                       </div>
+
+                      {/* *Split…* sits under the words it takes apart, in the form's body and not its header, which has no room for it on a phone (issue 1828). */}
+                      {item && !item.completedAt && (
+                        <Suspense fallback={null}>
+                          <ItemFormSplit workspaceId={workspaceId} item={item} unwritten={Object.keys(changing).length > 0} onSplit={onClose} buttonClass={headerButtonClass} />
+                        </Suspense>
+                      )}
 
                       {/* The conversation this Item follows, from the row the Workspace
                         read carries ("Show the conversation an Item follows in its

@@ -134,6 +134,7 @@ import {
   PanelOrderStaleError,
   ItemInsideItselfError,
   MergeRefusedError,
+  SplitRefusedError,
   StoryRefusedError,
   SourceAccountNotFoundError,
   UnknownThemeError,
@@ -161,12 +162,14 @@ import {
   getWorkspace,
   isItemFiled,
   storySources,
+  splitSources,
   claudeProposalContext,
   sendToOfferOn,
   listRememberedSentences,
   openItemsASentenceMayFit,
   type ClaudeProposalContext,
   type StorySources,
+  type SplitSources,
   type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
@@ -700,6 +703,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
   /** What a rewrite of a parent's story is made from ("Keep its story up to date", issue 1827). */
   storySources(accountName: string, itemId: string, limit: number): Answer<StorySources | null> {
     return this.#answer(accountName, (db) => storySources(db, accountName, itemId, limit));
+  }
+
+  /** What a Split is proposed from ("Brainstorming: a note holding several ideas can't be taken apart", issue 1828). */
+  splitSources(accountName: string, itemId: string): Answer<SplitSources | null> {
+    return this.#answer(accountName, (db) => splitSources(db, accountName, itemId));
   }
 
   /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */
@@ -2104,6 +2112,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof ItemInsideItselfError ||
         // A 400 as well: every Item is there, and one from a source is finished at its source.
         error instanceof MergeRefusedError ||
+        // A 400 as well: the Item is there, and its words are not the ones the blocks named were read from.
+        error instanceof SplitRefusedError ||
         // A 400 as well: the Item is there, and holds nothing a story could be written from.
         error instanceof StoryRefusedError
       ) {

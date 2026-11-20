@@ -4818,6 +4818,51 @@ describe('Item editing', () => {
     });
   });
 
+  describe('Split… is on the form, under the description, and opens the window', () => {
+    it('is in the body and not the header, so the header’s buttons are the ones they were', async () => {
+      onAPanel();
+      await theForm();
+
+      const header = screen.getByRole('button', { name: 'Dock' }).parentElement!;
+      expect(within(header).queryByRole('button', { name: 'Split…' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Split…' })).toBeInTheDocument();
+    });
+
+    it('opens the window for the Item, naming it', async () => {
+      const user = await theForm();
+
+      await user.click(screen.getByRole('button', { name: 'Split…' }));
+
+      expect(await screen.findByRole('heading', { name: /^Split “/ })).toBeInTheDocument();
+    });
+
+    it('waits for what is typed and not written, which is not what the window would read', async () => {
+      const user = await theForm();
+      expect(screen.getByRole('button', { name: 'Split…' })).toBeEnabled();
+
+      await user.type(screen.getByLabelText('Title'), ' and more');
+
+      expect(screen.getByRole('button', { name: 'Split…' })).toBeDisabled();
+    });
+
+    it('closes the form once the Item is split, as the form holds the words from before', async () => {
+      const user = await theForm(anItem({ description: 'One idea.\n\nAnother idea.' }));
+      await user.click(screen.getByRole('button', { name: 'Split…' }));
+      await screen.findByRole('heading', { name: /^Split “/ });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeEnabled());
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      expect(held.close).toHaveBeenCalled();
+    });
+
+    it('is not offered for an Item finished with, which the window could not read', async () => {
+      await theForm(anItem({ completedAt: '2026-11-01T10:00:00.000Z' }));
+
+      expect(screen.queryByRole('button', { name: 'Split…' })).toBeNull();
+    });
+  });
+
   describe('Copy link from the form copies the Item’s workspace address, and the bar says whether it did', () => {
     afterEach(() => {
       vi.unstubAllGlobals();

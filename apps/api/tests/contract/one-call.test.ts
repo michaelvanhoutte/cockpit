@@ -135,4 +135,18 @@ describe('Triage', () => {
     const answer = await asking.writeAStory(brief, A_CONTRACT_RUN);
     expect(answer, JSON.stringify(answer)).toHaveProperty('story');
   });
+
+  it('propose-a-split.v1 answers with cards, not a discard', async () => {
+    const answer = await asking.proposeASplit(
+      {
+        title: 'Things for the weekend',
+        blocks: [
+          { id: 'p0', kind: 'paragraph', text: 'Pay the rent before Friday.' },
+          { id: 'p1', kind: 'paragraph', text: 'Book the ferry to Texel for the 07:45 boat.' },
+        ],
+      },
+      A_CONTRACT_RUN,
+    );
+    expect(answer, JSON.stringify(answer)).toHaveProperty('cards');
+  });
 });

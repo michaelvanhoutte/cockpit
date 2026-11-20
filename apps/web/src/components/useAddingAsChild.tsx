@@ -2,7 +2,7 @@ import { Suspense, lazy, useState } from 'react';
 import type { Item } from '@cockpit/shared';
 import type { ChildAsk } from './ChildDialogs';
 
-/** Fetched only once *Add as child of…* or *Combine…* is asked, as the other windows opened from a row are. */
+/** Fetched only once *Add as child of…*, *Combine…* or *Split…* is asked, as the other windows opened from a row are. */
 const ChildDialogs = lazy(() => import('./ChildDialogs'));
 
 /**
@@ -30,6 +30,8 @@ export function useAddingAsChild(workspaceId: string, afterAdding?: () => void) 
   );
 
   return {
+    /** *Split…* for this Item, from its row's menu or its form. */
+    split: (itemId: string, from?: HTMLElement | null, onSplit?: () => void) => setAsking({ splitId: itemId, from, onSplit }),
     /** *Combine…* for these Items, never offered for fewer than two. */
     combine: (ids: readonly string[], from?: HTMLElement | null) => setAsking({ ids, from }),
     /** The menu button it was asked from, which the focus goes back to. */
