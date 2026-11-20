@@ -24,6 +24,8 @@ import { noSnapshotYet } from '../drawnAhead';
 import { PanelNotMade } from '../changeQueue';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 import { readAfterOwnChange } from './snapshotReads';
+import { uuidv7 } from '@cockpit/shared';
+import { KeptOnTheWhiteboard, changeMade, takeThemOff } from '../whiteboardQuestion';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -314,7 +316,7 @@ function afterChanging(queryClient: QueryClient, args: CommandArgs): Promise<unk
  * own refusal is the one thing said (`PanelNotMade`).
  */
 export function refusalFrom(command: { error: unknown }): string | null {
-  if (command.error instanceof PanelNotMade) return null;
+  if (command.error instanceof PanelNotMade || command.error instanceof KeptOnTheWhiteboard) return null;
   if (command.error instanceof CommandRefused || command.error instanceof WorkingOffline) {
     return command.error.message;
   }
@@ -354,12 +356,40 @@ async function sendChange(args: CommandArgs, queryClient: QueryClient): Promise<
   // drawn until a read that began after its answer has landed (`changeQueue.ts`).
   // Registered as the answer comes in, so a burst is read once when it ends
   // (`snapshotReads.ts`).
-  return changes.enqueue(args, (answer) => {
-    if (!NOT_READ_BACK_WITH_THE_SNAPSHOT.has(args.name)) {
-      readAfterOwnChange(queryClient, snapshotsReadAfter(args), answer.at);
-    }
-  });
+  const enqueue = (change: CommandArgs) =>
+    changes.enqueue(change, (answer) => {
+      if (!NOT_READ_BACK_WITH_THE_SNAPSHOT.has(change.name)) {
+        readAfterOwnChange(queryClient, snapshotsReadAfter(change), answer.at);
+      }
+    });
+  if (!ASKS_ABOUT_WHITEBOARDS.has(args.name)) return enqueue(args);
+  // A change that would send an Item with cards to the Inbox is refused naming
+  // them, and asks "Take it off there too?" before it is sent again taking them
+  // off as well (`whiteboardQuestion.ts`). The cards it took are on its answer,
+  // for its Undo to put back (`putCardsBackAfter`).
+  const madeAt = changeMade();
+  try {
+    return await enqueue(args);
+  } catch (failure) {
+    if (!(failure instanceof CommandRefused) || !failure.onWhiteboards?.length) throw failure;
+    if (!(await takeThemOff(failure.onWhiteboards, madeAt))) throw new KeptOnTheWhiteboard();
+    const again = { name: args.name, payload: { ...args.payload, commandId: uuidv7(), takeCardsOff: true } } as CommandArgs;
+    const answer: CommandResult & { cardsTakenOff?: string[] } = { ...(await enqueue(again)) };
+    answer.cardsTakenOff = failure.onWhiteboards.flatMap((item) => item.cards.map((card) => card.cardId));
+    return answer;
+  }
 }
+
+/** The changes that can leave an Item in the Inbox, which ask about its cards first (`takingCardsOffSchemas`). */
+const ASKS_ABOUT_WHITEBOARDS = new Set<ClientCommandName>([
+  'move_item_to_panel',
+  'remove_item_from_panel',
+  'remove_child',
+  'set_dismissed',
+  'delete_panel',
+  'delete_dashboard',
+]);
+
 
 export function useCommand() {
   const queryClient = useQueryClient();

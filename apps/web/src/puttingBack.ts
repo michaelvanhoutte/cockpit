@@ -2,6 +2,7 @@ import { childIdsOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 import { allAnswered, filedOrderOnPanel } from './filing';
 import { uuidv7 } from '@cockpit/shared';
+import { KeptOnTheWhiteboard } from './whiteboardQuestion';
 
 /**
  * Putting back what a filing took ("Undo what just happened", issue 144):
@@ -154,12 +155,22 @@ export async function takeOffAgain(d: Putting, items: readonly Item[], panelId: 
  * be in no Inbox ("Brainstorming: an Item can't hold other Items", issue 1825);
  * here rather than in the list, so it is fetched with the move's Undo.
  */
-export function takeOutOfParents(d: Pick<Putting, 'workspaceId' | 'send'>, childId: string, parentIds: readonly string[]): Promise<void> {
-  return allBack(
-    parentIds.map((parentId) =>
-      d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
-    ),
+export async function takeOutOfParents(d: Pick<Putting, 'workspaceId' | 'send'>, childId: string, parentIds: readonly string[]): Promise<unknown[]> {
+  const sends = parentIds.map((parentId) =>
+    d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
   );
+  const settled = await Promise.allSettled(sends);
+  const refused = settled.find((one) => one.status === 'rejected');
+  if (refused) {
+    // Kept on a whiteboard at "Take it off there too?": back inside the parents it did leave, so Cancel changes nothing.
+    if (refused.reason instanceof KeptOnTheWhiteboard) {
+      // Its own refusal is not this change's: the Kept is what the caller has to hear.
+      await putBackInParents(d, childId, parentIds.filter((_, at) => settled[at]!.status === 'fulfilled')).catch(() => {});
+    }
+    throw refused.reason;
+  }
+  // The answers, for the cards the last of them may have taken off (`putCardsBackAfter`).
+  return Promise.all(sends);
 }
 
 /** Puts it back inside each of them: the other half of the move's Undo. */

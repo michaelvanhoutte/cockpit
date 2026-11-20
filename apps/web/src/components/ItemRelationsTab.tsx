@@ -1,5 +1,11 @@
-import { itemLabel, type Item } from '@cockpit/shared';
+import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { DEFAULT_SPLIT_SHARE } from '@cockpit/shared/board';
+import { useNavigate } from '@tanstack/react-router';
+import { useSendCommand } from '../api/queries';
+import { boardLayoutOf } from '../boardLayout';
+import { showTheCard } from '../boardFocus';
 import { useOpenItem } from '../itemForm';
+import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useRelations } from './ItemRelations';
 
 /**
@@ -8,12 +14,27 @@ import { useRelations } from './ItemRelations';
  * when the tab opens, so it costs the initial bundle nothing.
  */
 export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: string; item: Item }) {
-  const { data, parents, children, notListed } = useRelations(workspaceId, item);
+  const { data, parents, children, notListed, places } = useRelations(workspaceId, item);
   const openItem = useOpenItem();
+  const navigate = useNavigate();
+  const send = useSendCommand();
+  const atADesk = useRoomForTheInbox();
   if (!data) return null;
-  if (parents.length === 0 && children.length === 0 && notListed === 0) {
-    return <p className="text-sm text-ink-faint">No parents or children yet.</p>;
+  if (parents.length === 0 && children.length === 0 && notListed === 0 && places.length === 0) {
+    return <p className="text-sm text-ink-faint">No parents, children or whiteboards yet.</p>;
   }
+  /** Goes to the card: its Dashboard, with the whiteboard beside its Panels where only they were shown, the card selected and in view. */
+  const goToCard = (place: (typeof places)[number]) => {
+    const { view, splitShare } = boardLayoutOf(data, place.dashboardId);
+    const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, dashboardId: place.dashboardId };
+    if (atADesk && view === 'panels') void send({ name: 'set_dashboard_view', payload: { ...envelope, view: 'side' } }).catch(() => {});
+    // A board its divider has shut is opened again, whichever two-pane view it opens in.
+    if (atADesk && view !== 'board' && splitShare === 1) {
+      void send({ name: 'set_dashboard_split', payload: { ...envelope, commandId: uuidv7(), splitShare: DEFAULT_SPLIT_SHARE } }).catch(() => {});
+    }
+    showTheCard(place.dashboardId, place.cardId);
+    void navigate({ to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId, dashboardId: place.dashboardId }, search: {} });
+  };
   const byId = new Map(data.items.map((one) => [one.id, one]));
   const name = (id: string) => {
     const found = byId.get(id);
@@ -44,6 +65,20 @@ export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: s
     <section aria-label="Relations" className="flex flex-col gap-4">
       {row('Parents', parents)}
       {row('Children', children, notListed)}
+      {places.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xs font-semibold tracking-[0.12em] text-ink-soft uppercase">On whiteboards</h3>
+          <ul className="flex flex-col gap-0.5 text-sm">
+            {places.map((place) => (
+              <li key={place.cardId}>
+                <button type="button" className={link} onClick={() => goToCard(place)}>
+                  {place.boxLabel ? `${place.dashboardName} · in ${place.boxLabel}` : place.dashboardName}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

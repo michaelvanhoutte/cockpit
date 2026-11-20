@@ -1,5 +1,6 @@
 import { hc, type ClientRequestOptions } from 'hono/client';
 import type { AppType } from '@cockpit/api';
+import type { ItemOnWhiteboards } from '@cockpit/shared/board';
 import {
   accountHoldingsSchema,
   attachmentAddress,
@@ -220,6 +221,12 @@ export class CommandRefused extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /**
+     * The Items with cards a change would have sent to the Inbox, where that is
+     * why it was refused (a 409, `onWhiteboardsRefusalSchema`): what the
+     * question "Take it off there too?" names (`whiteboardQuestion.ts`).
+     */
+    readonly onWhiteboards?: readonly ItemOnWhiteboards[],
   ) {
     super(message);
     this.name = 'CommandRefused';
@@ -234,14 +241,19 @@ export class CommandRefused extends Error {
  * failure, so this answers `undefined` rather than throwing.
  */
 async function refusalFrom(res: Response): Promise<string | undefined> {
+  return (await refusalBody(res)).error;
+}
+
+/** The refusal's words and, on a 409 about whiteboards, the Items it names; taken on trust, so the initial bundle carries no schema for it. */
+async function refusalBody(res: Response): Promise<{ error?: string; onWhiteboards?: ItemOnWhiteboards[] }> {
   try {
     const body: unknown = await res.json();
-    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
-      return body.error;
-    }
-    return undefined;
+    if (!body || typeof body !== 'object') return {};
+    const error = 'error' in body && typeof body.error === 'string' ? body.error : undefined;
+    const onWhiteboards = 'onWhiteboards' in body && Array.isArray(body.onWhiteboards) ? (body.onWhiteboards as ItemOnWhiteboards[]) : undefined;
+    return { ...(error !== undefined ? { error } : {}), ...(onWhiteboards ? { onWhiteboards } : {}) };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -360,7 +372,8 @@ export async function sendCommand<N extends ClientCommandName>(
   const routes = api.v1.commands as unknown as Record<ClientCommandName, { $post: Post }> & CommandRoutes;
   const res = await (routes[name] as { $post: Post }).$post({ json: payload as never }, signal ? { init: { signal } } : undefined);
   if (!res.ok) {
-    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `${name} failed: ${res.status}`);
+    const { error, onWhiteboards } = await refusalBody(res);
+    throw new CommandRefused(res.status, error ?? `${name} failed: ${res.status}`, onWhiteboards);
   }
   return (await res.json()) as CommandResult;
 }

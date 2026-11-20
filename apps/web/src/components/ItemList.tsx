@@ -72,6 +72,7 @@ import {
 } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo } from '../undo';
+import { KeptOnTheWhiteboard, putCardsBackAfter } from '../whiteboardQuestion';
 import { ItemRow } from './ItemRow';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';
@@ -497,6 +498,10 @@ export function ItemList({
       leftParents.length > 0
         ? fetchedChunk(() => import('../puttingBack')).then((loaded) => loaded.takeOutOfParents({ workspaceId, send }, item.id, leftParents))
         : null;
+    // Kept on a whiteboard at "Take it off there too?": the move off its Panels goes back too, so Cancel changes nothing.
+    takenOut?.catch((failure: unknown) => {
+      if (failure instanceof KeptOnTheWhiteboard && !decides) void putItBackOn(item, before);
+    });
     // Remembered only once it has happened: a panel a move was refused for is
     // not a panel you have been filing into.
     answer.then(
@@ -527,7 +532,8 @@ export function ItemList({
       ...(decides
         ? {}
         : {
-            undo: () =>
+            // And the cards *Take off both* took with it, behind the move back (`putCardsBackAfter`).
+            undo: putCardsBackAfter(send, inWorkspace, takenOut ? [answer, takenOut] : [answer], () =>
               Promise.all([
                 putItBackOn(item, before),
                 leftParents.length > 0 &&
@@ -535,6 +541,7 @@ export function ItemList({
                     loaded.putBackInParents({ workspaceId, send }, item.id, leftParents),
                   ),
               ]),
+            ),
           }),
       // Onto a panel only: a move to the Inbox has nowhere to show and
       // nothing to also show on ("Show and Also show on… in the undo
@@ -809,8 +816,9 @@ export function ItemList({
       what: `“${itemLabel(item)}” removed from ${nameOf(panelId)}`,
       unlessRefused: answer,
       // Back on, in the order the panel was in - which still names it,
-      // because that order was read before it was taken off.
-      undo: () =>
+      // because that order was read before it was taken off; then any cards
+      // *Take off both* took with it.
+      undo: putCardsBackAfter(send, workspaceId, [answer], () =>
         send({
           name: 'add_item_to_panel',
           payload: {
@@ -822,6 +830,7 @@ export function ItemList({
             order: before,
           },
         }),
+      ),
     });
   };
 

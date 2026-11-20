@@ -36,6 +36,7 @@ import type {
 import { useSendCommand, whyNotDone } from '../api/queries';
 import type { CommandArgs } from '../api/queries';
 import { useUndo } from '../undo';
+import { KeptOnTheWhiteboard } from '../whiteboardQuestion';
 import { scrollWhileDragging } from '../dragScroll';
 import { filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
@@ -219,7 +220,10 @@ export function PanelBoard({
    * board and says why in the undo bar, with `notDone` naming what did not happen.
    */
   const sendAhead = (change: CommandArgs, notDone: string) => {
-    send(change).catch((failure: unknown) => offerToUndo({ what: `${notDone} ${whyNotDone(failure)}` }));
+    send(change).catch((failure: unknown) => {
+      // Kept on a whiteboard at "Take it off there too?": nothing was done, and nothing to say.
+      if (!(failure instanceof KeptOnTheWhiteboard)) offerToUndo({ what: `${notDone} ${whyNotDone(failure)}` });
+    });
   };
   const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
 
