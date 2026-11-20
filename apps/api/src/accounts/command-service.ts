@@ -2296,10 +2296,14 @@ export function runCommand<N extends CommandName>(
         return {
           id: child.itemId,
           // Its own, as a capture's: Claude proposes its title when the clean-up reads it. A card holding no words makes an Item holding its title.
-          item: captureItem(
-            { commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: child.itemId, message: wordsOfBlocks(mine) || child.title, title: child.title },
-            tenantId,
-          ),
+          item: {
+            ...captureItem(
+              { commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: child.itemId, message: wordsOfBlocks(mine) || child.title, title: child.title },
+              tenantId,
+            ),
+            // A title the person typed makes both texts theirs, as editing one does: the clean-up never replaces them.
+            ...(child.titleTyped ? { textsSettledAt: cmd.issuedAt } : {}),
+          },
           additionIds: mine.filter((block) => block.kind === 'addition').map((block) => block.id.slice('a-'.length)),
           attachmentIds: mine.filter((block) => block.kind === 'attachment').map((block) => block.id.slice('f-'.length)),
         };
@@ -2330,6 +2334,8 @@ export function runCommand<N extends CommandName>(
               .run();
           }
         }
+        // The original is a parent made by Split: its story is kept up to date from here, by later joins and leaves and not by this Split.
+        tx.update(items).set({ keepsStory: true }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
         if (paragraphsTaken) {
           // What no card took stays, and is the person's own from here: Claude's clean-up may not read it back over the words that left.
           tx.update(items)
@@ -2380,6 +2386,9 @@ export function runCommand<N extends CommandName>(
               .run();
             recountHoldersOf(tx, tenantId, child.itemId);
             endTheOpenRun(tx, tenantId, child.itemId, cmd.issuedAt);
+          }
+          if (cmd.keepsStory !== undefined) {
+            tx.update(items).set({ keepsStory: cmd.keepsStory }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
           }
           // The words come back only where the original still reads as the Split left it: an edit since is the person's.
           if ((original.description ?? null) === cmd.kept) {

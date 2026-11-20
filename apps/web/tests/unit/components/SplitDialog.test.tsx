@@ -226,6 +226,30 @@ describe('Triage', () => {
       expect(onSplit).toHaveBeenCalledTimes(1);
     });
 
+    it('says a title was typed only for a card whose title the person changed, and Undo carries the story setting it had', async () => {
+      held.snapshot = { ...(held.snapshot as object), items: [theNote({ keepsStory: true })] };
+      const user = userEvent.setup();
+      open();
+      await waitFor(() => expect(held.proposal).not.toBeNull());
+      answer([
+        { title: 'Pay the rent', blockIds: ['p0'] },
+        { title: 'Book the ferry', blockIds: ['p1'] },
+      ]);
+      await screen.findByText(/Claude proposes 2 new Items/);
+      await user.type(screen.getByRole('textbox', { name: 'Title of Item 2' }), '!');
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      const sent = held.send.mock.calls[0]![0] as { payload: { children: { title: string; titleTyped?: boolean }[] } };
+      expect(sent.payload.children.map((child) => [child.title, child.titleTyped])).toEqual([
+        ['Pay the rent', undefined],
+        ['Book the ferry!', true],
+      ]);
+      held.send.mockClear();
+      await (held.offered[0] as Undoable).undo!();
+      expect((held.send.mock.calls[0]![0] as { payload: { keepsStory: boolean } }).payload.keepsStory).toBe(true);
+    });
+
     it('offers an Undo that sends what comes apart: the words as they were, as the Split left them, and what moved', async () => {
       const user = userEvent.setup();
       open();

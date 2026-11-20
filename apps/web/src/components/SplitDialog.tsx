@@ -32,6 +32,8 @@ interface Card {
   key: string;
   title: string;
   on: boolean;
+  /** The person typed in its title, so it is theirs. */
+  typed?: boolean;
 }
 
 /** What a card with nothing to go by is called, from the words of the first block in it. */
@@ -141,6 +143,7 @@ export default function SplitDialog({
     const children = making.map((card) => ({
       itemId: uuidv7(),
       title: cutTo(card.title.trim(), TITLE_LENGTH) || 'Untitled',
+      ...(card.typed && card.title.trim() !== '' ? { titleTyped: true } : {}),
       blockIds: blocks.filter((block) => placed[block.id] === card.key).map((block) => block.id),
     }));
     const moved = new Set(children.flatMap((child) => child.blockIds));
@@ -161,6 +164,7 @@ export default function SplitDialog({
                   ...envelope(),
                   itemId,
                   description: read.item.description ?? null,
+                  keepsStory: read.item.keepsStory === true,
                   kept: keptWords.length === 0 ? null : wordsOfBlocks(keptWords),
                   children: children.map((child) => ({
                     itemId: child.itemId,
@@ -306,7 +310,7 @@ export default function SplitDialog({
                         value={card.title}
                         maxLength={200}
                         aria-label={`Title of Item ${n + 1}`}
-                        onChange={(event) => setCard(card.key, { title: event.target.value })}
+                        onChange={(event) => setCard(card.key, { title: event.target.value, typed: true })}
                         className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-ink-strong outline-none hover:border-shade/10 focus:border-accent"
                       />
                     </div>

@@ -18,6 +18,9 @@ import { SPLIT_ITEMS_AT_ONCE } from './domain/split.js';
  * original keeps everything no card took. A card with no block makes an Item
  * holding its title.
  *
+ * The original's *Keep its story up to date* is turned on, as it is for any
+ * parent Combine or Split makes; the Split itself asks for no rewrite.
+ *
  * `was` is the description the dialog was drawn from: a Split of words that
  * changed since is refused, as the blocks it names would be other words.
  * Sent twice, it applies once.
@@ -32,6 +35,8 @@ export const splitItemSchema = commandEnvelopeSchema
           itemId: z.uuid(),
           title: itemTitleSchema.min(1),
           blockIds: z.array(z.string().min(1).max(60)).max(1_000),
+          /** The person typed or edited this card's title, so the new Item's texts are theirs from the start and the clean-up never replaces them. Absent from an older tab: proposed. */
+          titleTyped: z.boolean().optional(),
         }),
       )
       .min(1)
@@ -59,6 +64,8 @@ export const unsplitItemSchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   description: z.string().max(DESCRIPTION_MAX_LENGTH).nullable(),
   kept: z.string().max(DESCRIPTION_MAX_LENGTH).nullable(),
+  /** The original's *Keep its story up to date* before the Split, put back; absent from an older tab: left as it is. */
+  keepsStory: z.boolean().optional(),
   children: z
     .array(
       z.object({

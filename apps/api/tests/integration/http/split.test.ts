@@ -92,7 +92,7 @@ async function blocksOf(itemId: string) {
   );
 }
 
-const split = (itemId: string, was: string, children: { itemId: string; title: string; blockIds: string[] }[]) =>
+const split = (itemId: string, was: string, children: { itemId: string; title: string; blockIds: string[]; titleTyped?: boolean }[]) =>
   postChange('split_item', { ...envelope(), itemId, was, children });
 
 async function aPanel(name: string): Promise<string> {
@@ -230,6 +230,56 @@ describe('Triage', () => {
       // What to do with each is proposed again where its words changed, and for each new one as for a capture.
       const proposals = held.filter((job) => job.kind === 'propose-for-claude' && [original, rent, ferry].includes(job.itemId ?? ''));
       expect(proposals.map((job) => job.itemId).sort()).toEqual([original, rent, ferry].sort());
+    });
+
+    it('settles the texts of a card whose title was typed and asks no clean-up for it, and leaves the others proposed', async () => {
+      const original = await aNote();
+      const [typed, proposed] = [nextId(), nextId()];
+      held = [];
+
+      expect(
+        (
+          await split(original, THREE_PARAGRAPHS, [
+            { itemId: typed, title: 'Ferry', blockIds: ['p1'], titleTyped: true },
+            { itemId: proposed, title: 'Pay the rent', blockIds: ['p0'] },
+          ])
+        ).status,
+      ).toBe(200);
+      await settled();
+
+      const rows = await inTheStore((sql) =>
+        sql.exec<{ id: string; texts_settled_at: string | null }>('SELECT id, texts_settled_at FROM items WHERE id IN (?, ?)', typed, proposed).toArray(),
+      );
+      expect(rows.find((row) => row.id === typed)?.texts_settled_at).not.toBeNull();
+      expect(rows.find((row) => row.id === proposed)?.texts_settled_at).toBeNull();
+      const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app').map((job) => job.itemId);
+      expect(cleanUps).toEqual([proposed]);
+    });
+
+    it('turns Keep its story up to date on for the original, asks no rewrite, and Undo puts back what it was', async () => {
+      const [off, on] = [await aNote(), await aNote()];
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: on, keepsStory: true })).status).toBe(200);
+      const keeps = async (id: string) =>
+        (await inTheStore((sql) => sql.exec<{ keeps_story: number }>('SELECT keeps_story FROM items WHERE id = ?', id).toArray()))[0]!.keeps_story;
+      held = [];
+
+      for (const [original, before] of [[off, false], [on, true]] as const) {
+        const child = nextId();
+        expect((await split(original, THREE_PARAGRAPHS, [{ itemId: child, title: 'Pay the rent', blockIds: ['p0'] }])).status).toBe(200);
+        expect(await keeps(original)).toBe(1);
+        const undone = await postChange('unsplit_item', {
+          ...envelope(),
+          itemId: original,
+          description: THREE_PARAGRAPHS,
+          kept: 'Book the ferry to Texel for the 7:45 boat.\n\nAsk Sam whether the quote is final.',
+          keepsStory: before,
+          children: [{ itemId: child, additionIds: [], attachmentIds: [] }],
+        });
+        expect(undone.status).toBe(200);
+        expect(await keeps(original)).toBe(before ? 1 : 0);
+      }
+      await settled();
+      expect(held.filter((job) => job.kind === 'rewrite-story')).toEqual([]);
     });
 
     it('never rewrites the original, whatever its story setting', async () => {

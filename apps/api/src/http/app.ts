@@ -2047,7 +2047,8 @@ const routes = app
     if (result.applied) {
       const accountName = c.get('visitor').accountName;
       for (const child of payload.children) {
-        c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, child.itemId, 'split-in-app'));
+        // A title typed in the card is theirs, and so are the words: nothing is proposed over them.
+        if (!child.titleTyped) c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, child.itemId, 'split-in-app'));
         c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, child.itemId, 'split-in-app'));
         c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, child.itemId, 'split-in-app'));
       }
