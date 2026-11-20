@@ -1,0 +1,257 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { env } from 'cloudflare:test';
+import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, inStoreAsItIs } from '../seed.js';
+import { handleQueue } from '../../../src/jobs/index.js';
+import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
+import { aModelThatReads, batchOf, captureANote, nextId, postChange, writing } from './note-cleanup.support.js';
+
+/**
+ * L2: Claude keeping a parent's story up to date ("Brainstorming: a parent's
+ * description goes stale as children join or leave", issue 1827) through the
+ * real Worker, the real consumer and the real store, with the model faked at the
+ * network boundary and the queue held at its binding, drained by hand. Whether
+ * the real model writes a story that holds is the contract tier's
+ * (tests/contract/write-a-story.v1.test.ts); the decision on what to do with
+ * what it wrote is apps/api/tests/unit/domain/story.test.ts.
+ */
+
+aModelThatReads();
+
+let held: EnrichmentJob[] = [];
+let realQueue: typeof env.ENRICHMENT;
+
+beforeEach(() => {
+  held = [];
+  realQueue = env.ENRICHMENT;
+  env.ENRICHMENT = {
+    send: async (body: EnrichmentJob) => {
+      held.push(body);
+    },
+    sendBatch: async () => {
+      throw new Error('nothing here sends a batch');
+    },
+  } as unknown as typeof env.ENRICHMENT;
+});
+
+afterEach(() => {
+  env.ENRICHMENT = realQueue;
+});
+
+const envelope = () => ({ commandId: nextId(), issuedAt: '2026-11-19T10:00:00.000Z', workspaceId: WORKSPACE_ID });
+
+/** The rewrites asked for so far, whoever's. */
+const rewrites = () => held.filter((job) => job.kind === 'rewrite-story');
+
+/** Waits for the rewrites a change queues after it has answered. */
+async function untilRewrites(count: number): Promise<void> {
+  await vi.waitFor(() => expect(rewrites()).toHaveLength(count), { timeout: 15_000, interval: 25 });
+}
+
+/** Lets what a change queues after it has answered settle, for a case that expects nothing more. */
+async function settled(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 150));
+}
+
+/** Delivers every rewrite held, in the order asked, through the real consumer. */
+async function delivered(): Promise<void> {
+  const asked = rewrites();
+  held = held.filter((job) => job.kind !== 'rewrite-story');
+  for (const job of asked) await handleQueue(batchOf(job), env);
+}
+
+async function aNote(message = 'A note about the crossing'): Promise<string> {
+  const itemId = nextId();
+  await captureANote({ itemId, message });
+  return itemId;
+}
+
+/** An Item that holds Items, with its story kept up to date unless said otherwise, and its description Claude's or yours. */
+async function aParent({ keeps = true, yours = false }: { keeps?: boolean; yours?: boolean } = {}): Promise<string> {
+  const parentId = await aNote('Chapter 3');
+  if (keeps) expect((await postChange('set_keeps_story', { ...envelope(), itemId: parentId, keepsStory: true })).status).toBe(200);
+  if (yours) {
+    expect((await postChange('set_description', { ...envelope(), itemId: parentId, description: 'My own words about chapter 3' })).status).toBe(200);
+  }
+  held = held.filter((job) => job.kind !== 'rewrite-story');
+  return parentId;
+}
+
+async function addChildren(parentId: string, childIds: string[]) {
+  const response = await postChange('add_children', { ...envelope(), parentId, childIds });
+  expect(response.status).toBe(200);
+}
+
+async function storyOf(itemId: string) {
+  const rows = await inStoreAsItIs(ACCOUNT_NAME, (sql) =>
+    sql
+      .exec<{ description: string | null; texts_settled_at: string | null; story_proposal: string | null; keeps_story: number }>(
+        'SELECT description, texts_settled_at, story_proposal, keeps_story FROM items WHERE id = ? AND tenant_id = ?',
+        itemId,
+        ACCOUNT_NAME,
+      )
+      .toArray(),
+  );
+  return rows[0]!;
+}
+
+describe('Triage', () => {
+  describe('a child joining or leaving queues one rewrite per parent, only where Keep its story up to date is on', () => {
+    it('queues one for five children added within the window, and writes one story', async () => {
+      const parentId = await aParent();
+      const children = await Promise.all([1, 2, 3, 4, 5].map((at) => aNote(`Scene ${at}`)));
+      for (const child of children) await addChildren(parentId, [child]);
+      await untilRewrites(5);
+
+      await delivered();
+
+      // Each ask took the place of the one before: only the last runs the model.
+      expect(writing.asked).toHaveLength(1);
+      expect(writing.asked[0]!.item).toContain('Scene 5');
+      expect((await storyOf(parentId)).description).toBe('A story of what it holds.');
+    });
+
+    it('queues none for a parent that does not keep its story up to date', async () => {
+      const parentId = await aParent({ keeps: false });
+
+      await addChildren(parentId, [await aNote()]);
+      await settled();
+
+      expect(rewrites()).toEqual([]);
+    });
+
+    it('queues one when a child leaves', async () => {
+      const parentId = await aParent();
+      const child = await aNote();
+      await addChildren(parentId, [child]);
+      await untilRewrites(1);
+      held = [];
+
+      expect((await postChange('remove_child', { ...envelope(), parentId, childId: child })).status).toBe(200);
+
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ kind: 'rewrite-story', itemId: parentId });
+    });
+
+    it('queues one when an Item is filed on a Panel that keeps its story, and none for another Panel', async () => {
+      const [kept, plain] = [nextId(), nextId()];
+      for (const [panelId, name] of [[kept, 'Kept'], [plain, 'Plain']] as const) {
+        expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name, kind: 'items' })).status).toBe(200);
+      }
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
+      const note = await aNote();
+
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: plain, order: [note] })).status).toBe(200);
+      await settled();
+      expect(rewrites()).toEqual([]);
+
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: kept, order: [note] })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: kept });
+    });
+
+    it('asks for the story of what Combine makes, and of what Rewrite from its children names, whatever the setting', async () => {
+      const [first, second] = [await aNote('One'), await aNote('Two')];
+      const parentId = nextId();
+
+      expect((await postChange('combine_under_new_parent', { ...envelope(), parentId, title: 'Combined', description: 'This brings together One and Two.', childIds: [first, second], panelId: null, dashboardId: null })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: parentId, anyway: true });
+      held = [];
+
+      const loose = await aParent({ keeps: false });
+      expect((await postChange('rewrite_story', { ...envelope(), itemId: loose })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: loose, anyway: true });
+    });
+
+    it('does not rewrite on a run turned off while it waited, unless it was asked for by name', async () => {
+      const parentId = await aParent();
+      await addChildren(parentId, [await aNote()]);
+      await untilRewrites(1);
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: parentId, keepsStory: false })).status).toBe(200);
+
+      await delivered();
+
+      expect(writing.asked).toEqual([]);
+    });
+  });
+
+  describe('a rewritten description is replaced while it is Claude\'s, and a Review waits once it is yours', () => {
+    it('replaces a description nobody has edited, without a Review', async () => {
+      const parentId = await aParent();
+      await addChildren(parentId, [await aNote('Storm scene')]);
+      await untilRewrites(1);
+
+      await delivered();
+
+      expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null, texts_settled_at: null });
+    });
+
+    it('keeps a description you edited and holds the new version for a Review', async () => {
+      const parentId = await aParent({ yours: true });
+      await addChildren(parentId, [await aNote('Storm scene')]);
+      await untilRewrites(1);
+
+      await delivered();
+
+      expect(await storyOf(parentId)).toMatchObject({
+        description: 'My own words about chapter 3',
+        story_proposal: 'A story of what it holds.',
+      });
+    });
+
+    it('Use it makes it the description, still yours, and Keep mine drops it', async () => {
+      const [used, kept] = [await aParent({ yours: true }), await aParent({ yours: true })];
+      for (const parentId of [used, kept]) await addChildren(parentId, [await aNote('Storm scene')]);
+      await untilRewrites(2);
+      await delivered();
+
+      expect((await postChange('use_story', { ...envelope(), itemId: used })).status).toBe(200);
+      expect((await postChange('keep_my_story', { ...envelope(), itemId: kept })).status).toBe(200);
+
+      expect(await storyOf(used)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null });
+      expect((await storyOf(used)).texts_settled_at).not.toBeNull();
+      expect(await storyOf(kept)).toMatchObject({ description: 'My own words about chapter 3', story_proposal: null });
+    });
+
+    it('replaces the stitched description Combine wrote while it is still Claude\'s', async () => {
+      const [first, second] = [await aNote('One'), await aNote('Two')];
+      const parentId = nextId();
+      await postChange('combine_under_new_parent', { ...envelope(), parentId, title: 'Combined', description: 'This brings together One and Two.', childIds: [first, second], panelId: null, dashboardId: null });
+      await untilRewrites(1);
+
+      await delivered();
+
+      expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.', keeps_story: 1 });
+    });
+  });
+
+  describe('a failed call is tried again by the queue and changes nothing meanwhile', () => {
+    it('leaves the description as it was and asks for the message again, then writes on the next delivery', async () => {
+      const parentId = await aParent();
+      await addChildren(parentId, [await aNote('Storm scene')]);
+      await untilRewrites(1);
+      const job = rewrites()[0]!;
+      const before = await storyOf(parentId);
+      writing.fails = true;
+      let retried = false;
+      let acked = false;
+      const failing = batchOf(job);
+      failing.messages[0]!.retry = () => {
+        retried = true;
+      };
+      failing.messages[0]!.ack = () => {
+        acked = true;
+      };
+
+      await handleQueue(failing, env);
+
+      expect({ retried, acked }).toEqual({ retried: true, acked: false });
+      expect(await storyOf(parentId)).toEqual(before);
+
+      writing.fails = false;
+      await handleQueue(batchOf(job), env);
+      expect((await storyOf(parentId)).description).toBe('A story of what it holds.');
+    });
+  });
+});

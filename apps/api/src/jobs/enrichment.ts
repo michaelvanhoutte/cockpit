@@ -28,6 +28,7 @@ import { pastedLinkIn, readThePastedLink, type PastedLinkRead } from '../connect
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
 import { debounceSecondsFor, isSuperseded, type RefreshAsk } from '../accounts/debounce.js';
+import { childrenForStory, STORY_CHILDREN_READ } from '../domain/story.js';
 
 /** What What Cockpit changed says of a guest's capture, which is never cleaned up (issue 887). */
 const GUEST_NEVER_CALLS_THE_MODEL = 'nothing was enriched: the guest account never calls the model';
@@ -80,7 +81,8 @@ export type EnrichmentJob =
   | ReadWhatItMeansJob
   | GuestArrivalJob
   | CheckPulledConnectionJob
-  | ProposeForClaudeJob;
+  | ProposeForClaudeJob
+  | RewriteStoryJob;
 
 /**
  * Asks for what to do with one Item to be proposed - Cowork, Claude Code, or
@@ -94,6 +96,27 @@ export interface ProposeForClaudeJob {
   accountName: string;
   itemId: string;
   ask: RefreshAsk;
+  triggeredBy?: Trigger | undefined;
+}
+
+/**
+ * Asks for a parent's story - its description - to be written again from the
+ * Items it holds ("Keep its story up to date", issue 1827). A parent and not
+ * its words, for `CleanUpJob`'s reasons, and debounced per parent the way a
+ * proposal for Claude is, so five Items added in a burst cost one call on the
+ * Items it ends with.
+ *
+ * **`anyway`** is for the asks that do not wait on the setting: *Rewrite from
+ * its children*, and the first story of what Combine makes. Every other ask is
+ * checked against *Keep its story up to date* again when it runs, so a Panel
+ * turned off in the window is left as it is.
+ */
+export interface RewriteStoryJob {
+  kind: 'rewrite-story';
+  accountName: string;
+  itemId: string;
+  ask: RefreshAsk;
+  anyway?: boolean | undefined;
   triggeredBy?: Trigger | undefined;
 }
 
@@ -209,7 +232,7 @@ export interface CheckPulledConnectionJob {
 const refreshAskSchema = z.object({ at: z.number().int().nonnegative(), id: z.uuid() });
 
 const triggerSchema = z.union([
-  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'item-changed', 'sentence-remembered', 'backfill', 'agent-started', 'connection-test']),
+  z.enum(['captured-in-app', 'mcp', 'panel-settled', 'item-changed', 'sentence-remembered', 'story-changed', 'backfill', 'agent-started', 'connection-test']),
   z.templateLiteral(['connector:', z.string().min(1).max(64)]),
 ]);
 
@@ -250,6 +273,14 @@ export const enrichmentJobSchema = z.discriminatedUnion('kind', [
     kind: z.literal('check-a-pulled-connection'),
     accountName: z.string().min(1),
     sourceAccountId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('rewrite-story'),
+    accountName: z.string().min(1),
+    itemId: z.uuid(),
+    ask: refreshAskSchema,
+    anyway: z.boolean().optional(),
+    triggeredBy: triggerSchema.optional(),
   }),
   z.object({
     kind: z.literal('propose-for-claude'),
@@ -1627,3 +1658,89 @@ function sayForWorkspace(workspaceId: string, what: string): void {
   sayAbout('workspace', workspaceId, what);
 }
 
+
+/**
+ * Asks for a parent's story to be written again, without making whatever
+ * changed it wait ("Keep its story up to date", issue 1827): a child joined or
+ * left, a Merge or Combine made it, or *Rewrite from its children* was pressed.
+ * Debounced per parent by `askForRefresh`, which also queues nothing without a
+ * key or for the guest.
+ */
+export async function enqueueStoryRewrite(
+  env: Env,
+  accountName: string,
+  itemId: string,
+  { anyway = false, triggeredBy = 'story-changed' }: { anyway?: boolean; triggeredBy?: Trigger } = {},
+): Promise<void> {
+  await askForRefresh(
+    env,
+    accountName,
+    storyRefresh(itemId),
+    (ask) => ({ kind: 'rewrite-story', accountName, itemId, ask, anyway, triggeredBy }),
+    `the rewrite of the story of item ${itemId}`,
+  );
+}
+
+/** Which refresh a parent's story is, to the record of asks: one per parent. */
+function storyRefresh(itemId: string): string {
+  return `rewrite-story:${itemId}`;
+}
+
+/**
+ * Writes a parent's description again from the Items it holds ("Keep its story
+ * up to date", issue 1827): replaced where it is still Claude's, kept as a
+ * Review where it is the person's (`applyProposedStory`).
+ *
+ * **A decision is a return and a failure is a throw**, as `proposeForClaude`
+ * splits them: the guest, no key, a later ask, a parent gone or no longer keeping
+ * its story, and an answer that will not validate all end quietly with the
+ * description as it was; only the call itself is left to throw and be retried,
+ * which changes nothing meanwhile.
+ */
+export async function rewriteStory(env: Env, job: RewriteStoryJob): Promise<void> {
+  if (job.accountName === GUEST_ACCOUNT_NAME) return say(job.itemId, `no story was written: ${GUEST_NEVER_CALLS_THE_MODEL}`);
+  const ai = aiFor(env);
+  if (!ai) return say(job.itemId, `no story was written: ${noClaudeKeyBecause(env)}`);
+
+  let account;
+  try {
+    account = await openAccount(env, job.accountName);
+  } catch (error) {
+    if (error instanceof AccountNotInRegisterError) {
+      return say(job.itemId, 'no story was written: the account is no longer in the register');
+    }
+    throw error;
+  }
+  if (await aLaterAskTookItsPlace(account, storyRefresh(job.itemId), job.ask)) {
+    return say(job.itemId, 'no story was written yet: a later change queued the rewrite that will');
+  }
+
+  // Read as it stands now, so a child that joined while this waited is read.
+  const sources = await account.storySources(job.itemId, STORY_CHILDREN_READ);
+  if (!sources) return say(job.itemId, 'no story was written: the item is gone');
+  if (!job.anyway && !sources.keepsStory) return say(job.itemId, 'no story was written: it no longer keeps its story up to date');
+  const { read } = childrenForStory(sources.children);
+  const written = await ai.writeAStory(
+    { title: sources.title, description: sources.description, children: read, held: sources.held },
+    { accountName: job.accountName, itemId: job.itemId, triggeredBy: job.triggeredBy ?? null },
+  );
+  if (!('story' in written)) return say(job.itemId, `no story was written: ${written.discarded}`);
+  // Asked again once the answer is in, as a proposal is: a later ask that ran while this waited on the model has read more.
+  if (await aLaterAskTookItsPlace(account, storyRefresh(job.itemId), job.ask)) {
+    return say(job.itemId, 'nothing was written: a later change queued the rewrite that will');
+  }
+  try {
+    const result = await account.applyChange('propose_story', {
+      commandId: crypto.randomUUID(),
+      issuedAt: new Date().toISOString(),
+      // The envelope's Workspace is the parent's own, read now.
+      workspaceId: sources.workspaceId,
+      itemId: job.itemId,
+      story: written.story,
+    });
+    say(job.itemId, result.applied ? 'wrote the story' : 'the story already said so');
+  } catch (error) {
+    if (error instanceof NotFoundInAccountError) return say(job.itemId, 'nothing was written: the item went while it was being read');
+    throw error;
+  }
+}

@@ -1124,6 +1124,14 @@ export const items = sqliteTable(
      * that issue. A flag with no CHECK, for the reason `unseen` has none.
      */
     keepsStory: integer('keeps_story', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * What Claude rewrote this Item's description to once the one it has is
+     * yours ("Keep its story up to date", issue 1827), kept for a Review until
+     * *Use it* or *Keep mine* clears it; and when it was written. Null on every
+     * Item that has none waiting. No CHECK, for the reason `seriesId` has none.
+     */
+    storyProposal: text('story_proposal'),
+    storyProposedAt: text('story_proposed_at'),
     unseen: integer('unseen', { mode: 'boolean' }).notNull().default(false),
     deletedAt: text('deleted_at'),
 

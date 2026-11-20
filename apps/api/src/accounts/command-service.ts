@@ -55,6 +55,8 @@ import {
   getDashboard,
   getItem,
   getLayout,
+  getStoryHolder,
+  storyKeepersAmong,
   getPanel,
   getSeries,
   getFollowUpDays,
@@ -88,6 +90,7 @@ import {
   textCorrectionExistsFor,
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
+import { applyKeepMyStory, applyProposedStory, applyUseStory } from '../domain/story.js';
 import { captureDay } from '../domain/capture-day.js';
 import {
   applyConversationTurn,
@@ -1305,6 +1308,16 @@ export function runCommand<N extends CommandName>(
   let addressLetGo: string | null = null;
   // Set only by `read_pasted_link`, where it applied.
   let textsWritten: boolean | null = null;
+  // The Items and Panels a child joined or left, or that were just made with their first story to write
+  // ("Keep its story up to date", issue 1827); the ones that keep their story are `rewriteStoryOf` below.
+  const storyOfItems = new Set<string>();
+  const storyOfPanels = new Set<string>();
+  // Asked for by name, whatever the setting: *Rewrite from its children*, and the first story of what Combine makes.
+  const storyAsked = new Set<string>();
+  const rewriteStoryOf = (): { rewriteStoryOf?: string[] } => {
+    const parents = [...new Set([...storyKeepersAmong(db, tenantId, [...storyOfItems], [...storyOfPanels]), ...storyAsked])];
+    return parents.length > 0 ? { rewriteStoryOf: parents } : {};
+  };
 
   switch (name) {
     case 'create_workspace': {
@@ -1957,6 +1970,7 @@ export function runCommand<N extends CommandName>(
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      for (const target of targets) storyOfPanels.add(target.id);
       break;
     }
     case 'append_to_item': {
@@ -1986,12 +2000,18 @@ export function runCommand<N extends CommandName>(
       // It has just left every other workspace's Inbox, so their snapshots are
       // stale too - the same reason a capture with no workspace carries this.
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
+      // The Panels it leaves, read before the move takes it off them.
+      if (decided.takesItOffPanels) {
+        for (const panelId of decided.fromPanelIds ?? panelsHolding(db, tenantId, cmd.itemId)) storyOfPanels.add(panelId);
+      }
 
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
+      // What it joined gains a child.
+      if (cmd.panelId !== null) storyOfPanels.add(cmd.panelId);
       break;
     }
     case 'add_item_to_panel': {
@@ -2006,6 +2026,7 @@ export function runCommand<N extends CommandName>(
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
+      storyOfPanels.add(cmd.panelId);
       break;
     }
     case 'remove_item_from_panel': {
@@ -2030,6 +2051,7 @@ export function runCommand<N extends CommandName>(
         mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      storyOfPanels.add(panel.id);
       break;
     }
     case 'add_children': {
@@ -2062,6 +2084,7 @@ export function runCommand<N extends CommandName>(
         putInside(tx, tenantId, parent.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      storyOfItems.add(parent.id);
       break;
     }
     case 'remove_child': {
@@ -2074,6 +2097,7 @@ export function runCommand<N extends CommandName>(
         if (applied) takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      storyOfItems.add(parent.id);
       break;
     }
     case 'merge_items': {
@@ -2147,6 +2171,11 @@ export function runCommand<N extends CommandName>(
         }
         tx.insert(commands).values(commandRow).run();
       });
+      // Its first story is written from what it brings together, replacing the stitched one while that is Claude's;
+      // what held the originals has lost them and gained it.
+      storyAsked.add(item.id);
+      for (const parentId of parents) storyOfItems.add(parentId);
+      for (const target of targets) storyOfPanels.add(target.id);
       break;
     }
     case 'unmerge_items': {
@@ -2242,7 +2271,8 @@ export function runCommand<N extends CommandName>(
           insertPanel(tx, panel, cmd.workspaceId);
           insertAppended(tx, appended);
           tx.update(items)
-            .set({ description: story, keepsStory: true })
+            // Claude's to replace until the person edits it, as a capture's texts are.
+            .set({ description: story, keepsStory: true, textsSettledAt: null })
             .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.parentId)))
             .run();
           settleChildren(tx);
@@ -2254,6 +2284,7 @@ export function runCommand<N extends CommandName>(
           mirrorFilingsOf(tx, tenantId, [cmd.parentId], cmd.issuedAt);
           tx.insert(commands).values(commandRow).run();
         });
+        storyAsked.add(cmd.parentId);
         break;
       }
       // From a Panel: a new Item filed on it, so a child Panel of it; or with no Panel, one of the Workspace's own.
@@ -2271,6 +2302,8 @@ export function runCommand<N extends CommandName>(
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      storyAsked.add(item.id);
+      if (nested) storyOfPanels.add(nested.id);
       break;
     }
     case 'associate': {
@@ -2420,6 +2453,67 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'set_keeps_story': {
+      const cmd = payload as CommandPayload<'set_keeps_story'>;
+      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      applied = (holder.keepsStory === true) !== cmd.keepsStory;
+      db.transaction((tx) => {
+        if (applied) {
+          tx.update(items)
+            .set({ keepsStory: cmd.keepsStory })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, holder.id)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rewrite_story': {
+      const cmd = payload as CommandPayload<'rewrite_story'>;
+      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      // Nothing is written here: the rewrite is the job's, asked for once whatever the setting.
+      db.insert(commands).values(commandRow).run();
+      storyAsked.add(holder.id);
+      break;
+    }
+    case 'propose_story': {
+      const cmd = payload as CommandPayload<'propose_story'>;
+      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives: the Item may be gone since the job read it.
+      if (!holder || holder.deletedAt) throw new ItemNotFoundError(cmd.itemId);
+      if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
+      const updated = applyProposedStory(holder, cmd.story, cmd.issuedAt);
+      if (updated === null) {
+        // Nothing to say that is not said, and still logged: a redelivery of this job is a replay.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        db.transaction((tx) => {
+          storeItem(tx, tenantId, updated);
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'use_story':
+    case 'keep_my_story': {
+      const cmd = payload as CommandPayload<'use_story'> | CommandPayload<'keep_my_story'>;
+      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
+      const decided = name === 'use_story' ? applyUseStory(holder) : applyKeepMyStory(holder);
+      // Answered from another tab already, or a Review that never was: nothing waits, so nothing changes.
+      applied = decided !== null;
+      db.transaction((tx) => {
+        if (decided) {
+          storeItem(tx, tenantId, name === 'use_story' ? { ...decided, updatedAt: neverBackwards(holder.updatedAt, cmd.issuedAt) } : decided);
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'edit_remembered_sentence': {
@@ -3754,6 +3848,7 @@ export function runCommand<N extends CommandName>(
     // so a tab can tell the announcement is its own.
     at: commandRow.receivedAt,
     ...(settledRouting ? { settledRouting } : {}),
+    ...(applied ? rewriteStoryOf() : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
     ...(addressLetGo ? { addressLetGo } : {}),

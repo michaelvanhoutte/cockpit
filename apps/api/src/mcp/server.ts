@@ -9,7 +9,7 @@ import {
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
 import { NotFoundInAccountError, RefusedByAccountError, openAccount, putAttachment, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
-import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose } from '../jobs/enrichment.js';
+import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose, enqueueStoryRewrite } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
 import { FIND_ITEMS, describeFound, findItemsTool, readFind, refusePanel } from './find-items.js';
 import {
@@ -245,6 +245,10 @@ async function capture(
     };
   }
   ctx.waitUntil(enqueueCleanUp(env, accountName, itemId, 'mcp'));
+  // An Item filed on a Panel that keeps its story is a child joining it (issue 1827).
+  for (const parentId of new Set(applied.results.flatMap((result) => result.rewriteStoryOf ?? []))) {
+    ctx.waitUntil(enqueueStoryRewrite(env, accountName, parentId, { triggeredBy: 'mcp' }));
+  }
   ctx.waitUntil(enqueueReadingItsMeaning(env, accountName, itemId, 'mcp'));
   ctx.waitUntil(enqueueProposalForClaude(env, accountName, itemId, 'mcp'));
   // What the Connected apps list says this app last did (issue 600).
@@ -477,6 +481,9 @@ async function update(
     }
   }
   if (wroteTexts || filed.length) ctx.waitUntil(enqueueProposalForClaude(env, accountName, item.id, 'item-changed'));
+  for (const parentId of new Set(applied.results.flatMap((result) => result.rewriteStoryOf ?? []))) {
+    ctx.waitUntil(enqueueStoryRewrite(env, accountName, parentId, { triggeredBy: 'mcp' }));
+  }
   // An Item no Workspace had been chosen for is in the Workspace of the Panel it was filed on now.
   const settledIn = item.workspaceDecided ? undefined : filed.map((i) => plan.steps[i]!.change.payload.workspaceId)[0];
   return describeUpdate(title, read.fields, plan, applied, linkTo(settledIn ?? item.workspaceId));

@@ -2450,6 +2450,67 @@ describe('Item editing', () => {
   });
 
   /**
+   * "Brainstorming: a parent's description goes stale as children join or
+   * leave" (issue 1827): once the description is yours and Claude rewrote it
+   * from the Items the parent holds, the form offers the new version rather
+   * than replacing yours. Whether Claude writes one is the server's
+   * (apps/api/tests/integration/http/story.test.ts); what is asked here is
+   * that the form draws what it is given and sends the answer.
+   */
+  describe('a new version Claude wrote of a description you edited is offered as a Review', () => {
+    const WAITING = { storyProposal: 'Claude’s new version of chapter 3.', storyProposedAt: '2026-11-19T10:00:00.000Z', textsSettledAt: '2026-11-18T10:00:00.000Z' };
+
+    it('says nothing where no new version waits', async () => {
+      await theForm(anItem({ description: 'My own words' }));
+
+      expect(screen.queryByText(/Claude has a new version/)).toBeNull();
+    });
+
+    it('says Claude has a new version, and shows it only once Review is pressed', async () => {
+      const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
+
+      expect(screen.getByText(/Claude has a new version/)).toBeInTheDocument();
+      expect(screen.queryByText(WAITING.storyProposal)).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+
+      expect(screen.getByText(WAITING.storyProposal)).toBeInTheDocument();
+      expect(held.send).not.toHaveBeenCalled();
+    });
+
+    it('Use it sends use_story for this Item and puts the new version in the box', async () => {
+      const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
+
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+      await user.click(screen.getByRole('button', { name: 'Use it' }));
+
+      await waitFor(() => expect(descriptionBox()).toHaveValue(WAITING.storyProposal));
+      expect(sent()).toEqual([expect.objectContaining({ name: 'use_story', payload: expect.objectContaining({ itemId: 'item-1' }) })]);
+    });
+
+    it('Keep mine sends keep_my_story and leaves the box as it was', async () => {
+      const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
+
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+      await user.click(screen.getByRole('button', { name: 'Keep mine' }));
+
+      await waitFor(() => expect(sent()).toEqual([expect.objectContaining({ name: 'keep_my_story' })]));
+      expect(descriptionBox()).toHaveValue('My own words');
+    });
+
+    it('says why where the answer was refused, and leaves the Review to try again', async () => {
+      held.send.mockRejectedValueOnce(new Error('That could not be saved right now'));
+      const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
+
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+      await user.click(screen.getByRole('button', { name: 'Use it' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('That could not be saved right now');
+      expect(screen.getByRole('button', { name: 'Use it' })).toBeInTheDocument();
+    });
+  });
+
+  /**
    * "Flag a captured note that says what another one already said" (issue 407):
    * the row says only that there may be one, and the form is where the other
    * note is named and can be opened. Which notes are paired at all is the
