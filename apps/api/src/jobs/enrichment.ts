@@ -1724,6 +1724,8 @@ export async function rewriteStory(env: Env, job: RewriteStoryJob): Promise<void
   const sources = await account.storySources(job.itemId, STORY_CHILDREN_READ);
   if (!sources) return say(job.itemId, 'no story was written: the item is gone');
   if (!job.anyway && !sources.keepsStory) return say(job.itemId, 'no story was written: it no longer keeps its story up to date');
+  // Nothing held, so nothing to say: the story waits for what comes next rather than being replaced by "empty for now" (a rewrite asked for by name is refused for such an Item, as it would only do that).
+  if (!job.anyway && sources.children.length === 0) return say(job.itemId, 'no story was written: it holds nothing now');
   const { read } = childrenForStory(sources.children);
   const written = await ai.writeAStory(
     { title: sources.title, description: sources.description, children: read, held: sources.held },

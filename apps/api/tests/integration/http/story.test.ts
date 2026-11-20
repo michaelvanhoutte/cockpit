@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, inStoreAsItIs } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
-import { aModelThatReads, batchOf, captureANote, nextId, postChange, writing } from './note-cleanup.support.js';
+import { aModelThatReads, batchOf, captureANote, nextId, postChange, theModelReadsAPlace, writing } from './note-cleanup.support.js';
 
 /**
  * L2: Claude keeping a parent's story up to date ("Brainstorming: a parent's
@@ -149,6 +149,52 @@ describe('Triage', () => {
       expect(rewrites()[0]).toMatchObject({ itemId: kept });
     });
 
+    it('queues one when a reading of the note files it on a Panel that keeps its story', async () => {
+      const kept = nextId();
+      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId: kept, name: 'Kept', kind: 'items' })).status).toBe(200);
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
+      theModelReadsAPlace({ panels: ['Kept'] });
+      const note = await captureANote({ workspaceDecided: false });
+      held = [];
+
+      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: note, attemptId: nextId() }), env);
+
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: kept });
+    });
+
+    it('queues none for taking off a Panel an Item was not on, nor for a move that leaves it where it was', async () => {
+      const [kept, other] = [nextId(), nextId()];
+      for (const [panelId, name] of [[kept, 'Kept'], [other, 'Other']] as const) {
+        expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name, kind: 'items' })).status).toBe(200);
+      }
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
+      const note = await aNote();
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: other, order: [note] })).status).toBe(200);
+      await settled();
+      held = [];
+
+      expect((await postChange('remove_item_from_panel', { ...envelope(), itemId: note, panelId: kept })).status).toBe(200);
+      expect((await postChange('move_item_to_panel', { ...envelope(), itemId: note, panelId: other, order: [note] })).status).toBe(200);
+      await settled();
+      expect(rewrites()).toEqual([]);
+    });
+
+    it('queues none for a reorder inside a Panel that keeps its story', async () => {
+      const kept = nextId();
+      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId: kept, name: 'Kept', kind: 'items' })).status).toBe(200);
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
+      const [first, second] = [await aNote('One'), await aNote('Two')];
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: first, panelId: kept, order: [first] })).status).toBe(200);
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: second, panelId: kept, order: [second, first] })).status).toBe(200);
+      await untilRewrites(2);
+      held = [];
+
+      expect((await postChange('move_item_to_panel', { ...envelope(), itemId: second, panelId: kept, order: [second, first] })).status).toBe(200);
+      await settled();
+      expect(rewrites()).toEqual([]);
+    });
+
     it('asks for the story of what Combine makes, and of what Rewrite from its children names, whatever the setting', async () => {
       const [first, second] = [await aNote('One'), await aNote('Two')];
       const parentId = nextId();
@@ -204,6 +250,24 @@ describe('Triage', () => {
       await delivered();
 
       expect(writing.asked).toEqual([]);
+    });
+  });
+
+  describe('a parent that holds nothing keeps its description when its last child leaves', () => {
+    it('writes nothing for the run a leaving child queued', async () => {
+      const parentId = await aParent();
+      const child = await aNote();
+      await addChildren(parentId, [child]);
+      await untilRewrites(1);
+      await delivered();
+      writing.asked.length = 0;
+      expect((await postChange('remove_child', { ...envelope(), parentId, childId: child })).status).toBe(200);
+      await untilRewrites(1);
+
+      await delivered();
+
+      expect(writing.asked).toEqual([]);
+      expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.' });
     });
   });
 
