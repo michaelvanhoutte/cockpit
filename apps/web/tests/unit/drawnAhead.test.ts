@@ -1279,6 +1279,12 @@ describe('Panels', () => {
       expect(drawn.filings.sort((a, b) => a.position - b.position).map((filing) => filing.itemId)).toEqual([NEW, OTHER, FIRST]);
     });
 
+    it('stands at the end of the parent they were picked in when the first one does not leave it', () => {
+      const drawn = drawnAhead(copy(), combine([{ itemId: SECOND, parentId: HOLDER }], null));
+
+      expect(heldBy(drawn, HOLDER)).toEqual([OTHER, FIRST, NEW]);
+    });
+
     it('is drawn once, whether or not a read already holds the new parent', () => {
       const once = drawnAhead(copy(), combine([], PANEL));
 
