@@ -563,36 +563,22 @@ export const putInsideSchema = commandEnvelopeSchema
       .array(
         z
           .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
-          .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), {
-            message: 'an item leaves one parent or one panel in each entry',
-          }),
+          .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel'),
       )
       .max(CHILDREN_ADDED_AT_ONCE * 4),
   })
-  .refine((cmd) => new Set(cmd.childIds).size === cmd.childIds.length, {
-    message: 'an item can only be put inside once',
-    path: ['childIds'],
-  })
-  .refine((cmd) => !cmd.childIds.includes(cmd.parentId), {
-    message: 'an item cannot be put inside itself',
-    path: ['childIds'],
-  })
-  .refine((cmd) => new Set(cmd.order).size === cmd.order.length, {
-    message: 'an item can only be in the order once',
-    path: ['order'],
-  })
-  .refine((cmd) => cmd.childIds.every((id) => cmd.order.includes(id)), {
-    message: 'an item put inside is not in the order of the item it goes inside',
-    path: ['order'],
-  })
-  .refine((cmd) => !cmd.order.includes(cmd.parentId), {
-    message: 'an item cannot be in its own order',
-    path: ['order'],
-  })
-  .refine((cmd) => cmd.leaves.every((leave) => cmd.childIds.includes(leave.itemId) && leave.parentId !== cmd.parentId), {
-    message: 'only an item put inside leaves, and not the item it goes inside',
-    path: ['leaves'],
-  });
+  // One check with one message, since the initial bundle carries every schema and a sent change is never malformed:
+  // each Item named once, and in the order; the order naming each once, and never the parent; only an Item put
+  // inside leaves anything, and never the parent it goes inside.
+  .refine(
+    (cmd) =>
+      new Set(cmd.childIds).size === cmd.childIds.length &&
+      new Set(cmd.order).size === cmd.order.length &&
+      !cmd.order.includes(cmd.parentId) &&
+      cmd.childIds.every((id) => cmd.order.includes(id)) &&
+      cmd.leaves.every((leave) => cmd.childIds.includes(leave.itemId) && leave.parentId !== cmd.parentId),
+    'not a put-inside change',
+  );
 export type PutInsideCommand = z.infer<typeof putInsideSchema>;
 
 /** remove_child — one Item taken out of one parent, staying wherever else it is (issue 1825). */

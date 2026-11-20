@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, createEvent, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
+import { loadNestingDrag } from '../../../src/components/useNestingDrop';
 import { foldEveryParent } from '../../../src/unfoldedParents';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { settleTheShowRequest, useShowRequest } from '../../../src/showItem';
@@ -4632,6 +4633,11 @@ describe('Panels', () => {
   describe('a row dropped on the middle of another row is put inside it, in one change', () => {
     const MIDDLE = 120;
     const TOP_QUARTER = 103;
+
+    // The drag's code is fetched as a list mounts; here it is in hand before the first drag.
+    beforeAll(async () => {
+      await loadNestingDrag();
+    });
 
     /** The row of an Item, with the box it would have: 40 tall, from y = 100. */
     function rowOf(itemId: string): HTMLElement {

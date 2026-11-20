@@ -1,24 +1,31 @@
 import { Suspense, lazy, useEffect, useState, type RefObject } from 'react';
 import type { Item } from '@cockpit/shared';
 import { useSnapshot } from '../api/useSnapshot';
-import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { itemInTheAir, landItem, panelLiftedFrom, parentLiftedFrom, selectionCarried } from '../itemInTheAir';
-import { refusesNesting, whereOnARow } from '../nestingAim';
 import type { LetGo } from '../rowDrop';
-import { pickedNow } from '../selection';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 
 /** What a drop comes to once let go, fetched with the first drag that reaches a row's middle half. */
 const RowDropOutcome = lazy(() => import('./RowDropOutcome'));
-let preparing: Promise<unknown> | null = null;
-const prepare = () =>
-  (preparing ??= Promise.all([import('./RowDropOutcome'), import('../childrenDrawnAhead')]).catch(() => {}));
+
+let drag: typeof import('../nestingDrag') | null = null;
+let loading: Promise<unknown> | null = null;
+/** The drag itself, fetched as the first list mounts: until it arrives a row's middle half is the gap it always was. */
+export const loadNestingDrag = () =>
+  (loading ??= import('../nestingDrag').then(
+    (loaded) => {
+      drag = loaded;
+    },
+    () => {
+      loading = null;
+    },
+  ));
 
 /**
  * A row, or a selection, let go on another row's middle half to go inside it
  * ("Drag to nest in Panels and the Inbox", issue 1857): outlined while the
- * pointer is there, one change when let go (`RowDropOutcome`), and Undo for
- * both halves.
+ * pointer is there (`nestingDrag.ts`), one change when let go
+ * (`RowDropOutcome`), and Undo for both halves. Kept this thin because the
+ * initial bundle carries it.
  *
  * **The top and bottom quarters of a row are not this** - they keep the gap a
  * list already draws - and neither is a gathered list's, which takes no drop
@@ -46,6 +53,10 @@ export function useNestingDrop({
   /** The last drop let go here, with a count so each is settled afresh. */
   const [letGo, setLetGo] = useState<{ n: number; drop: LetGo } | null>(null);
 
+  useEffect(() => {
+    void loadNestingDrag();
+  }, []);
+
   // Cleared where the drag ends without a drop, which the list is not told of.
   useEffect(() => {
     if (into === null) return;
@@ -54,66 +65,23 @@ export function useNestingDrop({
     return () => document.removeEventListener('dragend', clear);
   }, [into]);
 
-  const available = !gathered || heldBy !== undefined;
-
-  /** The row of this list under the pointer, never one of a list unfolded inside it, and where on it. */
-  const rowUnder = (event: React.DragEvent) => {
-    const row = (event.target as Element | null)?.closest?.<HTMLElement>('[data-item-row]');
-    const rows = list.current;
-    if (!row || !rows || !rows.contains(row) || !row.dataset.itemId) return null;
-    const nested = row.closest('[data-child-rows]');
-    if (nested && rows.contains(nested)) return null;
-    return { id: row.dataset.itemId, at: whereOnARow(row.getBoundingClientRect(), event.clientX, event.clientY, inColumns) };
-  };
+  const at = () => ({ list: list.current, inColumns, children: data?.children ?? [] });
+  // Read as each event comes, since the drag's code may arrive after the last render.
+  const available = () => drag !== null && (!gathered || heldBy !== undefined);
 
   /** Said on `dragover`: true when the pointer is on a row's middle half, which this list then answers alone. */
   const over = (event: React.DragEvent): boolean => {
-    if (!available) return false;
-    const under = rowUnder(event);
-    if (!under || under.at !== 'inside') {
-      if (into !== null) setInto(null);
-      return false;
-    }
-    void prepare();
-    const selection = selectionCarried();
-    const one = itemInTheAir();
-    // Onto itself or anything inside it, the pointer says no: no `preventDefault`, and the list underneath told nothing.
-    if (refusesNesting(selection ? selection.ids : one ? [one] : [], under.id, data?.children ?? [])) {
-      event.stopPropagation();
-      if (into !== null) setInto(null);
-      return true;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = 'move';
-    if (into !== under.id) setInto(under.id);
-    return true;
+    const target = available() ? drag!.overARow(event, at()) : undefined;
+    if (target !== into) setInto(target ?? null);
+    return target !== undefined;
   };
-
-  const leave = () => setInto(null);
 
   /** Said on `drop`: true when it was a drop onto a row's middle half, which is then settled whole. */
   const drop = (event: React.DragEvent): boolean => {
-    if (!available) return false;
-    const under = rowUnder(event);
-    if (!under || under.at !== 'inside') return false;
-    const itemId = event.dataTransfer.getData(ITEM_BEING_DRAGGED);
-    if (!itemId) return false;
+    const dropped = available() ? drag!.dropOnARow(event, { ...at(), panelId, heldBy: heldBy?.id ?? null }) : null;
+    if (!dropped) return false;
     setInto(null);
-    // Read before the drop ends the drag: what is still picked when let go, not what was picked up.
-    const selection = selectionCarried();
-    const carrying = selection?.ids.includes(itemId) ? selection : null;
-    const picked = carrying ? pickedNow(carrying.scope) : null;
-    const drop: LetGo = {
-      carried: carrying ? carrying.ids.filter((id) => picked!.has(id)) : [itemId],
-      scope: carrying?.scope ?? null,
-      target: under.id,
-      from: { parentId: parentLiftedFrom(itemId), panelId: panelLiftedFrom(itemId) },
-      keys: { move: event.shiftKey, add: event.ctrlKey || event.altKey },
-      list: { panelId, heldBy: heldBy?.id ?? null },
-    };
-    landItem();
-    setLetGo((was) => ({ n: (was?.n ?? 0) + 1, drop }));
+    setLetGo((was) => ({ n: (was?.n ?? 0) + 1, drop: dropped }));
     return true;
   };
 
@@ -126,5 +94,5 @@ export function useNestingDrop({
     </WhateverTheQuestionDoes>
   ) : null;
 
-  return { into, over, drop, leave, outcome };
+  return { into, over, drop, leave: () => setInto(null), outcome };
 }
