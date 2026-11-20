@@ -2316,16 +2316,17 @@ export function runCommand<N extends CommandName>(
         if (settled) settleWorkspace(tx, tenantId, original.id, settled);
         putInside(tx, tenantId, original.id, made.map((child) => child.id), cmd.issuedAt);
         for (const child of made) {
-          if (child.additionIds.length > 0) {
+          // In batches, as no statement binds more than 100 values: a card may hold every Addition and file an Item has.
+          for (const ids of inBatchesOf(child.additionIds, 3)) {
             tx.update(itemAdditions)
               .set({ itemId: child.id })
-              .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, original.id), inArray(itemAdditions.id, child.additionIds)))
+              .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, original.id), inArray(itemAdditions.id, ids)))
               .run();
           }
-          if (child.attachmentIds.length > 0) {
+          for (const ids of inBatchesOf(child.attachmentIds, 3)) {
             tx.update(attachments)
               .set({ itemId: child.id })
-              .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id), inArray(attachments.id, child.attachmentIds)))
+              .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id), inArray(attachments.id, ids)))
               .run();
           }
         }
@@ -2349,26 +2350,27 @@ export function runCommand<N extends CommandName>(
       const cmd = payload as CommandPayload<'unsplit_item'>;
       const original = getItem(db, tenantId, cmd.itemId);
       if (!original || (original.workspaceDecided && original.workspaceId !== cmd.workspaceId)) throw new ItemNotFoundError(cmd.itemId);
-      // Only what the original still holds and has not dismissed comes apart, so a second send finds nothing to do.
+      // Only a Split whose Items are all still inside the original comes apart, so a second send finds nothing to do, and an
+      // Item taken out or dismissed since is not left holding words the original is given back.
       const back = cmd.children.filter((child) => {
         const one = getItem(db, tenantId, child.itemId);
         return one !== null && one.deletedAt === null && isInside(db, tenantId, original.id, child.itemId);
       });
-      applied = back.length > 0;
+      applied = back.length === cmd.children.length;
       if (applied && !original.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
           for (const child of back) {
-            if (child.additionIds.length > 0) {
+            for (const ids of inBatchesOf(child.additionIds, 3)) {
               tx.update(itemAdditions)
                 .set({ itemId: original.id })
-                .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, child.itemId), inArray(itemAdditions.id, child.additionIds)))
+                .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, child.itemId), inArray(itemAdditions.id, ids)))
                 .run();
             }
-            if (child.attachmentIds.length > 0) {
+            for (const ids of inBatchesOf(child.attachmentIds, 3)) {
               tx.update(attachments)
                 .set({ itemId: original.id })
-                .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, child.itemId), inArray(attachments.id, child.attachmentIds)))
+                .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, child.itemId), inArray(attachments.id, ids)))
                 .run();
             }
             // Dismissed, not erased, as every Item is.

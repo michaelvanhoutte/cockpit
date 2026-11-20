@@ -2042,15 +2042,30 @@ const routes = app
   .openapi(commandRoute('split_item'), async (c) => {
     const payload = c.req.valid('json');
     const result = await change(c, 'split_item', payload);
-    // Each new Item is read like a capture: it is proposed a title (issue 1828). Only where it was made, so a resend buys nothing.
+    // Only where it was made, so a resend buys nothing. Each new Item is read as a capture is, and proposed a title ("Brainstorming: a note
+    // holding several ideas can't be taken apart", issue 1828); the original has lost words, which is what an edit is told as.
     if (result.applied) {
+      const accountName = c.get('visitor').accountName;
       for (const child of payload.children) {
-        c.executionCtx.waitUntil(enqueueCleanUp(c.env, c.get('visitor').accountName, child.itemId, 'split-in-app'));
+        c.executionCtx.waitUntil(enqueueCleanUp(c.env, accountName, child.itemId, 'split-in-app'));
+        c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, child.itemId, 'split-in-app'));
+        c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, child.itemId, 'split-in-app'));
       }
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, accountName, payload.itemId, 'item-changed'));
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, accountName, payload.itemId, 'item-changed'));
     }
     return c.json(result, 200);
   })
-  .openapi(commandRoute('unsplit_item'), async (c) => c.json(await change(c, 'unsplit_item', c.req.valid('json')), 200))
+  .openapi(commandRoute('unsplit_item'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'unsplit_item', payload);
+    // The original has its words back.
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+    }
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('combine_under_new_parent'), async (c) => c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200))
   .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
   .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))

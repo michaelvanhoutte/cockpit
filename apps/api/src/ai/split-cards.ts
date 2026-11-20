@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SPLIT_BLOCKS_READ, SPLIT_ITEMS_PROPOSED, TITLE_LENGTH, type SplitBlock, type SplitCard } from '@cockpit/shared';
+import { SPLIT_BLOCKS_READ, SPLIT_ITEMS_PROPOSED, TITLE_LENGTH, cutTo, type SplitBlock, type SplitCard } from '@cockpit/shared';
 
 /**
  * Reading what the model proposed as a split ("Brainstorming: a note holding
@@ -37,7 +37,7 @@ export function readSplit(raw: unknown, blocks: readonly SplitBlock[]): SplitPro
   const cards: SplitCard[] = [];
   for (const proposed of answer.data.items) {
     if (cards.length === SPLIT_ITEMS_PROPOSED) break;
-    const title = proposed.title.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim().slice(0, TITLE_LENGTH).trim();
+    const title = cutTo(proposed.title.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim(), TITLE_LENGTH).trim();
     const numbers = proposed.blocks.filter((n) => Number.isInteger(n) && n >= 1 && n <= shown.length && !taken.has(n));
     if (title === '' || numbers.length === 0) continue;
     for (const n of numbers) taken.add(n);

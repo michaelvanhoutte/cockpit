@@ -211,7 +211,7 @@ describe('Triage', () => {
       expect((await itemOf(original))?.description).toBe(THREE_PARAGRAPHS);
     });
 
-    it('queues each new Item to be cleaned up for a title, and none for a split that was sent twice', async () => {
+    it('queues each new Item to be cleaned up for a title and proposed for, and the original to be proposed for again, once', async () => {
       const original = await aNote();
       const [rent, ferry] = [nextId(), nextId()];
       const children = [
@@ -227,6 +227,9 @@ describe('Triage', () => {
       // The original's own capture may still be arriving: only what the Split asked for is looked at.
       const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app');
       expect(cleanUps.map((job) => job.itemId).sort()).toEqual([rent, ferry].sort());
+      // What to do with each is proposed again where its words changed, and for each new one as for a capture.
+      const proposals = held.filter((job) => job.kind === 'propose-for-claude' && [original, rent, ferry].includes(job.itemId ?? ''));
+      expect(proposals.map((job) => job.itemId).sort()).toEqual([original, rent, ferry].sort());
     });
 
     it('never rewrites the original, whatever its story setting', async () => {
@@ -242,6 +245,58 @@ describe('Triage', () => {
   });
 
   describe('Undo dismisses the new Items and restores the original', () => {
+    it('splits and undoes an Item holding more Additions and files than one statement can name', async () => {
+      const original = await aNote();
+      const additions: string[] = [];
+      for (let at = 0; at < 120; at += 1) additions.push(await anAddition(original, `Addition ${at}`));
+      const ferry = nextId();
+      const blockIds = ['p1', ...additions.map((id) => `a-${id}`)];
+
+      const made = await split(original, THREE_PARAGRAPHS, [{ itemId: ferry, title: 'Book the ferry', blockIds }]);
+
+      expect(made.status).toBe(200);
+      expect(((await snapshot()).additions ?? []).filter((one) => one.itemId === ferry)).toHaveLength(120);
+      const undone = await postChange('unsplit_item', {
+        ...envelope(),
+        itemId: original,
+        description: THREE_PARAGRAPHS,
+        kept: 'Pay the rent before Friday.\n\nAsk Sam whether the quote is final.',
+        children: [{ itemId: ferry, additionIds: additions, attachmentIds: [] }],
+      });
+      expect(undone.status).toBe(200);
+      expect(((await snapshot()).additions ?? []).filter((one) => one.itemId === original)).toHaveLength(120);
+    });
+
+    it('leaves it all as it is when one of its Items was taken out of the original since, rather than give back words an Item still holds', async () => {
+      const original = await aNote();
+      const [rent, ferry] = [nextId(), nextId()];
+      expect(
+        (
+          await split(original, THREE_PARAGRAPHS, [
+            { itemId: rent, title: 'Pay the rent', blockIds: ['p0'] },
+            { itemId: ferry, title: 'Book the ferry', blockIds: ['p1'] },
+          ])
+        ).status,
+      ).toBe(200);
+      expect((await postChange('remove_child', { ...envelope(), parentId: original, childId: ferry })).status).toBe(200);
+
+      const undone = await postChange('unsplit_item', {
+        ...envelope(),
+        itemId: original,
+        description: THREE_PARAGRAPHS,
+        kept: 'Ask Sam whether the quote is final.',
+        children: [
+          { itemId: rent, additionIds: [], attachmentIds: [] },
+          { itemId: ferry, additionIds: [], attachmentIds: [] },
+        ],
+      });
+
+      expect(await undone.json()).toMatchObject({ applied: false });
+      expect((await itemOf(original))?.description).toBe('Ask Sam whether the quote is final.');
+      expect(await itemOf(rent)).toBeDefined();
+      expect(await itemOf(ferry)).toBeDefined();
+    });
+
     it('brings back its words, Addition and file, dismisses the children, and applies once', async () => {
       const original = await aNote();
       const addition = await anAddition(original, 'The ferry is 12 euro.');
