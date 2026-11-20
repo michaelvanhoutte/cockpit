@@ -304,7 +304,7 @@ describe('Whiteboard', () => {
     });
   });
 
-  describe('a box takes one of the eight swatches or none', () => {
+  describe('a box takes one of the eight colours or none', () => {
     it.each(SWATCHES.map((colour) => ({ colour })))('stores $colour', async ({ colour }) => {
       const boxId = await aBox('People');
       await ok('set_box_colour', { boxId, colour });
