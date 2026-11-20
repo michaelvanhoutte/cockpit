@@ -1,5 +1,5 @@
 import { itemLabel, parentIdsOf, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
-import { refusalFrom, type CommandArgs } from './api/queries';
+import { putCardsBackAfter, refusalFrom, type CommandArgs } from './api/queries';
 import {
   allAnswered,
   filedOrderOnPanel,
@@ -96,6 +96,8 @@ export async function fileOnto(
     leftParents: ReadonlyMap<string, string[]>;
     /** Those taking-outs, answered. */
     takenOut: readonly Promise<unknown>[];
+    /** The moves themselves, whose answers say which cards *Take off both* took with them. */
+    sends: readonly Promise<unknown>[];
   } | null = null;
   try {
     // The screen's own copy, with the changes made a moment ago over it, so
@@ -164,7 +166,7 @@ export async function fileOnto(
         d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
       ),
     );
-    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering, leftParents, takenOut };
+    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering, leftParents, takenOut, sends };
   } catch (error) {
     d.setRefusal(refusalFrom({ error }));
   } finally {
@@ -180,7 +182,7 @@ export async function fileOnto(
     d.closeQuestion();
   }
   if (!handedOver) return;
-  const { answered, wasOn, reordering, leftParents, takenOut } = handedOver;
+  const { answered, wasOn, reordering, leftParents, takenOut, sends } = handedOver;
   const selectionScope = landing?.scope ?? d.scope;
   const where = d.nameOf(target);
 
@@ -222,7 +224,8 @@ export async function fileOnto(
       ...(decides
         ? {}
         : {
-            undo: async () => {
+            // Then the cards *Take off both* took with them (`putCardsBackAfter`).
+            undo: putCardsBackAfter(d.send, d.workspaceId, [...sends, ...takenOut], async () => {
               const { landed } = await answered;
               await Promise.all([
                 putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed, wasOn),
@@ -235,7 +238,7 @@ export async function fileOnto(
                   ),
                 ),
               ]);
-            },
+            }),
           }),
       // A reorder shows nothing new and adds to no other Panel: Undo alone.
       ...(target && !reordering ? d.nextSteps(answered.then(({ landed }) => landed), target) : {}),

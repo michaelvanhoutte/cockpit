@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { itemLabel, uuidv7, type Filing, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
-import { useLatestSnapshot, useSendCommand } from './api/queries';
+import { putCardsBackAfter, useLatestSnapshot, useSendCommand } from './api/queries';
 import { PanelNotMade } from './changeQueue';
 import { filedOrderOnPanel, ordersForFilingSeveral } from './filing';
 import {
@@ -16,6 +16,7 @@ import {
 import { browserStore } from './lastVisited';
 import { rememberRecentPanel } from './recentPanels';
 import { useUndo } from './undo';
+import { KeptOnTheWhiteboard } from './whiteboardQuestion';
 
 const failureOf = (error: unknown) =>
   error instanceof Error ? error.message : 'That did not reach the server. Try again.';
@@ -151,7 +152,9 @@ export function useItemPanels({
   const writeRemove = async (one: PanelOn) => {
     if (!item) return;
     setRefusal(null);
-    const failed = (error: unknown) => setRefusal(`It was not taken off “${one.name}”. ${failureOf(error)}`);
+    // Kept on a whiteboard at "Take it off there too?" is nothing to say: the chip simply stays.
+    const failed = (error: unknown) =>
+      error instanceof KeptOnTheWhiteboard ? undefined : setRefusal(`It was not taken off “${one.name}”. ${failureOf(error)}`);
     let sent: Awaited<ReturnType<typeof startTakeOff>>;
     try {
       sent = await startTakeOff(one.panelId);
@@ -165,7 +168,7 @@ export function useItemPanels({
     offerToUndo({
       what: `“${itemLabel(item)}” removed from ${one.name}`,
       unlessRefused: sent.answer,
-      undo: () => putOn(one.panelId, before),
+      undo: putCardsBackAfter(send, workspaceId, [sent.answer], () => putOn(one.panelId, before)),
     });
     sent.answer.catch(failed);
   };

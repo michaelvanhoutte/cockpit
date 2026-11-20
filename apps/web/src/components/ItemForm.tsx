@@ -42,7 +42,7 @@ import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
 import { deviceTimeZone } from '../deviceTimeZone';
 import { addedLabel, dateTimeLabel } from '../dateFormat';
-import { useSendCommand, whyNotDone } from '../api/queries';
+import { putCardsBackAfter, useSendCommand, whyNotDone } from '../api/queries';
 import { useWorkspaces } from '../api/useWorkspaces';
 import { useSnapshotWithFinishedItems } from '../api/finishedItems';
 import { checkAttachmentFiles, formatFileSize, takesFiles } from '../attachmentQueue';
@@ -79,6 +79,7 @@ import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { openEntryFor } from '../conversationLine';
 import { isTypedInto } from '../inboxCollapsed';
 import { useUndo } from '../undo';
+import { KeptOnTheWhiteboard } from '../whiteboardQuestion';
 import { copyItemLinkAndSay } from '../itemLink';
 import { browserStore } from '../lastVisited';
 import { rememberItemFormSize, rememberedItemFormSize, type Size } from '../itemFormSize';
@@ -564,14 +565,16 @@ function TheForm({
     // Drawn at once, so the Item is already gone from every list: the offer to
     // undo is made at the click, and a refusal is said in the bar, where the
     // offer was - also once the form has moved on to the other note.
-    send({ name: 'set_dismissed', payload: endedFor(true) }).catch((failure: unknown) => {
+    const answer = send({ name: 'set_dismissed', payload: endedFor(true) });
+    answer.catch((failure: unknown) => {
+      if (failure instanceof KeptOnTheWhiteboard) return;
       offerToUndo({
         what: `“${label}” was not dismissed. ${failure instanceof Error ? failure.message : 'That could not be dismissed'}`,
       });
     });
     offerToUndo({
       what: `“${label}” dismissed`,
-      undo: () => send({ name: 'set_dismissed', payload: endedFor(false) }),
+      undo: putCardsBackAfter(send, workspaceId, [answer], () => send({ name: 'set_dismissed', payload: endedFor(false) })),
     });
   };
 

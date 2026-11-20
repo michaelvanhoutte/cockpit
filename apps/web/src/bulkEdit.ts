@@ -2,6 +2,7 @@ import { itemLabel, itemStatus, type Item, type ItemStatus, type Priority, type 
 import { CommandRefused } from './api/client';
 import type { CommandArgs } from './api/queries';
 import { fieldWrites } from './itemFieldCommands';
+import { cardsTakenOffBy } from './whiteboardQuestion';
 
 /**
  * Changing one field of everything a selection holds ("Change the priority, due
@@ -233,6 +234,8 @@ export function saysWhatWasNot(verb: 'changed' | 'dismissed', refused: readonly 
 export interface Dismissed {
   item: Item;
   endedRunId?: string;
+  /** The cards of the Items it held that *Take off both* took off the whiteboards with it, for the Undo to put back. */
+  cardsTakenOff?: string[];
 }
 
 /**
@@ -256,6 +259,13 @@ export function dismissSeveral(
     const send = sending.send({ name: 'set_dismissed', payload: { ...sending.envelope(item.id)(), dismissed: true } });
     const endedRunId = options.runOf(item.id);
     const changing: Dismissed = { item, ...(endedRunId && { endedRunId }) };
+    send.then(
+      (answer) => {
+        const taken = cardsTakenOffBy(answer);
+        if (taken.length > 0) changing.cardsTakenOff = taken;
+      },
+      () => {},
+    );
     return { changing, sends: [send] };
   });
   return handedOver(runs, options.onProgress, options.onStarted);
@@ -278,6 +288,13 @@ export async function undismissSeveral(sending: Sending, dismissed: readonly Dis
     } catch (error) {
       throw new Error(`${at} of ${dismissed.length} put back, the rest still dismissed. ${whyNot(error)}`);
     }
+  }
+  // Then the cards of the Items they held that *Take off both* took off, behind them.
+  const taken = dismissed.flatMap((one) => one.cardsTakenOff ?? []);
+  const first = dismissed[0];
+  if (taken.length > 0 && first) {
+    const { commandId, issuedAt, workspaceId } = sending.envelope(first.item.id)();
+    await sending.send({ name: 'put_cards_back', payload: { commandId, issuedAt, workspaceId, cardIds: taken.slice(0, 100) } });
   }
 }
 

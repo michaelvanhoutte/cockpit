@@ -25,7 +25,7 @@ import {
   type RepeatRule,
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
-import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { putCardsBackAfter, useCommand, useSendCommand, whyNotDone } from '../api/queries';
 import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
@@ -522,7 +522,8 @@ export function ItemRow({
     offerToUndo({
       what: `“${itemLabel(item)}” dismissed`,
       unlessRefused: answer,
-      undo: () =>
+      // Its own cards come back with it; those of the Items it held that *Take off both* took, after it.
+      undo: putCardsBackAfter(send, workspaceId, [answer], () =>
         send({
           name: 'set_dismissed',
           payload: {
@@ -534,6 +535,7 @@ export function ItemRow({
             ...(endedRunId && { reopensRunId: endedRunId }),
           },
         }),
+      ),
     });
   };
 

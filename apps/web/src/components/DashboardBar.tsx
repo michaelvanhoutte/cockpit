@@ -24,6 +24,7 @@ import { useRoomForTheInbox } from '../roomForTheInbox';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { useUndo } from '../undo';
+import { KeptOnTheWhiteboard } from '../whiteboardQuestion';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { FunnelGlyph } from './DashboardFilterBar';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -284,7 +285,8 @@ export function DashboardBar({
       },
     }).catch((failure: unknown) => {
       if (focusOwedAfterDeleting.current === dashboardId) focusOwedAfterDeleting.current = null;
-      offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
+      // Kept on a whiteboard at "Take it off there too?": nothing was done, and nothing to say.
+      if (!(failure instanceof KeptOnTheWhiteboard)) offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
     });
     setDeleting(null);
     // Deleting any other leaves the screen alone.
