@@ -211,6 +211,9 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
           };
     case 'save_layout':
       return layoutSaved(snapshot, change.payload);
+    case 'set_dashboard_view':
+    case 'set_dashboard_split':
+      return boardLayoutChosen(snapshot, change);
     case 'create_workspace':
       // A Workspace arrives with its first Dashboard and that Dashboard's Panel,
       // which `noSnapshotYet` below holds. **Only over a Workspace with no
@@ -225,8 +228,36 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
             name: FIRST_DASHBOARD_NAME,
           });
     default:
-      return snapshot;
+      // A whiteboard's own changes, drawn by its chunk once fetched (`drawBoardWith`).
+      return board ? board(snapshot, change) : snapshot;
   }
+}
+
+/**
+ * A Dashboard's layout or divider as chosen ("Brainstorming: give every
+ * Dashboard a whiteboard of its own", issue 1829), here rather than in the
+ * whiteboard's chunk because the layout icons are in the Dashboard bar.
+ */
+function boardLayoutChosen(
+  snapshot: WorkspaceSnapshot,
+  change: Extract<Drawn, { name: 'set_dashboard_view' | 'set_dashboard_split' }>,
+): WorkspaceSnapshot {
+  if (change.payload.workspaceId !== snapshot.workspace.id) return snapshot;
+  const boards = snapshot.whiteboards ?? { layouts: [], boxes: [], cards: [] };
+  const { dashboardId } = change.payload;
+  const was = boards.layouts.find((one) => one.dashboardId === dashboardId) ?? { dashboardId, view: null, splitShare: null };
+  const now = change.name === 'set_dashboard_view' ? { ...was, view: change.payload.view } : { ...was, splitShare: change.payload.splitShare };
+  return { ...snapshot, whiteboards: { ...boards, layouts: [...boards.layouts.filter((one) => one !== was), now] } };
+}
+
+/**
+ * How a whiteboard's own changes are drawn ahead (placing, moving and taking
+ * off cards; drawing, moving and changing boxes), set by the whiteboard's chunk
+ * when it is fetched (`whiteboard/boardDrawn.ts`). None is made before then.
+ */
+let board: ((snapshot: WorkspaceSnapshot, change: Drawn) => WorkspaceSnapshot) | null = null;
+export function drawBoardWith(drawer: (snapshot: WorkspaceSnapshot, change: Drawn) => WorkspaceSnapshot): void {
+  board = drawer;
 }
 
 /**
@@ -654,6 +685,18 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'move_panel_to_dashboard',
   'delete_panel',
   'save_layout',
+  'set_dashboard_view',
+  'set_dashboard_split',
+  'place_card',
+  'move_card',
+  'take_card_off',
+  'draw_box',
+  'move_box',
+  'resize_box',
+  'rename_box',
+  'set_box_colour',
+  'set_box_collapsed',
+  'delete_box',
 ]);
 
 /** The changes in the order they were made, each drawn over the one before. */

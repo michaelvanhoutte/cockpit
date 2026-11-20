@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DARK_GROUND, NEUTRAL_GROUND, WORKSPACE_THEMES, paintedWorkspace, shellColours } from '@cockpit/shared';
+import { SWATCHES } from '@cockpit/shared/board';
 import styles from '../../src/styles.css?raw';
 import { manifest } from '../../manifest';
 
@@ -100,12 +101,6 @@ describe('Appearance', () => {
       expect(contrast(text === 'on-accent' ? '#ffffff' : dark(text), on)).toBeGreaterThanOrEqual(4.5);
     });
 
-    it.each(['slate', 'teal', 'amber', 'green', 'violet', 'grey'])('the %s category on its tint, the page and a well', (category) => {
-      for (const behind of [dark(`cat-${category}-tint`), page, well]) {
-        expect(contrast(dark(`cat-${category}`), behind)).toBeGreaterThanOrEqual(4.5);
-      }
-    });
-
     it('keeps `over` as a fill under white, as light has it', () => {
       const light = /--color-over:\s*(#[0-9a-f]{6});/.exec(styles)![1]!;
       expect(dark('over')).toBe(light);
@@ -166,6 +161,27 @@ describe('Appearance', () => {
       for (const ink of ['ink-strong', 'ink', 'ink-soft', 'ink-faint', 'accent-deep', 'due-ink', 'over-ink', 'over-deep-ink']) {
         expect(contrast(light(ink), behind), ink).toBeGreaterThanOrEqual(4.5);
       }
+    });
+  });
+
+  describe('every category colour, the eight a box can take, reads at least 4.5:1, in light and in dark', () => {
+    const lightWell = towardsWhite(light('ground'), lightWellShare('well'));
+    const darkWell = towardsBlack(dark('ground'), wellShare('well'));
+
+    it.each(SWATCHES.map((swatch) => ({ swatch })))('$swatch, on its tint, a dialog and a list’s well in light', ({ swatch }) => {
+      for (const behind of [light(`cat-${swatch}-tint`), light('surface'), lightWell]) {
+        expect(contrast(light(`cat-${swatch}`), behind), behind).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it.each(SWATCHES.map((swatch) => ({ swatch })))('$swatch, on its tint, the page and a list’s well in dark', ({ swatch }) => {
+      for (const behind of [dark(`cat-${swatch}-tint`), dark('ground'), darkWell]) {
+        expect(contrast(dark(`cat-${swatch}`), behind), behind).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it('gives each its light value for the chrome, as the six have', () => {
+      for (const swatch of SWATCHES) expect(light(`cat-${swatch}-light`)).toMatch(/^#[0-9a-f]{6}$/);
     });
   });
 

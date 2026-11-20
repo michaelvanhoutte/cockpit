@@ -55,6 +55,7 @@ import type { ListingAsk, SentPick } from './sent.js';
 import type { CheckedNow, PulledRunBegun } from './pulled.js';
 import type { CheckDid, NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
+import type { ItemOnWhiteboards } from '@cockpit/shared/board';
 
 export type { AccountSnapshot } from './answer.js';
 export type { AccountBackup } from './backup.js';
@@ -98,7 +99,15 @@ export class AllowanceSpentError extends Error {
 
 /** Something the change would create is already in the account under that name. */
 export class ConflictInAccountError extends Error {
-  constructor(what: string) {
+  /**
+   * @param onWhiteboards where the collision is Items with cards that a change
+   * would send to the Inbox: each, with its cards ("Brainstorming: give every
+   * Dashboard a whiteboard of its own", issue 1829), sent with the 409.
+   */
+  constructor(
+    what: string,
+    readonly onWhiteboards?: ItemOnWhiteboards[],
+  ) {
     super(what);
     this.name = 'ConflictInAccountError';
   }
@@ -833,7 +842,7 @@ function unwrap<T>(answer: Answer<T>): T {
     case 'missing':
       throw new NotFoundInAccountError(answer.what);
     case 'conflict':
-      throw new ConflictInAccountError(answer.what);
+      throw new ConflictInAccountError(answer.what, answer.onWhiteboards);
     case 'refused':
       throw new RefusedByAccountError(answer.what);
     case 'not-up-to-date':

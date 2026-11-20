@@ -1,5 +1,6 @@
 import { itemLabel, parentIdsOf, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
 import { refusalFrom, type CommandArgs } from './api/queries';
+import { KeptOnTheWhiteboard, putCardsBackAfter } from './whiteboardQuestion';
 import {
   allAnswered,
   filedOrderOnPanel,
@@ -96,6 +97,8 @@ export async function fileOnto(
     leftParents: ReadonlyMap<string, string[]>;
     /** Those taking-outs, answered. */
     takenOut: readonly Promise<unknown>[];
+    /** The moves themselves, whose answers say which cards *Take off both* took with them. */
+    sends: readonly Promise<unknown>[];
   } | null = null;
   try {
     // The screen's own copy, with the changes made a moment ago over it, so
@@ -164,7 +167,7 @@ export async function fileOnto(
         d.send({ name: 'remove_child', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childId } }),
       ),
     );
-    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering, leftParents, takenOut };
+    handedOver = { answered: allAnswered(sends, chosen), wasOn, reordering, leftParents, takenOut, sends };
   } catch (error) {
     d.setRefusal(refusalFrom({ error }));
   } finally {
@@ -180,7 +183,7 @@ export async function fileOnto(
     d.closeQuestion();
   }
   if (!handedOver) return;
-  const { answered, wasOn, reordering, leftParents, takenOut } = handedOver;
+  const { answered, wasOn, reordering, leftParents, takenOut, sends } = handedOver;
   const selectionScope = landing?.scope ?? d.scope;
   const where = d.nameOf(target);
 
@@ -203,6 +206,26 @@ export async function fileOnto(
   const decides = chosen.some((item) => !workspaceIsDecided(item));
   // Heard here as well, for a run offering no way back to withdraw.
   for (const one of takenOut) one.catch(() => {});
+  // Kept on a whiteboard at "Take it off there too?": what did move goes back,
+  // into the parents it left and onto its Panels, so Cancel changes nothing.
+  if (takenOut.length > 0) {
+    const pairs = [...leftParents].flatMap(([childId, parentIds]) => parentIds.map((parentId) => ({ childId, parentId })));
+    void Promise.allSettled(takenOut).then(async (settled) => {
+      // Only the Items the question was about; the rest moved as asked.
+      const kept = new Set(pairs.flatMap(({ childId }, at) => (settled[at]!.status === 'rejected' && (settled[at] as PromiseRejectedResult).reason instanceof KeptOnTheWhiteboard ? [childId] : [])));
+      if (kept.size === 0) return;
+      const { landed } = await answered;
+      pairs.forEach(({ childId, parentId }, at) => {
+        if (!kept.has(childId) || settled[at]!.status !== 'fulfilled') return;
+        void d
+          .send({ name: 'add_children', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [childId] } })
+          .catch(() => {});
+      });
+      await putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed.filter((item) => kept.has(item.id)), wasOn).catch(() => {});
+      // Picked again, as a refused one is.
+      updateSelection(selectionScope, (was) => ({ picked: new Set([...was.picked, ...kept]), reachingFrom: null }));
+    });
+  }
   // Onto a panel only, as a single move does: the Inbox has nowhere to show
   // and nothing to also show on. Show and Also show on… cover exactly what
   // moved, and an undecided item withholds Undo alone.
@@ -222,7 +245,8 @@ export async function fileOnto(
       ...(decides
         ? {}
         : {
-            undo: async () => {
+            // Then the cards *Take off both* took with them (`putCardsBackAfter`).
+            undo: putCardsBackAfter(d.send, d.workspaceId, [...sends, ...takenOut], async () => {
               const { landed } = await answered;
               await Promise.all([
                 putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed, wasOn),
@@ -235,7 +259,7 @@ export async function fileOnto(
                   ),
                 ),
               ]);
-            },
+            }),
           }),
       // A reorder shows nothing new and adds to no other Panel: Undo alone.
       ...(target && !reordering ? d.nextSteps(answered.then(({ landed }) => landed), target) : {}),

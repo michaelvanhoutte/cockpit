@@ -2,6 +2,7 @@ import { itemLabel, itemStatus, type Item, type ItemStatus, type Priority, type 
 import { CommandRefused } from './api/client';
 import type { CommandArgs } from './api/queries';
 import { fieldWrites } from './itemFieldCommands';
+import { KeptOnTheWhiteboard, cardsTakenOffBy, putCardsBack } from './whiteboardQuestion';
 
 /**
  * Changing one field of everything a selection holds ("Change the priority, due
@@ -172,7 +173,8 @@ async function answered<T extends { item: Item }>(
       }
       changed.push(changing);
     } catch (error) {
-      refused.push({ item: changing.item, why: whyNot(error) });
+      // Kept on a whiteboard at "Take it off there too?": not done, and nothing to say.
+      if (!(error instanceof KeptOnTheWhiteboard)) refused.push({ item: changing.item, why: whyNot(error) });
     }
   }
   return { changed, refused };
@@ -233,6 +235,8 @@ export function saysWhatWasNot(verb: 'changed' | 'dismissed', refused: readonly 
 export interface Dismissed {
   item: Item;
   endedRunId?: string;
+  /** The cards of the Items it held that *Take off both* took off the whiteboards with it, for the Undo to put back. */
+  cardsTakenOff?: string[];
 }
 
 /**
@@ -256,6 +260,13 @@ export function dismissSeveral(
     const send = sending.send({ name: 'set_dismissed', payload: { ...sending.envelope(item.id)(), dismissed: true } });
     const endedRunId = options.runOf(item.id);
     const changing: Dismissed = { item, ...(endedRunId && { endedRunId }) };
+    send.then(
+      (answer) => {
+        const taken = cardsTakenOffBy(answer);
+        if (taken.length > 0) changing.cardsTakenOff = taken;
+      },
+      () => {},
+    );
     return { changing, sends: [send] };
   });
   return handedOver(runs, options.onProgress, options.onStarted);
@@ -279,6 +290,10 @@ export async function undismissSeveral(sending: Sending, dismissed: readonly Dis
       throw new Error(`${at} of ${dismissed.length} put back, the rest still dismissed. ${whyNot(error)}`);
     }
   }
+  // Then the cards of the Items they held that *Take off both* took off, behind them.
+  const taken = dismissed.flatMap((one) => one.cardsTakenOff ?? []);
+  const first = dismissed[0];
+  if (taken.length > 0 && first) await putCardsBack(sending.send, sending.envelope(first.item.id)().workspaceId, taken);
 }
 
 /** What the offer to undo says happened, worded as one row's Dismiss words it for one Item. */

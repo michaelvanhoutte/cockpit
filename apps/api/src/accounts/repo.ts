@@ -1,6 +1,6 @@
 import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, max, ne, notExists, or, sql } from 'drizzle-orm';
-import type { Column } from 'drizzle-orm';
+import type { Column, SQLWrapper } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
@@ -788,7 +788,20 @@ function notAPanelsOwnItem() {
 function itemsOfTheRead(of: ItemsOfTheRead) {
   if (of === 'every') return undefined;
   if (of === 'finished') return and(isNotNull(items.completedAt), isNull(items.deletedAt));
-  return or(isNull(items.completedAt), gt(items.completedAt, of.finishedAfter));
+  return or(isNull(items.completedAt), gt(items.completedAt, of.finishedAfter), onAWhiteboard());
+}
+
+/**
+ * An Item with a card on a live Dashboard's whiteboard, which the Workspace's
+ * read carries however long ago it was finished, so the card is drawn from the
+ * Item's own row ("Brainstorming: give every Dashboard a whiteboard of its
+ * own", issue 1829). One lookup by `board_cards_tenant_item`, made only for a
+ * finished Item older than the day, so the read grows with the cards placed.
+ */
+function onAWhiteboard() {
+  return sql`EXISTS (SELECT 1 FROM board_cards bc JOIN dashboards bd ON bd.id = bc.dashboard_id
+                      WHERE bc.tenant_id = ${items.tenantId} AND bc.item_id = ${items.id}
+                        AND bc.deleted_at IS NULL AND bd.deleted_at IS NULL)`;
 }
 
 /**
@@ -969,6 +982,8 @@ export function countFinishedLeftOut(db: AccountDb, tenantId: string, workspaceI
           or(eq(items.workspaceId, workspaceId), eq(items.workspaceDecided, false)),
           isNull(items.deletedAt),
           lte(items.completedAt, finishedAfter),
+          // One on a whiteboard is in the read (`itemsOfTheRead`).
+          sql`NOT ${onAWhiteboard()}`,
         ),
       )
       .get()?.count ?? 0
@@ -2442,11 +2457,21 @@ export function getEmailLocalPart(db: AccountDb, tenantId: string): string | nul
  * written under a Panel's own Item are no parent.
  */
 function noLiveParent() {
+  return withNoLiveParent(items.tenantId, items.id);
+}
+
+/**
+ * `noLiveParent` for any Item column: also what decides whether an Item may be
+ * placed on a whiteboard, and whether a change leaves an Item with cards in the
+ * Inbox ("Brainstorming: give every Dashboard a whiteboard of its own", issue
+ * 1829, `board.ts`), so the Inbox has one rule in the store.
+ */
+export function withNoLiveParent(tenantId: SQLWrapper | string, itemId: SQLWrapper | string) {
   return sql`NOT EXISTS (SELECT 1 FROM panel_items f JOIN panels p ON p.id = f.panel_id JOIN dashboards d ON d.id = p.dashboard_id
-                          WHERE f.tenant_id = ${items.tenantId} AND f.item_id = ${items.id}
+                          WHERE f.tenant_id = ${tenantId} AND f.item_id = ${itemId}
                             AND p.deleted_at IS NULL AND d.deleted_at IS NULL)
          AND NOT EXISTS (SELECT 1 FROM item_children c JOIN items p ON p.id = c.parent_id
-                          WHERE c.tenant_id = ${items.tenantId} AND c.child_id = ${items.id}
+                          WHERE c.tenant_id = ${tenantId} AND c.child_id = ${itemId}
                             AND c.deleted_at IS NULL AND p.deleted_at IS NULL
                             AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = c.parent_id))`;
 }

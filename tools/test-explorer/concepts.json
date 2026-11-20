@@ -324,6 +324,25 @@
       ]
     },
     {
+      "key": "Whiteboard",
+      "label": "Whiteboard",
+      "browserWalks": 2,
+      "parent": "Dashboards",
+      "sourcePatterns": [
+        "apps/web/src/whiteboard/**",
+        "apps/web/src/components/LayoutSwitch.tsx",
+        "apps/web/src/components/TakeOffQuestion.tsx",
+        "apps/web/src/whiteboardQuestion.ts",
+        "apps/web/src/boardLayout.ts",
+        "apps/web/src/boardFocus.ts",
+        "apps/api/src/accounts/board.ts",
+        "packages/shared/src/board.ts",
+        "packages/shared/src/domain/board.ts",
+        "packages/shared/src/domain/swatches.ts",
+        "packages/shared/src/commands-board.ts"
+      ]
+    },
+    {
       "key": "Focus",
       "label": "Focus",
       "parent": "Dashboards",

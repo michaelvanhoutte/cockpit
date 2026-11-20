@@ -199,6 +199,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     MERGE_TRAIL,
     STORY_PROPOSAL,
     ITEM_THUMBNAIL,
+    WHITEBOARDS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -2079,6 +2080,86 @@ const STORY_PROPOSAL: Change = {
 const ITEM_THUMBNAIL: Change = {
   name: '0113-item-thumbnail',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `thumbnail_attachment_id` text' }],
+};
+
+/**
+ * Every Dashboard's whiteboard ("Brainstorming: give every Dashboard a
+ * whiteboard of its own", issue 1829): the `board_boxes` and `board_cards`
+ * tables with their indexes, and `dashboards.layout_view` and `split_share`;
+ * `schema.ts` says what each carries. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: two `CREATE TABLE`s,
+ *   four indexes and two `ADD COLUMN`s, and no statement that reads or writes a
+ *   row. Every board starts empty and every Dashboard reads null, its Panels
+ *   alone.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release names none of it; boards
+ *   are not drawn, a Dashboard draws its Panels, and the rows wait unread. Its
+ *   filing commands ignore cards, so an Item taken to the Inbox there keeps a
+ *   card the next release still draws, which `place_card`'s own rule would not
+ *   have made.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const WHITEBOARDS: Change = {
+  name: '0114-whiteboards',
+  statements: [
+    {
+      sql: `CREATE TABLE \`board_boxes\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`parent_box_id\` text,
+	\`label\` text NOT NULL,
+	\`colour\` text,
+	\`x\` real NOT NULL,
+	\`y\` real NOT NULL,
+	\`w\` real NOT NULL,
+	\`h\` real NOT NULL,
+	\`collapsed\` integer DEFAULT 0 NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "board_boxes_size_is_positive" CHECK(w > 0 AND h > 0),
+	CONSTRAINT "board_boxes_collapsed_is_a_flag" CHECK(collapsed IN (0, 1)),
+	${timestampCheck('board_boxes', 'created_at')},
+	${timestampCheck('board_boxes', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `board_boxes_tenant_dashboard` ON `board_boxes` (`tenant_id`,`dashboard_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: `CREATE TABLE \`board_cards\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`item_id\` text NOT NULL,
+	\`box_id\` text,
+	\`x\` real NOT NULL,
+	\`y\` real NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`box_id\`) REFERENCES \`board_boxes\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	${timestampCheck('board_cards', 'created_at')},
+	${timestampCheck('board_cards', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `board_cards_dashboard_live_item` ON `board_cards` (`dashboard_id`,`item_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `board_cards_tenant_dashboard` ON `board_cards` (`tenant_id`,`dashboard_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `board_cards_tenant_item` ON `board_cards` (`tenant_id`,`item_id`) WHERE `deleted_at` IS NULL',
+    },
+    { sql: 'ALTER TABLE `dashboards` ADD COLUMN `layout_view` text' },
+    { sql: 'ALTER TABLE `dashboards` ADD COLUMN `split_share` real' },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

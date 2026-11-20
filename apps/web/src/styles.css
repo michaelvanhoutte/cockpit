@@ -53,6 +53,13 @@
   --color-cat-grey: #475569;
   --color-cat-grey-tint: #eceff3;
   --color-cat-grey-light: #a7b0be;
+  /* The two a whiteboard's box takes beyond the six (`SWATCHES`, @cockpit/shared/board). */
+  --color-cat-rose: #a83f5c;
+  --color-cat-rose-tint: #fbe8ee;
+  --color-cat-rose-light: #f08aa6;
+  --color-cat-sky: #1b65a6;
+  --color-cat-sky-tint: #e3effa;
+  --color-cat-sky-light: #7cb8ee;
 
   /* The chrome's graphite, top to bottom; the bottom is the brand ink. */
   --color-graphite-top: #2d2e35;
@@ -326,6 +333,10 @@ html[data-app-dark] {
   --color-cat-violet-tint: #2a2540;
   --color-cat-grey: #a7b0be;
   --color-cat-grey-tint: #2a2c31;
+  --color-cat-rose: #f08aa6;
+  --color-cat-rose-tint: #3a222b;
+  --color-cat-sky: #7cb8ee;
+  --color-cat-sky-tint: #1d2b3a;
 
   --color-accent-deep: #b0a9d6;
   --color-accent-tint: #343249;

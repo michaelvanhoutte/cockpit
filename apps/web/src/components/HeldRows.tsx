@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { childrenOf, dayOf, isLater, itemLabel, panelTakesItems, uuidv7, type Item } from '@cockpit/shared';
 import { useSendCommand } from '../api/queries';
+import { putCardsBackAfter } from '../whiteboardQuestion';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import { useUnfolded } from '../unfoldedParents';
@@ -54,7 +55,10 @@ export default function HeldRows({
     offerToUndo({
       what: `“${itemLabel(item)}” taken out of ${itemLabel(parent)}`,
       unlessRefused: answer,
-      undo: () => send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
+      // Then any cards *Take off both* took with it, as it went to the Inbox.
+      undo: putCardsBackAfter(send, workspaceId, [answer], () =>
+        send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
+      ),
     });
   };
   if (!unfolded || held.length === 0) return null;

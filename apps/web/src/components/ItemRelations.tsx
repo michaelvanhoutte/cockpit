@@ -17,13 +17,27 @@ export function useRelations(workspaceId: string, item: Item) {
   const children = childIdsOf(rows, item.id).filter((id) => held.has(id));
   /** The children the read leaves out, which the counts kept on the Item still hold. */
   const notListed = Math.max(0, (item.childrenCount ?? 0) - children.length);
-  return { data, parents, children, notListed };
+  /**
+   * Its cards, one per Dashboard whose whiteboard holds it, with the box each
+   * is in ("Brainstorming: give every Dashboard a whiteboard of its own", issue
+   * 1829): *Novel · in People*.
+   */
+  const boards = data?.whiteboards;
+  const places = (boards?.cards ?? [])
+    .filter((card) => card.itemId === item.id)
+    .flatMap((card) => {
+      const dashboard = data?.dashboards.find((one) => one.id === card.dashboardId);
+      if (!dashboard) return [];
+      const box = card.boxId ? boards?.boxes.find((one) => one.id === card.boxId) : undefined;
+      return [{ cardId: card.id, dashboardId: dashboard.id, dashboardName: dashboard.name, boxLabel: box ? box.label || 'Box' : null }];
+    });
+  return { data, parents, children, notListed, places };
 }
 
-/** *Relations · N*: every parent and every child, listed or not. */
+/** *Relations · N*: every parent and every child, listed or not, and every whiteboard it is on. */
 export function useRelationCount(workspaceId: string, item: Item | null | undefined): number {
-  const { parents, children, notListed } = useRelations(workspaceId, item ?? EMPTY);
-  return item ? parents.length + children.length + notListed : 0;
+  const { parents, children, notListed, places } = useRelations(workspaceId, item ?? EMPTY);
+  return item ? parents.length + children.length + notListed + places.length : 0;
 }
 
 const EMPTY = { id: '', childrenCount: 0 } as Item;
