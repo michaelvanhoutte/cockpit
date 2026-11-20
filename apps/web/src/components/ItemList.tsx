@@ -21,7 +21,6 @@ import {
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import {
-  putCardsBackAfter,
   refusalFrom,
   useCommand,
   useLatestSnapshot,
@@ -73,7 +72,7 @@ import {
 } from '../selection';
 import { askToShow } from '../showItem';
 import { useUndo } from '../undo';
-import { KeptOnTheWhiteboard } from '../whiteboardQuestion';
+import { KeptOnTheWhiteboard, putCardsBackAfter } from '../whiteboardQuestion';
 import { ItemRow } from './ItemRow';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 import { SelectionBar } from './SelectionBar';

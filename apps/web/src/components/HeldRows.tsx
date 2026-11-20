@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { childrenOf, itemLabel, uuidv7, type Item } from '@cockpit/shared';
-import { putCardsBackAfter, useSendCommand } from '../api/queries';
+import { useSendCommand } from '../api/queries';
+import { putCardsBackAfter } from '../whiteboardQuestion';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import { useUnfolded } from '../unfoldedParents';

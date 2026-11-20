@@ -1,5 +1,6 @@
 import { itemLabel, parentIdsOf, uuidv7, workspaceIsDecided, type Filing, type Item } from '@cockpit/shared';
-import { putCardsBackAfter, refusalFrom, type CommandArgs } from './api/queries';
+import { refusalFrom, type CommandArgs } from './api/queries';
+import { putCardsBackAfter } from './whiteboardQuestion';
 import {
   allAnswered,
   filedOrderOnPanel,

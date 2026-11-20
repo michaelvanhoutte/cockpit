@@ -25,7 +25,7 @@ import { PanelNotMade } from '../changeQueue';
 import { changes, readOfWorkspaceBegins, watchWorkspaceReads } from './changes';
 import { readAfterOwnChange } from './snapshotReads';
 import { uuidv7 } from '@cockpit/shared';
-import { KeptOnTheWhiteboard, cardsTakenOffBy, changeMade, takeThemOff } from '../whiteboardQuestion';
+import { KeptOnTheWhiteboard, changeMade, takeThemOff } from '../whiteboardQuestion';
 
 /** A change sent as it is, refused first while offline (`offline.ts`). */
 function unlessOffline<A, R>(send: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
@@ -390,32 +390,6 @@ const ASKS_ABOUT_WHITEBOARDS = new Set<ClientCommandName>([
   'delete_dashboard',
 ]);
 
-/**
- * The Undo of a change that may have taken cards off with it: its own inverse,
- * then those cards put back where they were, behind it in the queue.
- */
-export function putCardsBackAfter(
-  send: (args: CommandArgs) => Promise<unknown>,
-  workspaceId: string,
-  answers: readonly Promise<unknown>[],
-  inverse: () => Promise<unknown>,
-): () => Promise<unknown> {
-  return async () => {
-    const taken = (await Promise.allSettled(answers)).flatMap((one) => (one.status === 'fulfilled' ? cardsTakenOffBy(one.value) : []));
-    const undone = inverse();
-    if (taken.length === 0) return undone;
-    const back = [];
-    for (let at = 0; at < taken.length; at += 100) {
-      back.push(
-        send({
-          name: 'put_cards_back',
-          payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, cardIds: taken.slice(at, at + 100) },
-        }),
-      );
-    }
-    return Promise.all([undone, ...back]);
-  };
-}
 
 export function useCommand() {
   const queryClient = useQueryClient();

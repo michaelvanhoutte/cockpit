@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { ItemOnWhiteboards } from '@cockpit/shared/board';
 import { CommandRefused, sendCommand } from '../../src/api/client';
-import { putCardsBackAfter, refusalFrom, useSendCommand, type CommandArgs } from '../../src/api/queries';
+import { refusalFrom, useSendCommand, type CommandArgs } from '../../src/api/queries';
 import TakeOffQuestion from '../../src/components/TakeOffQuestion';
-import { forgetTheQuestion } from '../../src/whiteboardQuestion';
+import { forgetTheQuestion, putCardsBackAfter } from '../../src/whiteboardQuestion';
 
 /**
  * F1: the question "Take it off there too?" ("Brainstorming: give every
@@ -128,7 +128,7 @@ describe('Whiteboard', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Take off both' }));
       await answer;
       const inverse = () => send({ name: 'add_item_to_panel', payload: { ...removal('a').payload, order: ['a'] } } as CommandArgs);
-      await act(() => putCardsBackAfter(send, 'ws', [answer], inverse)());
+      await act(() => putCardsBackAfter(send as never, 'ws', [answer], inverse)());
       await waitFor(() => expect(sentAs().slice(-2).map((one) => [one.name, one.cardIds])).toEqual([
         ['add_item_to_panel', undefined],
         ['put_cards_back', ['card-a']],

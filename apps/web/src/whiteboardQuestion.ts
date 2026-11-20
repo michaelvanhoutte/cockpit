@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { uuidv7, type CommandPayload } from '@cockpit/shared';
 import type { ItemOnWhiteboards } from '@cockpit/shared/board';
 
 /**
@@ -95,6 +96,34 @@ export function cardsTakenOffBy(answer: unknown): string[] {
   return answer && typeof answer === 'object' && 'cardsTakenOff' in answer && Array.isArray(answer.cardsTakenOff)
     ? (answer.cardsTakenOff as string[])
     : [];
+}
+
+/**
+ * The Undo of a change that may have taken cards off with it: its own inverse,
+ * then those cards put back where they were, behind it in the queue.
+ */
+export function putCardsBackAfter(
+  send: (args: { name: 'put_cards_back'; payload: CommandPayload<'put_cards_back'> }) => Promise<unknown>,
+  workspaceId: string,
+  answers: readonly Promise<unknown>[],
+  inverse: () => Promise<unknown>,
+): () => Promise<unknown> {
+  return async () => {
+    // The inverse at once, as it always went; the cards behind it once the change has said which it took.
+    const undone = inverse();
+    const taken = (await Promise.allSettled(answers)).flatMap((one) => (one.status === 'fulfilled' ? cardsTakenOffBy(one.value) : []));
+    if (taken.length === 0) return undone;
+    const back = [];
+    for (let at = 0; at < taken.length; at += 100) {
+      back.push(
+        send({
+          name: 'put_cards_back',
+          payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, cardIds: taken.slice(at, at + 100) },
+        }),
+      );
+    }
+    return Promise.all([undone, ...back]);
+  };
 }
 
 /** For tests: forgets any question and answer. */

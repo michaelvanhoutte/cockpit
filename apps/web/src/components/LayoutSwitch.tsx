@@ -34,7 +34,7 @@ export function LayoutSwitch({ workspaceId, dashboardId }: { workspaceId: string
     );
   };
   return (
-    <div role="radiogroup" aria-label="Dashboard layout" className="mb-1 flex shrink-0 items-center rounded-md bg-black/15 p-0.5">
+    <div role="radiogroup" aria-label="Dashboard layout" className="mb-1 flex shrink-0 items-center rounded-md bg-white/6 p-0.5">
       {CHOICES.map((choice) => (
         <button
           key={choice.value}

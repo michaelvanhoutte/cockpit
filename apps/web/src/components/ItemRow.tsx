@@ -25,7 +25,8 @@ import {
   type RepeatRule,
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
-import { putCardsBackAfter, useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { putCardsBackAfter } from '../whiteboardQuestion';
 import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { itemLabel, uuidv7, type Filing, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
-import { putCardsBackAfter, useLatestSnapshot, useSendCommand } from './api/queries';
+import { useLatestSnapshot, useSendCommand } from './api/queries';
 import { PanelNotMade } from './changeQueue';
 import { filedOrderOnPanel, ordersForFilingSeveral } from './filing';
 import {
@@ -16,7 +16,7 @@ import {
 import { browserStore } from './lastVisited';
 import { rememberRecentPanel } from './recentPanels';
 import { useUndo } from './undo';
-import { KeptOnTheWhiteboard } from './whiteboardQuestion';
+import { KeptOnTheWhiteboard, putCardsBackAfter } from './whiteboardQuestion';
 
 const failureOf = (error: unknown) =>
   error instanceof Error ? error.message : 'That did not reach the server. Try again.';
