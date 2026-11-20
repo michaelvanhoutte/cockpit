@@ -4836,6 +4836,26 @@ describe('Item editing', () => {
       expect(await screen.findByRole('heading', { name: /^Split “/ })).toBeInTheDocument();
     });
 
+    it('waits for what is typed and not written, which is not what the window would read', async () => {
+      const user = await theForm();
+      expect(screen.getByRole('button', { name: 'Split…' })).toBeEnabled();
+
+      await user.type(screen.getByLabelText('Title'), ' and more');
+
+      expect(screen.getByRole('button', { name: 'Split…' })).toBeDisabled();
+    });
+
+    it('closes the form once the Item is split, as the form holds the words from before', async () => {
+      const user = await theForm();
+      await user.click(screen.getByRole('button', { name: 'Split…' }));
+      await screen.findByRole('heading', { name: /^Split “/ });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeEnabled());
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      expect(held.close).toHaveBeenCalled();
+    });
+
     it('is not offered for an Item finished with, which the window could not read', async () => {
       await theForm(anItem({ completedAt: '2026-11-01T10:00:00.000Z' }));
 

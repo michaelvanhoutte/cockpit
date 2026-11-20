@@ -65,9 +65,9 @@ const blocksDrawn = () =>
 
 const answer = (cards: SplitProposal['cards']) => held.proposal!.resolve({ cards });
 
-function open() {
+function open(onSplit?: () => void) {
   const onClose = vi.fn();
-  render(<SplitDialog workspaceId="w1" itemId={ITEM} onClose={onClose} />);
+  render(<SplitDialog workspaceId="w1" itemId={ITEM} onClose={onClose} onSplit={onSplit} />);
   return onClose;
 }
 
@@ -123,6 +123,41 @@ describe('Triage', () => {
       expect(document.querySelectorAll('[data-proposal]')).toHaveLength(1);
     });
 
+    it('credits Claude with the Items it proposed and not the ones you added, and reads a block of an unticked card as staying here', async () => {
+      const user = userEvent.setup();
+      open();
+      await waitFor(() => expect(held.proposal).not.toBeNull());
+      answer([
+        { title: 'Pay the rent', blockIds: ['p0'] },
+        { title: 'Book the ferry', blockIds: ['p1'] },
+      ]);
+      await screen.findByText(/Claude proposes 2 new Items/);
+
+      await user.click(screen.getByRole('button', { name: '+ Another Item' }));
+      await user.click(screen.getByRole('checkbox', { name: 'Make Item 2' }));
+
+      expect(screen.getByRole('status')).toHaveTextContent('Claude proposes 2 new Items');
+      expect(screen.getByText(/Makes 2 Items/)).toBeInTheDocument();
+      expect(within(document.querySelector<HTMLElement>('[data-block="p1"]')!).getByRole('combobox')).toHaveDisplayValue('Stays here');
+    });
+
+    it('names the one card from the first words of the first paragraph, cut to a title, so a long link in it still splits', async () => {
+      held.snapshot = {
+        ...(held.snapshot as object),
+        items: [theNote({ description: `https://maps.example/${'x'.repeat(400)}\n\nSecond paragraph.` })],
+      } as unknown as WorkspaceSnapshot;
+      const user = userEvent.setup();
+      open();
+      await waitFor(() => expect(held.proposal).not.toBeNull());
+      answer(null);
+      await screen.findByText(/Claude could not propose a split/);
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      const sent = held.send.mock.calls[0]![0] as { payload: { children: { title: string }[] } };
+      expect(sent.payload.children[0]!.title.length).toBeLessThanOrEqual(200);
+    });
+
     it('moves a block onto another card by dropping it there, and by the tag on it', async () => {
       const user = userEvent.setup();
       open();
@@ -175,6 +210,20 @@ describe('Triage', () => {
       ]);
       expect(onClose).toHaveBeenCalled();
       expect(held.offered).toHaveLength(1);
+    });
+
+    it('tells whoever opened it that the change is on its way, so the form holding the words from before can close', async () => {
+      const user = userEvent.setup();
+      const onSplit = vi.fn();
+      open(onSplit);
+      await waitFor(() => expect(held.proposal).not.toBeNull());
+      answer(null);
+      await screen.findByText(/Claude could not propose a split/);
+      expect(onSplit).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      expect(onSplit).toHaveBeenCalledTimes(1);
     });
 
     it('offers an Undo that sends what comes apart: the words as they were, as the Split left them, and what moved', async () => {

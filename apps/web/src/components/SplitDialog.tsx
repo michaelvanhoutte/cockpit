@@ -2,6 +2,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import {
   SPLIT_ITEMS_AT_ONCE,
+  TITLE_LENGTH,
+  cutTo,
   additionsOf,
   itemLabel,
   splitBlocksOf,
@@ -13,13 +15,17 @@ import {
   type SplitCard,
 } from '@cockpit/shared';
 import { attachmentUrl } from '../api/client';
+import { momentDayMonthLabel } from '../dateFormat';
 import { useSendCommand } from '../api/queries';
 import { proposeASplit } from '../api/split';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 
-/** The colours a proposed Item and its blocks share, dark enough for white words on them. */
-const TAGS = ['#6f62b5', '#0e7490', '#9a5b14', '#0b7a55', '#a94840', '#475569'];
+/** The theme's category colours a proposed Item and its blocks share, each a solid and its tint, which both themes define. */
+const TAGS = ['violet', 'teal', 'amber', 'green', 'slate', 'grey'].map((name) => ({
+  solid: `var(--color-cat-${name})`,
+  tint: `var(--color-cat-${name}-tint)`,
+}));
 
 /** One card as the dialog holds it: what its Item would be called, whether it is made, and a key of its own. */
 interface Card {
@@ -30,7 +36,7 @@ interface Card {
 
 /** What a card with nothing to go by is called, from the words of the first block in it. */
 const firstWords = (text: string) => {
-  const words = text.replace(/[#*_>`]/g, '').trim().split(/\s+/).slice(0, 6).join(' ');
+  const words = cutTo(text.replace(/[#*_>`]/g, '').trim().split(/\s+/).slice(0, 6).join(' '), TITLE_LENGTH);
   return words.length > 0 ? words.replace(/[.,;:]$/, '') : 'New Item';
 };
 
@@ -51,11 +57,14 @@ export default function SplitDialog({
   workspaceId,
   itemId,
   onClose,
+  onSplit,
   returnFocusTo,
 }: {
   workspaceId: string;
   itemId: string;
   onClose: () => void;
+  /** Called once the change is on its way: the Item's form, which holds the words from before it, closes. */
+  onSplit?: (() => void) | undefined;
   /** Where the focus goes back to once it closes: the row's menu button, when it was opened from one. */
   returnFocusTo?: HTMLElement | null | undefined;
 }) {
@@ -78,7 +87,7 @@ export default function SplitDialog({
   const [cards, setCards] = useState<Card[] | null>(null);
   const [placed, setPlaced] = useState<Record<string, string | null>>({});
   /** Whether the cards are Claude's: false where it could not be asked, and the one card is ours. */
-  const [claudeProposed, setClaudeProposed] = useState(false);
+  const [claudeProposed, setClaudeProposed] = useState(0);
   const [over, setOver] = useState<string | null>(null);
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -98,7 +107,7 @@ export default function SplitDialog({
       const made = cardsOf.map((card) => ({ key: uuidv7(), title: card.title, on: true }));
       const where: Record<string, string | null> = {};
       cardsOf.forEach((card, n) => card.blockIds.forEach((id) => (where[id] = made[n]!.key)));
-      setClaudeProposed(proposed !== null && proposed.length > 0);
+      setClaudeProposed(proposed !== null && proposed.length > 0 ? proposed.length : 0);
       setPlaced(where);
       setCards(made);
     };
@@ -131,7 +140,7 @@ export default function SplitDialog({
     const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
     const children = making.map((card) => ({
       itemId: uuidv7(),
-      title: card.title.trim() || 'Untitled',
+      title: cutTo(card.title.trim(), TITLE_LENGTH) || 'Untitled',
       blockIds: blocks.filter((block) => placed[block.id] === card.key).map((block) => block.id),
     }));
     const moved = new Set(children.flatMap((child) => child.blockIds));
@@ -164,12 +173,13 @@ export default function SplitDialog({
         : {}),
     });
     onClose();
+    onSplit?.();
   };
 
   const intro = !cards
     ? 'Claude is reading it to propose new Items…'
-    : claudeProposed
-      ? `Claude proposes ${cards.length} new ${cards.length === 1 ? 'Item' : 'Items'}. Each colour is one Item. Drag a block onto another Item to move it, or untick an Item to keep its blocks here.`
+    : claudeProposed > 0
+      ? `Claude proposes ${claudeProposed} new ${claudeProposed === 1 ? 'Item' : 'Items'}. Each colour is one Item. Drag a block onto another Item to move it, or untick an Item to keep its blocks here.`
       : 'Claude could not propose a split, so everything is in one Item. Drag blocks onto another Item, add more Items, or untick one to keep its blocks here.';
 
   return (
@@ -205,7 +215,7 @@ export default function SplitDialog({
                     }}
                     data-block={block.id}
                     className="flex items-start gap-2 rounded-md border border-shade/10 bg-field p-2 text-sm"
-                    style={tag ? { boxShadow: `inset 3px 0 0 0 ${tag.colour}` } : undefined}
+                    style={tag ? { boxShadow: `inset 3px 0 0 0 ${tag.colour.solid}` } : undefined}
                   >
                     <span aria-hidden="true" className="cursor-grab select-none pt-0.5 text-ink-faint" title="Drag to an Item">
                       ⠿
@@ -225,7 +235,7 @@ export default function SplitDialog({
                       <span className="min-w-0 flex-1 text-ink">
                         {block.kind === 'addition' && (
                           <span className="mr-1 text-xs font-medium text-ink-faint">
-                            Added {new Date(block.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ·
+                            Added {momentDayMonthLabel(block.createdAt, new Date())} ·
                           </span>
                         )}
                         <span className="line-clamp-4 whitespace-pre-wrap">{block.text}</span>
@@ -235,10 +245,10 @@ export default function SplitDialog({
                       // The tag is the way to move a block without dragging it: a keyboard, and a phone, which cannot drag.
                       <select
                         aria-label={`Where “${block.text.slice(0, 40)}” goes`}
-                        value={placed[block.id] ?? ''}
+                        value={tag ? (placed[block.id] ?? '') : ''}
                         onChange={(event) => setPlaced((was) => ({ ...was, [block.id]: event.target.value || null }))}
-                        className="max-w-36 shrink-0 truncate rounded-full border-0 px-2 py-0.5 text-xs font-semibold text-white"
-                        style={{ background: tag ? tag.colour : '#64748b' }}
+                        className={`max-w-36 shrink-0 truncate rounded-full border-0 px-2 py-0.5 text-xs font-semibold ${tag ? '' : 'bg-cat-grey-tint text-cat-grey'}`}
+                        style={tag ? { background: tag.colour.tint, color: tag.colour.solid } : undefined}
                       >
                         <option value="">Stays here</option>
                         {cards.map((card, n) => (
@@ -254,7 +264,7 @@ export default function SplitDialog({
             </section>
             <section className="flex flex-col gap-2" aria-label="New Items">
               <h3 className="text-xs font-semibold tracking-[0.12em] text-accent-deep uppercase">
-                {claudeProposed ? 'New Items Claude proposes' : 'New Items'}
+                {claudeProposed > 0 ? 'New Items Claude proposes' : 'New Items'}
               </h3>
               {!cards && (
                 <div aria-hidden="true" className="flex flex-col gap-2">
@@ -279,7 +289,7 @@ export default function SplitDialog({
                     className={`flex flex-col gap-2 rounded-md border bg-field p-3 ${
                       over === card.key ? 'border-accent ring-2 ring-accent-soft/40' : 'border-shade/10'
                     } ${card.on ? '' : 'opacity-50'}`}
-                    style={{ borderLeft: `4px solid ${colour}` }}
+                    style={{ borderLeft: `4px solid ${colour.solid}` }}
                   >
                     <div className="flex items-center gap-2">
                       <input
@@ -289,7 +299,7 @@ export default function SplitDialog({
                         onChange={(event) => setCard(card.key, { on: event.target.checked })}
                         className="accent-[var(--color-accent)]"
                       />
-                      <span className="rounded-full px-1.5 text-xs font-semibold text-white" style={{ background: colour }}>
+                      <span className="rounded-full px-1.5 text-xs font-semibold" style={{ background: colour.tint, color: colour.solid }}>
                         {n + 1}
                       </span>
                       <input

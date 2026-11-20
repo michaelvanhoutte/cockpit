@@ -382,11 +382,6 @@ function TheForm({
   const splitting = useAddingAsChild(workspaceId);
   const headerButtonClass =
     'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
-  const splitButton = item && !item.completedAt && (
-    <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
-      Split…
-    </button>
-  );
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
   const cockpit = useCockpitChanges(itemId, item);
   /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
@@ -2285,7 +2280,21 @@ function TheForm({
                       </div>
 
                       {/* *Split…* sits under the words it takes apart, in the form's body and not its header, which has no room for it on a phone (issue 1828). */}
-                      {splitButton && <div className="flex shrink-0 justify-end pt-1">{splitButton}</div>}
+                      {item && !item.completedAt && (
+                        <div className="flex shrink-0 justify-end pt-1">
+                          <button
+                            type="button"
+                            // What is typed and not written is not what Split would read, so it is written first.
+                            disabled={Object.keys(changing).length > 0}
+                            title={Object.keys(changing).length > 0 ? 'Save your changes first' : undefined}
+                            // The form is read again by closing it: what it holds now is the words from before the Split.
+                            onClick={(event) => splitting.split(item.id, event.currentTarget, onClose)}
+                            className={headerButtonClass}
+                          >
+                            Split…
+                          </button>
+                        </div>
+                      )}
 
                       {/* The conversation this Item follows, from the row the Workspace
                         read carries ("Show the conversation an Item follows in its

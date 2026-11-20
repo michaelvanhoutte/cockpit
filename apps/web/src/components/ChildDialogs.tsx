@@ -13,7 +13,7 @@ const SplitDialog = lazy(() => import('./SplitDialog'));
 export type ChildAsk =
   | { chosen: readonly Item[]; from?: HTMLElement | null | undefined }
   | { ids: readonly string[]; from?: HTMLElement | null | undefined }
-  | { splitId: string; from?: HTMLElement | null | undefined };
+  | { splitId: string; from?: HTMLElement | null | undefined; onSplit?: (() => void) | undefined };
 
 /**
  * *Add as child of…* ("Brainstorming: an Item can't hold other Items", issue
@@ -39,7 +39,7 @@ export default function ChildDialogs({
   if ('splitId' in asking) {
     return (
       <Suspense fallback={null}>
-        <SplitDialog workspaceId={workspaceId} itemId={asking.splitId} returnFocusTo={asking.from} onClose={onClose} />
+        <SplitDialog workspaceId={workspaceId} itemId={asking.splitId} returnFocusTo={asking.from} onClose={onClose} onSplit={asking.onSplit} />
       </Suspense>
     );
   }

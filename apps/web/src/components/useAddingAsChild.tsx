@@ -31,7 +31,7 @@ export function useAddingAsChild(workspaceId: string, afterAdding?: () => void) 
 
   return {
     /** *Split…* for this Item, from its row's menu or its form. */
-    split: (itemId: string, from?: HTMLElement | null) => setAsking({ splitId: itemId, from }),
+    split: (itemId: string, from?: HTMLElement | null, onSplit?: () => void) => setAsking({ splitId: itemId, from, onSplit }),
     /** *Combine…* for these Items, never offered for fewer than two. */
     combine: (ids: readonly string[], from?: HTMLElement | null) => setAsking({ ids, from }),
     /** The menu button it was asked from, which the focus goes back to. */
