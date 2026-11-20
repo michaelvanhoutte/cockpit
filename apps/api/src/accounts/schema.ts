@@ -524,10 +524,18 @@ export const panels = sqliteTable(
      */
     columns: text('columns'),
     /**
-     * The Item this Panel is ("Brainstorming: give every Panel an Item and store
-     * filings as Item-in-Item relations", issue 1824): its title is the Panel's,
-     * it is in the Panel's Workspace, and its texts are settled, so Claude never
-     * rewrites it. **Its id is the Panel's own id**, which is what lets the
+     * The Item kept for this Panel ("Brainstorming: give every Panel an Item and
+     * store filings as Item-in-Item relations", issue 1824), whose rows the
+     * release before reads filings from: a Panel is never an Item
+     * ("Brainstorming: a Panel is an Item nobody can open", issue 1846), so it
+     * is still made, renamed and dismissed with the Panel for a rollback. Read
+     * to write that Item's rows (`mirrorFilingsOf`, `renamePanelsItem`,
+     * `dismissPanelsItems`), and to leave that Item out: of every list, search
+     * and Item read (`notAPanelsOwnItem`), and as a parent from every
+     * Item-inside-Item read and the Inbox rule (`noPanelsItem`, `noLiveParent`,
+     * `ancestorsAmong`, `itemParentsHolding`). Its title is
+     * the Panel's, it is in the Panel's Workspace, and its texts are settled,
+     * so Claude never rewrites it. **Its id is the Panel's own id**, which is what lets the
      * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
      * to hand out, and makes a replay a no-op.
      *
@@ -1236,16 +1244,14 @@ export const panelItems = sqliteTable(
 );
 
 /**
- * Every Item held by another Item, and where it sits in that Item's order
- * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
- * relations", issue 1824). The one place an Item sits in another, whether
- * on a Panel, inside another Item or, later, on a whiteboard: every filing,
- * under the Panel's own Item (`panels.item_id`), written in the transaction of
- * every change that writes `panel_items` (`item-children.ts`), and every Item
- * held by another ("Brainstorming: an Item can't hold other Items", issue
- * 1825). **What a Panel holds and what the Inbox holds are read from here**;
- * `panel_items` is still written until it is dropped ("Brainstorming:
- * filings are still written to the old Panel-only table", issue 1833).
+ * Every Item inside another Item, and where it sits in that Item's order
+ * ("Brainstorming: an Item can't hold other Items", issue 1825). **Only rows
+ * whose parent is an Item are read** ("Brainstorming: a Panel is an Item
+ * nobody can open", issue 1846): what is filed on a Panel is `panel_items`.
+ * Every filing is still written here too, under the Panel's own Item
+ * (`panels.item_id`), in the transaction of the change that writes
+ * `panel_items` (`item-children.ts`), because the release before reads
+ * filings from here, and every read leaves those rows out.
  *
  * - **Tombstoned, unlike `panel_items`**: taking an Item out sets `deleted_at`,
  *   and putting it back clears it, so the key below is never met twice.

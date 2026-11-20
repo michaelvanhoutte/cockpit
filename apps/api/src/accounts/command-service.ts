@@ -2232,31 +2232,10 @@ export function runCommand<N extends CommandName>(
         }
       };
       const story = cmd.description ?? cmd.title;
-      if (cmd.dashboardId !== null) {
-        // From the Inbox: a new Panel on the Dashboard, which is the parent Item, and what is filed on it is what it holds.
-        const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
-        const name = panelNameForMove(listPanels(db, tenantId, dashboard.id), cmd.title);
-        const appended = appendedAcrossLayouts(db, tenantId, dashboard.id, cmd.parentId);
-        const panel = panelFromCommand({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, dashboardId: dashboard.id, panelId: cmd.parentId, name, kind: 'items' }, tenantId);
-        db.transaction((tx) => {
-          insertPanel(tx, panel, cmd.workspaceId);
-          insertAppended(tx, appended);
-          tx.update(items)
-            .set({ description: story, keepsStory: true })
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.parentId)))
-            .run();
-          settleChildren(tx);
-          cmd.childIds.forEach((itemId, position) => {
-            tx.insert(panelItems)
-              .values({ tenantId, panelId: cmd.parentId, itemId, position, createdAt: cmd.issuedAt, filedAt: cmd.issuedAt })
-              .run();
-          });
-          mirrorFilingsOf(tx, tenantId, [cmd.parentId], cmd.issuedAt);
-          tx.insert(commands).values(commandRow).run();
-        });
-        break;
-      }
-      // From a Panel: a new Item filed on it, so a child Panel of it; or with no Panel, one of the Workspace's own.
+      // Where the first Item is ("Brainstorming: a Panel is an Item nobody can open", issue 1846). From a Panel: a new
+      // Item filed on it, as a row there. From inside an Item: inside that Item too. From the Inbox: an Item filed
+      // nowhere, so it stays in the Inbox holding them. A Dashboard an older tab names makes no Panel: a Panel is
+      // never an Item.
       const nested = cmd.panelId === null ? null : panelNamedFor(db, tenantId, cmd.workspaceId, cmd.panelId);
       if (cmd.panelId !== null && !nested) throw new PanelNotFoundError(cmd.panelId);
       const { item, filings } = decideCaptureFiling(
@@ -2264,9 +2243,22 @@ export function runCommand<N extends CommandName>(
         cmd,
         nested ? [nested] : [],
       );
+      // Filed on no Panel (none named, or one that takes no Items), but the first Item is inside an Item: the new parent
+      // goes inside that one, beside it, decided here from the stored rows, not sent. The first by when the first Item
+      // was put inside it (`itemParentsHolding`), which passes over a dismissed one and a Panel's own Item; also over a
+      // finished one, which no list draws, one in another Workspace, and one that is, or sits inside, an Item going
+      // into the new parent, which would put an Item inside itself. None left: the Inbox.
+      const besideFirst =
+        filings.length > 0
+          ? undefined
+          : itemParentsHolding(db, tenantId, cmd.childIds.slice(0, 1)).find((id) => {
+              const holder = getItem(db, tenantId, id);
+              return holder?.workspaceId === cmd.workspaceId && !holder.completedAt && ancestorsAmong(db, tenantId, id, cmd.childIds).length === 0;
+            });
       db.transaction((tx) => {
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE, keepsStory: true }).run();
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        if (besideFirst) putInside(tx, tenantId, besideFirst, [item.id], cmd.issuedAt);
         settleChildren(tx);
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();

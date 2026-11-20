@@ -4248,6 +4248,25 @@ describe('Panels', () => {
       );
     });
 
+    it('combines child rows under a new parent naming no Panel when the first is filed on none', async () => {
+      const user = await onAPanel();
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      const storm = within(childRows()!).getByText('Storm scene').closest('li')!;
+      await user.click(within(storm).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(within(dialog).getByRole('list', { name: 'Items to combine with' })).getByRole('button', { name: 'Ferry scene' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ childIds: [STORM.id, FERRY.id], panelId: null, dashboardId: null }),
+        }),
+      );
+    });
+
     it('carries a child row picked in the Inbox in the Inbox’s bar', async () => {
       held.filings = [];
       const user = await showList({ items: [CHAPTER, BART] });
@@ -4407,7 +4426,7 @@ describe('Triage', () => {
       );
     });
 
-    it('combines them under a new parent made as a Panel of the open Dashboard when they came from the Inbox', async () => {
+    it('combines them under a new parent that stays in the Inbox when they came from the Inbox, making no Panel', async () => {
       const { user, dialog } = await combining([BART, LISA]);
 
       await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
@@ -4415,12 +4434,12 @@ describe('Triage', () => {
       expect(held.send).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'combine_under_new_parent',
-          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: TODAY.id }),
+          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: null }),
         }),
       );
     });
 
-    it('combines them under a new parent made as a child Panel of the Panel the first one is filed on', async () => {
+    it('combines them under a new parent filed on the Panel the first one is filed on', async () => {
       held.dashboards = [TODAY];
       held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];

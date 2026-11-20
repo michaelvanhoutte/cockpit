@@ -5,17 +5,17 @@ import { DEAD_STATUS_VALUE, items, panelItems, panels } from './schema.js';
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
 /**
- * Every Panel is an Item, and what is filed on it is also what its Item holds
- * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
- * relations", issue 1824). The writes that keep `item_children` and the counts
- * equal to `panel_items`, each called inside the transaction of the change
- * that moves them, so the two tables never disagree. Reads come from
- * `item_children` (issue 1825); the backfill that brought existing Panels here
- * is `0109-panels-become-items`, and `0110-filings-copied-again` brought over
- * what an older Worker wrote during its rollout (changes.ts).
+ * Item inside Item ("Brainstorming: an Item can't hold other Items", issue
+ * 1825): `putInside` and `takeOut` write the rows of an Item parent, and the
+ * walk and lookups below read Items as parents only.
  *
- * **Any Item can hold Items** (issue 1825): `putInside` and `takeOut` write
- * the rows of an Item parent, which `panel_items` knows nothing of.
+ * **A Panel is never a parent** ("Brainstorming: a Panel is an Item nobody can
+ * open", issue 1846), and what is filed on it is read from `panel_items`. The
+ * release before reads filings from the rows under a Panel's own Item
+ * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
+ * relations", issue 1824), so the writes here still make, rename and dismiss
+ * that Item and keep its rows and counts equal to `panel_items`, inside the
+ * transaction of every change that moves them, for a rollback to lose nothing.
  */
 
 /**
@@ -142,8 +142,8 @@ const COUNTS = sql.raw(`
  * Items put inside an Item at the end of its order ("Brainstorming: an Item
  * can't hold other Items", issue 1825), in the transaction of `add_children`:
  * one already inside it keeps its place, one taken out before comes back, and
- * the parent's counts are counted again. Never a Panel's own Item as parent,
- * which `panel_items` still has to agree with: filing is its own change.
+ * the parent's counts are counted again. Never a Panel's own Item as parent:
+ * a Panel is no parent, and filing is its own change.
  */
 export function putInside(tx: InATransaction, tenantId: string, parentId: string, childIds: readonly string[], at: string): void {
   const last = tx.get<{ last: number | null }>(sql`SELECT max(position) AS last FROM item_children
@@ -172,7 +172,8 @@ export function takeOut(tx: InATransaction, tenantId: string, parentId: string, 
 /**
  * Which of these Items the parent already sits inside, however deep: putting
  * one of them in it would make an Item its own ancestor. Walks up from the
- * parent by `item_children_tenant_child`, one row per level.
+ * parent by `item_children_tenant_child`, one row per level, through Items
+ * alone: a Panel is never a parent (issue 1846).
  */
 export function ancestorsAmong(db: AccountDb, tenantId: string, parentId: string, childIds: readonly string[]): string[] {
   if (childIds.length === 0) return [];
@@ -185,7 +186,8 @@ export function ancestorsAmong(db: AccountDb, tenantId: string, parentId: string
                                SELECT ${parentId}
                                UNION
                                SELECT c.parent_id FROM item_children c JOIN up ON c.child_id = up.id
-                                WHERE c.tenant_id = ${tenantId} AND c.deleted_at IS NULL)
+                                WHERE c.tenant_id = ${tenantId} AND c.deleted_at IS NULL
+                                  AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = c.parent_id))
                              SELECT id FROM up WHERE id IN (${candidates})`)
     .map((row) => row.id);
 }
@@ -220,9 +222,9 @@ export function panelsHeldBy(db: AccountDb, tenantId: string, itemIds: readonly 
 }
 
 /**
- * The Items, not Panels, that hold any of these, each once: a Merge's Item goes
- * inside every one its originals were inside. A Panel's own Item is left out,
- * since filing writes that (`writeFiling`).
+ * The Items that hold any of these, each once: a Merge's Item goes inside every
+ * one its originals were inside. A Panel's own Item is no parent: the Merge
+ * files its Item where the originals were filed (`panelsHeldBy`).
  */
 export function itemParentsHolding(db: AccountDb, tenantId: string, itemIds: readonly string[]): string[] {
   const found: string[] = [];

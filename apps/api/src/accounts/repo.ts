@@ -894,23 +894,23 @@ export function placesOfItems(
 ): { filings: Filing[]; panels: Panel[]; dashboards: Dashboard[]; parents: { childId: string; title: string }[] } {
   if (itemIds.length === 0) return { filings: [], panels: [], dashboards: [], parents: [] };
   const filings = db
-    .select({ panelId: panels.id, itemId: itemChildren.childId, position: itemChildren.position })
-    .from(items)
-    .innerJoin(itemChildren, heldBy(items.id, items.tenantId))
-    .innerJoin(panels, eq(panels.itemId, itemChildren.parentId))
+    .select({ panelId: panelItems.panelId, itemId: panelItems.itemId, position: panelItems.position })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
     .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .innerJoin(items, eq(panelItems.itemId, items.id))
     .where(
       and(
-        eq(items.tenantId, tenantId),
-        inArray(items.id, [...itemIds]),
+        eq(panelItems.tenantId, tenantId),
+        inArray(panelItems.itemId, [...itemIds]),
         eq(items.workspaceId, dashboards.workspaceId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
       ),
     )
-    .orderBy(asc(itemChildren.position))
+    .orderBy(asc(panelItems.position))
     .all();
-  // The Items holding them that are not Panels (issue 1825), named as their rows are.
+  // The Items holding them (issue 1825), named as their rows are. A Panel is no parent (issue 1846).
   const parent = alias(items, 'parent');
   const parents = db
     .select({ childId: itemChildren.childId, title: parent.title })
@@ -923,7 +923,7 @@ export function placesOfItems(
         inArray(items.id, [...itemIds]),
         eq(parent.workspaceId, items.workspaceId),
         isNull(parent.deletedAt),
-        sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parent.id})`,
+        noPanelsItem(parent.id),
       ),
     )
     .orderBy(asc(parent.title))
@@ -1493,23 +1493,24 @@ export function listFilingsInWorkspace(
 }
 
 /**
- * `listFilingsInWorkspace`'s query, read from `item_children` ("Brainstorming:
- * an Item can't hold other Items", issue 1825): the rows holding the Items of
- * the read whose parent is a live Panel's own Item. Driven from those Items,
- * by `item_children_tenant_child`, so a Panel's finished children cost the
- * read nothing.
+ * `listFilingsInWorkspace`'s query: what is filed on a live Panel is read from
+ * `panel_items` ("Brainstorming: a Panel is an Item nobody can open", issue
+ * 1846), never from the rows under a Panel's own Item, which are still written
+ * for the release before to read. Driven from the Items of the read, by
+ * `panel_items_tenant_item`, so a Panel's finished Items cost the read nothing.
  */
 export function filingsOfTheRead(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead) {
   return db
-    .select({ panelId: panels.id, itemId: itemChildren.childId, position: itemChildren.position })
+    .select({ panelId: panelItems.panelId, itemId: panelItems.itemId, position: panelItems.position })
     .from(items)
-    // A cross join keeps SQLite to this order: the Items read first, then the rows holding each.
-    .crossJoin(itemChildren)
-    .innerJoin(panels, eq(panels.itemId, itemChildren.parentId))
+    // A cross join keeps SQLite to this order: the Items read first, then the filings of each.
+    .crossJoin(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
     .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
     .where(
       and(
-        heldBy(items.id, items.tenantId),
+        eq(panelItems.tenantId, items.tenantId),
+        eq(panelItems.itemId, items.id),
         eq(items.tenantId, tenantId),
         eq(items.workspaceId, workspaceId),
         eq(dashboards.workspaceId, workspaceId),
@@ -1521,12 +1522,22 @@ export function filingsOfTheRead(db: AccountDb, tenantId: string, workspaceId: s
     // The id breaks a tie as `byPlaceOnPanel` (@cockpit/shared) does: an Item
     // reopened after its day can share a position ("Open a Workspace without
     // its finished Items", issue 1435).
-    .orderBy(asc(itemChildren.position), asc(itemChildren.childId));
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId));
 }
 
 /** The live rows holding an Item, joined on the Item they hold. */
 function heldBy(itemId: Column, tenantId: Column) {
   return and(eq(itemChildren.tenantId, tenantId), eq(itemChildren.childId, itemId), isNull(itemChildren.deletedAt));
+}
+
+/**
+ * A parent that is not a Panel's own Item ("Brainstorming: a Panel is an Item
+ * nobody can open", issue 1846): a Panel holds what is filed on it and is never
+ * a parent, so every read of Item inside Item leaves out the rows still written
+ * under its Item for the release before. One lookup by `panels_item`.
+ */
+function noPanelsItem(parentId: Column) {
+  return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parentId})`;
 }
 
 /**
@@ -1561,7 +1572,7 @@ export function childRowsOfTheRead(db: AccountDb, tenantId: string, workspaceId:
         isNull(items.deletedAt),
         eq(parent.workspaceId, workspaceId),
         isNull(parent.deletedAt),
-        sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parent.id})`,
+        noPanelsItem(parent.id),
         itemsOfTheRead(of),
       ),
     )
@@ -1580,37 +1591,16 @@ export function childRowsOfTheRead(db: AccountDb, tenantId: string, workspaceId:
 export function listFilingsOnPanel(db: AccountDb, tenantId: string, panelId: string): HeldFiling[] {
   return db
     .select({
-      panelId: panels.id,
-      itemId: itemChildren.childId,
-      position: itemChildren.position,
-      filedAt: filedAtOnThePanel,
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+      filedAt: panelItems.filedAt,
     })
-    .from(panels)
-    .innerJoin(itemChildren, onThePanelsOwnItem)
-    .leftJoin(panelItems, theSameFiling)
-    .where(and(eq(panels.tenantId, tenantId), eq(panels.id, panelId)))
-    .orderBy(asc(itemChildren.position), asc(itemChildren.childId))
+    .from(panelItems)
+    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panelId)))
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
 }
-
-/**
- * A Panel's order is what its own Item holds ("Brainstorming: an Item can't
- * hold other Items", issue 1825). The old table's row is joined only for the
- * two stamps it alone keeps, which the rewrite of that table writes back as
- * they were until it is dropped ("Brainstorming: filings are still written
- * to the old Panel-only table", issue 1833).
- */
-const onThePanelsOwnItem = and(
-  eq(itemChildren.tenantId, panels.tenantId),
-  eq(itemChildren.parentId, panels.itemId),
-  isNull(itemChildren.deletedAt),
-);
-const theSameFiling = and(
-  eq(panelItems.tenantId, panels.tenantId),
-  eq(panelItems.panelId, panels.id),
-  eq(panelItems.itemId, itemChildren.childId),
-);
-const filedAtOnThePanel = sql<string | null>`CASE WHEN ${panelItems.itemId} IS NULL THEN ${itemChildren.createdAt} ELSE ${panelItems.filedAt} END`;
 
 /**
  * The filings on one Panel whose Item the Workspace's read leaves out, finished
@@ -1627,26 +1617,24 @@ export function listFilingsOnPanelOutOfTheRead(
 ): FilingRow[] {
   return db
     .select({
-      tenantId: panels.tenantId,
-      panelId: panels.id,
-      itemId: itemChildren.childId,
-      position: itemChildren.position,
-      createdAt: sql<string>`coalesce(${panelItems.createdAt}, ${itemChildren.createdAt})`,
-      filedAt: filedAtOnThePanel,
+      tenantId: panelItems.tenantId,
+      panelId: panelItems.panelId,
+      itemId: panelItems.itemId,
+      position: panelItems.position,
+      createdAt: panelItems.createdAt,
+      filedAt: panelItems.filedAt,
     })
-    .from(panels)
-    .innerJoin(itemChildren, onThePanelsOwnItem)
-    .leftJoin(panelItems, theSameFiling)
-    .innerJoin(items, eq(itemChildren.childId, items.id))
+    .from(panelItems)
+    .innerJoin(items, eq(panelItems.itemId, items.id))
     .where(
       and(
-        eq(panels.tenantId, tenantId),
-        eq(panels.id, panelId),
+        eq(panelItems.tenantId, tenantId),
+        eq(panelItems.panelId, panelId),
         eq(items.tenantId, tenantId),
         lte(items.completedAt, finishedAfter),
       ),
     )
-    .orderBy(asc(itemChildren.position), asc(itemChildren.childId))
+    .orderBy(asc(panelItems.position), asc(panelItems.itemId))
     .all();
 }
 
@@ -2249,21 +2237,26 @@ export function judgeableItemsForAccount(db: AccountDb, tenantId: string): Judge
 }
 
 /**
- * Every Item id with a live parent - a Panel or an Item ("Brainstorming: an
- * Item can't hold other Items", issue 1825) - the test `noLiveParent` makes of
- * one Item at a time, made once here for the whole account instead of once
- * per row.
+ * Every Item id with a live parent - filed on a live Panel, or inside a live
+ * Item ("Brainstorming: a Panel is an Item nobody can open", issue 1846) - the
+ * test `noLiveParent` makes of one Item at a time, made once here for the
+ * whole account instead of once per row.
  */
 function filedItemIds(db: AccountDb, tenantId: string): Set<string> {
-  return new Set(
-    db
-      .selectDistinct({ itemId: itemChildren.childId })
-      .from(itemChildren)
-      .innerJoin(items, eq(items.id, itemChildren.parentId))
-      .where(and(eq(itemChildren.tenantId, tenantId), isNull(itemChildren.deletedAt), isNull(items.deletedAt)))
-      .all()
-      .map((row) => row.itemId),
-  );
+  const filed = db
+    .selectDistinct({ itemId: panelItems.itemId })
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
+    .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
+    .where(and(eq(panelItems.tenantId, tenantId), isNull(panels.deletedAt), isNull(dashboards.deletedAt)))
+    .all();
+  const inside = db
+    .selectDistinct({ itemId: itemChildren.childId })
+    .from(itemChildren)
+    .innerJoin(items, eq(items.id, itemChildren.parentId))
+    .where(and(eq(itemChildren.tenantId, tenantId), isNull(itemChildren.deletedAt), isNull(items.deletedAt), noPanelsItem(items.id)))
+    .all();
+  return new Set([...filed, ...inside].map((row) => row.itemId));
 }
 
 /**
@@ -2310,18 +2303,23 @@ export function getEmailLocalPart(db: AccountDb, tenantId: string): string | nul
 }
 
 /**
- * The store's half of the Inbox rule ("Brainstorming: an Item can't hold other
- * Items", issue 1825), which `recentlyCapturedUnfiled` above and
- * `unfiledItemsInWorkspace` below both filter on: an Item held by no live
- * parent, read by `item_children_tenant_child`. The browser's half is
- * `itemsInTheInbox` (@cockpit/shared). A parent is live while its Item is not
- * dismissed: deleting a Panel, or its Dashboard, dismisses the Panel's own
- * Item, which is what puts what it held back in the Inbox.
+ * The store's half of the Inbox rule ("Brainstorming: a Panel is an Item nobody
+ * can open", issue 1846), which `recentlyCapturedUnfiled` above and
+ * `unfiledItemsInWorkspace` below both filter on: an Item filed on no live
+ * Panel and inside no live Item. The browser's half is `itemsInTheInbox`
+ * (@cockpit/shared). A Panel or Dashboard tombstoned since the filing leaves
+ * its `panel_items` row untouched, which is what puts the Item back in the
+ * Inbox, so the Panel and its Dashboard are joined live; the rows still
+ * written under a Panel's own Item are no parent.
  */
 function noLiveParent() {
-  return sql`NOT EXISTS (SELECT 1 FROM item_children c JOIN items p ON p.id = c.parent_id
+  return sql`NOT EXISTS (SELECT 1 FROM panel_items f JOIN panels p ON p.id = f.panel_id JOIN dashboards d ON d.id = p.dashboard_id
+                          WHERE f.tenant_id = ${items.tenantId} AND f.item_id = ${items.id}
+                            AND p.deleted_at IS NULL AND d.deleted_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM item_children c JOIN items p ON p.id = c.parent_id
                           WHERE c.tenant_id = ${items.tenantId} AND c.child_id = ${items.id}
-                            AND c.deleted_at IS NULL AND p.deleted_at IS NULL)`;
+                            AND c.deleted_at IS NULL AND p.deleted_at IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = c.parent_id))`;
 }
 
 /**
@@ -2485,15 +2483,14 @@ export function commandAlreadyApplied(db: AccountDb, commandId: string): boolean
 export function isItemFiled(db: AccountDb, tenantId: string, itemId: string): boolean {
   return (
     db
-      .select({ panelId: panels.id })
-      .from(itemChildren)
-      .innerJoin(panels, eq(panels.itemId, itemChildren.parentId))
+      .select({ panelId: panelItems.panelId })
+      .from(panelItems)
+      .innerJoin(panels, eq(panelItems.panelId, panels.id))
       .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
       .where(
         and(
-          eq(itemChildren.tenantId, tenantId),
-          eq(itemChildren.childId, itemId),
-          isNull(itemChildren.deletedAt),
+          eq(panelItems.tenantId, tenantId),
+          eq(panelItems.itemId, itemId),
           isNull(panels.deletedAt),
           isNull(dashboards.deletedAt),
         ),
@@ -2553,14 +2550,13 @@ export function claudeProposalContext(
       : null;
   const filedOn = db
     .select({ dashboard: dashboards.name, panel: panels.name })
-    .from(itemChildren)
-    .innerJoin(panels, eq(panels.itemId, itemChildren.parentId))
+    .from(panelItems)
+    .innerJoin(panels, eq(panelItems.panelId, panels.id))
     .innerJoin(dashboards, eq(panels.dashboardId, dashboards.id))
     .where(
       and(
-        eq(itemChildren.tenantId, tenantId),
-        eq(itemChildren.childId, itemId),
-        isNull(itemChildren.deletedAt),
+        eq(panelItems.tenantId, tenantId),
+        eq(panelItems.itemId, itemId),
         isNull(panels.deletedAt),
         isNull(dashboards.deletedAt),
       ),

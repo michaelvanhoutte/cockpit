@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore } from '../seed.js';
+import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore } from '../seed.js';
 import { enqueueProposalForClaude, handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { GUEST_ACCOUNT_NAME } from '../../../src/accounts/new-user.js';
@@ -226,6 +226,35 @@ describe('Agents', () => {
 
       expect(proposing.asked.at(-1)?.item).toMatch(filed);
       expect(await proposalsOn(itemId)).toEqual(AS_KEPT);
+    });
+
+    /**
+     * A tab of the release before names the Dashboard it had open, which made
+     * a new Panel then; now the Items are filed nowhere new, so what a
+     * proposal is made from has not changed ("Brainstorming: a Panel is an
+     * Item nobody can open", issue 1846).
+     */
+    it('asks no proposal again for Items combined under a new parent from the Inbox by an older tab', async () => {
+      const panelId = await aPanel('Billing bugs');
+      const [a, b, filed] = [await aSettledNote(), await aSettledNote(), await aSettledNote()];
+
+      const combined = await postChange('combine_under_new_parent', {
+        commandId: nextId(),
+        issuedAt: '2026-09-09T10:05:00.000Z',
+        workspaceId: WORKSPACE_ID,
+        parentId: nextId(),
+        title: 'Chapter 3',
+        description: null,
+        childIds: [a, b],
+        panelId: null,
+        dashboardId: DASHBOARD_ID,
+      });
+      expect(combined.status).toBe(200);
+      // A filing after it, whose proposal is asked once the combine's own asking would have been.
+      await fileOnto(filed, panelId);
+      await untilQueued('propose-for-claude', filed);
+
+      expect(held.filter((job) => job.kind === 'propose-for-claude' && [a, b].includes(job.itemId))).toEqual([]);
     });
 
     it('writes nothing where it was filed while the proposal was being made, leaving it to the one the filing asked for', async () => {

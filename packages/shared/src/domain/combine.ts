@@ -63,9 +63,10 @@ export function parentDescription(items: readonly Pick<Item, 'title'>[], note: s
 
 /**
  * The Panel of the open Dashboard the first Item is filed on, or the first one
- * it is filed on anywhere, which a new parent is made a child Panel of; none
- * where it came from the Inbox. Filings only: a Filter's Items are filed
- * elsewhere.
+ * it is filed on anywhere, which a new parent is filed on as a row; none
+ * where it is on no Panel, where the store puts the new parent inside the Item
+ * the first is inside, or else leaves it in the Inbox. Filings only: a
+ * Filter's Items are filed elsewhere.
  */
 export function panelTheFirstIsOn(
   firstId: string | undefined,

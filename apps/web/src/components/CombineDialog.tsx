@@ -87,7 +87,7 @@ export default function CombineDialog({
       }
       return answer;
     };
-    // The Dashboard open in the address bar, which Items from the Inbox are combined onto as a new Panel: the Inbox list names none.
+    // The Dashboard open in the address bar, whose Panel a new parent prefers when the first Item is on several.
     const dashboardId = /\/d\/([^/?#]+)/.exec(window.location.pathname)?.[1] ?? null;
     if (choice === 'merge') {
       const itemId = uuidv7();
@@ -101,6 +101,7 @@ export default function CombineDialog({
         undo: () => everyInbox(send({ name: 'unmerge_items', payload: { ...envelope(), itemId, originalIds: childIds } })),
       });
     } else if (choice === 'new-parent') {
+      // On no Panel, the store puts it inside the Item the first is inside, or leaves it in the Inbox.
       const panelId = panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels);
       const answer = everyInbox(send({
         name: 'combine_under_new_parent',
@@ -111,7 +112,8 @@ export default function CombineDialog({
           description: parentDescription(chosen, note),
           childIds,
           panelId,
-          dashboardId: panelId ? null : dashboardId,
+          // From the Inbox the new parent is an Item that stays there holding them, never a Panel ("Brainstorming: a Panel is an Item nobody can open", issue 1846).
+          dashboardId: null,
         },
       }));
       offerToUndo({ what: `${chosen.length} Items combined under “${title}”`, unlessRefused: answer });

@@ -34,8 +34,8 @@ export function stillOpen(item: Item): boolean {
 
 /**
  * Everything still to deal with that has no parent - the Inbox ("Brainstorming:
- * an Item can't hold other Items", issue 1825): filed on no Panel, held by no
- * Item, and not itself a Panel's own Item.
+ * a Panel is an Item nobody can open", issue 1846): filed on no live Panel and
+ * inside no live Item. A Panel holds what is filed on it and is never an Item.
  *
  * The snapshot leaves out the filings of deleted panels and the rows of a
  * dismissed parent, so an item whose only parent has gone is back here without
@@ -45,24 +45,14 @@ export function itemsInTheInbox(
   items: readonly Item[],
   filings: readonly Filing[],
   children: readonly ChildRow[] = [],
-  panels: readonly Pick<Panel, 'id'>[] = [],
 ): Item[] {
-  const held = withAParent(filings, children, panels);
+  const held = withAParent(filings, children);
   return items.filter((item) => stillOpen(item) && !held.has(item.id));
 }
 
-/** Every Item id with a parent: a Panel it is filed on, an Item holding it, or the Panel it is itself. */
-function withAParent(
-  filings: readonly Filing[],
-  children: readonly ChildRow[],
-  panels: readonly Pick<Panel, 'id'>[],
-): Set<string> {
-  return new Set([
-    ...filings.map((filing) => filing.itemId),
-    ...children.map((row) => row.childId),
-    // A Panel's own Item takes the Panel's id (`0109-panels-become-items`).
-    ...panels.map((panel) => panel.id),
-  ]);
+/** Every Item id with a parent: a Panel it is filed on, or an Item holding it. */
+function withAParent(filings: readonly Filing[], children: readonly ChildRow[]): Set<string> {
+  return new Set([...filings.map((filing) => filing.itemId), ...children.map((row) => row.childId)]);
 }
 
 /**
@@ -77,7 +67,7 @@ export function itemsThatAreFiled(
   filings: readonly Filing[],
   children: readonly ChildRow[] = [],
 ): Item[] {
-  const held = withAParent(filings, children, []);
+  const held = withAParent(filings, children);
   return items.filter((item) => stillOpen(item) && held.has(item.id));
 }
 

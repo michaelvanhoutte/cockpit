@@ -4,9 +4,9 @@ import type { Item } from './item.js';
 /**
  * An Item held by another Item ("Brainstorming: an Item can't hold other
  * Items", issue 1825): *Storm scene* inside *Chapter 3*. An Item can sit in
- * several, and the order is the parent's. A Panel's own Item holds what is
- * filed on the Panel, which the snapshot carries as `filings` instead, so a
- * row here always names an Item parent.
+ * several, and the order is the parent's. A Panel is never a parent: what
+ * is filed on it is `filings` ("Brainstorming: a Panel is an Item nobody can
+ * open", issue 1846), so a row here always names an Item.
  */
 export const childRowSchema = z.object({
   parentId: z.string(),

@@ -49,12 +49,17 @@ export type UnmergeItemsCommand = z.infer<typeof unmergeItemsSchema>;
 
 /**
  * combine_under_new_parent — **Combine ▸ Combine under a new parent** (issue
- * 1826): the Items stay where they are and a new Item holds them. With
- * `panelId` it is a child Panel of that Panel, the one the first Item was on;
- * with `dashboardId` it is a new Panel on that Dashboard, which is where Items
- * from the Inbox go; with neither it is an Item of the Workspace's own. Its
- * *Keep its story up to date* is stored as on. `parentId` is the new Item, and
- * the new Panel's own id where it is one.
+ * 1826): the Items stay where they are and a new Item holds them, placed
+ * where the first Item is ("Brainstorming: a Panel is an Item nobody can
+ * open", issue 1846). With `panelId` it is filed on that Panel, the one the
+ * first Item was on, as a row there; without, it goes inside the Item the
+ * first Item is inside, which the store finds itself, or else it is filed
+ * nowhere and stays in the Inbox holding them. Its *Keep its story up to
+ * date* is stored as on. `parentId` is the
+ * new Item. `dashboardId` is sent as null and read by nothing: a tab of the
+ * release before sends the Dashboard it had open, which made a new Panel then
+ * and makes nothing different now, and a Worker of that release, met during a
+ * rollout, still requires the field.
  */
 export const combineUnderNewParentSchema = commandEnvelopeSchema
   .extend({
@@ -67,7 +72,7 @@ export const combineUnderNewParentSchema = commandEnvelopeSchema
   })
   .refine((cmd) => eachOnce(cmd.childIds, cmd.parentId), { message: 'each item once, and not the new parent', path: ['childIds'] })
   .refine((cmd) => cmd.panelId === null || cmd.dashboardId === null, {
-    message: 'a child Panel or a new Panel, not both',
+    message: 'a Panel or a Dashboard, not both',
     path: ['panelId'],
   });
 export type CombineUnderNewParentCommand = z.infer<typeof combineUnderNewParentSchema>;
