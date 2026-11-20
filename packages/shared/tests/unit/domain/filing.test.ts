@@ -140,43 +140,34 @@ describe('Panels', () => {
   });
 
   /**
-   * "Brainstorming: an Item can't hold other Items" (issue 1825): an Item held
-   * by another Item has a parent as surely as one filed on a Panel does. Which
-   * rows the snapshot carries - a dismissed parent's left out - is proved
-   * against a real store in apps/api/tests/integration/http/item-children.test.ts.
+   * "Brainstorming: a Panel is an Item nobody can open" (issue 1846): an Item
+   * inside another Item has a parent as surely as one filed on a Panel does.
+   * Which rows the snapshot carries - a deleted Panel's filings and a dismissed
+   * parent's rows left out - is proved against a real store in
+   * apps/api/tests/integration/http/item-children.test.ts.
    */
-  describe('the Inbox holds exactly the open Items with no parent', () => {
+  describe('the Inbox holds exactly the open Items filed on no Panel and inside no Item', () => {
     it.each([
       {
         situation: 'a child of an Item that is on no Panel',
         items: [anItem('a'), anItem('chapter')],
         children: [{ parentId: 'chapter', childId: 'a', position: 0 }],
-        panels: [],
-        inTheInbox: false,
-      },
-      {
-        situation: 'a Panel’s own Item',
-        items: [anItem('a')],
-        children: [],
-        panels: [{ id: 'a' }],
         inTheInbox: false,
       },
       {
         situation: 'finished, with no parent',
         items: [anItem('a', FINISHED)],
         children: [],
-        panels: [],
         inTheInbox: false,
       },
       {
         situation: 'the parent of another, itself held by none',
         items: [anItem('a'), anItem('scene')],
         children: [{ parentId: 'a', childId: 'scene', position: 0 }],
-        panels: [],
         inTheInbox: true,
       },
-    ])('$situation', ({ items, children, panels, inTheInbox }) => {
-      const inbox = itemsInTheInbox(items, [], children, panels).map((item) => item.id);
+    ])('$situation', ({ items, children, inTheInbox }) => {
+      const inbox = itemsInTheInbox(items, [], children).map((item) => item.id);
 
       expect(inbox.includes('a')).toBe(inTheInbox);
     });

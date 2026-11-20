@@ -172,7 +172,8 @@ export function takeOut(tx: InATransaction, tenantId: string, parentId: string, 
 /**
  * Which of these Items the parent already sits inside, however deep: putting
  * one of them in it would make an Item its own ancestor. Walks up from the
- * parent by `item_children_tenant_child`, one row per level.
+ * parent by `item_children_tenant_child`, one row per level, through Items
+ * alone: a Panel is never a parent (issue 1846).
  */
 export function ancestorsAmong(db: AccountDb, tenantId: string, parentId: string, childIds: readonly string[]): string[] {
   if (childIds.length === 0) return [];
@@ -185,7 +186,8 @@ export function ancestorsAmong(db: AccountDb, tenantId: string, parentId: string
                                SELECT ${parentId}
                                UNION
                                SELECT c.parent_id FROM item_children c JOIN up ON c.child_id = up.id
-                                WHERE c.tenant_id = ${tenantId} AND c.deleted_at IS NULL)
+                                WHERE c.tenant_id = ${tenantId} AND c.deleted_at IS NULL
+                                  AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = c.parent_id))
                              SELECT id FROM up WHERE id IN (${candidates})`)
     .map((row) => row.id);
 }

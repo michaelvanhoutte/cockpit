@@ -81,7 +81,7 @@ async function snapshot(): Promise<WorkspaceSnapshot> {
 /** The Inbox the app draws, from the Workspace's read. */
 async function inTheAppsInbox(itemId: string): Promise<boolean> {
   const read = await snapshot();
-  return itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? [], read.panels).some(
+  return itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? []).some(
     (item) => item.id === itemId,
   );
 }

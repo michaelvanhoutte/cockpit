@@ -179,7 +179,7 @@ describe('Triage', () => {
       const read = await snapshot();
       expect(read.panels.find((panel) => panel.id === parent)).toMatchObject({ name: 'Chapter 3', dashboardId: DASHBOARD_ID });
       expect(read.filings.filter((filing) => filing.panelId === parent).map((filing) => filing.itemId)).toEqual([a, b]);
-      const inbox = itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? [], read.panels);
+      const inbox = itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? []);
       expect(inbox.filter((item) => [a, b].includes(item.id))).toEqual([]);
       const unfiled = await storeNamed(ACCOUNT_NAME).unfiledItemsInWorkspace(ACCOUNT_NAME, WORKSPACE_ID);
       expect(unfiled.status === 'ok' && unfiled.value.some((item) => [a, b].includes(item.id))).toBe(false);
@@ -218,7 +218,7 @@ describe('Triage', () => {
       const during = await snapshot();
       expect(during.children).toContainEqual(expect.objectContaining({ parentId: merged, childId: child }));
       expect(during.items.find((item) => item.id === merged)).toMatchObject({ childrenCount: 1 });
-      const inbox = itemsInTheInbox(during.items, filingsThatFile(during.filings, during.panels), during.children ?? [], during.panels);
+      const inbox = itemsInTheInbox(during.items, filingsThatFile(during.filings, during.panels), during.children ?? []);
       expect(inbox.map((item) => item.id)).not.toContain(child);
 
       await send('unmerge_items', { itemId: merged, originalIds: [a, b] });

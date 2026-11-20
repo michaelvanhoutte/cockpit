@@ -2232,31 +2232,8 @@ export function runCommand<N extends CommandName>(
         }
       };
       const story = cmd.description ?? cmd.title;
-      if (cmd.dashboardId !== null) {
-        // From the Inbox: a new Panel on the Dashboard, which is the parent Item, and what is filed on it is what it holds.
-        const dashboard = dashboardTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.dashboardId);
-        const name = panelNameForMove(listPanels(db, tenantId, dashboard.id), cmd.title);
-        const appended = appendedAcrossLayouts(db, tenantId, dashboard.id, cmd.parentId);
-        const panel = panelFromCommand({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, dashboardId: dashboard.id, panelId: cmd.parentId, name, kind: 'items' }, tenantId);
-        db.transaction((tx) => {
-          insertPanel(tx, panel, cmd.workspaceId);
-          insertAppended(tx, appended);
-          tx.update(items)
-            .set({ description: story, keepsStory: true })
-            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.parentId)))
-            .run();
-          settleChildren(tx);
-          cmd.childIds.forEach((itemId, position) => {
-            tx.insert(panelItems)
-              .values({ tenantId, panelId: cmd.parentId, itemId, position, createdAt: cmd.issuedAt, filedAt: cmd.issuedAt })
-              .run();
-          });
-          mirrorFilingsOf(tx, tenantId, [cmd.parentId], cmd.issuedAt);
-          tx.insert(commands).values(commandRow).run();
-        });
-        break;
-      }
-      // From a Panel: a new Item filed on it, so a child Panel of it; or with no Panel, one of the Workspace's own.
+      // From a Panel: a new Item filed on it, as a row there. From the Inbox: an Item filed nowhere, so it stays in
+      // the Inbox holding them (issue 1846). A Dashboard an older tab names makes no Panel: a Panel is never an Item.
       const nested = cmd.panelId === null ? null : panelNamedFor(db, tenantId, cmd.workspaceId, cmd.panelId);
       if (cmd.panelId !== null && !nested) throw new PanelNotFoundError(cmd.panelId);
       const { item, filings } = decideCaptureFiling(

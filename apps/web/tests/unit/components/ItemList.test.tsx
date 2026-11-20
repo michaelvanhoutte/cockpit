@@ -4407,7 +4407,7 @@ describe('Triage', () => {
       );
     });
 
-    it('combines them under a new parent made as a Panel of the open Dashboard when they came from the Inbox', async () => {
+    it('combines them under a new parent that stays in the Inbox when they came from the Inbox, making no Panel', async () => {
       const { user, dialog } = await combining([BART, LISA]);
 
       await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
@@ -4415,12 +4415,12 @@ describe('Triage', () => {
       expect(held.send).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'combine_under_new_parent',
-          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: TODAY.id }),
+          payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: null }),
         }),
       );
     });
 
-    it('combines them under a new parent made as a child Panel of the Panel the first one is filed on', async () => {
+    it('combines them under a new parent filed on the Panel the first one is filed on', async () => {
       held.dashboards = [TODAY];
       held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
       held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
