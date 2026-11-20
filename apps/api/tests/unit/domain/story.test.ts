@@ -62,10 +62,10 @@ describe('Triage', () => {
       else expect(written).toMatchObject(becomes);
     });
 
-    it('drops the clean-up\'s mark on a description it replaces, so your next edit corrects the story, not a clean-up', () => {
-      const written = applyProposedStory(aParent({ textsProposedAt: MADE }), 'A new story.', LATER);
+    it('drops the clean-up\'s mark and its other readings on a description it replaces, so neither can undo the story', () => {
+      const written = applyProposedStory(aParent({ textsProposedAt: MADE, readings: [{ title: 'Ferry', description: 'Book the ferry.', meaning: 'a task' }] }), 'A new story.', LATER);
 
-      expect(written).toMatchObject({ description: 'A new story.', storyProposal: null, textsProposedAt: null });
+      expect(written).toMatchObject({ description: 'A new story.', storyProposal: null, textsProposedAt: null, readings: null });
     });
 
     it('never moves what makes the texts yours or the clock other changes are measured against', () => {

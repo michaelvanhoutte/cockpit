@@ -4,6 +4,7 @@ import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, inStoreAsItIs } from '../seed
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { aModelThatReads, batchOf, captureANote, nextId, postChange, writing } from './note-cleanup.support.js';
+import { connected, mcp } from './connected-apps.support.js';
 
 /**
  * L2: Claude keeping a parent's story up to date ("Brainstorming: a parent's
@@ -211,6 +212,20 @@ describe('Triage', () => {
       expect(rewrites()[0]).toMatchObject({ itemId: parentId });
       held = [];
       expect((await postChange('set_dismissed', { ...envelope(), itemId: child, dismissed: false })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: parentId });
+    });
+
+    it('queues one when a connected app deletes a child over MCP', async () => {
+      const parentId = await aParent();
+      const child = await aNote();
+      await addChildren(parentId, [child]);
+      await untilRewrites(1);
+      held = [];
+      const { token } = await connected();
+
+      expect((await mcp(token, 'tools/call', { name: 'delete_item', arguments: { id: child } })).status).toBe(200);
+
       await untilRewrites(1);
       expect(rewrites()[0]).toMatchObject({ itemId: parentId });
     });

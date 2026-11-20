@@ -54,7 +54,8 @@ export function applyProposedStory(item: Item, story: string, at: string): Item 
   if (item.textsSettledAt === null) {
     if (item.description === story && !item.storyProposal) return null;
     // `textsProposedAt` goes too: the person's next edit corrects the story, not a clean-up that never wrote it.
-    return { ...item, description: story, storyProposal: null, storyProposedAt: null, textsProposedAt: null };
+    // The clean-up's other readings were of the words replaced, so picking one would undo the story.
+    return { ...item, description: story, storyProposal: null, storyProposedAt: null, textsProposedAt: null, readings: null };
   }
   if (item.description === story) {
     // The person's own words already say it: nothing to review, and a Review left waiting is moot.

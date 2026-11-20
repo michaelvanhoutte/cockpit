@@ -947,7 +947,7 @@ export function ItemRow({
           </M.Item>
         ),
       ],
-      // What it holds is a story Claude can keep up to date, or write once from its children (issue 1827). Only on an
+      // What it holds is a story Claude can keep up to date, or write once from its children ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). Only on an
       // Item that holds Items: one that holds none has no story to keep.
       holds
         ? [

@@ -31,7 +31,7 @@ type Choice = 'merge' | 'new-parent' | 'existing-parent';
  * `add_children` for an Item you pick. The texts sent are stitched
  * (`stitchedDescription`), which is what stands where Claude cannot write: the
  * server asks Claude for the description of what a Merge or a new parent makes,
- * replacing the stitched one while it is still Claude's (issue 1827).
+ * replacing the stitched one while it is still Claude's ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
  */
 export default function CombineDialog({
   workspaceId,

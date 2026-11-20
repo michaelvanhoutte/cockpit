@@ -488,7 +488,7 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0112-story-proposal` adds the Review a rewrite leaves once the description is yours (issue 1827);
+    // `0112-story-proposal` adds the Review a rewrite leaves once the description is yours ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827);
     // the guest's demonstration adds rows only, and only to the guest.
     items: ['story_proposal', 'story_proposed_at'],
   };

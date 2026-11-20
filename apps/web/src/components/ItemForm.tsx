@@ -2030,7 +2030,7 @@ function TheForm({
                       </button>
                     </p>
                   )}
-                  {/* Claude rewrote a parent's story once the description was yours: *Use it* or *Keep mine* (issue 1827). */}
+                  {/* Claude rewrote a parent's story once the description was yours: *Use it* or *Keep mine* ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). */}
                   {item && (
                     <StoryReview
                       workspaceId={workspaceId}
