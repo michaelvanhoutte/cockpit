@@ -18,6 +18,7 @@ import {
   drawnRows,
   groupFilterRows,
   panelRows,
+  panelTakesItems,
   isLater,
   ancestorIdsOf,
   sortOf,
@@ -843,13 +844,12 @@ export function PanelBoard({
     // Or a child row unfolded under one of its rows, which Find unfolds before
     // it asks ("Brainstorming: an Item can't hold other Items", issue 1825).
     if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId) && row === null) {
-      // A row set aside as later: show them, and the row is drawn on the next pass.
+      // A row set aside as later, or one under a row that is: show them, and
+      // the row is drawn on the next pass. Only a Panel of Items sets any aside.
       const panel = panels.find((one) => one.id === panelId);
-      if (panel && !laterShownOn(panelId)) {
-        const all = rowsOf(panel, false).rows;
-        const above = ancestorIdsOf(childRows, landing.itemId);
-        const target = items.find((item) => item.id === landing.itemId);
-        if (all.some((item) => item.id === landing.itemId || above.has(item.id)) || (target && isLater(target.dueDate, today))) {
+      if (panel && panelTakesItems(panel) && !laterShownOn(panelId)) {
+        const hiding = new Set([landing.itemId, ...ancestorIdsOf(childRows, landing.itemId)]);
+        if (items.some((item) => hiding.has(item.id) && isLater(item.dueDate, today))) {
           setLaterShown(panelId, true);
           return;
         }

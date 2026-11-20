@@ -5114,6 +5114,31 @@ describe('Panels', () => {
       expect(header().getByRole('button', { name: '· 1 later' })).toBeVisible();
     });
 
+    it('shows the later Items when Find lands on one, and outlines its row', () => {
+      board();
+
+      act(() => askToLand({ itemId: far.id, place: { kind: 'panel', dashboardId: DASHBOARD.id, panelId: 'tasks' }, focus: false }));
+
+      expect(isLaterShown('tasks')).toBe(true);
+      expect(screen.getByText('Cancel NordVPN').closest('[data-item-id]')).toHaveAttribute('data-shown');
+      act(() => forgetLanding());
+    });
+
+    it('leaves the later Items hidden when Find lands on a near child of a shown row', () => {
+      const nearChild = { ...anItem(ID(6), 'Pick up the photos'), dueDate: '2026-11-22' };
+      const parent = { ...near, childrenCount: 1, childrenDone: 0 };
+      board({
+        items: [parent, far, nearChild],
+        filings: filed(parent, far),
+        childRows: [{ parentId: parent.id, childId: nearChild.id, position: 0 }],
+      });
+
+      act(() => askToLand({ itemId: nearChild.id, place: { kind: 'panel', dashboardId: DASHBOARD.id, panelId: 'tasks' }, focus: false }));
+
+      expect(isLaterShown('tasks')).toBe(false);
+      act(() => forgetLanding());
+    });
+
     it('sets nothing aside on a Panel of text', () => {
       showBoard({ panels: [aPanelOfText('notes', 'Notes')] });
 
