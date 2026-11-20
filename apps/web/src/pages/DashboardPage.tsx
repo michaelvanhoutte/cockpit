@@ -1,11 +1,11 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy } from 'react';
 import { useSnapshot } from '../api/useSnapshot';
 import { dashboardRoute } from '../router';
 import { LoadFailure } from '../components/LoadFailure';
 import { PanelBoard } from '../components/PanelBoard';
 import { itemsLeftOut } from '../persistence';
 import { boardLayoutOf } from '../boardLayout';
-import { aCardIsWanted, useCardWanted } from '../boardFocus';
+import { useBoardOnPhone } from '../boardFocus';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 
 /** The whiteboard and the panes around it, with `@xyflow/react`: a chunk of their own, fetched once a board is shown. */
@@ -25,14 +25,9 @@ export function DashboardPage() {
   const { workspaceId, dashboardId } = dashboardRoute.useParams();
   const { data, dataUpdatedAt, isLoading, error, refetch } = useSnapshot(workspaceId);
   const leftOut = itemsLeftOut(workspaceId, dataUpdatedAt);
-  // A phone shows the Panels or the whiteboard, one at a time; this is the Dashboard whose board it shows.
-  const [boardOnPhone, setBoardOnPhone] = useState<string | null>(null);
   const phone = !useRoomForTheInbox();
-  // A card asked to be shown (Relations' *On whiteboards*) opens a phone's board.
-  const wanted = useCardWanted();
-  useEffect(() => {
-    if (phone && aCardIsWanted(dashboardId)) setBoardOnPhone(dashboardId);
-  }, [wanted, phone, dashboardId]);
+  // A phone shows the Panels or the whiteboard, one at a time, chosen in the Dashboard bar (`LayoutSwitch`).
+  const boardOnPhone = useBoardOnPhone(dashboardId);
 
   if (error && !data) {
     return <LoadFailure error={error} onRetry={() => void refetch()} />;
@@ -43,27 +38,10 @@ export function DashboardPage() {
 
   const dashboard = data.dashboards.find((d) => d.id === dashboardId);
   const { view, splitShare } = boardLayoutOf(data, dashboardId);
-  const showsBoard = phone ? boardOnPhone === dashboardId : view !== 'panels';
+  const showsBoard = phone ? boardOnPhone : view !== 'panels';
 
   return (
     <div className={`flex min-w-0 flex-col ${showsBoard ? 'h-full gap-2' : 'gap-6'}`}>
-      {dashboard && phone && (
-        // *Panels | Whiteboard* on a phone, where the board is to look at and tap.
-        <div role="tablist" aria-label="Show" className="flex self-center rounded-md bg-shade/10 p-0.5">
-          {(['panels', 'board'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={(tab === 'board') === showsBoard}
-              onClick={() => setBoardOnPhone(tab === 'board' ? dashboardId : null)}
-              className={`rounded px-4 py-1.5 text-sm ${(tab === 'board') === showsBoard ? 'bg-surface font-medium text-ink shadow-sm' : 'text-ink-soft'}`}
-            >
-              {tab === 'panels' ? 'Panels' : 'Whiteboard'}
-            </button>
-          ))}
-        </div>
-      )}
       {/* No notice here when there is a read held to draw from: the shell
           says it once for the whole window (Layout.tsx), because a workspace
           that cannot be read is a fact about the workspace rather than about

@@ -11,6 +11,8 @@ import { useSyncExternalStore } from 'react';
  */
 let selected: ReadonlySet<string> = new Set();
 let wanted: { dashboardId: string; cardId: string } | null = null;
+/** The Dashboard whose whiteboard a phone shows in place of its Panels, if any. */
+let boardOnPhone: string | null = null;
 const listeners = new Set<() => void>();
 const tell = () => listeners.forEach((listener) => listener());
 const subscribe = (listener: () => void) => {
@@ -34,7 +36,20 @@ export function useSelectedOnTheBoard(itemId: string): boolean {
 /** Asks the board of `dashboardId` to select this card and bring it into view, once drawn. */
 export function showTheCard(dashboardId: string, cardId: string): void {
   wanted = { dashboardId, cardId };
+  // On a phone the board is shown in place of the Panels to get there.
+  boardOnPhone = dashboardId;
   tell();
+}
+
+/** *Panels | Whiteboard* on a phone: the Dashboard whose board is shown, or null for its Panels. */
+export function showBoardOnPhone(dashboardId: string | null): void {
+  boardOnPhone = dashboardId;
+  tell();
+}
+
+/** Whether a phone shows this Dashboard's whiteboard in place of its Panels. */
+export function useBoardOnPhone(dashboardId: string): boolean {
+  return useSyncExternalStore(subscribe, () => boardOnPhone === dashboardId, () => false);
 }
 
 /** The card asked to be shown on this board, if any, taken so it is shown once. */
@@ -43,11 +58,6 @@ export function cardWanted(dashboardId: string): string | null {
   const { cardId } = wanted;
   wanted = null;
   return cardId;
-}
-
-/** Whether a card is waiting to be shown on this board, without taking it: what opens a phone's board. */
-export function aCardIsWanted(dashboardId: string): boolean {
-  return wanted?.dashboardId === dashboardId;
 }
 
 /** Changes whenever a card is asked to be shown, for a board already drawn to hear of it. */

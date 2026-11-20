@@ -3,6 +3,7 @@ import type { DashboardView } from '@cockpit/shared/board';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { boardLayoutOf } from '../boardLayout';
+import { showBoardOnPhone, useBoardOnPhone } from '../boardFocus';
 import { useUndo } from '../undo';
 
 const R = (x: number, y: number, w: number, h: number, fill = false) => (
@@ -48,6 +49,35 @@ export function LayoutSwitch({ workspaceId, dashboardId }: { workspaceId: string
         >
           <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
             {choice.icon}
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * *Panels | Whiteboard* on a phone, in the Dashboard bar where a desk has its
+ * four layout icons: the board shown in place of the Panels, to look at and
+ * tap. Not remembered, so a Dashboard opens on its Panels.
+ */
+export function PhoneBoardSwitch({ dashboardId }: { dashboardId: string }) {
+  const onBoard = useBoardOnPhone(dashboardId);
+  return (
+    <div role="tablist" aria-label="Show" className="mb-1 flex shrink-0 items-center rounded-md bg-white/6 p-0.5">
+      {([false, true] as const).map((board) => (
+        <button
+          key={String(board)}
+          type="button"
+          role="tab"
+          aria-selected={onBoard === board}
+          aria-label={board ? 'Whiteboard' : 'Panels'}
+          title={board ? 'Whiteboard' : 'Panels'}
+          onClick={() => showBoardOnPhone(board ? dashboardId : null)}
+          className={`flex items-center rounded px-1.5 py-1 ${onBoard === board ? 'bg-white/90 text-ink' : 'text-chrome-ink hover:bg-white/10'}`}
+        >
+          <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+            {board ? CHOICES[3]!.icon : CHOICES[0]!.icon}
           </svg>
         </button>
       ))}
