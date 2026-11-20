@@ -574,6 +574,138 @@ describe('Whiteboard', () => {
 });
 
 describe('Whiteboard', () => {
+  describe('dragging a card on the board moves it between boxes and open space and files nothing', () => {
+    it.each([
+      { situation: 'into a box', into: 'box' as const, boxIs: 'that box' },
+      { situation: 'onto open space', into: 'space' as const, boxIs: 'none' },
+      { situation: 'into a box inside a box', into: 'inner' as const, boxIs: 'the inner box' },
+    ])('puts a card dropped $situation in $boxIs, and leaves every filing as it was', async ({ into }) => {
+      const { itemId } = await aFiledItem('Storm scene');
+      const outer = await aBox('Act one');
+      const inner = await aBox('People', outer);
+      const cardId = await aCard(itemId, DASHBOARD_ID, outer);
+      const filedBefore = (await snapshot()).filings;
+
+      const boxId = into === 'box' ? outer : into === 'inner' ? inner : null;
+      await ok('move_card', { cardId, boxId, x: 30, y: 60 });
+
+      expect(await cardsOf(itemId)).toEqual([{ id: cardId, dashboardId: DASHBOARD_ID, itemId, boxId, x: 30, y: 60 }]);
+      expect((await snapshot()).filings).toEqual(filedBefore);
+    });
+  });
+
+  describe('taking a card off removes only the card', () => {
+    it('leaves its filings, its parents and its children as they were', async () => {
+      const { itemId: parentId } = await aFiledItem('Chapter 3');
+      const { itemId, panelId } = await aFiledItem('Storm scene');
+      const childId = await anItem('Waves');
+      await ok('add_children', { parentId, childIds: [itemId] });
+      await ok('add_children', { parentId: itemId, childIds: [childId] });
+      const cardId = await aCard(itemId);
+      const before = await snapshot();
+
+      await ok('take_card_off', { cardId });
+
+      const after = await snapshot();
+      expect(after.whiteboards.cards).toEqual([]);
+      expect(after.filings).toEqual(before.filings);
+      expect(after.children).toEqual(before.children);
+      expect(after.filings.some((filing) => filing.panelId === panelId && filing.itemId === itemId)).toBe(true);
+      expect(after.items.map((item) => item.id).sort()).toEqual(before.items.map((item) => item.id).sort());
+    });
+  });
+
+  describe('putting an Item inside a card makes it a parent holding the Item, and never a Panel or a box', () => {
+    it('adds the Item to the one on the card, creating no Panel and no box', async () => {
+      const target = await aFiledItem('Chapter 3');
+      const { itemId } = await aFiledItem('Storm scene');
+      await aCard(target.itemId);
+      const [panels, boxes] = [(await snapshot()).panels.length, (await snapshot()).whiteboards.boxes.length];
+
+      await ok('add_children', { parentId: target.itemId, childIds: [itemId] });
+
+      const read = await snapshot();
+      expect(read.children?.filter((row) => row.parentId === target.itemId).map((row) => row.childId)).toEqual([itemId]);
+      expect(read.items.some((item) => item.id === target.itemId)).toBe(true);
+      expect([read.panels.length, read.whiteboards.boxes.length]).toEqual([panels, boxes]);
+    });
+  });
+
+  describe('Combine on the board draws the new parent at the first card’s spot, in its box', () => {
+    async function combine(childIds: string[], panelId: string | null, cardId = nextId()) {
+      const parentId = nextId();
+      await ok('combine_under_new_parent', {
+        parentId,
+        title: 'Combined: crossing',
+        description: null,
+        childIds,
+        panelId,
+        dashboardId: null,
+        onBoard: { dashboardId: DASHBOARD_ID, cardId },
+      });
+      return { parentId, cardId };
+    }
+
+    it('puts the parent’s card in the first card’s box, at its spot, and takes the cards of what it holds off', async () => {
+      const first = await aFiledItem('Storm scene');
+      const second = await aFiledItem('Ferry scene');
+      const boxId = await aBox('Act one');
+      await aCard(first.itemId, DASHBOARD_ID, boxId);
+      await aCard(second.itemId);
+
+      const { parentId, cardId } = await combine([first.itemId, second.itemId], first.panelId);
+
+      expect((await snapshot()).whiteboards.cards).toEqual([{ id: cardId, dashboardId: DASHBOARD_ID, itemId: parentId, boxId, x: 10, y: 20 }]);
+    });
+
+    it('puts it on open space where the first card is on open space', async () => {
+      const first = await aFiledItem('Storm scene');
+      const second = await aFiledItem('Ferry scene');
+      await ok('move_card', { cardId: await aCard(first.itemId), boxId: null, x: 300, y: 80 });
+
+      const { parentId, cardId } = await combine([first.itemId, second.itemId], first.panelId);
+
+      expect((await snapshot()).whiteboards.cards).toEqual([{ id: cardId, dashboardId: DASHBOARD_ID, itemId: parentId, boxId: null, x: 300, y: 80 }]);
+    });
+
+    it('makes the parent a child of the Item the first one is inside, and draws it too', async () => {
+      const holder = await aFiledItem('Chapter 3');
+      const first = await anItem('Storm scene');
+      const second = await anItem('Ferry scene');
+      await ok('add_children', { parentId: holder.itemId, childIds: [first, second] });
+      await aCard(first);
+
+      const { parentId, cardId } = await combine([first, second], null);
+
+      const read = await snapshot();
+      expect(read.children?.some((row) => row.parentId === holder.itemId && row.childId === parentId)).toBe(true);
+      expect(read.whiteboards.cards).toEqual([expect.objectContaining({ id: cardId, itemId: parentId })]);
+    });
+
+    it('places nothing where the first Item has no card on this board, and leaves the cards it has', async () => {
+      const first = await aFiledItem('Storm scene');
+      const second = await aFiledItem('Ferry scene');
+      const secondCard = await aCard(second.itemId);
+
+      await combine([first.itemId, second.itemId], first.panelId);
+
+      expect((await snapshot()).whiteboards.cards.map((card) => card.id)).toEqual([secondCard]);
+    });
+
+    it('places no card for a parent that lands in the Inbox, and leaves the cards of what it holds', async () => {
+      const first = await aFiledItem('Storm scene');
+      const second = await aFiledItem('Ferry scene');
+      const firstCard = await aCard(first.itemId);
+
+      const { parentId } = await combine([first.itemId, second.itemId], null);
+
+      expect(await inTheInbox(parentId)).toBe(true);
+      expect((await snapshot()).whiteboards.cards.map((card) => card.id)).toEqual([firstCard]);
+    });
+  });
+});
+
+describe('Whiteboard', () => {
   describe('one Workspace never names another’s boards', () => {
     it('refuses a card placed on a Dashboard of another Workspace', async () => {
       const { itemId } = await aFiledItem('Storm scene');

@@ -48,6 +48,17 @@ export const unmergeItemsSchema = commandEnvelopeSchema
 export type UnmergeItemsCommand = z.infer<typeof unmergeItemsSchema>;
 
 /**
+ * Combine made from a Dashboard ("Brainstorming: cards on the whiteboard can't
+ * be nested, combined or moved between boxes", issue 1830): the Dashboard's
+ * whiteboard and the id the new parent's card is made with. Where the first
+ * Item has a card on that board, the new parent gets a card at its spot, in its
+ * box, and the cards of the Items it now holds come off that board, since the
+ * parent's card unfolds to them; where the first has none, or the parent lands
+ * in the Inbox, which no board holds, nothing is placed.
+ */
+const onBoardSchema = z.object({ dashboardId: z.string().min(1), cardId: z.uuid() });
+
+/**
  * combine_under_new_parent — **Combine ▸ Combine under a new parent** (issue
  * 1826): the Items stay where they are and a new Item holds them, placed
  * where the first Item is ("Brainstorming: a Panel is an Item nobody can
@@ -69,6 +80,7 @@ export const combineUnderNewParentSchema = commandEnvelopeSchema
     childIds: z.array(z.uuid()).min(2).max(CHILDREN_ADDED_AT_ONCE),
     panelId: z.uuid().nullable(),
     dashboardId: z.string().nullable(),
+    onBoard: onBoardSchema.optional(),
   })
   .refine((cmd) => eachOnce(cmd.childIds, cmd.parentId), { message: 'each item once, and not the new parent', path: ['childIds'] })
   .refine((cmd) => cmd.panelId === null || cmd.dashboardId === null, {
