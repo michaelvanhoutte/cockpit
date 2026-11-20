@@ -50,9 +50,8 @@ export function childrenForStory(children: readonly StoryChild[]): { read: Story
  *
  * `updatedAt` is left where it is, for the reason `applyProposedTexts` gives.
  */
-export function applyProposedStory(item: Item, story: string, at: string, aPanelsOwnItem = false): Item | null {
-  // A Panel's own Item is born settled, but no one has written its description: it is Claude's to replace.
-  if (item.textsSettledAt === null || aPanelsOwnItem) {
+export function applyProposedStory(item: Item, story: string, at: string): Item | null {
+  if (item.textsSettledAt === null) {
     if (item.description === story && !item.storyProposal) return null;
     // `textsProposedAt` goes too: the person's next edit corrects the story, not a clean-up that never wrote it.
     return { ...item, description: story, storyProposal: null, storyProposedAt: null, textsProposedAt: null };

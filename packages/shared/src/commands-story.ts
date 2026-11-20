@@ -10,10 +10,10 @@ import { DESCRIPTION_MAX_LENGTH } from './domain/item.js';
  * reason `commands-combine.ts` gives: the API mounts the schemas, the app only
  * needs their types.
  *
- * `itemId` is a parent Item or a Panel's own Item, whose id is the Panel's.
+ * `itemId` is always an Item, never a Panel: a Panel holds Items but tells no story.
  */
 
-/** set_keeps_story - *Keep its story up to date* ticked or cleared in a Panel's menu, stored per Item. */
+/** set_keeps_story - *Keep its story up to date* ticked or cleared in the menu of an Item that holds Items, stored per Item. */
 export const setKeepsStorySchema = commandEnvelopeSchema.extend({
   itemId: z.uuid(),
   keepsStory: z.boolean(),

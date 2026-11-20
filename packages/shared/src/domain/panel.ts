@@ -583,8 +583,6 @@ export const panelSchema = z.object({
    * existed, or a width this release has never heard of, reads as one list.
    */
   columns: panelColumnsSchema.nullable().catch(null).default(null),
-  /** Whether Claude keeps the description of this Panel's own Item up to date as Items join or leave it ("Keep its story up to date", issue 1827). A copy from before this existed reads as off. */
-  keepsStory: z.boolean().optional(),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

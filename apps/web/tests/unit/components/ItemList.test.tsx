@@ -4258,20 +4258,13 @@ describe('Panels', () => {
       );
     });
 
-    it('still offers to turn Keep its story up to date off on a parent that lost its last child', async () => {
-      const emptied = { ...CHAPTER, keepsStory: true, childrenCount: 0 };
-      held.items = [emptied];
-      const user = await showList({ items: [emptied], openDashboardId: TODAY.id, panelId: 'p-falcon' });
-
-      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
-
-      expect(await screen.findByRole('menuitem', { name: 'Keep its story up to date, on' })).toBeInTheDocument();
-    });
-
-    it('offers neither on a row that holds nothing', async () => {
-      held.items = [STORM];
+    it.each([
+      { situation: 'a row that never held anything', row: STORM },
+      { situation: 'a parent that lost its last child, its setting still on', row: { ...STORM, keepsStory: true, childrenCount: 0 } },
+    ])('offers neither on $situation', async ({ row }) => {
+      held.items = [row];
       held.filings = [{ panelId: 'p-falcon', itemId: STORM.id, position: 0 }];
-      const user = await showList({ items: [STORM], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      const user = await showList({ items: [row], openDashboardId: TODAY.id, panelId: 'p-falcon' });
 
       await user.click(within(screen.getByText('Storm scene').closest('li')!).getByRole('button', { name: 'Item actions' }));
       await screen.findByRole('menuitem', { name: 'Open' });

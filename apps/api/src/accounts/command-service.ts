@@ -55,9 +55,7 @@ import {
   getDashboard,
   getItem,
   getLayout,
-  getStoryHolder,
   holdsAStory,
-  isAPanelsOwnItem,
   storyKeepersAmong,
   getPanel,
   getSeries,
@@ -1323,14 +1321,13 @@ export function runCommand<N extends CommandName>(
   let addressLetGo: string | null = null;
   // Set only by `read_pasted_link`, where it applied.
   let textsWritten: boolean | null = null;
-  // The Items and Panels a child joined or left, or that were just made with their first story to write
-  // ("Keep its story up to date", issue 1827); the ones that keep their story are `rewriteStoryOf` below.
+  // The Items a child joined or left in `item_children` ("Keep its story up to date", issue 1827); the ones that keep
+  // their story are `rewriteStoryOf` below. Filing on a Panel is never one: a Panel holds Items but tells no story.
   const storyOfItems = new Set<string>();
-  const storyOfPanels = new Set<string>();
   // Asked for by name, whatever the setting: *Rewrite from its children*, and the first story of what Combine makes.
   const storyAsked = new Set<string>();
   const rewriteStoryOf = (): { rewriteStoryOf?: string[] } => {
-    const parents = [...new Set([...storyKeepersAmong(db, tenantId, [...storyOfItems], [...storyOfPanels]), ...storyAsked])];
+    const parents = [...new Set([...storyKeepersAmong(db, tenantId, [...storyOfItems]), ...storyAsked])];
     return parents.length > 0 ? { rewriteStoryOf: parents } : {};
   };
 
@@ -1985,7 +1982,6 @@ export function runCommand<N extends CommandName>(
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
-      for (const target of targets) storyOfPanels.add(target.id);
       break;
     }
     case 'append_to_item': {
@@ -2015,22 +2011,12 @@ export function runCommand<N extends CommandName>(
       // It has just left every other workspace's Inbox, so their snapshots are
       // stale too - the same reason a capture with no workspace carries this.
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
-      const wasOn = panelsHolding(db, tenantId, cmd.itemId);
-      // The Panels it leaves, read before the move takes it off them.
-      if (decided.takesItOffPanels) {
-        // Not the one it lands on: an Item taken off a Panel and put on it again holds the same Items, as a reorder does.
-        for (const panelId of decided.fromPanelIds ?? panelsHolding(db, tenantId, cmd.itemId)) {
-          if (panelId !== cmd.panelId) storyOfPanels.add(panelId);
-        }
-      }
 
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
-      // What it joined gains a child.
-      if (cmd.panelId !== null && !wasOn.includes(cmd.panelId)) storyOfPanels.add(cmd.panelId);
       break;
     }
     case 'add_item_to_panel': {
@@ -2038,7 +2024,6 @@ export function runCommand<N extends CommandName>(
       // Reachable from every workspace while it belongs to none, and settled by
       // landing on a panel - exactly as a move, because putting an item on a
       // panel is putting it on a panel whichever of the two commands says so.
-      const wasOnPanel = panelsHolding(db, tenantId, cmd.itemId).includes(cmd.panelId);
       const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [], fromTheSource)));
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
@@ -2046,7 +2031,6 @@ export function runCommand<N extends CommandName>(
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
-      if (!wasOnPanel) storyOfPanels.add(cmd.panelId);
       break;
     }
     case 'remove_item_from_panel': {
@@ -2054,7 +2038,6 @@ export function runCommand<N extends CommandName>(
       const item = getItem(db, tenantId, cmd.itemId);
       if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
-      const wasOnIt = panelsHolding(db, tenantId, cmd.itemId).includes(panel.id);
 
       db.transaction((tx) => {
         // One row. What is left keeps the places it had: a gap in the numbering
@@ -2072,8 +2055,6 @@ export function runCommand<N extends CommandName>(
         mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
-      // Taking off a Panel it was not on changes nothing it holds.
-      if (wasOnIt) storyOfPanels.add(panel.id);
       break;
     }
     case 'add_children': {
@@ -2198,7 +2179,6 @@ export function runCommand<N extends CommandName>(
       // what held the originals has lost them and gained it.
       storyAsked.add(item.id);
       for (const parentId of parents) storyOfItems.add(parentId);
-      for (const target of targets) storyOfPanels.add(target.id);
       break;
     }
     case 'unmerge_items': {
@@ -2218,7 +2198,6 @@ export function runCommand<N extends CommandName>(
       const reopened = back.flatMap((original) => runEndedWith(db, tenantId, original.id, original.deletedAt));
       // What held the Merge's Item has lost it.
       const heldTheMerge = itemParentsHolding(db, tenantId, [merged.id]);
-      const heldTheMergeOnPanels = panelsHolding(db, tenantId, merged.id);
       if (back.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
@@ -2264,7 +2243,6 @@ export function runCommand<N extends CommandName>(
         // The originals are children again where they were, and the Merge's Item is not.
         const ids = back.map((original) => original.id);
         for (const parentId of [...heldTheMerge, ...itemParentsHolding(db, tenantId, ids)]) storyOfItems.add(parentId);
-        for (const panelId of [...heldTheMergeOnPanels, ...panelsHeldBy(db, tenantId, ids)]) storyOfPanels.add(panelId);
       }
       break;
     }
@@ -2325,7 +2303,8 @@ export function runCommand<N extends CommandName>(
         tx.insert(commands).values(commandRow).run();
       });
       storyAsked.add(item.id);
-      if (nested) storyOfPanels.add(nested.id);
+      // The Item it went inside has gained a child.
+      if (besideFirst) storyOfItems.add(besideFirst);
       break;
     }
     case 'associate': {
@@ -2479,7 +2458,7 @@ export function runCommand<N extends CommandName>(
     }
     case 'set_keeps_story': {
       const cmd = payload as CommandPayload<'set_keeps_story'>;
-      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      const holder = getItem(db, tenantId, cmd.itemId);
       if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       applied = (holder.keepsStory === true) !== cmd.keepsStory;
       db.transaction((tx) => {
@@ -2495,7 +2474,7 @@ export function runCommand<N extends CommandName>(
     }
     case 'rewrite_story': {
       const cmd = payload as CommandPayload<'rewrite_story'>;
-      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      const holder = getItem(db, tenantId, cmd.itemId);
       if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       if (!holdsAStory(db, tenantId, holder)) throw new StoryRefusedError(itemLabel(holder));
       // Nothing is written here: the rewrite is the job's, asked for once whatever the setting.
@@ -2505,11 +2484,11 @@ export function runCommand<N extends CommandName>(
     }
     case 'propose_story': {
       const cmd = payload as CommandPayload<'propose_story'>;
-      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      const holder = getItem(db, tenantId, cmd.itemId);
       // The same 404, for the reason `propose_item_texts` above gives: the Item may be gone since the job read it.
       if (!holder || holder.deletedAt) throw new ItemNotFoundError(cmd.itemId);
       if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
-      const updated = applyProposedStory(holder, cmd.story, cmd.issuedAt, isAPanelsOwnItem(db, tenantId, holder.id));
+      const updated = applyProposedStory(holder, cmd.story, cmd.issuedAt);
       if (updated === null) {
         // Nothing to say that is not said, and still logged: a redelivery of this job is a replay.
         db.insert(commands).values(commandRow).run();
@@ -2525,7 +2504,7 @@ export function runCommand<N extends CommandName>(
     case 'use_story':
     case 'keep_my_story': {
       const cmd = payload as CommandPayload<'use_story'> | CommandPayload<'keep_my_story'>;
-      const holder = getStoryHolder(db, tenantId, cmd.itemId);
+      const holder = getItem(db, tenantId, cmd.itemId);
       if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
       const decided = name === 'use_story' ? applyUseStory(holder) : applyKeepMyStory(holder);
@@ -2611,11 +2590,7 @@ export function runCommand<N extends CommandName>(
           ...(proposed?.set ?? {}),
           ...(filed === null ? {} : { filedOnPanelIds: filed.panels.map((panel) => panel.panelId) }),
         };
-        if (filed !== null) {
-          settledRouting = true;
-          // Filed on a Panel that keeps its story: a child joining it.
-          for (const panel of filed.panels) storyOfPanels.add(panel.panelId);
-        }
+        if (filed !== null) settledRouting = true;
       }
       break;
     }
