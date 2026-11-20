@@ -8,6 +8,7 @@ import {
   moveItemToPanelSchema,
   proposeItemPanelSchema,
   proposeItemTextsSchema,
+  putInsideSchema,
   setConnectionDueInDaysSchema,
   setDuplicateSettledSchema,
   setPanelFilterSchema,
@@ -479,6 +480,44 @@ describe('Agents', () => {
       { situation: 'an Undo naming none', changes: { reopen: true }, accepted: false },
     ])('$situation', ({ changes, accepted }) => {
       expect(endClaudeRunSchema.safeParse({ ...base, ...changes }).success).toBe(accepted);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a put-inside change that is malformed is refused before it is sent', () => {
+    const [parent, one, two] = [uuidv7(), uuidv7(), uuidv7()];
+    const base = {
+      commandId: uuidv7(),
+      issuedAt: new Date().toISOString(), // clock-ok: a value no rule reads
+      workspaceId: 'ws-work',
+      parentId: parent,
+      childIds: [one, two],
+      order: [one, two],
+      leaves: [] as { itemId: string; parentId?: string; panelId?: string }[],
+    };
+    const many = Array.from({ length: 51 }, () => uuidv7());
+
+    it.each([
+      { situation: 'an Item named twice', put: { ...base, childIds: [one, one], order: [one] } },
+      { situation: 'the parent among the Items', put: { ...base, childIds: [one, parent], order: [one, parent] } },
+      { situation: '51 Items', put: { ...base, childIds: many, order: many } },
+      { situation: 'an order missing one of the Items', put: { ...base, order: [one] } },
+      { situation: 'an Item leaving the parent it goes inside', put: { ...base, leaves: [{ itemId: one, parentId: parent }] } },
+      { situation: 'an Item leaving nowhere in particular', put: { ...base, leaves: [{ itemId: one }] } },
+    ])('refuses $situation', ({ put }) => {
+      expect(putInsideSchema.safeParse(put).success).toBe(false);
+    });
+
+    it.each([
+      { situation: 'the whole order, leaving nothing', put: base },
+      { situation: 'an order that keeps what the parent held', put: { ...base, order: [uuidv7(), one, two] } },
+      {
+        situation: 'Items leaving a parent and a Panel',
+        put: { ...base, leaves: [{ itemId: one, parentId: uuidv7() }, { itemId: two, panelId: uuidv7() }] },
+      },
+    ])('accepts $situation', ({ put }) => {
+      expect(putInsideSchema.safeParse(put).success).toBe(true);
     });
   });
 });

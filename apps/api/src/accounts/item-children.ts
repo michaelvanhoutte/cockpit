@@ -161,6 +161,62 @@ export function putInside(tx: InATransaction, tenantId: string, parentId: string
   recount(tx, tenantId, parentId);
 }
 
+/**
+ * Why an order is not this parent's arrangement afterwards, or null when it is
+ * ("Drag to nest in Panels and the Inbox", issue 1857): it names every open or
+ * recently finished child the parent holds plus the Items arriving, and
+ * nothing else - bar a child finished at or before `finishedAfter`, which no
+ * up-to-date read carries and so may be left out, as a Panel's order may
+ * (issue 1435). An Item arriving is never left out.
+ */
+export function orderIsNotOfTheParent(
+  db: AccountDb,
+  tenantId: string,
+  parentId: string,
+  arriving: readonly string[],
+  order: readonly string[],
+  finishedAfter: string,
+): string | null {
+  const held = db.all<{ child_id: string; completed_at: string | null }>(
+    sql`SELECT c.child_id, k.completed_at FROM item_children c JOIN items k ON k.id = c.child_id
+         WHERE c.tenant_id = ${tenantId} AND c.parent_id = ${parentId}
+           AND c.deleted_at IS NULL AND k.deleted_at IS NULL`,
+  );
+  const expected = new Set([...held.map((row) => row.child_id), ...arriving]);
+  const mayLeaveOut = new Set(
+    held.filter((row) => row.completed_at !== null && row.completed_at <= finishedAfter).map((row) => row.child_id),
+  );
+  const named = new Set(order);
+  const sameItems =
+    order.every((id) => expected.has(id)) &&
+    [...expected].every((id) => named.has(id) || (!arriving.includes(id) && mayLeaveOut.has(id)));
+  return sameItems ? null : 'this item changed while you were looking at it: try the move again';
+}
+
+/**
+ * A parent's children put in the order given, whole: each one named takes the
+ * place it has in the order, one taken out before comes back, and the parent's
+ * counts are counted again. A child the order leaves out keeps its place.
+ */
+export function writeChildrenInOrder(
+  tx: InATransaction,
+  tenantId: string,
+  parentId: string,
+  order: readonly string[],
+  at: string,
+): void {
+  order.forEach((childId, position) => {
+    tx.run(sql`INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+                VALUES (${tenantId}, ${parentId}, ${childId}, ${position}, ${at})
+                ON CONFLICT (parent_id, child_id) DO UPDATE SET
+                  position = excluded.position,
+                  created_at = CASE WHEN item_children.deleted_at IS NULL THEN item_children.created_at
+                                    ELSE excluded.created_at END,
+                  deleted_at = NULL`);
+  });
+  recount(tx, tenantId, parentId);
+}
+
 /** One Item taken out of one parent, which keeps the places of the rest, and the parent counted again. */
 export function takeOut(tx: InATransaction, tenantId: string, parentId: string, childId: string, at: string): void {
   tx.run(sql`UPDATE item_children SET deleted_at = ${at}

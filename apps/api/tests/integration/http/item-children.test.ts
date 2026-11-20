@@ -8,6 +8,7 @@ import {
   ACCOUNT_NAME,
   DASHBOARD_ID,
   WORKSPACE_ID,
+  alsoWorkspaces,
   asUser,
   inTheStore,
   seedRegister,
@@ -415,6 +416,201 @@ describe('Panels', () => {
       });
 
       expect(plan).toContainEqual(expect.stringMatching(index));
+    });
+  });
+});
+
+/**
+ * "Drag to nest in Panels and the Inbox" (issue 1857): a drop onto a row is one
+ * `put_inside`, applied whole or refused whole.
+ */
+async function dropInside(
+  parentId: string,
+  childIds: string[],
+  order: string[],
+  leaves: { itemId: string; parentId?: string; panelId?: string }[] = [],
+  body: Record<string, unknown> = {},
+) {
+  return send('put_inside', { parentId, childIds, order, leaves, ...body });
+}
+
+async function childrenOf(parentId: string): Promise<string[]> {
+  return ((await snapshot()).children ?? []).filter((row) => row.parentId === parentId).map((row) => row.childId);
+}
+
+async function filedOn(panelId: string): Promise<string[]> {
+  return (await snapshot()).filings.filter((filing) => filing.panelId === panelId).map((filing) => filing.itemId);
+}
+
+type Leaves = { itemId: string; parentId?: string; panelId?: string }[];
+
+describe('Panels', () => {
+  describe('putting Items inside an Item applies whole or not at all', () => {
+    it.each([
+      {
+        situation: 'an Inbox Item put inside a parent',
+        arrange: async (_chapter: string, storm: string) => ({
+          leaves: [] as Leaves,
+          elsewhere: async () => !(await inTheAppsInbox(storm)),
+        }),
+      },
+      {
+        situation: 'an Item leaving one Panel it is filed on, of two',
+        arrange: async (_chapter: string, storm: string) => {
+          const [scenes, drafts] = [await aPanel('Scenes'), await aPanel('Drafts')];
+          expect((await fileOn(scenes, storm)).status).toBe(200);
+          expect((await send('add_item_to_panel', { itemId: storm, panelId: drafts, order: [storm] })).status).toBe(200);
+          return {
+            leaves: [{ itemId: storm, panelId: scenes }] as Leaves,
+            elsewhere: async () => (await filedOn(scenes)).length === 0 && (await filedOn(drafts)).includes(storm),
+          };
+        },
+      },
+      {
+        situation: 'an Item leaving one parent for another',
+        arrange: async (_chapter: string, storm: string) => {
+          const first = await anItem('Chapter 2');
+          expect((await putInside(first, storm)).status).toBe(200);
+          return {
+            leaves: [{ itemId: storm, parentId: first }] as Leaves,
+            elsewhere: async () => (await childrenOf(first)).length === 0,
+          };
+        },
+      },
+      {
+        situation: 'an Item added to a second parent, leaving nothing',
+        arrange: async (_chapter: string, storm: string) => {
+          const first = await anItem('Chapter 2');
+          expect((await putInside(first, storm)).status).toBe(200);
+          return { leaves: [] as Leaves, elsewhere: async () => (await childrenOf(first)).includes(storm) };
+        },
+      },
+    ])('$situation', async ({ arrange }) => {
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      const { leaves, elsewhere } = await arrange(chapter, storm);
+
+      expect((await dropInside(chapter, [storm], [storm], leaves)).status).toBe(200);
+
+      expect(await childrenOf(chapter)).toEqual([storm]);
+      expect(await elsewhere()).toBe(true);
+    });
+
+    it('refuses it, with the Item still where it was, when the parent was dismissed before the change arrived', async () => {
+      const scenes = await aPanel('Scenes');
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      expect((await fileOn(scenes, storm)).status).toBe(200);
+      expect((await send('set_dismissed', { itemId: chapter, dismissed: true })).status).toBe(200);
+
+      expect((await dropInside(chapter, [storm], [storm], [{ itemId: storm, panelId: scenes }])).status).toBe(404);
+
+      expect(await filedOn(scenes)).toEqual([storm]);
+    });
+
+    it('refuses it, with nothing left or put inside, when one of the Items holds the parent two levels down', async () => {
+      const scenes = await aPanel('Scenes');
+      const [top, middle, parent, storm] = [
+        await anItem('Book'),
+        await anItem('Part'),
+        await anItem('Chapter 3'),
+        await anItem('Storm scene'),
+      ];
+      expect((await putInside(top, middle)).status).toBe(200);
+      expect((await putInside(middle, parent)).status).toBe(200);
+      expect((await fileOn(scenes, storm)).status).toBe(200);
+
+      const refused = await dropInside(parent, [storm, top], [storm, top], [{ itemId: storm, panelId: scenes }]);
+
+      expect(refused.status).toBe(400);
+      expect(await childrenOf(parent)).toEqual([]);
+      expect(await filedOn(scenes)).toEqual([storm]);
+    });
+  });
+
+  describe('the same change sent twice is applied once', () => {
+    it('does not put an Item back inside once it was taken out after the first send', async () => {
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      const commandId = nextId();
+      expect((await dropInside(chapter, [storm], [storm], [], { commandId })).status).toBe(200);
+      expect((await send('remove_child', { parentId: chapter, childId: storm })).status).toBe(200);
+
+      const again = await dropInside(chapter, [storm], [storm], [], { commandId });
+
+      expect(again.status).toBe(200);
+      expect(await childrenOf(chapter)).toEqual([]);
+    });
+  });
+
+  describe('one Workspace never names another’s Items', () => {
+    it.each([
+      { situation: 'the parent is in another Workspace', where: 'parent' as const },
+      { situation: 'an Item is in another Workspace', where: 'child' as const },
+      { situation: 'the Panel it leaves is in another Workspace', where: 'panel' as const },
+    ])('refuses it when $situation', async ({ where }) => {
+      await alsoWorkspaces();
+      const here = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      const there = nextId();
+      expect((await send('capture_item', { workspaceId: 'ws-atlas', itemId: there, message: 'Atlas note' })).status).toBe(200);
+      const parent = where === 'parent' ? there : here;
+      const named = where === 'child' ? there : storm;
+      const theirs = nextId();
+      if (where === 'panel') {
+        const made = await send('add_panel', { workspaceId: 'ws-atlas', dashboardId: 'ws-atlas-dashboard-1', panelId: theirs, name: 'Atlas scenes', kind: 'items' });
+        expect(made.status).toBe(200);
+      }
+      const leaves: Leaves = where === 'panel' ? [{ itemId: named, panelId: theirs }] : [];
+
+      const answer = await dropInside(parent, [named], [named], leaves);
+
+      expect(answer.status).toBe(404);
+      expect(await childrenOf(parent)).toEqual([]);
+    });
+  });
+});
+
+describe('Ordering', () => {
+  describe('the order carried is the parent’s order afterwards', () => {
+    it.each([
+      { situation: 'arriving at the end', order: (held: string[], arriving: string) => [...held, arriving] },
+      { situation: 'arriving at the start', order: (held: string[], arriving: string) => [arriving, ...held] },
+    ])('holds the children in that order when $situation', async ({ order }) => {
+      const chapter = await anItem('Chapter 3');
+      const [first, second, arriving] = [await anItem('First'), await anItem('Second'), await anItem('Arriving')];
+      expect((await putInside(chapter, first, second)).status).toBe(200);
+
+      expect((await dropInside(chapter, [arriving], order([first, second], arriving))).status).toBe(200);
+
+      expect(await childrenOf(chapter)).toEqual(order([first, second], arriving));
+    });
+
+    it('refuses an order that leaves out an open child, and changes nothing', async () => {
+      const chapter = await anItem('Chapter 3');
+      const [first, second, arriving] = [await anItem('First'), await anItem('Second'), await anItem('Arriving')];
+      expect((await putInside(chapter, first, second)).status).toBe(200);
+
+      const refused = await dropInside(chapter, [arriving], [first, arriving]);
+
+      expect(refused.status).toBe(409);
+      expect(await childrenOf(chapter)).toEqual([first, second]);
+    });
+
+    it('accepts an order that leaves out a child finished 40 days ago, which keeps its position', async () => {
+      const chapter = await anItem('Chapter 3');
+      const old = await anItem('An old scene', daysAgo(41));
+      const [open, arriving] = [await anItem('A new scene'), await anItem('Arriving')];
+      expect((await putInside(chapter, old, open)).status).toBe(200);
+      expect((await send('set_done', { itemId: old, done: true }, daysAgo(40))).status).toBe(200);
+
+      expect((await dropInside(chapter, [arriving], [arriving, open])).status).toBe(200);
+
+      expect(await childrenOf(chapter)).toEqual([arriving, open]);
+      const kept = await inTheStore((sql) =>
+        sql.exec<{ position: number; deleted_at: string | null }>('SELECT position, deleted_at FROM item_children WHERE child_id = ?', old).one(),
+      );
+      expect(kept).toEqual({ position: 0, deleted_at: null });
     });
   });
 });

@@ -12,12 +12,14 @@ import {
   itemChildrenHeldBy,
   itemParentsHolding,
   mirrorFilingsOf,
+  orderIsNotOfTheParent,
   panelsHeldBy,
   panelsHolding,
   putInside,
   recountHoldersOf,
   renamePanelsItem,
   takeOut,
+  writeChildrenInOrder,
 } from './item-children.js';
 import {
   accountEmailAddress,
@@ -2060,6 +2062,57 @@ export function runCommand<N extends CommandName>(
           if (settled) settleWorkspace(tx, tenantId, child.id, settled);
         }
         putInside(tx, tenantId, parent.id, cmd.childIds, cmd.issuedAt);
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'put_inside': {
+      const cmd = payload as CommandPayload<'put_inside'>;
+      const parent = getItem(db, tenantId, cmd.parentId);
+      if (!parent || parent.deletedAt || !parent.workspaceDecided || parent.workspaceId !== cmd.workspaceId) {
+        throw new ItemNotFoundError(cmd.parentId);
+      }
+      const children = cmd.childIds.map((id) => {
+        const child = getItem(db, tenantId, id);
+        if (!child || child.deletedAt || (child.workspaceDecided && child.workspaceId !== parent.workspaceId)) throw new ItemNotFoundError(id);
+        return child;
+      });
+      // What each leaves must be this Workspace's too, or the change names another's Items.
+      for (const leave of cmd.leaves) {
+        if (leave.panelId !== undefined) {
+          panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, leave.panelId);
+          continue;
+        }
+        const from = getItem(db, tenantId, leave.parentId!);
+        if (!from || from.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(leave.parentId!);
+      }
+      const inside = ancestorsAmong(db, tenantId, parent.id, cmd.childIds);
+      if (inside.length > 0) {
+        const child = children.find((one) => one.id === inside[0])!;
+        throw new ItemInsideItselfError(itemLabel(child), itemLabel(parent));
+      }
+      const stale = orderIsNotOfTheParent(db, tenantId, parent.id, cmd.childIds, cmd.order, finishedKeptAfter(new Date()));
+      if (stale) throw new PanelOrderStaleError(stale);
+      const settling = children.filter((child) => !child.workspaceDecided);
+      if (settling.length > 0) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        for (const child of settling) {
+          const settled = decideWorkspace(child, parent.workspaceId, cmd.issuedAt);
+          if (settled) settleWorkspace(tx, tenantId, child.id, settled);
+        }
+        const leftPanels = new Set<string>();
+        for (const leave of cmd.leaves) {
+          if (leave.panelId !== undefined) {
+            tx.delete(panelItems)
+              .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, leave.panelId), eq(panelItems.itemId, leave.itemId)))
+              .run();
+            leftPanels.add(leave.panelId);
+          } else {
+            takeOut(tx, tenantId, leave.parentId!, leave.itemId, cmd.issuedAt);
+          }
+        }
+        mirrorFilingsOf(tx, tenantId, leftPanels, cmd.issuedAt);
+        writeChildrenInOrder(tx, tenantId, parent.id, cmd.order, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;

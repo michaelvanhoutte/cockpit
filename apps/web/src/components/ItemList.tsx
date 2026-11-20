@@ -79,6 +79,7 @@ import { FetchedPicker } from './FetchedPicker';
 import { useEditingSeveral } from './useEditingSeveral';
 import { useFilingSeveral } from './useFilingSeveral';
 import { useAddingAsChild } from './useAddingAsChild';
+import { useNestingDrop } from './useNestingDrop';
 
 /** Move or add, asked of a drop between panels - fetched only once a drop asks it, for the same reason. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
@@ -864,6 +865,8 @@ export function ItemList({
     across: boolean;
   } | null>(null);
   const rows = useRef<HTMLUListElement>(null);
+  // A drop on the middle half of a row puts the row in the air inside it (issue 1857).
+  const nesting = useNestingDrop({ workspaceId, panelId, heldBy, gathered, inColumns: columns !== null, list: rows });
   /**
    * That a sorted Panel already holds the row in the air, from whichever list
    * it was picked up in - which it takes no drop of, having no new place to
@@ -1085,6 +1088,8 @@ export function ItemList({
       // A child row under an Inbox parent is not in the Inbox (issue 1825).
       inInbox={panelId === null && !heldBy}
       {...(rowPanel ? { liftedFrom: rowPanel } : {})}
+      {...(heldBy ? { liftedFromParent: heldBy.id } : {})}
+      receiving={nesting.into === item.id}
       selecting={{
         picked: selection.picked.has(item.id),
         revealed: selection.picked.size >= several,
@@ -1238,6 +1243,8 @@ export function ItemList({
           {refusal}
         </p>
       )}
+      {nesting.notice}
+      {nesting.question}
 
       <div
         // Tall enough to be dropped on. Without this the box is only as tall as
@@ -1253,6 +1260,11 @@ export function ItemList({
           // its way to another panel, and a list that offered it a place would
           // file a panel into itself.
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          // The middle half of a row is a place to go inside it, with no line (issue 1857).
+          if (nesting.over(event)) {
+            setLandingAt(null);
+            return;
+          }
           // A gathered list takes no drop, so it must not say it would: no
           // `preventDefault` here is what makes the pointer read "no" over it
           // rather than promising a filing the drop would decline. A sorted
@@ -1279,10 +1291,19 @@ export function ItemList({
         // Only when the pointer has left this list rather than moved onto a row
         // inside it, which fires the same event.
         onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLandingAt(null);
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setLandingAt(null);
+            nesting.leave();
+          }
         }}
         onDrop={(event) => {
           if (!event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
+          if (nesting.drop(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            setLandingAt(null);
+            return;
+          }
           if (gathered || alreadyHeldWhileSorted()) return;
           event.preventDefault();
           event.stopPropagation();

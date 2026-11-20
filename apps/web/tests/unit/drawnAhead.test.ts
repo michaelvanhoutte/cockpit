@@ -1098,3 +1098,73 @@ describe('Agents', () => {
     });
   });
 });
+
+describe('Panels', () => {
+  describe('a put-inside is drawn at once and leaves when answered', () => {
+    const PARENT = '11111111-1111-7111-8111-0000000000a1';
+    const OLD_PARENT = '11111111-1111-7111-8111-0000000000a2';
+    const SCENES = '11111111-1111-7111-8111-0000000000b1';
+    const put = (childIds: string[], order: string[], leaves: { itemId: string; parentId?: string; panelId?: string }[]): CommandArgs =>
+      ({
+        name: 'put_inside',
+        payload: { commandId: 'c1', issuedAt: AT, workspaceId: 'ws-work', parentId: PARENT, childIds, order, leaves },
+      }) as CommandArgs;
+    const held = (copy: WorkspaceSnapshot, parentId: string) =>
+      (copy.children ?? [])
+        .filter((row) => row.parentId === parentId)
+        .sort((a, b) => a.position - b.position)
+        .map((row) => row.childId);
+    const snapshot = (): WorkspaceSnapshot =>
+      ({
+        workspace: { id: 'ws-work' },
+        items: [
+          anItem(PARENT, { childrenCount: 1, childrenDone: 0 }),
+          anItem(OLD_PARENT, { childrenCount: 1, childrenDone: 0 }),
+          anItem(BART),
+          anItem(LISA),
+        ],
+        filings: [{ panelId: SCENES, itemId: BART, position: 0 }],
+        panels: [],
+        children: [
+          { parentId: PARENT, childId: LISA, position: 0 },
+          { parentId: OLD_PARENT, childId: BART, position: 0 },
+        ],
+      }) as unknown as WorkspaceSnapshot;
+
+    it('draws an Item leaving a Panel as a child row in the order carried, off the Panel, with the parent’s count grown', () => {
+      const copy = { ...snapshot(), children: [{ parentId: PARENT, childId: LISA, position: 0 }] } as WorkspaceSnapshot;
+
+      const drawn = drawnAhead(copy, put([BART], [BART, LISA], [{ itemId: BART, panelId: SCENES }]));
+
+      expect(held(drawn, PARENT)).toEqual([BART, LISA]);
+      expect(drawn.filings).toEqual([]);
+      expect(read(drawn, PARENT)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('draws an Item leaving a parent as gone from the old one, with both parents’ counts moved', () => {
+      const drawn = drawnAhead(snapshot(), put([BART], [LISA, BART], [{ itemId: BART, parentId: OLD_PARENT }]));
+
+      expect(held(drawn, OLD_PARENT)).toEqual([]);
+      expect(held(drawn, PARENT)).toEqual([LISA, BART]);
+      expect(read(drawn, OLD_PARENT)).toMatchObject({ childrenCount: 0 });
+      expect(read(drawn, PARENT)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('draws the copy as it was once the change is refused', async () => {
+      const copy = snapshot();
+      let refuse: (error: Error) => void = () => {};
+      const queue = createChangeQueue({
+        send: () => new Promise((_resolve, reject) => (refuse = reject)),
+      });
+      const sent = queue.enqueue(put([BART], [LISA, BART], [{ itemId: BART, parentId: OLD_PARENT }]));
+      sent.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(held(queue.drawnOver(copy), PARENT)).toEqual([LISA, BART]);
+
+      refuse(new Error('That changed while you were looking at it.'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(queue.drawnOver(copy)).toEqual(copy);
+    });
+  });
+});

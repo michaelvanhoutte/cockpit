@@ -671,6 +671,54 @@ test.describe('Panels', () => {
   });
 
   /**
+   * "Drag to nest in Panels and the Inbox" (issue 1857): the drag exists only in
+   * a browser, and the middle half of a row is a claim about where the row is
+   * on the screen. Which half a position is, what the drop leaves and what Undo
+   * sends are apps/web/tests/unit/nesting.test.ts's and puttingBack.test.ts's;
+   * what is only true here is that a real drop shows the row inside the other
+   * and Undo brings it back. Desktop only: a phone has no drag, and keeps *Add as
+   * child of…*.
+   */
+  test.describe('a row dropped on the middle of another is put inside it, and Undo brings it back', () => {
+    test.skip(({ isMobile }) => !!isMobile, 'a row is dragged with a pointer, which a phone has none of');
+
+    test('shows it under the row it was dropped on, off the Panel’s top level, and puts it back on Undo', async ({
+      page,
+      isMobile,
+    }) => {
+      const panel = uniqueTitle('Falcon');
+      const [storm, chapter] = [uniqueTitle('Storm scene'), uniqueTitle('Chapter 4')];
+      await ownDashboard(page, isMobile, [panel], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [storm, chapter]);
+      });
+      const region = page.getByRole('region', { name: panel });
+      const topLevel = region.locator('[data-item-row]:not([data-child-rows] [data-item-row])');
+      const inside = region.locator('[data-child-rows] [data-item-row]');
+      await expect(topLevel).toHaveCount(2);
+
+      const dragged = itemRow(page, storm);
+      const target = itemRow(page, chapter);
+      const to = await target.boundingBox();
+      const put = answerTo(page, 'put_inside');
+      await dragged.dragTo(target, { targetPosition: { x: to!.width / 2, y: to!.height / 2 } });
+      expect((await put).status()).toBe(200);
+
+      // Under Chapter 4, which unfolded to show it, and gone from the Panel's top level.
+      await expect(inside).toHaveCount(1);
+      await expect(inside).toContainText(storm);
+      await expect(topLevel).toHaveCount(1);
+      await expect(topLevel).toContainText(chapter);
+
+      const filedAgain = answerTo(page, 'add_item_to_panel');
+      await press(page.getByRole('status').getByRole('button', { name: 'Undo' }), isMobile);
+      expect((await filedAgain).status()).toBe(200);
+      await expect(inside).toHaveCount(0);
+      await expect(topLevel).toHaveCount(2);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([storm, chapter]);
+    });
+  });
+
+  /**
    * "Split a wide Panel's rows into columns, at a minimum width set in its
    * settings" (issue 1207): the count the form promises, the reading order the
    * grid draws, and a real row dragged between columns are all layout, which
