@@ -16,6 +16,7 @@ import { endSelection, keepAcrossSwitch } from './selection';
  */
 let inTheAir: string | null = null;
 let liftedFrom: string | null = null;
+let liftedFromParent: string | null = null;
 let selectionInTheAir: SelectionInTheAir | null = null;
 let crossedFrom: string | null = null;
 
@@ -37,15 +38,18 @@ export interface SelectionInTheAir {
  * row of the Inbox or of a Filter, which is on no Panel of its own to leave.
  *
  * `carrying` is the selection the row is the grabbed one of, where it is two
- * rows or more.
+ * rows or more. `fromParentId` is the parent whose unfolded rows it was picked
+ * up from, which a drop onto a row leaves (issue 1857).
  */
 export function liftItem(
   itemId: string,
   fromPanelId: string | null = null,
   carrying: SelectionInTheAir | null = null,
+  fromParentId: string | null = null,
 ): void {
   inTheAir = itemId;
   liftedFrom = fromPanelId;
+  liftedFromParent = fromParentId;
   selectionInTheAir = carrying;
   crossedFrom = null;
   tell();
@@ -54,6 +58,7 @@ export function liftItem(
 export function landItem(): void {
   inTheAir = null;
   liftedFrom = null;
+  liftedFromParent = null;
   selectionInTheAir = null;
   crossedFrom = null;
   keepAcrossSwitch(null);
@@ -76,6 +81,14 @@ export function dragEnded(): void {
 /** The Panel the Item in the air was picked up from, or null if none, or if it is not this Item. */
 export function panelLiftedFrom(itemId: string): string | null {
   return inTheAir === itemId ? liftedFrom : null;
+}
+
+/**
+ * The parent whose unfolded rows the Item in the air was picked up from, or null: a drop onto a row
+ * leaves it ("Drag to nest in Panels and the Inbox", issue 1857).
+ */
+export function parentLiftedFrom(itemId: string): string | null {
+  return inTheAir === itemId ? liftedFromParent : null;
 }
 
 export function itemInTheAir(): string | null {

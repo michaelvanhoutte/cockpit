@@ -1,4 +1,4 @@
-import type { Item, WorkspaceSnapshot } from '@cockpit/shared';
+import { childIdsOf, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from './api/queries';
 import { allAnswered, filedOrderOnPanel } from './filing';
 import { uuidv7 } from '@cockpit/shared';
@@ -169,4 +169,88 @@ export function putBackInParents(d: Pick<Putting, 'workspaceId' | 'send'>, child
       d.send({ name: 'add_children', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [childId] } }),
     ),
   );
+}
+
+/**
+ * What a drop onto a row (issue 1857) took from where the Items were, as it
+ * stood before the drop: each parent they left with its whole order, each
+ * Panel with its whole order, and the Items that were not inside the new
+ * parent already.
+ */
+export interface RowDropWas {
+  target: string;
+  arrived: readonly string[];
+  parents: readonly { parentId: string; itemIds: readonly string[]; was: readonly string[] }[];
+  panels: readonly { panelId: string; itemIds: readonly string[]; was: readonly string[] }[];
+}
+
+/**
+ * A parent's whole order as an Item comes back into it: what it held before
+ * where it is still there, the Items returning where they were, and whatever
+ * it has gained since after them.
+ */
+export function orderBackInto(was: readonly string[], heldNow: readonly string[], returning: readonly string[]): string[] {
+  const present = new Set([...heldNow, ...returning]);
+  return [...was.filter((id) => present.has(id)), ...[...present].filter((id) => !was.includes(id))];
+}
+
+/**
+ * Puts back both halves of a drop onto a row: an Item that left a parent goes
+ * back into it at its old place, leaving the new one (one change, as the drop
+ * was); one that left a Panel is filed on it again at its old place and taken
+ * out of the new parent, with today's two changes until a drag out gives
+ * move-to-Panel the parents it leaves ("Drag to nest in Panels and the Inbox",
+ * issue 1859). One that left nothing is only taken out.
+ */
+export async function putBackFromARowDrop(d: Putting, was: RowDropWas): Promise<void> {
+  const sends: Promise<unknown>[] = [];
+  const hand = (answer: Promise<unknown>) => {
+    answer.catch(() => {});
+    sends.push(answer);
+  };
+  const out = (itemId: string) =>
+    hand(
+      d.send({
+        name: 'remove_child',
+        payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId: was.target, childId: itemId },
+      }),
+    );
+  const takenOut = new Set<string>();
+  for (const left of was.parents) {
+    const heldNow = childIdsOf((await d.latest(d.workspaceId)).children ?? [], left.parentId);
+    const leaving = left.itemIds.filter((id) => was.arrived.includes(id));
+    hand(
+      d.send({
+        name: 'put_inside',
+        payload: {
+          commandId: uuidv7(),
+          issuedAt: new Date().toISOString(),
+          workspaceId: d.workspaceId,
+          parentId: left.parentId,
+          childIds: [...left.itemIds],
+          order: orderBackInto(left.was, heldNow, left.itemIds),
+          leaves: leaving.map((itemId) => ({ itemId, parentId: was.target })),
+        },
+      }),
+    );
+    for (const id of leaving) takenOut.add(id);
+  }
+  for (const left of was.panels) {
+    for (const itemId of left.itemIds) {
+      const heldNow = filedOrderOnPanel((await d.latest(d.workspaceId)).filings, left.panelId);
+      hand(
+        d.send({
+          name: 'add_item_to_panel',
+          payload: { ...envelope(d, itemId), panelId: left.panelId, order: orderPuttingBack(left.was, heldNow, itemId) },
+        }),
+      );
+      if (was.arrived.includes(itemId) && !takenOut.has(itemId)) {
+        out(itemId);
+        takenOut.add(itemId);
+      }
+    }
+  }
+  // Added and leaving nothing: out of the new parent only.
+  for (const itemId of was.arrived) if (!takenOut.has(itemId)) out(itemId);
+  await allBack(sends);
 }

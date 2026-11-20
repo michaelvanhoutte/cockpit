@@ -108,10 +108,17 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
         ? snapshot
         : { ...snapshot, attachments: [...snapshot.attachments, { id, tenantId: snapshot.workspace.tenantId, itemId, filename, size, contentType, createdAt }] };
     }
-    case 'remove_attachment':
-      return change.payload.workspaceId !== snapshot.workspace.id
-        ? snapshot
-        : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
+    case 'remove_attachment': {
+      if (change.payload.workspaceId !== snapshot.workspace.id) return snapshot;
+      const { attachmentId, itemId } = change.payload;
+      const without = { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== attachmentId) };
+      // The file that stood for its Item takes the thumbnail with it, as the server does.
+      return snapshot.items.some((item) => item.id === itemId && item.thumbnailAttachmentId === attachmentId)
+        ? withItem(without, itemId, { thumbnailAttachmentId: null })
+        : without;
+    }
+    case 'set_thumbnail':
+      return withItem(snapshot, change.payload.itemId, { thumbnailAttachmentId: change.payload.attachmentId });
     case 'set_done': {
       const finished = withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
@@ -162,6 +169,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       };
     case 'add_children':
       return children ? children.put(snapshot, change.payload) : snapshot;
+    case 'put_inside':
+      return children ? children.putInsideInOrder(snapshot, change.payload) : snapshot;
     case 'remove_child':
       return children ? children.takenOut(snapshot, change.payload) : snapshot;
     case 'add_dashboard':
@@ -615,8 +624,10 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'add_item_to_panel',
   'remove_item_from_panel',
   'add_children',
+  'put_inside',
   'remove_child',
   'remove_attachment',
+  'set_thumbnail',
   // An addition the outbox could not keep, sent by the queue instead (issue 1640).
   'append_to_item',
   'set_done',
@@ -664,6 +675,7 @@ export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): W
  */
 export interface ChildrenDrawn {
   put: (snapshot: WorkspaceSnapshot, put: CommandPayload<'add_children'>) => WorkspaceSnapshot;
+  putInsideInOrder: (snapshot: WorkspaceSnapshot, put: CommandPayload<'put_inside'>) => WorkspaceSnapshot;
   takenOut: (snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>) => WorkspaceSnapshot;
   /** `finished` is the copy with the Item already finished or reopened. */
   done: (was: WorkspaceSnapshot, finished: WorkspaceSnapshot, done: CommandPayload<'set_done'>) => WorkspaceSnapshot;

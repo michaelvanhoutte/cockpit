@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
-import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE, thumbnailAddress } from '@cockpit/shared';
 import { arrange, giveAnEmptyDashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
@@ -618,6 +618,61 @@ test.describe('Item editing', () => {
       await saveTheItem(page, isMobile);
       await openItem(page, thought, isMobile);
       await expect(form(page).getByText('receipt.png')).toHaveCount(0);
+    });
+
+    /**
+     * F3, because the small copy is made by a canvas and uploaded by a real
+     * request, which exist only in a browser; what the tab offers is
+     * apps/web/tests/unit/components/ThumbnailsAtOnce.test.tsx and what the
+     * server checks is apps/api/tests/integration/http/item-thumbnails.test.ts
+     * ("Item form: there is no way to mark which image stands for an Item",
+     * issue 1863). The phone's half is that the button is on the screen under
+     * each picture, which jsdom cannot lay out.
+     */
+    test('picks the second picture as the thumbnail, with the button under each picture on the screen, and it wears Thumbnail after a reload', async ({
+      page,
+      isMobile,
+    }) => {
+      const thought = uniqueTitle('Anna (main character)');
+      await openInboxHolding(page, isMobile, [thought]);
+      await openItem(page, thought, isMobile);
+      for (const name of ['front.png', 'side.png']) {
+        const uploaded = uploadResponse(page);
+        await attachmentInput(page).setInputFiles({ name, mimeType: 'image/png', buffer: A_PNG });
+        expect((await uploaded).status()).toBe(201);
+      }
+      await press(form(page).getByRole('tab', { name: /^Attachments/ }), isMobile);
+      const list = form(page).getByRole('tabpanel', { name: /^Attachments/ });
+
+      // The button sits under each picture, inside the screen's width.
+      const buttons = list.getByRole('button', { name: 'Use as thumbnail' });
+      await expect(buttons).toHaveCount(2);
+      const screenWidth = page.viewportSize()!.width;
+      for (const button of await buttons.all()) {
+        const box = (await button.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(screenWidth);
+      }
+
+      const stored = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && /\/attachments\/[^/]+\/thumbnail$/.test(new URL(response.url()).pathname),
+      );
+      await press(buttons.nth(1), isMobile);
+      expect((await stored).status()).toBe(200);
+      await expect(list.getByRole('button', { name: 'Thumbnail', exact: true })).toBeVisible();
+
+      // The form is still open on the Item's address, so it is read again from the server.
+      await page.reload();
+      await startEditingTheItem(page, isMobile);
+      await expect(titleBox(page)).toHaveValue(thought);
+      await press(form(page).getByRole('tab', { name: /^Attachments/ }), isMobile);
+      const after = form(page).getByRole('tabpanel', { name: /^Attachments/ });
+      await expect(after.getByRole('button', { name: 'Thumbnail', exact: true })).toBeVisible();
+      await expect(after.getByRole('button', { name: 'Use as thumbnail' })).toHaveCount(1);
+      // The stored copy opens for this person.
+      const href = (await after.getByRole('link', { name: /side\.png/ }).getAttribute('href'))!;
+      const copy = await page.request.get(thumbnailAddress(href.split('/').pop()!));
+      expect(copy.status()).toBe(200);
     });
 
     /**

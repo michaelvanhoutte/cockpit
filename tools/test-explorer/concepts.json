@@ -258,7 +258,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 29,
+      "browserWalks": 30,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -332,7 +332,7 @@
     {
       "key": "Item editing",
       "label": "Item editing",
-      "browserWalks": 20,
+      "browserWalks": 21,
       "parent": "Workspaces",
       "sourcePatterns": [
         "apps/web/src/components/ItemForm.tsx",
@@ -357,6 +357,7 @@
         "apps/web/src/components/ItemRow.tsx",
         "apps/web/src/components/RecurringMark.tsx",
         "apps/web/src/itemFieldCommands.ts",
+        "apps/web/src/thumbnailCopy.ts",
         "packages/shared/src/domain/series.ts",
         "apps/api/src/domain/series.ts",
         "packages/shared/src/domain/attachment.ts",

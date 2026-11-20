@@ -995,6 +995,46 @@ describe('Item editing', () => {
       expect(drawnOver(inWork(), [uploaded(), removed(SCAN)]).attachments).toEqual([]);
     });
   });
+
+  describe('a thumbnail picked, stopped or taken away with its file shows the moment it is, before the server has answered', () => {
+    const SCAN = '11111111-1111-7111-8111-0000000000a1';
+    const NOTE = '11111111-1111-7111-8111-0000000000a2';
+    const thumbnail = (attachmentId: string | null, over: Record<string, unknown> = {}): Drawn => ({
+      name: 'set_thumbnail',
+      payload: { ...envelope(BART), attachmentId, ...over },
+    });
+    const withThumbnail = (id: string | null) => workspace([anItem(BART, { thumbnailAttachmentId: id })]);
+    const thumbnailOf = (copy: WorkspaceSnapshot) => read(copy, BART)?.thumbnailAttachmentId;
+
+    it('moves the tag to the picture picked, replacing the one before, and to none on Stop using', () => {
+      const first = drawnOver(withThumbnail(null), [thumbnail(SCAN)]);
+      const second = drawnOver(first, [thumbnail(NOTE)]);
+      const stopped = drawnOver(second, [thumbnail(null)]);
+
+      expect([thumbnailOf(first), thumbnailOf(second), thumbnailOf(stopped)]).toEqual([SCAN, NOTE, null]);
+    });
+
+    it('draws nothing for an Item the Workspace does not hold, and leaves the copy it was given as it was', () => {
+      const copy = withThumbnail(null);
+
+      expect(drawnAhead(copy, thumbnail(SCAN, { itemId: LISA }))).toEqual(copy);
+      drawnAhead(copy, thumbnail(SCAN));
+      expect(thumbnailOf(copy)).toBeNull();
+    });
+
+    it('takes the thumbnail away with the file that was it, and keeps it when another file is removed', () => {
+      const removal = (attachmentId: string): CommandArgs =>
+        ({ name: 'remove_attachment', payload: { ...envelope(BART), attachmentId } }) as CommandArgs;
+      const copy = { ...withThumbnail(SCAN), workspace: { id: 'ws-work', tenantId: 'tenant' }, attachments: [] } as unknown as WorkspaceSnapshot;
+
+      expect(thumbnailOf(drawnAhead(copy, removal(SCAN)))).toBeNull();
+      expect(thumbnailOf(drawnAhead(copy, removal(NOTE)))).toBe(SCAN);
+    });
+
+    it('is kept drawn once answered, until a read covers it', () => {
+      expect(DRAWN_AHEAD.has('set_thumbnail')).toBe(true);
+    });
+  });
 });
 
 /**
@@ -1095,6 +1135,76 @@ describe('Agents', () => {
       const copy = withRuns();
 
       expect(drawnAhead(copy, change)).toBe(copy);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a put-inside is drawn at once and leaves when answered', () => {
+    const PARENT = '11111111-1111-7111-8111-0000000000a1';
+    const OLD_PARENT = '11111111-1111-7111-8111-0000000000a2';
+    const SCENES = '11111111-1111-7111-8111-0000000000b1';
+    const put = (childIds: string[], order: string[], leaves: { itemId: string; parentId?: string; panelId?: string }[]): CommandArgs =>
+      ({
+        name: 'put_inside',
+        payload: { commandId: 'c1', issuedAt: AT, workspaceId: 'ws-work', parentId: PARENT, childIds, order, leaves },
+      }) as CommandArgs;
+    const held = (copy: WorkspaceSnapshot, parentId: string) =>
+      (copy.children ?? [])
+        .filter((row) => row.parentId === parentId)
+        .sort((a, b) => a.position - b.position)
+        .map((row) => row.childId);
+    const snapshot = (): WorkspaceSnapshot =>
+      ({
+        workspace: { id: 'ws-work' },
+        items: [
+          anItem(PARENT, { childrenCount: 1, childrenDone: 0 }),
+          anItem(OLD_PARENT, { childrenCount: 1, childrenDone: 0 }),
+          anItem(BART),
+          anItem(LISA),
+        ],
+        filings: [{ panelId: SCENES, itemId: BART, position: 0 }],
+        panels: [],
+        children: [
+          { parentId: PARENT, childId: LISA, position: 0 },
+          { parentId: OLD_PARENT, childId: BART, position: 0 },
+        ],
+      }) as unknown as WorkspaceSnapshot;
+
+    it('draws an Item leaving a Panel as a child row in the order carried, off the Panel, with the parent’s count grown', () => {
+      const copy = { ...snapshot(), children: [{ parentId: PARENT, childId: LISA, position: 0 }] } as WorkspaceSnapshot;
+
+      const drawn = drawnAhead(copy, put([BART], [BART, LISA], [{ itemId: BART, panelId: SCENES }]));
+
+      expect(held(drawn, PARENT)).toEqual([BART, LISA]);
+      expect(drawn.filings).toEqual([]);
+      expect(read(drawn, PARENT)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('draws an Item leaving a parent as gone from the old one, with both parents’ counts moved', () => {
+      const drawn = drawnAhead(snapshot(), put([BART], [LISA, BART], [{ itemId: BART, parentId: OLD_PARENT }]));
+
+      expect(held(drawn, OLD_PARENT)).toEqual([]);
+      expect(held(drawn, PARENT)).toEqual([LISA, BART]);
+      expect(read(drawn, OLD_PARENT)).toMatchObject({ childrenCount: 0 });
+      expect(read(drawn, PARENT)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('draws the copy as it was once the change is refused', async () => {
+      const copy = snapshot();
+      let refuse: (error: Error) => void = () => {};
+      const queue = createChangeQueue({
+        send: () => new Promise((_resolve, reject) => (refuse = reject)),
+      });
+      const sent = queue.enqueue(put([BART], [LISA, BART], [{ itemId: BART, parentId: OLD_PARENT }]));
+      sent.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(held(queue.drawnOver(copy), PARENT)).toEqual([LISA, BART]);
+
+      refuse(new Error('That changed while you were looking at it.'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(queue.drawnOver(copy)).toEqual(copy);
     });
   });
 });

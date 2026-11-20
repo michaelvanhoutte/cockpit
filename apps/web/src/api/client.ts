@@ -266,6 +266,8 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }, o),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
+  put_inside: (p: CommandPayload<'put_inside'>, o?: ClientRequestOptions) =>
+    api.v1.commands.put_inside.$post({ json: p }, o),
   add_children: (p: CommandPayload<'add_children'>, o?: ClientRequestOptions) =>
     api.v1.commands.add_children.$post({ json: p }, o),
   remove_child: (p: CommandPayload<'remove_child'>, o?: ClientRequestOptions) =>
@@ -314,6 +316,8 @@ const commandSenders = {
     api.v1.commands.set_description.$post({ json: p }, o),
   remove_attachment: (p: CommandPayload<'remove_attachment'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_attachment.$post({ json: p }, o),
+  set_thumbnail: (p: CommandPayload<'set_thumbnail'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_thumbnail.$post({ json: p }, o),
   set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>, o?: ClientRequestOptions) =>
     api.v1.commands.set_duplicate_settled.$post({ json: p }, o),
   remember_sentence: (p: CommandPayload<'remember_sentence'>, o?: ClientRequestOptions) =>
@@ -411,6 +415,51 @@ export async function uploadAttachment({
   });
   if (!res.ok) {
     throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `attaching ${file.name} failed: ${res.status}`);
+  }
+  return (await res.json()) as CommandResult;
+}
+
+/**
+ * Uploads the small copy a device made of one of an Item's pictures, which the
+ * server stores beside the picture and records as its thumbnail ("Item form:
+ * there is no way to mark which image stands for an Item", issue 1863). Its own
+ * function for the reason `uploadAttachment` is: the copy's bytes are the
+ * request body. *Stop using as thumbnail* carries no copy and is the ordinary
+ * `set_thumbnail` command instead.
+ */
+export async function uploadThumbnail({
+  itemId,
+  workspaceId,
+  attachmentId,
+  commandId,
+  issuedAt,
+  copy,
+  signal,
+}: {
+  itemId: string;
+  workspaceId: string;
+  attachmentId: string;
+  commandId: string;
+  issuedAt: string;
+  copy: Blob;
+  signal?: AbortSignal;
+}): Promise<CommandResult> {
+  const res = await fetch(
+    `/v1/items/${encodeURIComponent(itemId)}/attachments/${encodeURIComponent(attachmentId)}/thumbnail`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': copy.type,
+        'X-Command-Id': commandId,
+        'X-Issued-At': issuedAt,
+        'X-Workspace-Id': workspaceId,
+      },
+      body: copy,
+      ...(signal ? { signal } : {}),
+    },
+  );
+  if (!res.ok) {
+    throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `the thumbnail could not be saved: ${res.status}`);
   }
   return (await res.json()) as CommandResult;
 }
