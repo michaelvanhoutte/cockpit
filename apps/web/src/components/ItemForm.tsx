@@ -37,7 +37,7 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment, uploadThumbnail } from '../api/client';
-import { makeThumbnailCopy } from '../thumbnailCopy';
+import { ThumbnailUnreadable, makeThumbnailCopy } from '../thumbnailCopy';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -674,11 +674,11 @@ function TheForm({
         undefined,
         attachment
           ? async (signal) => {
-              refuseWhileOffline();
               signal.addEventListener('abort', () => decoding.abort());
-              // The copy's own reason, said as it is rather than as a request that did not arrive.
+              refuseWhileOffline();
+              // A picture that cannot be read says so; a dropped load or an abort reads as not reached.
               const copy = await made!.catch((failure: unknown) => {
-                throw new CommandRefused(0, failure instanceof Error ? failure.message : 'The thumbnail could not be made.');
+                throw failure instanceof ThumbnailUnreadable ? new CommandRefused(0, failure.message) : failure;
               });
               return uploadThumbnail({ ...envelope, attachmentId: attachment.id, copy, signal });
             }
@@ -686,6 +686,7 @@ function TheForm({
       );
       return answer;
     } catch (failure) {
+      decoding.abort();
       offerToUndo({ what: `The thumbnail was not changed. ${whyNotDone(failure)}` });
     }
   };

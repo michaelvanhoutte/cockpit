@@ -8,19 +8,38 @@ import { MAX_THUMBNAIL_SIZE, THUMBNAIL_SIDE, thumbnailSource } from '@cockpit/sh
  * A GIF is its first frame. Made on the device, in a canvas, so what the server
  * stores is whatever this browser's encoder made of it.
  */
-export async function makeThumbnailCopy(address: string, signal?: AbortSignal): Promise<Blob> {
-  const unreadable = () => new Error('That picture could not be read, so it is not the thumbnail.');
-  // Fetched and decoded under the caller's signal, so giving up on the copy stops both.
-  let picture: ImageBitmap;
-  try {
-    const response = await fetch(address, signal ? { signal } : undefined);
-    if (!response.ok) throw unreadable();
-    picture = await createImageBitmap(await response.blob());
-  } catch {
-    throw unreadable();
+/** The picture itself could not be loaded or decoded: the one failure that says it could not be read. */
+export class ThumbnailUnreadable extends Error {
+  constructor() {
+    super('That picture could not be read, so it is not the thumbnail.');
+    this.name = 'ThumbnailUnreadable';
   }
-  const { x, y, side } = thumbnailSource(picture.width, picture.height);
-  if (side <= 0) throw new Error('That picture could not be read, so it is not the thumbnail.');
+}
+
+export async function makeThumbnailCopy(address: string, signal?: AbortSignal): Promise<Blob> {
+  // The picture the chip shows, so the browser's own copy of it is used; `signal` stops the load.
+  const picture = new Image();
+  const stop = () => {
+    picture.src = '';
+  };
+  signal?.addEventListener('abort', stop, { once: true });
+  try {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    picture.src = address;
+    await Promise.race([
+      picture.decode().catch((failure: unknown) => {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        throw failure instanceof Error && failure.name === 'AbortError' ? failure : new ThumbnailUnreadable();
+      }),
+      new Promise<never>((_, reject) =>
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true }),
+      ),
+    ]);
+  } finally {
+    signal?.removeEventListener('abort', stop);
+  }
+  const { x, y, side } = thumbnailSource(picture.naturalWidth, picture.naturalHeight);
+  if (side <= 0) throw new ThumbnailUnreadable();
   const canvas = document.createElement('canvas');
   canvas.width = THUMBNAIL_SIDE;
   canvas.height = THUMBNAIL_SIDE;

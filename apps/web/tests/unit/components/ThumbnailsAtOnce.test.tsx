@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand, uploadAttachment, uploadThumbnail } from '../../../src/api/client';
-import { makeThumbnailCopy } from '../../../src/thumbnailCopy';
+import { ThumbnailUnreadable, makeThumbnailCopy } from '../../../src/thumbnailCopy';
 import { ItemForm } from '../../../src/components/ItemForm';
 import { resetStanding } from '../../../src/offline';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -30,7 +30,8 @@ vi.mock('../../../src/api/client', async (importOriginal) => ({
 }));
 
 /** jsdom has no canvas: the small copy is a few bytes of the type a browser would make. */
-vi.mock('../../../src/thumbnailCopy', () => ({
+vi.mock('../../../src/thumbnailCopy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/thumbnailCopy')>()),
   makeThumbnailCopy: vi.fn(async () => new Blob(['copy'], { type: 'image/webp' })),
 }));
 
@@ -274,7 +275,7 @@ describe('Item editing', () => {
     });
 
     it('puts the tag back and says the copy’s own reason when the small copy cannot be made', async () => {
-      vi.mocked(makeThumbnailCopy).mockRejectedValueOnce(new Error('That picture could not be read, so it is not the thumbnail.'));
+      vi.mocked(makeThumbnailCopy).mockRejectedValueOnce(new ThumbnailUnreadable());
       const { user, tab } = await show(TWO_IMAGES(), FRONT);
 
       await user.click(tab.getByRole('button', { name: 'Use as thumbnail' }));
@@ -284,6 +285,17 @@ describe('Item editing', () => {
       expect(tab.getByRole('button', { name: 'Thumbnail' })).toBeVisible();
       expect(screen.getByText(/The thumbnail was not changed\./)).toHaveTextContent('That picture could not be read');
       expect(screen.queryByText(/did not reach the server/)).toBeNull();
+    });
+
+    it('says the pick did not reach the server when the picture’s load drops, not that it could not be read', async () => {
+      vi.mocked(makeThumbnailCopy).mockRejectedValueOnce(new TypeError('network'));
+      const { user, tab } = await show(TWO_IMAGES(), FRONT);
+
+      await user.click(tab.getByRole('button', { name: 'Use as thumbnail' }));
+      await settle();
+
+      expect(tab.getByRole('button', { name: 'Thumbnail' })).toBeVisible();
+      expect(screen.getByText(/The thumbnail was not changed\./)).toHaveTextContent('That did not reach the server. Try again.');
     });
 
     it('takes the tag away at once on Stop using, and brings it back saying why when that is refused', async () => {
