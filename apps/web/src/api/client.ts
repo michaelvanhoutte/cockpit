@@ -191,7 +191,7 @@ export async function fetchRewriteHistoryForItem(itemId: string): Promise<Rewrit
 /**
  * *Check now* on a pulled connection ("Check a pulled connection now, from its
  * row or its history", issue 1143): its check made due at once. Its own
- * function rather than a `commandSenders` entry - it changes no Item or
+ * function rather than a change posted by `sendCommand` - it changes no Item or
  * setting, only when the next check runs.
  */
 export async function checkConnectionNow(workspaceId: string, sourceAccountId: string): Promise<CheckedNow> {
@@ -202,139 +202,13 @@ export async function checkConnectionNow(workspaceId: string, sourceAccountId: s
   return checkedNowSchema.parse(await res.json());
 }
 
-/** One sender per command; adding a command extends this map and nothing else. */
-const commandSenders = {
-  create_workspace: (p: CommandPayload<'create_workspace'>, o?: ClientRequestOptions) =>
-    api.v1.commands.create_workspace.$post({ json: p }, o),
-  rename_workspace: (p: CommandPayload<'rename_workspace'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rename_workspace.$post({ json: p }, o),
-  delete_workspace: (p: CommandPayload<'delete_workspace'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_workspace.$post({ json: p }, o),
-  // Only the disconnect: connecting is a navigation through Microsoft, and
-  // the command it ends in is written by the callback route rather than sent
-  // from here (`connectSourceAccountSchema`, @cockpit/shared).
-  disconnect_source_account: (p: CommandPayload<'disconnect_source_account'>, o?: ClientRequestOptions) =>
-    api.v1.commands.disconnect_source_account.$post({ json: p }, o),
-  set_connection_choice: (p: CommandPayload<'set_connection_choice'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_connection_choice.$post({ json: p }, o),
-  set_connection_files_by_name: (p: CommandPayload<'set_connection_files_by_name'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_connection_files_by_name.$post({ json: p }, o),
-  set_connection_due_in_days: (p: CommandPayload<'set_connection_due_in_days'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_connection_due_in_days.$post({ json: p }, o),
-  set_connection_own_alias: (p: CommandPayload<'set_connection_own_alias'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_connection_own_alias.$post({ json: p }, o),
-  reorder_workspaces: (p: CommandPayload<'reorder_workspaces'>, o?: ClientRequestOptions) =>
-    api.v1.commands.reorder_workspaces.$post({ json: p }, o),
-  set_workspace_theme: (p: CommandPayload<'set_workspace_theme'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_workspace_theme.$post({ json: p }, o),
-  add_dashboard: (p: CommandPayload<'add_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.add_dashboard.$post({ json: p }, o),
-  rename_dashboard: (p: CommandPayload<'rename_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rename_dashboard.$post({ json: p }, o),
-  delete_dashboard: (p: CommandPayload<'delete_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_dashboard.$post({ json: p }, o),
-  reorder_dashboards: (p: CommandPayload<'reorder_dashboards'>, o?: ClientRequestOptions) =>
-    api.v1.commands.reorder_dashboards.$post({ json: p }, o),
-  add_panel: (p: CommandPayload<'add_panel'>, o?: ClientRequestOptions) => api.v1.commands.add_panel.$post({ json: p }, o),
-  rename_panel: (p: CommandPayload<'rename_panel'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rename_panel.$post({ json: p }, o),
-  set_panel_settings: (p: CommandPayload<'set_panel_settings'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_settings.$post({ json: p }, o),
-  delete_panel: (p: CommandPayload<'delete_panel'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_panel.$post({ json: p }, o),
-  move_panel_to_dashboard: (p: CommandPayload<'move_panel_to_dashboard'>, o?: ClientRequestOptions) =>
-    api.v1.commands.move_panel_to_dashboard.$post({ json: p }, o),
-  set_panel_text: (p: CommandPayload<'set_panel_text'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_text.$post({ json: p }, o),
-  set_panel_read_only: (p: CommandPayload<'set_panel_read_only'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_read_only.$post({ json: p }, o),
-  set_panel_never_propose: (p: CommandPayload<'set_panel_never_propose'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_never_propose.$post({ json: p }, o),
-  set_panel_format: (p: CommandPayload<'set_panel_format'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_format.$post({ json: p }, o),
-  set_panel_filter: (p: CommandPayload<'set_panel_filter'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_filter.$post({ json: p }, o),
-  set_panel_sort: (p: CommandPayload<'set_panel_sort'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_panel_sort.$post({ json: p }, o),
-  save_layout: (p: CommandPayload<'save_layout'>, o?: ClientRequestOptions) => api.v1.commands.save_layout.$post({ json: p }, o),
-  capture_item: (p: CommandPayload<'capture_item'>, o?: ClientRequestOptions) => api.v1.commands.capture_item.$post({ json: p }, o),
-  append_to_item: (p: CommandPayload<'append_to_item'>, o?: ClientRequestOptions) =>
-    api.v1.commands.append_to_item.$post({ json: p }, o),
-  move_item_to_panel: (p: CommandPayload<'move_item_to_panel'>, o?: ClientRequestOptions) =>
-    api.v1.commands.move_item_to_panel.$post({ json: p }, o),
-  add_item_to_panel: (p: CommandPayload<'add_item_to_panel'>, o?: ClientRequestOptions) =>
-    api.v1.commands.add_item_to_panel.$post({ json: p }, o),
-  remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
-    api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
-  put_inside: (p: CommandPayload<'put_inside'>, o?: ClientRequestOptions) =>
-    api.v1.commands.put_inside.$post({ json: p }, o),
-  add_children: (p: CommandPayload<'add_children'>, o?: ClientRequestOptions) =>
-    api.v1.commands.add_children.$post({ json: p }, o),
-  remove_child: (p: CommandPayload<'remove_child'>, o?: ClientRequestOptions) =>
-    api.v1.commands.remove_child.$post({ json: p }, o),
-  merge_items: (p: CommandPayload<'merge_items'>, o?: ClientRequestOptions) =>
-    api.v1.commands.merge_items.$post({ json: p }, o),
-  unmerge_items: (p: CommandPayload<'unmerge_items'>, o?: ClientRequestOptions) =>
-    api.v1.commands.unmerge_items.$post({ json: p }, o),
-  split_item: (p: CommandPayload<'split_item'>, o?: ClientRequestOptions) => api.v1.commands.split_item.$post({ json: p }, o),
-  unsplit_item: (p: CommandPayload<'unsplit_item'>, o?: ClientRequestOptions) => api.v1.commands.unsplit_item.$post({ json: p }, o),
-  combine_under_new_parent: (p: CommandPayload<'combine_under_new_parent'>, o?: ClientRequestOptions) =>
-    api.v1.commands.combine_under_new_parent.$post({ json: p }, o),
-  set_keeps_story: (p: CommandPayload<'set_keeps_story'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_keeps_story.$post({ json: p }, o),
-  rewrite_story: (p: CommandPayload<'rewrite_story'>, o?: ClientRequestOptions) =>
-    api.v1.commands.rewrite_story.$post({ json: p }, o),
-  use_story: (p: CommandPayload<'use_story'>, o?: ClientRequestOptions) => api.v1.commands.use_story.$post({ json: p }, o),
-  keep_my_story: (p: CommandPayload<'keep_my_story'>, o?: ClientRequestOptions) =>
-    api.v1.commands.keep_my_story.$post({ json: p }, o),
-  set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
-  set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
-  wait_for_reply: (p: CommandPayload<'wait_for_reply'>, o?: ClientRequestOptions) =>
-    api.v1.commands.wait_for_reply.$post({ json: p }, o),
-  send_item_to_claude: (p: CommandPayload<'send_item_to_claude'>, o?: ClientRequestOptions) =>
-    api.v1.commands.send_item_to_claude.$post({ json: p }, o),
-  end_claude_run: (p: CommandPayload<'end_claude_run'>, o?: ClientRequestOptions) =>
-    api.v1.commands.end_claude_run.$post({ json: p }, o),
-  finish_agent_run: (p: CommandPayload<'finish_agent_run'>, o?: ClientRequestOptions) =>
-    api.v1.commands.finish_agent_run.$post({ json: p }, o),
-  set_dismissed: (p: CommandPayload<'set_dismissed'>, o?: ClientRequestOptions) => api.v1.commands.set_dismissed.$post({ json: p }, o),
-  associate: (p: CommandPayload<'associate'>, o?: ClientRequestOptions) => api.v1.commands.associate.$post({ json: p }, o),
-  set_next_action: (p: CommandPayload<'set_next_action'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_next_action.$post({ json: p }, o),
-  set_priority: (p: CommandPayload<'set_priority'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_priority.$post({ json: p }, o),
-  set_due_date: (p: CommandPayload<'set_due_date'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_due_date.$post({ json: p }, o),
-  set_repeat: (p: CommandPayload<'set_repeat'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_repeat.$post({ json: p }, o),
-  create_recurring_item: (p: CommandPayload<'create_recurring_item'>, o?: ClientRequestOptions) =>
-    api.v1.commands.create_recurring_item.$post({ json: p }, o),
-  write_recurring_item: (p: CommandPayload<'write_recurring_item'>, o?: ClientRequestOptions) =>
-    api.v1.commands.write_recurring_item.$post({ json: p }, o),
-  delete_recurring_item: (p: CommandPayload<'delete_recurring_item'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_recurring_item.$post({ json: p }, o),
-  set_title: (p: CommandPayload<'set_title'>, o?: ClientRequestOptions) => api.v1.commands.set_title.$post({ json: p }, o),
-  set_description: (p: CommandPayload<'set_description'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_description.$post({ json: p }, o),
-  remove_attachment: (p: CommandPayload<'remove_attachment'>, o?: ClientRequestOptions) =>
-    api.v1.commands.remove_attachment.$post({ json: p }, o),
-  set_thumbnail: (p: CommandPayload<'set_thumbnail'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_thumbnail.$post({ json: p }, o),
-  set_duplicate_settled: (p: CommandPayload<'set_duplicate_settled'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_duplicate_settled.$post({ json: p }, o),
-  remember_sentence: (p: CommandPayload<'remember_sentence'>, o?: ClientRequestOptions) =>
-    api.v1.commands.remember_sentence.$post({ json: p }, o),
-  edit_remembered_sentence: (p: CommandPayload<'edit_remembered_sentence'>, o?: ClientRequestOptions) =>
-    api.v1.commands.edit_remembered_sentence.$post({ json: p }, o),
-  delete_remembered_sentence: (p: CommandPayload<'delete_remembered_sentence'>, o?: ClientRequestOptions) =>
-    api.v1.commands.delete_remembered_sentence.$post({ json: p }, o),
-  set_item_form_presentation: (p: CommandPayload<'set_item_form_presentation'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_item_form_presentation.$post({ json: p }, o),
-  set_follow_up_days: (p: CommandPayload<'set_follow_up_days'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_follow_up_days.$post({ json: p }, o),
-  set_email_address: (p: CommandPayload<'set_email_address'>, o?: ClientRequestOptions) =>
-    api.v1.commands.set_email_address.$post({ json: p }, o),
-} as const;
+/**
+ * Every change is posted to its own route, `/v1/commands/<name>`, by name: one
+ * call for all of them rather than a sender each, which the initial bundle
+ * would carry. A client command with no route fails to compile here.
+ */
+type CommandRoutes = { [N in ClientCommandName]: (typeof api.v1.commands)[N]['$post'] };
+type Post = (body: { json: never }, o?: ClientRequestOptions) => Promise<Response>;
 
 /**
  * A change the server refused for a reason worth repeating to the person who
@@ -474,7 +348,7 @@ export function attachmentUrl(attachmentId: string): string {
 /**
  * `ClientCommandName` rather than `CommandName`: the registry in
  * `packages/shared` also holds the commands Cockpit sends itself, which have no
- * endpoint and so no sender above ("Clean up a captured note into a clear title
+ * endpoint and so no route to post to ("Clean up a captured note into a clear title
  * and a fuller message", issue 296).
  */
 export async function sendCommand<N extends ClientCommandName>(
@@ -483,8 +357,8 @@ export async function sendCommand<N extends ClientCommandName>(
   /** Aborts the request, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */
   signal?: AbortSignal,
 ): Promise<CommandResult> {
-  const send = commandSenders[name] as (p: never, o?: ClientRequestOptions) => Promise<Response>;
-  const res = await send(payload as never, signal ? { init: { signal } } : undefined);
+  const routes = api.v1.commands as unknown as Record<ClientCommandName, { $post: Post }> & CommandRoutes;
+  const res = await (routes[name] as { $post: Post }).$post({ json: payload as never }, signal ? { init: { signal } } : undefined);
   if (!res.ok) {
     throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `${name} failed: ${res.status}`);
   }

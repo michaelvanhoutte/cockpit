@@ -23,6 +23,7 @@ import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
+import type { boardCommandSchemas } from './commands-board.js';
 import type { combineCommandSchemas } from './commands-combine.js';
 import type { splitCommandSchemas } from './commands-split.js';
 import type { storyCommandSchemas } from './commands-story.js';
@@ -1454,11 +1455,17 @@ export const commandSchemas = {
 } as const;
 
 /**
- * Every command there is: the registry above and the entries Combine adds
- * (`commands-combine.ts`, its own entry point so the app does not carry their
- * schemas in its initial bundle - the API mounts both, `apps/api/src/http/app.ts`).
+ * Every command there is: the registry above and the entries Combine, Split,
+ * the story and the whiteboard add (`commands-combine.ts` and its siblings,
+ * each its own entry point so the app does not carry their schemas in its
+ * initial bundle - the API mounts them all, `apps/api/src/http/app.ts`). The
+ * whiteboard's entries replace the changes they give `takeCardsOff`.
  */
-type Registered = typeof commandSchemas & typeof combineCommandSchemas & typeof storyCommandSchemas & typeof splitCommandSchemas;
+type Registered = Omit<typeof commandSchemas, keyof typeof boardCommandSchemas> &
+  typeof combineCommandSchemas &
+  typeof storyCommandSchemas &
+  typeof splitCommandSchemas &
+  typeof boardCommandSchemas;
 export type CommandName = keyof Registered;
 export type CommandPayload<N extends CommandName> = z.infer<Registered[N]>;
 

@@ -402,6 +402,16 @@ export const dashboards = sqliteTable(
      * had to spend two migrations on.
      */
     deletedAt: text('deleted_at'),
+    /**
+     * How the Dashboard is laid out, from the four icons in its bar, and where
+     * its divider was let go, as the Panels pane's share ("Brainstorming: give
+     * every Dashboard a whiteboard of its own", issue 1829). Null on every
+     * Dashboard never switched, which draws its Panels alone at 0.4. No CHECK:
+     * added to a table that cannot be rebuilt, and the command's schema
+     * (`DASHBOARD_VIEWS`, `splitShareSchema`) is the one writer.
+     */
+    layoutView: text('layout_view'),
+    splitShare: real('split_share'),
   },
   (t) => [
     /**
@@ -1309,6 +1319,98 @@ export const itemChildren = sqliteTable(
     check('item_children_collapsed_is_a_flag', sql.raw('collapsed IN (0, 1)')),
     check('item_children_created_at_is_timestamp', isTimestamp('created_at')),
     check('item_children_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A box drawn on a Dashboard's whiteboard ("Brainstorming: give every Dashboard
+ * a whiteboard of its own", issue 1829): a name, one of the swatches or none, a
+ * frame and a collapsed flag, on open space or inside another box to any depth.
+ * Never a Panel and never an Item. `x` and `y` are relative to the box it sits
+ * in, else to the board.
+ *
+ * - **Tombstoned**: *Delete box…* stamps it, the boxes inside it and their
+ *   cards with one `deleted_at`, which is how its Undo finds them again.
+ * - **`parent_box_id` points at no table**: a box moved into one drawn after it
+ *   would otherwise be a row a restore, writing rows in the order they were
+ *   made, cannot insert before its parent. The commands keep it on one board
+ *   and out of a circle.
+ * - **`colour`** has no CHECK, for the reason `dashboards.layout_view` has none:
+ *   the swatch list grows with the command's schema (`SWATCHES`).
+ */
+export const boardBoxes = sqliteTable(
+  'board_boxes',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    parentBoxId: text('parent_box_id'),
+    label: text('label').notNull(),
+    colour: text('colour'),
+    x: real('x').notNull(),
+    y: real('y').notNull(),
+    w: real('w').notNull(),
+    h: real('h').notNull(),
+    collapsed: integer('collapsed', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    // A board's boxes, for the Workspace's read.
+    index('board_boxes_tenant_dashboard')
+      .on(t.tenantId, t.dashboardId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('board_boxes_size_is_positive', sql.raw('w > 0 AND h > 0')),
+    check('board_boxes_collapsed_is_a_flag', sql.raw('collapsed IN (0, 1)')),
+    check('board_boxes_created_at_is_timestamp', isTimestamp('created_at')),
+    check('board_boxes_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * One Item placed on one Dashboard's whiteboard ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829): at most one live
+ * card per Item per board, on open space or in one box of that board. Placing
+ * files nothing and filing places nothing. An Item in the Inbox is never on a
+ * whiteboard, so a card exists only for an Item filed on a live Panel or inside
+ * a live Item, and the changes that would take that away take its cards off in
+ * the same transaction (`board.ts`). `x` and `y` are relative to its box, else
+ * to the board.
+ *
+ * Tombstoned: taking a card off, dismissing its Item or deleting its box stamps
+ * `deleted_at`, and each Undo clears it again where the Item may still be placed.
+ */
+export const boardCards = sqliteTable(
+  'board_cards',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    boxId: text('box_id').references(() => boardBoxes.id, { onDelete: 'restrict' }),
+    x: real('x').notNull(),
+    y: real('y').notNull(),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    uniqueIndex('board_cards_dashboard_live_item')
+      .on(t.dashboardId, t.itemId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    // A board's cards, for the Workspace's read; an Item's cards, for the changes that take them off.
+    index('board_cards_tenant_dashboard')
+      .on(t.tenantId, t.dashboardId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('board_cards_tenant_item')
+      .on(t.tenantId, t.itemId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('board_cards_created_at_is_timestamp', isTimestamp('created_at')),
+    check('board_cards_deleted_at_is_timestamp', isTimestamp('deleted_at')),
   ],
 );
 

@@ -21,6 +21,7 @@ import {
 import { filingSchema, layoutSchema, panelSchema } from '../domain/panel.js';
 import { childRowSchema } from '../domain/item-children.js';
 import { seriesSchema } from '../domain/series.js';
+import type { Whiteboards } from '../domain/board.js';
 
 /**
  * The read model (architecture.md, "The read model: persisted snapshot,
@@ -158,6 +159,17 @@ export const workspaceSnapshotSchema = z.object({
    * issue 1165).
    */
   agentRuns: z.array(agentRunSchema).default([]),
+  /**
+   * Every whiteboard of the Workspace's Dashboards: their boxes, their cards
+   * and each Dashboard's layout ("Brainstorming: give every Dashboard a
+   * whiteboard of its own", issue 1829); the Items the cards name are in
+   * `items` whatever their status. Its shape is `whiteboardsSchema`
+   * (`@cockpit/shared/board`), checked by the API as it answers and taken on
+   * trust here, so the initial bundle carries none of it. Optional, as
+   * `additions` is: a copy saved by a release that did not send it draws empty
+   * boards.
+   */
+  whiteboards: z.custom<Whiteboards>().optional(),
   /**
    * What each source is called on screen, by its connector id ("Take source
    * names out of the shared contract", issue 927): every connector

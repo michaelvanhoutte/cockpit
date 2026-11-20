@@ -1,10 +1,11 @@
-import { and, desc, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, inArray, isNull, notExists, sql, type SQL } from 'drizzle-orm';
 import { splitBlocksOf, wordsOfBlocks } from '@cockpit/shared';
 import { CLAUDE_REPORTED_STAGES, canBeThumbnail, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
+import { isBoardCommand, keepNoCardInTheInbox, putBack, restampCards, runBoardCommand } from './board.js';
 import {
   ancestorsAmong,
   dismissPanelsItems,
@@ -844,11 +845,22 @@ function insertPanel(
   insertPanelsItem(tx, panel.tenantId, panel, workspaceId, panel.createdAt);
 }
 
+/** Every Item filed on the Panels `where` picks, each once: what deleting them may leave in the Inbox. */
+function itemsFiledOn(db: AccountDb, tenantId: string, where: SQL | undefined): string[] {
+  return db
+    .selectDistinct({ itemId: panelItems.itemId })
+    .from(panelItems)
+    .where(and(eq(panelItems.tenantId, tenantId), where))
+    .all()
+    .map((row) => row.itemId);
+}
+
 /**
  * Writes an Item's row as it now stands, and counts again what every Item
  * holding it keeps (`recountHoldersOf`), since a write may have finished,
  * reopened, dismissed or restored it (issue 1824).
  */
+
 function storeItem(tx: InATransaction, tenantId: string, item: Item): void {
   tx.update(items)
     .set(asStored(item))
@@ -1367,6 +1379,13 @@ export function runCommand<N extends CommandName>(
     return { ...(kept.length > 0 ? { rewriteStoryOf: kept } : {}), ...(storyAsked.size > 0 ? { storyAskedOf: [...storyAsked] } : {}) };
   };
 
+  // A whiteboard's own changes ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+  if (isBoardCommand(name)) {
+    return { ok: true, applied: runBoardCommand(db, tenantId, name, payload as never, commandRow), at: commandRow.receivedAt };
+  }
+  // Whether a change that leaves an Item with cards in the Inbox takes them off every board too (`keepNoCardInTheInbox`).
+  const takeCardsOff = (payload as { takeCardsOff?: boolean }).takeCardsOff === true;
+
   switch (name) {
     case 'create_workspace': {
       const cmd = payload as CommandPayload<'create_workspace'>;
@@ -1513,6 +1532,8 @@ export function runCommand<N extends CommandName>(
       // Counted here rather than left to a rule somewhere else: a workspace
       // with no dashboards has no view at all.
       if (existing.length === 1) throw new LastDashboardError();
+      // What is filed on its Panels may be left in the Inbox, its cards with it.
+      const filedThere = itemsFiledOn(db, tenantId, sql`${panelItems.panelId} IN (SELECT id FROM panels WHERE tenant_id = ${tenantId} AND dashboard_id = ${cmd.dashboardId})`);
       // Its panels and layouts go with it, and no statement here touches them:
       // every read of either joins to a live dashboard (repo.ts), so
       // tombstoning this one takes them off every screen at once. That is
@@ -1526,6 +1547,7 @@ export function runCommand<N extends CommandName>(
           .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
           .run();
         dismissPanelsItems(tx, tenantId, { dashboardId: cmd.dashboardId }, cmd.issuedAt);
+        keepNoCardInTheInbox(tx, tenantId, filedThere, takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1766,6 +1788,7 @@ export function runCommand<N extends CommandName>(
       // delete sent twice deletes one panel whether the replay carries the
       // original request id (caught at the top) or a fresh one (caught here).
       const going = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      const filedThere = itemsFiledOn(db, tenantId, eq(panelItems.panelId, cmd.panelId));
       // A dashboard may end up with no panels at all. The last *dashboard* of a
       // workspace is the one thing the app refuses to delete, because a
       // workspace with no dashboard has no view; a dashboard with no panels is
@@ -1777,6 +1800,7 @@ export function runCommand<N extends CommandName>(
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
         dismissPanelsItems(tx, tenantId, { panelId: cmd.panelId }, cmd.issuedAt);
+        keepNoCardInTheInbox(tx, tenantId, filedThere, takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2050,6 +2074,7 @@ export function runCommand<N extends CommandName>(
 
       db.transaction((tx) => {
         writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
+        keepNoCardInTheInbox(tx, tenantId, [cmd.itemId], takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
@@ -2089,6 +2114,7 @@ export function runCommand<N extends CommandName>(
           )
           .run();
         mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
+        keepNoCardInTheInbox(tx, tenantId, [cmd.itemId], takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2185,7 +2211,10 @@ export function runCommand<N extends CommandName>(
       // Taken out already is what was asked, as a second remove from a Panel is.
       applied = isInside(db, tenantId, parent.id, cmd.childId);
       db.transaction((tx) => {
-        if (applied) takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
+        if (applied) {
+          takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
+          keepNoCardInTheInbox(tx, tenantId, [cmd.childId], takeCardsOff, cmd.issuedAt);
+        }
         tx.insert(commands).values(commandRow).run();
       });
       if (applied) storyOfItems.add(parent.id);
@@ -2260,6 +2289,9 @@ export function runCommand<N extends CommandName>(
           recountHoldersOf(tx, tenantId, original.id);
           endTheOpenRun(tx, tenantId, original.id, cmd.issuedAt);
         }
+        // Dismissed as merged, the originals leave every whiteboard; anything they held that the new Item does not is
+        // in the Inbox now, and leaves too ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+        keepNoCardInTheInbox(tx, tenantId, [...cmd.originalIds, ...itemChildrenHeldBy(db, tenantId, cmd.originalIds)], true, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       // Its first story is written from what it brings together, replacing the stitched one while that is Claude's;
@@ -2309,6 +2341,8 @@ export function runCommand<N extends CommandName>(
               .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
               .run();
             recountHoldersOf(tx, tenantId, original.id);
+            // Back on the whiteboards the Merge took it off ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+            if (original.deletedAt) putBack(tx, tenantId, { itemIds: [original.id], stampedAt: original.deletedAt });
           }
           // The Item the Merge made is dismissed, not erased, as every Item is.
           tx.update(items)
@@ -2317,6 +2351,8 @@ export function runCommand<N extends CommandName>(
             .run();
           recountHoldersOf(tx, tenantId, merged.id);
           endTheOpenRun(tx, tenantId, merged.id, cmd.issuedAt);
+          // It leaves every whiteboard, and so does anything it held that is in the Inbox now.
+          keepNoCardInTheInbox(tx, tenantId, [merged.id, ...itemChildrenHeldBy(db, tenantId, [merged.id])], true, cmd.issuedAt);
           for (const runId of reopened) {
             tx.update(agentRuns)
               .set({ endedAt: null })
@@ -2474,6 +2510,9 @@ export function runCommand<N extends CommandName>(
             recountHoldersOf(tx, tenantId, child.itemId);
             endTheOpenRun(tx, tenantId, child.itemId, cmd.issuedAt);
           }
+          // Dismissed, they leave every whiteboard, and so does anything they held that is in the Inbox now ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+          const gone = back.map((child) => child.itemId);
+          keepNoCardInTheInbox(tx, tenantId, [...gone, ...itemChildrenHeldBy(db, tenantId, gone)], true, cmd.issuedAt);
           if (cmd.keepsStory !== undefined && original.keepsStory === true) {
             tx.update(items).set({ keepsStory: cmd.keepsStory }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
           }
@@ -4073,6 +4112,17 @@ export function runCommand<N extends CommandName>(
         db.transaction((tx) => {
           // Both source columns, as the capture above (`asStored`, domain/items.ts).
           storeItem(tx, tenantId, updated);
+          // Dismissed, it leaves every whiteboard, and what it held that is in the Inbox now leaves too where the change
+          // says so (a source's dismissal always does); brought back, the cards that dismissal took come back with it
+          // ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+          if (name === 'set_dismissed' && existing.deletedAt === null && updated.deletedAt !== null) {
+            const held = [cmd.itemId, ...itemChildrenHeldBy(db, tenantId, [cmd.itemId])];
+            keepNoCardInTheInbox(tx, tenantId, held, takeCardsOff || fromTheSource, updated.deletedAt);
+          } else if (name === 'set_dismissed' && existing.deletedAt !== null && updated.deletedAt === null) {
+            putBack(tx, tenantId, { itemIds: [cmd.itemId, ...itemChildrenHeldBy(db, tenantId, [cmd.itemId])], stampedAt: existing.deletedAt });
+          } else if (name === 'set_dismissed' && existing.deletedAt !== null && updated.deletedAt !== null && existing.deletedAt !== updated.deletedAt) {
+            restampCards(tx, tenantId, [cmd.itemId, ...itemChildrenHeldBy(db, tenantId, [cmd.itemId])], existing.deletedAt, updated.deletedAt);
+          }
           if (!fromTheSource) {
             wantPulledOpenStateMirrored(tx, tenantId, existing, updated, mirroring);
           }

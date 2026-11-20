@@ -324,6 +324,18 @@
       ]
     },
     {
+      "key": "Whiteboard",
+      "label": "Whiteboard",
+      "parent": "Dashboards",
+      "sourcePatterns": [
+        "apps/api/src/accounts/board.ts",
+        "packages/shared/src/board.ts",
+        "packages/shared/src/domain/board.ts",
+        "packages/shared/src/domain/swatches.ts",
+        "packages/shared/src/commands-board.ts"
+      ]
+    },
+    {
       "key": "Focus",
       "label": "Focus",
       "parent": "Dashboards",
