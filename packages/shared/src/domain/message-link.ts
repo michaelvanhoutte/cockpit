@@ -43,14 +43,17 @@ export function firstMessageLink(
 }
 
 /**
- * The first web page or PDF link in a text ("Capture link summaries", issue
- * 1853): the first `http` or `https` address, found as `firstMessageLink` finds
- * one, that no connector declared, so a Teams link a connector reads or cannot
- * read is never taken for a page. Null where there is none.
+ * The first web page or PDF links in a text, at most `limit`, in the order they
+ * appear ("Capture link summaries", issue 1853): each `http` or `https`
+ * address, found as `firstMessageLink` finds one, that no connector declared,
+ * so a Teams link a connector reads or cannot read is never taken for a page.
+ * A link written twice counts once.
  */
-export function firstWebLink(text: string | null | undefined, messageLinks: DeclaredMessageLinks): string | null {
-  if (!text) return null;
+export function webLinks(text: string | null | undefined, messageLinks: DeclaredMessageLinks, limit: number): string[] {
+  const found: string[] = [];
+  if (!text) return found;
   for (const [run] of text.matchAll(/https?:\/\/[^\s\]>"<]+/gi)) {
+    if (found.length >= limit) break;
     const candidate = withoutTrailingPunctuation(run);
     let url: URL;
     try {
@@ -63,9 +66,14 @@ export function firstWebLink(text: string | null | undefined, messageLinks: Decl
     const declared = Object.values(messageLinks ?? {}).some((links) =>
       links.some((one) => one.host.toLowerCase() === host && url.pathname.startsWith(one.pathStart)),
     );
-    if (!declared) return candidate;
+    if (!declared && !found.includes(candidate)) found.push(candidate);
   }
-  return null;
+  return found;
+}
+
+/** The first web page or PDF link in a text, or null where there is none. */
+export function firstWebLink(text: string | null | undefined, messageLinks: DeclaredMessageLinks): string | null {
+  return webLinks(text, messageLinks, 1)[0] ?? null;
 }
 
 /**
@@ -98,6 +106,11 @@ export function wordsBesideTheLink(text: string, link: string): string {
   if (before.endsWith('\n') && after.startsWith('\n')) after = after.slice(1);
   const onOneLine = before !== '' && after !== '' && !before.endsWith('\n') && !after.startsWith('\n');
   return `${before}${onOneLine ? ' ' : ''}${after}`.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** What a person typed beside several links they pasted: `wordsBesideTheLink` for each in turn. */
+export function wordsBesideTheLinks(text: string, links: readonly string[]): string {
+  return links.reduce((words, link) => wordsBesideTheLink(words, link), text.trim());
 }
 
 /** A link as written in a sentence, less the punctuation that ends the sentence and a `)` that closes something around it. */

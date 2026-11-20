@@ -26,7 +26,7 @@ import {
 import { couldStillBeActedOn, whatAnItemSays } from '../domain/duplicates.js';
 import { sourceNames, sourcesTitledBySubject } from '../connectors/registry.js';
 import { pastedLinkIn, readThePastedLink, type PastedLinkRead } from '../connectors/pasted-link.js';
-import { readTheWebPage, textsOfThePage, webLinkIn, type WebRead } from './web-page.js';
+import { readTheWebPages, textsOfThePage, webLinksIn, type WebRead } from './web-page.js';
 import { WEB } from '../domain/named-sources.js';
 import { itemsToReadAgain } from '../domain/panel-refresh.js';
 import type { QueuedRewriteAttempt } from '../domain/rewrite-history.js';
@@ -525,7 +525,7 @@ export async function cleanUpACapturedNote(
   // From here the note is the read one: her message, then your words as its note.
   const item = found && fromLink ? { ...found, capturedMessage: fromLink.capturedMessage } : found;
   /**
-   * The web page the note's first link names, asked of the model while the note
+   * The web pages the note's first 3 links name, asked of the model while the note
    * is cleaned up, which never sees it ("Capture link summaries", issue 1853).
    * Null where the note holds no link to read. A call that fails rejects, and
    * is awaited wherever the page is written, so the job fails whole and the
@@ -579,10 +579,10 @@ export async function cleanUpACapturedNote(
   // recorded either, for the same reason the register check above records
   // nothing: there is no item left to describe a before/after against.
   if (!item) return say(job.itemId, 'nothing was enriched: no such item in this account');
-  // Where the Teams step read nothing, the first web page or PDF the note links.
-  const webLink = fromLink ? null : webLinkIn(env, item);
-  if (webLink) {
-    webPage = readTheWebPage(ai, item, webLink, { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null }, delivery.lastAttempt);
+  // Where the Teams step read nothing, the first 3 web pages or PDFs the note links.
+  const links = fromLink ? [] : webLinksIn(env, item);
+  if (links.length > 0) {
+    webPage = readTheWebPages(ai, item, links, { accountName: job.accountName, itemId: item.id, triggeredBy: job.triggeredBy ?? null }, delivery.lastAttempt);
     webPage.catch(() => {});
   }
   // Nothing to read. Only capture writes this column, and it writes what was
@@ -734,7 +734,7 @@ export async function cleanUpACapturedNote(
       })),
     };
     const texts = web
-      ? textsOfThePage(web, { description: proposed.description, readings: proposed.readings, ...(proposed.nextAction === undefined ? {} : { nextAction: proposed.nextAction }) })
+      ? textsOfThePage(web, { title: proposed.title, description: proposed.description, readings: proposed.readings, ...(proposed.nextAction === undefined ? {} : { nextAction: proposed.nextAction }) })
       : proposed;
     writtenTexts = { title: texts.title, description: texts.description };
     const envelope = {

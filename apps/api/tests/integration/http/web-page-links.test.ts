@@ -37,6 +37,8 @@ const FAILED = { type: 'web_fetch_tool_result', tool_use_id: 'srvtoolu_1', conte
 
 /** How the model answers the page call. */
 let onThePage: { says: unknown; fetch: unknown } | 'fails' = { says: PAGE, fetch: FETCHED };
+/** How the model answers the page call of one link, where that differs from `onThePage`. */
+let onThe: Record<string, { says: unknown; fetch: unknown } | 'fails'> = {};
 /** Every page call made, as sent. */
 let pageCalls: { system: string; message: string; tools: unknown; model: string }[] = [];
 
@@ -45,6 +47,7 @@ let realQueue: typeof env.ENRICHMENT;
 
 beforeEach(() => {
   onThePage = { says: PAGE, fetch: FETCHED };
+  onThe = {};
   pageCalls = [];
   held = [];
   realQueue = env.ENRICHMENT;
@@ -65,13 +68,15 @@ beforeEach(() => {
     };
     if (!sent.tools?.some((tool) => tool.type === 'web_fetch_20260209')) return rest(input, init);
     pageCalls.push({ system: sent.system.map((block) => block.text).join('\n'), message: sent.messages[0]!.content, tools: sent.tools, model: sent.model });
-    if (onThePage === 'fails') throw new Error('the model could not be reached');
+    const asked = /^The link: (\S+)/.exec(sent.messages[0]!.content)?.[1] ?? '';
+    const answer = onThe[asked] ?? onThePage;
+    if (answer === 'fails') throw new Error('the model could not be reached');
     return Response.json({
       id: 'msg_1',
       type: 'message',
       role: 'assistant',
       model: sent.model,
-      content: [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_fetch', input: {} }, onThePage.fetch, { type: 'text', text: JSON.stringify(onThePage.says) }],
+      content: [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_fetch', input: {} }, answer.fetch, { type: 'text', text: JSON.stringify(answer.says) }],
       stop_reason: 'end_turn',
       usage: { input_tokens: 1, output_tokens: 1 },
     });
@@ -187,6 +192,110 @@ describe('Capture', () => {
       await delivered(job);
 
       expect(await sourceOf((job as { itemId: string }).itemId)).toEqual({ source: 'web', sender: 'example.com', link: LINK });
+    });
+  });
+
+  describe('a note with several links: the first 3 are each summarised under their page title, in the order they appear', () => {
+    const B = 'https://blog.example.org/second';
+    const C = 'https://news.example.net/third';
+    const D = 'https://example.com/fourth';
+    const pageOf = (title: string) => ({ says: { ...PAGE, title }, fetch: FETCHED });
+    const summaryOf = (title: string) => `**${title}**
+
+${SUMMARY}`;
+
+    beforeEach(() => {
+      onThe = { [LINK]: pageOf('First page'), [B]: pageOf('Second page'), [C]: pageOf('Third page'), [D]: pageOf('Fourth page') };
+    });
+
+    it('two links with words: the title from your words, then two summaries, each under its bold page title', async () => {
+      const { itemId, job } = await captured(`compare ${LINK} and ${B}`);
+
+      await delivered(job);
+
+      expect(await textsOf(itemId)).toMatchObject({ title: A_READING.title, description: `${A_READING.message}
+
+${summaryOf('First page')}
+
+${summaryOf('Second page')}` });
+      expect(await sourceOf(itemId)).toEqual({ source: 'web', sender: 'example.com', link: LINK });
+      expect(await changesTo(itemId)).toEqual(['read_pasted_link']);
+      // The clean-up sees the note as typed, links in it, so it can name the sites in the title.
+      expect(asked.filter(isACleanUp).map((call) => call.note)).toEqual([`compare ${LINK} and ${B}`]);
+    });
+
+    it('two links and no words: the first page’s title, and the summaries alone', async () => {
+      const { itemId, job } = await captured(`${LINK}
+${B}`);
+
+      await delivered(job);
+
+      expect(await textsOf(itemId)).toMatchObject({ title: 'First page', description: `${summaryOf('First page')}
+
+${summaryOf('Second page')}` });
+    });
+
+    it('four links: the first three are asked, and the fourth is not', async () => {
+      const { itemId, job } = await captured(`${LINK} ${B} ${C} ${D}`);
+
+      await delivered(job);
+
+      expect(pageCalls.map((call) => /^The link: (\S+)/.exec(call.message)![1])).toEqual([LINK, B, C]);
+      expect((await textsOf(itemId))?.description).not.toContain('Fourth page');
+    });
+
+    it('the second of three not readable: the first and third are written, and the source is the first', async () => {
+      onThe[B] = { says: NOT_READABLE, fetch: FETCHED };
+      const { itemId, job } = await captured(`${LINK} ${B} ${C}`);
+
+      await delivered(job);
+
+      expect((await textsOf(itemId))?.description).toBe(`${A_READING.message}
+
+${summaryOf('First page')}
+
+${summaryOf('Third page')}`);
+      expect(await sourceOf(itemId)).toEqual({ source: 'web', sender: 'example.com', link: LINK });
+    });
+
+    it('the first not readable: the source link and sender are the second’s', async () => {
+      onThe[LINK] = { says: NOT_READABLE, fetch: FETCHED };
+      const { itemId, job } = await captured(`${LINK} ${B}`);
+
+      await delivered(job);
+
+      expect(await sourceOf(itemId)).toEqual({ source: 'web', sender: 'blog.example.org', link: B });
+    });
+
+    it('none readable: the usual clean-up, and no source', async () => {
+      onThe = { [LINK]: { says: NOT_READABLE, fetch: FETCHED }, [B]: { says: NOT_READABLE, fetch: FETCHED } };
+      const { itemId, job } = await captured(`${LINK} ${B}`);
+
+      await delivered(job);
+
+      expect(await sourceOf(itemId)).toEqual(AS_TYPED);
+      expect(await changesTo(itemId)).toEqual(['propose_item_texts']);
+    });
+
+    it('a site that does not answer, before the last try: the job is tried again and nothing is written', async () => {
+      onThe[B] = 'fails';
+      const { itemId, job } = await captured(`${LINK} ${B}`);
+
+      expect(await delivered(job)).toEqual({ retried: true });
+
+      expect(await sourceOf(itemId)).toEqual(AS_TYPED);
+      expect(await changesTo(itemId)).toEqual([]);
+    });
+
+    it('a site that does not answer, on the last try: the others are written, and that link stays plain', async () => {
+      onThe[B] = 'fails';
+      const { itemId, job } = await captured(`${LINK} ${B}`);
+
+      expect(await delivered(job, 4)).toEqual({ retried: false });
+
+      expect(await textsOf(itemId)).toMatchObject({ title: 'First page', description: `${A_READING.message}\n\n${SUMMARY}` });
+      expect((await textsOf(itemId))?.description).not.toContain('Second page');
+      expect(await sourceOf(itemId)).toEqual({ source: 'web', sender: 'example.com', link: LINK });
     });
   });
 
