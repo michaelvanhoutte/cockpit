@@ -627,6 +627,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'remove_item_from_panel',
   'add_children',
   'put_inside',
+  'combine_under_new_parent',
   'remove_child',
   'remove_attachment',
   'set_thumbnail',

@@ -1273,6 +1273,12 @@ describe('Panels', () => {
       expect(read(drawn, HOLDER)).toMatchObject({ childrenCount: 2 });
     });
 
+    it('stands at the top of the Panel when the first one does not leave it, as the Worker puts it', () => {
+      const drawn = drawnAhead(copy(), combine([{ itemId: SECOND, panelId: PANEL }], PANEL));
+
+      expect(drawn.filings.sort((a, b) => a.position - b.position).map((filing) => filing.itemId)).toEqual([NEW, OTHER, FIRST]);
+    });
+
     it('is drawn once, whether or not a read already holds the new parent', () => {
       const once = drawnAhead(copy(), combine([], PANEL));
 

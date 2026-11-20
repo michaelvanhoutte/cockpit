@@ -108,7 +108,9 @@ function combinedAhead(snapshot: WorkspaceSnapshot, combine: CommandPayload<'com
   if (combine.panelId !== null) {
     // The first one's place on the Panel it is filed on.
     const onPanel = filings.filter((filing) => filing.panelId === combine.panelId).sort((a, b) => a.position - b.position).map((filing) => filing.itemId);
-    const at = Math.max(0, onPanel.indexOf(first));
+    // Where the first one leaves the Panel; else the Worker puts the new parent at the top.
+    const leavesIt = leaves.some((leave) => leave.itemId === first && leave.panelId === combine.panelId);
+    const at = leavesIt ? Math.max(0, onPanel.indexOf(first)) : 0;
     onPanel.splice(at, 0, combine.parentId);
     filings = [
       ...filings.filter((filing) => filing.panelId !== combine.panelId),
@@ -118,7 +120,10 @@ function combinedAhead(snapshot: WorkspaceSnapshot, combine: CommandPayload<'com
     const inside = firstLeftParent ?? asRows.find((row) => row.childId === first)?.parentId;
     if (inside !== undefined) {
       const held = asRows.filter((row) => row.parentId === inside).sort((a, b) => a.position - b.position).map((row) => row.childId);
-      held.splice(Math.max(0, held.indexOf(first)), 0, combine.parentId);
+      // In the first one's place only where it leaves this parent; else at the end, as the Worker puts it.
+      const leavesIt = leaves.some((leave) => leave.itemId === first && leave.parentId === inside);
+      if (leavesIt) held.splice(Math.max(0, held.indexOf(first)), 0, combine.parentId);
+      else held.push(combine.parentId);
       drawn = withCounts(drawn, inside, 1, 0);
       const left = new Set(leaves.filter((leave) => leave.parentId === inside).map((leave) => leave.itemId));
       const placed = held.filter((id) => !left.has(id)).map((childId, position) => ({ parentId: inside, childId, position }));

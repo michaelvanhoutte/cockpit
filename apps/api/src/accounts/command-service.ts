@@ -2550,6 +2550,7 @@ export function runCommand<N extends CommandName>(
         const at = first.findIndex((row) => row.itemId === cmd.childIds[0]);
         if (at < 0) continue;
         const own = first.findIndex((row) => row.itemId === cmd.parentId);
+        if (own < 0) continue;
         const placed = first.splice(own, 1)[0]!;
         first.splice(at, 0, placed);
         first.forEach((row, position) => {
