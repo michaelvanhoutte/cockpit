@@ -20,6 +20,8 @@ import type {
   WorkspaceSnapshot,
 } from '@cockpit/shared';
 import { dayOf, daysOnFrom } from '@cockpit/shared';
+import type { Whiteboards } from '@cockpit/shared/board';
+import { cardWanted } from '../../../src/boardFocus';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, attachmentUrl, uploadAttachment } from '../../../src/api/client';
 import { dateTimeLabel, timeOfDayLabel } from '../../../src/dateFormat';
@@ -54,6 +56,9 @@ const held = vi.hoisted(() => ({
   filings: [] as Filing[],
   /** Which Item holds which (issue 1825). */
   children: [] as ChildRow[],
+  /** The Workspace's whiteboards (issue 1829). */
+  whiteboards: undefined as Whiteboards | undefined,
+  navigate: vi.fn(),
   panels: [] as Panel[],
   dashboards: [] as { id: string; name: string }[],
   duplicates: [] as PossibleDuplicate[],
@@ -87,6 +92,7 @@ const held = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ workspaceId: 'ws-work' }),
+  useNavigate: () => held.navigate,
 }));
 
 vi.mock('../../../src/itemForm', () => ({
@@ -232,6 +238,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
       held.mailboxes,
       held.series,
       held.itemFormPresentation,
+      held.whiteboards,
     ],
     queryFn: async (): Promise<WorkspaceSnapshot> => {
       await held.gate;
@@ -254,6 +261,7 @@ vi.mock('../../../src/api/queries', async (importOriginal) => ({
         // What the Workspace calls each source (issue 927).
         sourceNames: { teams: 'Microsoft Teams', gmail: 'Gmail', twilio: 'Text message', ...held.alsoNamed },
         ...(held.phoneLinks ? { phoneLinks: held.phoneLinks } : {}),
+        ...(held.whiteboards ? { whiteboards: held.whiteboards } : {}),
         messageLinks: {
           teams: ['teams.microsoft.com', 'teams.live.com', 'teams.cloud.microsoft'].map((host) => ({ host, pathStart: '/l/message/' })),
         },
@@ -447,6 +455,8 @@ beforeEach(() => {
   held.panels = [];
   held.dashboards = [];
   held.children = [];
+  held.whiteboards = undefined;
+  held.navigate.mockClear();
   held.duplicates = [];
   held.attachments = [];
   held.additions = [];
@@ -5038,7 +5048,48 @@ describe('Item editing', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Relations' }));
 
-      expect(await screen.findByText('No parents or children yet.')).toBeVisible();
+      expect(await screen.findByText('No parents, children or whiteboards yet.')).toBeVisible();
+    });
+  });
+
+  /** *On whiteboards* ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829); which cards the read carries is the API's. */
+  describe('Relations names each whiteboard the Item is on, and the box it is in, and goes to the card', () => {
+    const card = (id: string, dashboardId: string, boxId: string | null) => ({ id, dashboardId, itemId: 'item-1', boxId, x: 0, y: 0 });
+    const box = { id: 'box-people', dashboardId: 'dash-novel', parentBoxId: null, label: 'People', colour: null, x: 0, y: 0, w: 300, h: 200, collapsed: false };
+
+    it.each([
+      { situation: 'a card on open space', cards: [card('card-1', 'dash-plan', null)], reads: ['Plan'] },
+      { situation: 'a card in a box', cards: [card('card-1', 'dash-novel', 'box-people')], reads: ['Novel · in People'] },
+      { situation: 'no card', cards: [], reads: [] },
+    ])('lists $situation', async ({ cards, reads }) => {
+      held.dashboards = [
+        { id: 'dash-novel', name: 'Novel' },
+        { id: 'dash-plan', name: 'Plan' },
+      ];
+      held.whiteboards = { layouts: [], boxes: [box], cards };
+      const user = await theForm();
+
+      await user.click(screen.getByRole('tab', { name: /^Relations/ }));
+
+      if (reads.length === 0) {
+        expect(await screen.findByText('No parents, children or whiteboards yet.')).toBeVisible();
+        return;
+      }
+      const relations = await screen.findByRole('region', { name: 'Relations' });
+      const list = within(relations).getByRole('heading', { name: 'On whiteboards' }).nextElementSibling as HTMLElement;
+      expect(within(list).getAllByRole('button').map((one) => one.textContent)).toEqual(reads);
+    });
+
+    it('goes to the card: its Dashboard opened, with that card asked to be shown', async () => {
+      held.dashboards = [{ id: 'dash-novel', name: 'Novel' }];
+      held.whiteboards = { layouts: [{ dashboardId: 'dash-novel', view: 'side', splitShare: null }], boxes: [box], cards: [card('card-1', 'dash-novel', 'box-people')] };
+      const user = await theForm();
+      await user.click(screen.getByRole('tab', { name: /^Relations/ }));
+
+      await user.click(await screen.findByRole('button', { name: 'Novel · in People' }));
+
+      expect(held.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: 'dash-novel' } }));
+      expect(cardWanted('dash-novel')).toBe('card-1');
     });
   });
 });

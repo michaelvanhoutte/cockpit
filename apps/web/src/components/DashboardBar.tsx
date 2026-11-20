@@ -21,6 +21,7 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { carryAcrossSwitch } from '../itemInTheAir';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { LayoutSwitch } from './LayoutSwitch';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { useUndo } from '../undo';
@@ -587,6 +588,8 @@ export function DashboardBar({
       )}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
+          {/* Panels, whiteboard or both, at a desk; a phone toggles between them on the page instead. */}
+          {roomForTheInbox && <LayoutSwitch workspaceId={workspaceId} dashboardId={openDashboardId} />}
           <AddPanel
             workspaceId={workspaceId}
             dashboardId={openDashboardId}
