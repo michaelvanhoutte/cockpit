@@ -28,8 +28,9 @@ export function StoryReview({
   const answer = async (name: 'use_story' | 'keep_my_story') => {
     setRefusal(null);
     try {
-      await send({ name, payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: item.id } });
-      if (name === 'use_story') onUsed(proposal);
+      const result = await send({ name, payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: item.id } });
+      // Answered already elsewhere, or replaced by a newer one: what is on screen was not stored, so the boxes are not filled with it.
+      if (name === 'use_story' && result.applied) onUsed(proposal);
       setOpen(false);
     } catch (failure) {
       setRefusal(failure instanceof Error ? failure.message : 'That could not be saved');

@@ -14,7 +14,8 @@ import type { FilterGroup } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { saysHowItIsSorted } from '../sorting';
-import { useSendCommand } from '../api/queries';
+import { useSendCommand, whyNotDone } from '../api/queries';
+import { useUndo } from '../undo';
 import { ItemList } from './ItemList';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';
@@ -191,6 +192,7 @@ export function PanelCard({
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
   // A Panel's own Item has its id, which the story commands name (issue 1827).
   const sendStoryCommand = useSendCommand();
+  const offerToUndo = useUndo();
   const storyEnvelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: panel.id });
   /** Where and when the press on this header that might be a tap began. */
   const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
@@ -270,14 +272,18 @@ export function PanelCard({
                     checked: panel.keepsStory === true,
                     keepsFocus: true,
                     onSelect: () => {
-                      void sendStoryCommand({ name: 'set_keeps_story', payload: { ...storyEnvelope(), keepsStory: panel.keepsStory !== true } });
+                      sendStoryCommand({ name: 'set_keeps_story', payload: { ...storyEnvelope(), keepsStory: panel.keepsStory !== true } }).catch(
+                        (failure: unknown) => offerToUndo({ what: `Its story setting is unchanged. ${whyNotDone(failure)}` }),
+                      );
                     },
                   },
                   {
                     label: 'Rewrite from its children',
                     keepsFocus: true,
                     onSelect: () => {
-                      void sendStoryCommand({ name: 'rewrite_story', payload: storyEnvelope() });
+                      sendStoryCommand({ name: 'rewrite_story', payload: storyEnvelope() }).catch((failure: unknown) =>
+                        offerToUndo({ what: `No new story was asked for. ${whyNotDone(failure)}` }),
+                      );
                     },
                   },
                 ]

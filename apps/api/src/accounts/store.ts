@@ -132,6 +132,7 @@ import {
   PanelOrderStaleError,
   ItemInsideItselfError,
   MergeRefusedError,
+  StoryRefusedError,
   SourceAccountNotFoundError,
   UnknownThemeError,
   WorkspaceNameTakenError,
@@ -2097,7 +2098,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // Same again: every Item is there, and an Item cannot be its own ancestor.
         error instanceof ItemInsideItselfError ||
         // A 400 as well: every Item is there, and one from a source is finished at its source.
-        error instanceof MergeRefusedError
+        error instanceof MergeRefusedError ||
+        // A 400 as well: the Item is there, and holds nothing a story could be written from.
+        error instanceof StoryRefusedError
       ) {
         return { status: 'refused', what: error.message };
       }

@@ -1050,15 +1050,42 @@ export function getStoryHolder(db: AccountDb, tenantId: string, itemId: string):
 export function storyKeepersAmong(db: AccountDb, tenantId: string, itemIds: readonly string[], panelIds: readonly string[]): string[] {
   const ids = [...new Set(itemIds)];
   const panelsOf = [...new Set(panelIds)];
-  if (ids.length === 0 && panelsOf.length === 0) return [];
+  const found = new Set<string>();
+  // Chunked, since the store takes no more than 100 bound values in a statement.
   const named = (list: readonly string[]) => sql.join(list.map((id) => sql`${id}`), sql`, `);
-  const rows = db.all<{ id: string }>(sql`SELECT id FROM items
-                                            WHERE tenant_id = ${tenantId} AND keeps_story = 1 AND deleted_at IS NULL
-                                              AND (${ids.length > 0 ? sql`id IN (${named(ids)})` : sql`0`}
-                                                   OR ${panelsOf.length > 0
-                                                     ? sql`id IN (SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND id IN (${named(panelsOf)}))`
-                                                     : sql`0`})`);
-  return rows.map((row) => row.id);
+  for (let at = 0; at < ids.length; at += STORY_IDS_PER_STATEMENT) {
+    const rows = db.all<{ id: string }>(sql`SELECT id FROM items
+                                              WHERE tenant_id = ${tenantId} AND keeps_story = 1 AND deleted_at IS NULL
+                                                AND id IN (${named(ids.slice(at, at + STORY_IDS_PER_STATEMENT))})`);
+    for (const row of rows) found.add(row.id);
+  }
+  for (let at = 0; at < panelsOf.length; at += STORY_IDS_PER_STATEMENT) {
+    const rows = db.all<{ id: string }>(sql`SELECT id FROM items
+                                              WHERE tenant_id = ${tenantId} AND keeps_story = 1 AND deleted_at IS NULL
+                                                AND id IN (SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+                                                             AND id IN (${named(panelsOf.slice(at, at + STORY_IDS_PER_STATEMENT))}))`);
+    for (const row of rows) found.add(row.id);
+  }
+  return [...found];
+}
+
+const STORY_IDS_PER_STATEMENT = 40;
+
+/** Whether this Item is a Panel's own, which stands for the Panel rather than for anything a person captured. */
+export function isAPanelsOwnItem(db: AccountDb, tenantId: string, itemId: string): boolean {
+  return db.all(sql`SELECT 1 FROM panels WHERE tenant_id = ${tenantId} AND item_id = ${itemId} LIMIT 1`).length > 0;
+}
+
+/**
+ * Whether there is anything to write this Item's story from: it holds Items,
+ * it is a Panel's own Item, or it is what a Merge made (its originals left their
+ * words on it as Additions). `rewrite_story` refuses an Item that is none of these.
+ */
+export function holdsAStory(db: AccountDb, tenantId: string, holder: Item): boolean {
+  if ((holder.childrenCount ?? 0) > 0 || isAPanelsOwnItem(db, tenantId, holder.id)) return true;
+  return (
+    db.all(sql`SELECT 1 FROM item_additions WHERE tenant_id = ${tenantId} AND item_id = ${holder.id} AND from_item_id IS NOT NULL LIMIT 1`).length > 0
+  );
 }
 
 /** What `storySources` reads. */
@@ -1100,7 +1127,8 @@ export function storySources(
       : db
           .select({ message: itemAdditions.message })
           .from(itemAdditions)
-          .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, itemId)))
+          // Only what a Merge's originals left: an Item's own appended words are not Items it holds.
+          .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, itemId), isNotNull(itemAdditions.fromItemId)))
           .orderBy(itemAdditions.createdAt)
           .limit(limit)
           .all()

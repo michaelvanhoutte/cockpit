@@ -733,8 +733,9 @@ export async function cleanUpACapturedNote(
   // the texts above landed ("Read a priority you say when you capture", issue
   // 1076) - and the Panels it named, filed on in the same act.
   let fieldsSet: FieldsSet;
+  const joined: string[] = [];
   try {
-    fieldsSet = await applyStatedFields(account, item, read.proposal, day, whereSaid);
+    fieldsSet = await applyStatedFields(account, item, read.proposal, day, whereSaid, joined);
   } catch (error) {
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
@@ -744,6 +745,8 @@ export async function cleanUpACapturedNote(
     );
     throw error;
   }
+  // Filed on a Panel that keeps its story is a child joining it (issue 1827).
+  for (const parentId of joined) await enqueueStoryRewrite(env, job.accountName, parentId, { triggeredBy: job.triggeredBy ?? 'story-changed' });
   // The Workspace the store settled the Item in, by name, for the history.
   const settledIn = whereSaid?.tree.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
   const panelsAsNamed = whereSaid?.tree.flatMap((w) => w.dashboards.flatMap((d) => d.panels)) ?? [];
@@ -967,6 +970,7 @@ async function applyStatedFields(
   proposal: NoteTexts,
   day: CaptureDay | null,
   whereSaid: PlaceResolved | null,
+  joined: string[],
 ): Promise<FieldsSet> {
   // A date is taken only where the call was told the day it counts from.
   const dueDate = day === null ? null : proposal.dueDate;
@@ -986,6 +990,7 @@ async function applyStatedFields(
       ...(workspaceId === null ? {} : { settleInWorkspaceId: workspaceId }),
       ...(panelIds.length === 0 ? {} : { fileOnPanelIds: panelIds }),
     });
+    joined.push(...(written.rewriteStoryOf ?? []));
     return written.fieldsSet ?? {};
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return {};
