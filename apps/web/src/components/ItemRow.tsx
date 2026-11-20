@@ -132,8 +132,11 @@ export function ItemRow({
   mailboxes,
   onAddAsChildOf,
   onCombine,
+  onSplit,
   takeOutOf,
 }: {
+  /** *Split…* ("Brainstorming: a note holding several ideas can't be taken apart", issue 1828): opens the Item as blocks to take apart. */
+  onSplit?: ((from: HTMLElement | null) => void) | undefined;
   /** *Combine with…* ("Brainstorming: related loose notes can't be brought together", issue 1826): asks which Items to combine this one with. */
   onCombine?: ((from: HTMLElement | null) => void) | undefined;
   /**
@@ -939,6 +942,18 @@ export function ItemRow({
             }}
           >
             Combine with…
+          </M.Item>
+        ),
+        onSplit && (
+          <M.Item
+            key="split"
+            className={menuItemClass}
+            onSelect={() => {
+              opening.current = true;
+              onSplit(trigger.current);
+            }}
+          >
+            Split…
           </M.Item>
         ),
         takeOutOf && (

@@ -1150,6 +1150,8 @@ export function ItemList({
       }}
       // *Combine with…* from a row's menu: this row, and the Items the window asks to combine it with (issue 1826).
       onCombine={(from: HTMLElement | null) => addingAsChild.combine([item.id], from)}
+      // *Split…* from a row's menu: the Item as blocks to take apart (issue 1828).
+      onSplit={(from: HTMLElement | null) => addingAsChild.split(item.id, from)}
       {...(heldBy && onTakeOut ? { takeOutOf: { name: itemLabel(heldBy), onTakeOut: () => onTakeOut(item) } } : {})}
     />
     {holdsItems(item) && (

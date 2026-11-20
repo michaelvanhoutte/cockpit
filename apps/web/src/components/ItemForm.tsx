@@ -53,6 +53,7 @@ import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
 import { StoryReview } from './StoryReview';
+import { useAddingAsChild } from './useAddingAsChild';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
 import {
@@ -377,6 +378,8 @@ function TheForm({
   const copyLink = () => {
     if (item) void copyItemLinkAndSay(workspaceId, item, offerToUndo);
   };
+  /** *Split…*: the Item as blocks to take apart, in a window fetched when it is asked (issue 1828). */
+  const splitting = useAddingAsChild(workspaceId);
   const headerButtonClass =
     'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
@@ -1764,6 +1767,11 @@ function TheForm({
                     Copy link
                   </button>
                 )}
+                {item && !item.completedAt && (
+                  <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
+                    Split…
+                  </button>
+                )}
                 {readView ? (
                   <button
                     type="button"
@@ -1792,6 +1800,11 @@ function TheForm({
                   Copy link
                 </button>
               )}
+              {item && !item.completedAt && (
+                <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
+                  Split…
+                </button>
+              )}
               <button
                 type="button"
                 disabled={saving}
@@ -1817,6 +1830,7 @@ function TheForm({
               from the stored item rather than from the boxes, so it holds still
               while a new title is being typed under it. */}
           <Dialog.Title className="sr-only">{item ? itemLabel(item) : 'Item'}</Dialog.Title>
+          {splitting.dialog}
 
           {!item ? (
             <p role="alert" className={`pt-3 text-sm text-ink-soft${onAPage ? ' px-4' : ''}`}>
