@@ -54,7 +54,6 @@ import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
 import { StoryReview } from './StoryReview';
-import { useAddingAsChild } from './useAddingAsChild';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
 import {
@@ -110,6 +109,8 @@ const KeepWhichNote = lazy(() => import('./KeepWhichNote').then((loaded) => ({ d
 /** The phone page's chips, loaded only where the form is a page (issue 787). */
 const ItemFormChips = lazy(() => import('./ItemFormChips'));
 /** The conversation an Item follows (issue 1706), with Reply…, or Email… where it follows none (issue 1708): fetched the first time a form opens. */
+/** *Split…* under the description, with its window (issue 1828): fetched with the form, not in the initial bundle. */
+const ItemFormSplit = lazy(() => import('./ItemFormSplit'));
 const ItemFormConversation = lazy(() => import('./ItemFormConversation').then((loaded) => ({ default: loaded.ItemFormConversation })));
 
 const DESCRIPTION_LIMIT = 60_000;
@@ -379,8 +380,6 @@ function TheForm({
   const copyLink = () => {
     if (item) void copyItemLinkAndSay(workspaceId, item, offerToUndo);
   };
-  /** *Split…*: the Item as blocks to take apart, in a window fetched when it is asked (issue 1828). */
-  const splitting = useAddingAsChild(workspaceId);
   const headerButtonClass =
     'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
@@ -1900,7 +1899,6 @@ function TheForm({
               from the stored item rather than from the boxes, so it holds still
               while a new title is being typed under it. */}
           <Dialog.Title className="sr-only">{item ? itemLabel(item) : 'Item'}</Dialog.Title>
-          {splitting.dialog}
 
           {!item ? (
             <p role="alert" className={`pt-3 text-sm text-ink-soft${onAPage ? ' px-4' : ''}`}>
@@ -2361,19 +2359,9 @@ function TheForm({
 
                       {/* *Split…* sits under the words it takes apart, in the form's body and not its header, which has no room for it on a phone (issue 1828). */}
                       {item && !item.completedAt && (
-                        <div className="flex shrink-0 justify-end pt-1">
-                          <button
-                            type="button"
-                            // What is typed and not written is not what Split would read, so it is written first.
-                            disabled={Object.keys(changing).length > 0}
-                            title={Object.keys(changing).length > 0 ? 'Save your changes first' : undefined}
-                            // The form is read again by closing it: what it holds now is the words from before the Split.
-                            onClick={(event) => splitting.split(item.id, event.currentTarget, onClose)}
-                            className={headerButtonClass}
-                          >
-                            Split…
-                          </button>
-                        </div>
+                        <Suspense fallback={null}>
+                          <ItemFormSplit workspaceId={workspaceId} item={item} unwritten={Object.keys(changing).length > 0} onSplit={onClose} buttonClass={headerButtonClass} />
+                        </Suspense>
                       )}
 
                       {/* The conversation this Item follows, from the row the Workspace

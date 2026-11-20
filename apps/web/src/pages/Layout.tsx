@@ -35,14 +35,15 @@ import { InboxChip, InboxHeading, InboxPanel } from '../components/InboxPanel';
 import { discardKeptCapture, peekKeptCapture } from '../keptCapture';
 import { tabMemory } from '../updating';
 import { CaptureWindow } from '../components/CaptureWindow';
-import { ItemForm } from '../components/ItemForm';
+/** The Item's form, fetched once one is opened (below): the largest part of the app nobody needs to see to start. */
+const ItemForm = lazy(() => import('../components/ItemForm').then((loaded) => ({ default: loaded.ItemForm })));
 import { LoadFailure } from '../components/LoadFailure';
 import { MenuContent, menuItemClass, menuItemSplitClass, type MenuEntry } from '../components/Menu';
 import { KEY_CAP } from '../components/keyCap';
 import { creditLine } from '../credit';
 import { AddWorkspace } from '../components/AddWorkspace';
 import { WorkspaceTabs, stripTabClass } from '../components/WorkspaceTabs';
-import { OpensItemForms } from '../itemForm';
+import { OpensItemForms, useItemForm } from '../itemForm';
 import { litForChrome } from '../chrome';
 import { Logo } from '../components/Logo';
 import { opensCapture } from '../captureShortcut';
@@ -126,6 +127,7 @@ function TheShell() {
   const queryClient = useQueryClient();
   const { data } = useWorkspaces();
   const params = useParams({ strict: false });
+  const itemForm = useItemForm();
   /**
    * Whether the Capture page is the page you are on, which is the only thing
    * that may fill its tab.
@@ -1292,7 +1294,11 @@ function TheShell() {
       {/* The Item's form, drawn over whatever the address below resolves to and
           opened by that same address (`itemForm.tsx`). Here rather than in the
           lists, because there is one form open at a time. */}
-      <ItemForm />
+      {itemForm.openItemId && params.workspaceId && (
+        <Suspense fallback={null}>
+          <ItemForm />
+        </Suspense>
+      )}
       {shortcutTip.tip && (
         <Suspense fallback={null}>
           <ShortcutTip control={shortcutTip.tip} onDismiss={shortcutTip.dismiss} />
