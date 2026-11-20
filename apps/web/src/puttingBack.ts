@@ -254,3 +254,13 @@ export async function putBackFromARowDrop(d: Putting, was: RowDropWas): Promise<
   for (const itemId of was.arrived) if (!takenOut.has(itemId)) out(itemId);
   await allBack(sends);
 }
+
+/**
+ * Puts back a Combine under a new parent ("Panels: Items put inside a parent stay where they were", issue 1876):
+ * the Items go back where they were, as a drop's Undo puts them, and the parent it made is dismissed once they are
+ * out of it.
+ */
+export async function putBackFromACombine(d: Putting, was: RowDropWas): Promise<void> {
+  await putBackFromARowDrop(d, was);
+  await d.send({ name: 'set_dismissed', payload: { ...envelope(d, was.target), dismissed: true } });
+}

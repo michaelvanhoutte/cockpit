@@ -1,4 +1,4 @@
-import { parentIdsOf, stillOpen, type CommandPayload, type WorkspaceSnapshot } from '@cockpit/shared';
+import { itemSchema, parentIdsOf, stillOpen, type CommandPayload, type Item, type WorkspaceSnapshot } from '@cockpit/shared';
 import { drawChildrenWith, withItem } from './drawnAhead';
 
 /*
@@ -64,6 +64,72 @@ function putInsideInOrderAhead(snapshot: WorkspaceSnapshot, put: CommandPayload<
   };
 }
 
+/**
+ * Items combined under a new parent ("Panels: Items put inside a parent stay where they were", issue 1876): the new
+ * Item in the first one's place on its Panel, or inside the parent it was picked in, holding them all, and each
+ * gone from what it left, as the server applies it. An Item taken from a Panel holder's own rows keeps its counts.
+ */
+function combinedAhead(snapshot: WorkspaceSnapshot, combine: CommandPayload<'combine_under_new_parent'>): WorkspaceSnapshot {
+  if (combine.workspaceId !== snapshot.workspace.id || snapshot.items.some((item) => item.id === combine.parentId)) return snapshot;
+  const leaves = combine.leaves ?? [];
+  const byId = new Map(snapshot.items.map((item) => [item.id, item]));
+  const finished = (id: string) => (byId.get(id) ? !stillOpen(byId.get(id)!) : false);
+  const first = combine.childIds[0]!;
+  const asRows = snapshot.children ?? [];
+  const parent = {
+    ...Object.fromEntries(Object.keys(itemSchema.shape).map((field) => [field, null])),
+    id: combine.parentId,
+    tenantId: snapshot.workspace.tenantId,
+    workspaceId: combine.workspaceId,
+    workspaceDecided: true,
+    capturedMessage: combine.description ?? combine.title,
+    source: 'internal',
+    title: combine.title,
+    description: combine.description ?? combine.title,
+    unseen: false,
+    childrenCount: combine.childIds.length,
+    childrenDone: combine.childIds.filter(finished).length,
+    keepsStory: true,
+    storyProposal: null,
+    storyProposedAt: null,
+    createdAt: combine.issuedAt,
+    updatedAt: combine.issuedAt,
+  } as Item;
+  let drawn: WorkspaceSnapshot = { ...snapshot, items: [...snapshot.items, parent] };
+  let rows = asRows;
+  // Out of the parents they left first, so one counted twice is counted right.
+  for (const leave of leaves) {
+    if (leave.parentId === undefined || !rows.some((row) => row.parentId === leave.parentId && row.childId === leave.itemId)) continue;
+    drawn = withCounts(drawn, leave.parentId, -1, finished(leave.itemId) ? -1 : 0);
+    rows = rows.filter((row) => !(row.parentId === leave.parentId && row.childId === leave.itemId));
+  }
+  const firstLeftParent = leaves.find((leave) => leave.itemId === first && leave.parentId !== undefined)?.parentId;
+  let filings = snapshot.filings;
+  if (combine.panelId !== null) {
+    // The first one's place on the Panel it is filed on.
+    const onPanel = filings.filter((filing) => filing.panelId === combine.panelId).sort((a, b) => a.position - b.position).map((filing) => filing.itemId);
+    const at = Math.max(0, onPanel.indexOf(first));
+    onPanel.splice(at, 0, combine.parentId);
+    filings = [
+      ...filings.filter((filing) => filing.panelId !== combine.panelId),
+      ...onPanel.map((itemId, position) => ({ panelId: combine.panelId!, itemId, position })),
+    ];
+  } else {
+    const inside = firstLeftParent ?? asRows.find((row) => row.childId === first)?.parentId;
+    if (inside !== undefined) {
+      const held = asRows.filter((row) => row.parentId === inside).sort((a, b) => a.position - b.position).map((row) => row.childId);
+      held.splice(Math.max(0, held.indexOf(first)), 0, combine.parentId);
+      drawn = withCounts(drawn, inside, 1, 0);
+      const left = new Set(leaves.filter((leave) => leave.parentId === inside).map((leave) => leave.itemId));
+      const placed = held.filter((id) => !left.has(id)).map((childId, position) => ({ parentId: inside, childId, position }));
+      rows = [...rows.filter((row) => row.parentId !== inside), ...placed];
+    }
+  }
+  filings = filings.filter((filing) => !leaves.some((leave) => leave.panelId === filing.panelId && leave.itemId === filing.itemId));
+  const held = combine.childIds.map((childId, position) => ({ parentId: combine.parentId, childId, position }));
+  return { ...drawn, filings, children: [...rows, ...held] };
+}
+
 /** One Item taken out of one parent: its row gone, and the parent's counts shrunk by it. */
 function takenOutAhead(snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>): WorkspaceSnapshot {
   if (out.workspaceId !== snapshot.workspace.id) return snapshot;
@@ -117,4 +183,4 @@ function withCounts(snapshot: WorkspaceSnapshot, parentId: string, count: number
 }
 
 
-drawChildrenWith({ put: putInsideAhead, putInsideInOrder: putInsideInOrderAhead, takenOut: takenOutAhead, done: doneAhead, dismissed: dismissedAhead });
+drawChildrenWith({ combined: combinedAhead, put: putInsideAhead, putInsideInOrder: putInsideInOrderAhead, takenOut: takenOutAhead, done: doneAhead, dismissed: dismissedAhead });

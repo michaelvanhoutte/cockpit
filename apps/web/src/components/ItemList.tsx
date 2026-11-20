@@ -367,14 +367,18 @@ export function ItemList({
   useHeldTo(onDashboard || heldBy ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting);
+  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting, {
+    panelId,
+    heldBy: heldBy?.id ?? null,
+    dashboardId: onDashboard ? openDashboardId : null,
+  });
   const editing = useEditingSeveral({
     workspaceId,
     picked,
     filing: filingSeveral.filing,
     scope,
-    onAddAsChildOf: () => addingAsChild.ask(picked),
-    onCombine: addingAsChild.combine,
+    onAddAsChildOf: () => addingAsChild.ask(picked, null, true),
+    onCombine: (ids) => addingAsChild.combine(ids, null, true),
   });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 

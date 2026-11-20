@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChildRow, Filing } from '@cockpit/shared';
-import { planDropOntoARow, refusesNesting, whereOnARow, type DropOntoARow, type RowDropPlan } from '../../src/nesting';
+import { leavesOfAPick, planDropOntoARow, planPuttingInside, refusesNesting, whereOnARow, type DropOntoARow, type RowDropPlan } from '../../src/nesting';
 
 /**
  * F1: where a drop onto a row lands, and what it leaves ("Drag to nest in
@@ -202,6 +202,102 @@ describe('Selection', () => {
       }) as Exclude<RowDropPlan, { refused: string }>;
 
       expect(plan).toMatchObject({ childIds: [STORM, FERRY], leaves: [], answer: 'move' });
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('putting Items inside a parent moves them out of the list they were picked in, and nowhere else', () => {
+    const filed = (itemId: string, panelId: string): Filing => ({ itemId, panelId, position: 0 }) as Filing;
+    const panels = [
+      { id: SCENES, dashboardId: 'd-1' },
+      { id: DRAFTS, dashboardId: 'd-1' },
+      { id: 'p-other', dashboardId: 'd-2' },
+    ];
+    const pick = (over: Partial<Parameters<typeof leavesOfAPick>[0]>) =>
+      leavesOfAPick({
+        carried: [STORM, FERRY],
+        target: CHAPTER_4,
+        rows: [],
+        filings: [filed(STORM, SCENES), filed(FERRY, DRAFTS), filed(FERRY, 'p-other')],
+        panels,
+        where: { panelId: SCENES, heldBy: null, dashboardId: 'd-1', selection: true },
+        ...over,
+      });
+
+    it.each([
+      {
+        situation: 'a selection on a Dashboard leaves every Panel of that Dashboard it is on, and none of another Dashboard',
+        over: {},
+        leaves: [
+          { itemId: STORM, panelId: SCENES },
+          { itemId: FERRY, panelId: DRAFTS },
+        ],
+      },
+      {
+        situation: 'one row’s menu leaves only the Panel that row is on',
+        over: { carried: [FERRY], where: { panelId: DRAFTS, heldBy: null, dashboardId: 'd-1', selection: false } },
+        leaves: [{ itemId: FERRY, panelId: DRAFTS }],
+      },
+      {
+        situation: 'a child picked in its parent’s list leaves that parent',
+        over: {
+          carried: [STORM],
+          rows: [{ parentId: CHAPTER_3, childId: STORM, position: 0 }],
+          filings: [],
+          where: { panelId: null, heldBy: CHAPTER_3, dashboardId: null, selection: false },
+        },
+        leaves: [{ itemId: STORM, parentId: CHAPTER_3 }],
+      },
+      {
+        situation: 'Items picked in the Inbox leave nothing',
+        over: { filings: [], where: { panelId: null, heldBy: null, dashboardId: null, selection: true } },
+        leaves: [],
+      },
+    ])('$situation', ({ over, leaves }) => {
+      expect(pick(over as never)).toEqual(leaves);
+    });
+
+    it('sends no change for an Item already inside the parent with nothing to leave', () => {
+      expect(
+        planPuttingInside({ carried: [STORM], target: CHAPTER_4, rows: [{ parentId: CHAPTER_4, childId: STORM, position: 0 }], leaves: [] }),
+      ).toEqual([]);
+    });
+
+    it('sends one change per 50 Items, each with its own leaves and the parent’s whole order at that point', () => {
+      const carried = Array.from({ length: 60 }, (_, at) => `i-${at}`);
+      const leaves = carried.map((itemId) => ({ itemId, panelId: SCENES }));
+
+      const batches = planPuttingInside({ carried, target: CHAPTER_4, rows: [{ parentId: CHAPTER_4, childId: 'i-held', position: 0 }], leaves });
+
+      expect(batches.map((batch) => batch.childIds.length)).toEqual([50, 10]);
+      expect(batches[0]!.leaves).toEqual(leaves.slice(0, 50));
+      expect(batches[1]!.leaves).toEqual(leaves.slice(50));
+      expect(batches[0]!.order).toEqual(['i-held', ...carried.slice(0, 50)]);
+      expect(batches[1]!.order).toEqual(['i-held', ...carried]);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a child row ticked in a parent’s list on a Dashboard leaves that parent', () => {
+    it('takes a child out of the parent unfolded under a row of the Dashboard, and out of no folded one', () => {
+      const pick = (unfolded: string[]) =>
+        leavesOfAPick({
+          carried: [STORM],
+          target: CHAPTER_4,
+          rows: [
+            { parentId: CHAPTER_3, childId: STORM, position: 0 },
+            { parentId: FLASHBACK, childId: STORM, position: 0 },
+          ],
+          filings: [{ itemId: CHAPTER_3, panelId: SCENES, position: 0 } as Filing],
+          panels: [{ id: SCENES, dashboardId: 'd-1' }],
+          where: { panelId: null, heldBy: null, dashboardId: 'd-1', selection: true },
+          unfolded: new Set(unfolded),
+        });
+
+      expect(pick([CHAPTER_3, FLASHBACK])).toEqual([{ itemId: STORM, parentId: CHAPTER_3 }]);
+      expect(pick([])).toEqual([]);
     });
   });
 });

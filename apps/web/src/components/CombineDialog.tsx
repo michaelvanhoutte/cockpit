@@ -14,10 +14,13 @@ import {
   uuidv7,
   type Item,
 } from '@cockpit/shared';
-import { useSendCommand } from '../api/queries';
+import { useLatestSnapshot, useSendCommand } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { sourceOnARow } from '../itemSource';
+import { fetchedChunk } from '../filing';
+import { leavesOfAPick, wasBeforeLeaving, type PickedIn } from '../nesting';
 import { useUndo } from '../undo';
+import { unfoldAll, unfoldedNow } from '../unfoldedParents';
 import { ParentPicker, addAsChildren } from './AddAsChildOf';
 
 type Choice = 'merge' | 'new-parent' | 'existing-parent';
@@ -28,7 +31,7 @@ type Choice = 'merge' | 'new-parent' | 'existing-parent';
  * context*, wired to stored data. Three actions as cards, the Items being
  * combined named above them, and "Anything to add?" below. Pressing Combine
  * sends one change: `merge_items`, `combine_under_new_parent`, or
- * `add_children` for an Item you pick. The texts sent are stitched
+ * `put_inside` for an Item you pick. The texts sent are stitched
  * (`stitchedDescription`), which is what stands where Claude cannot write: the
  * server asks Claude for the description of what a Merge or a new parent makes,
  * replacing the stitched one while it is still Claude's ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
@@ -39,7 +42,10 @@ export default function CombineDialog({
   onClose,
   onCombined,
   returnFocusTo,
+  where,
 }: {
+  /** Where the Items were picked, for what each leaves when put inside the parent. */
+  where: PickedIn;
   /** Where the focus goes back to once it closes: the row's menu button, when it was opened from one. */
   returnFocusTo?: HTMLElement | null | undefined;
   workspaceId: string;
@@ -51,6 +57,7 @@ export default function CombineDialog({
 }) {
   const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
+  const latest = useLatestSnapshot();
   const queryClient = useQueryClient();
   const offerToUndo = useUndo();
   /** Items picked in the window itself, for a Combine asked from one row's menu. */
@@ -103,24 +110,63 @@ export default function CombineDialog({
         undo: () => everyInbox(send({ name: 'unmerge_items', payload: { ...envelope(), itemId, originalIds: childIds } })),
       });
     } else if (choice === 'new-parent') {
-      // On no Panel, the store puts it inside the Item the first is inside, or leaves it in the Inbox.
-      const panelId = panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels);
+      // Moved, not copied: each leaves what it was picked in (issue 1876). Combine from a row's menu names its other
+      // Items in the window, so what is left is read as a selection's: every Panel of the Dashboard each is filed on.
+      const pickedIn = itemIds.length < 2 ? { ...where, selection: true } : where;
+      const leaves = leavesOfAPick({
+        carried: childIds,
+        target: '',
+        rows: data.children ?? [],
+        filings: data.filings,
+        panels: data.panels,
+        where: pickedIn,
+        unfolded: unfoldedNow(),
+      });
+      // The first one's place: the Panel it leaves, or on none, the store puts it inside the Item the first is inside, or leaves it in the Inbox.
+      const leftFirst = leaves.find((leave) => leave.itemId === childIds[0]);
+      const panelId =
+        leftFirst?.parentId !== undefined
+          ? null
+          : (leftFirst?.panelId ?? panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels));
+      const was = wasBeforeLeaving({ target: '', arrived: childIds, leaves, rows: data.children ?? [], filings: data.filings });
+      const parentId = uuidv7();
       const answer = everyInbox(send({
         name: 'combine_under_new_parent',
         payload: {
           ...envelope(),
-          parentId: uuidv7(),
+          parentId,
           title,
           description: parentDescription(chosen, note),
           childIds,
           panelId,
           // From the Inbox the new parent is an Item that stays there holding them, never a Panel ("Brainstorming: a Panel is an Item nobody can open", issue 1846).
           dashboardId: null,
+          leaves,
         },
       }));
-      offerToUndo({ what: `${chosen.length} Items combined under “${title}”`, unlessRefused: answer });
+      unfoldAll([parentId]);
+      // **No way back once one belonged to no Workspace**, as for a move (issue 1876).
+      const decides = chosen.some((item) => !workspaceIsDecided(item));
+      if (!decides) void import('../puttingBack').catch(() => {});
+      offerToUndo({
+        what: `${chosen.length} Items combined under “${title}”`,
+        unlessRefused: answer,
+        ...(decides
+          ? {}
+          : {
+              undo: async () =>
+                (await fetchedChunk(() => import('../puttingBack'))).putBackFromACombine(
+                  { workspaceId, send, latest },
+                  { ...was, target: parentId },
+                ),
+            }),
+      });
     } else if (parent) {
-      addAsChildren({ workspaceId, send, offerToUndo, children: data.children ?? [] }, chosen, parent);
+      addAsChildren(
+        { workspaceId, send, latest, offerToUndo, data, where: itemIds.length < 2 ? { ...where, selection: true } : where },
+        chosen,
+        parent,
+      );
     }
     onCombined();
   };
@@ -191,8 +237,8 @@ export default function CombineDialog({
               'The originals are replaced by one new Item.',
               mergeWhy,
             )}
-            {card('new-parent', 'Combine under a new parent', 'They stay where they are. A new Item holds them.', newParentWhy)}
-            {card('existing-parent', 'Combine under an existing parent', 'They stay where they are. An Item you pick holds them.')}
+            {card('new-parent', 'Combine under a new parent', 'They move out of where they are. A new Item holds them.', newParentWhy)}
+            {card('existing-parent', 'Combine under an existing parent', 'They move out of where they are. An Item you pick holds them.')}
             {choice === 'existing-parent' && (
               <div className="pl-7">
                 <ParentPicker key={chosen.map((item) => item.id).join()} chosen={chosen} items={data?.items ?? []} children={data?.children ?? []} onPick={setParent} />

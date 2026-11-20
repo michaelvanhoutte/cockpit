@@ -171,6 +171,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       return children ? children.put(snapshot, change.payload) : snapshot;
     case 'put_inside':
       return children ? children.putInsideInOrder(snapshot, change.payload) : snapshot;
+    case 'combine_under_new_parent':
+      return children ? children.combined(snapshot, change.payload) : snapshot;
     case 'remove_child':
       return children ? children.takenOut(snapshot, change.payload) : snapshot;
     case 'add_dashboard':
@@ -674,6 +676,7 @@ export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): W
  * finishing or dismissing an Item is drawn as it was before Items held Items.
  */
 export interface ChildrenDrawn {
+  combined: (snapshot: WorkspaceSnapshot, combine: CommandPayload<'combine_under_new_parent'>) => WorkspaceSnapshot;
   put: (snapshot: WorkspaceSnapshot, put: CommandPayload<'add_children'>) => WorkspaceSnapshot;
   putInsideInOrder: (snapshot: WorkspaceSnapshot, put: CommandPayload<'put_inside'>) => WorkspaceSnapshot;
   takenOut: (snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>) => WorkspaceSnapshot;

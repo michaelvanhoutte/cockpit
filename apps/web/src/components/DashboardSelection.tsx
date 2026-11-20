@@ -46,14 +46,14 @@ export function DashboardSelection({
     scope,
     picked,
   });
-  const addingAsChild = useAddingAsChild(workspaceId, () => endSelection(scope));
+  const addingAsChild = useAddingAsChild(workspaceId, () => endSelection(scope), { panelId: null, heldBy: null, dashboardId });
   const editing = useEditingSeveral({
     workspaceId,
     picked,
     filing: filingSeveral.filing,
     scope,
-    onAddAsChildOf: () => addingAsChild.ask(picked),
-    onCombine: addingAsChild.combine,
+    onAddAsChildOf: () => addingAsChild.ask(picked, null, true),
+    onCombine: (ids) => addingAsChild.combine(ids, null, true),
   });
 
   return (
