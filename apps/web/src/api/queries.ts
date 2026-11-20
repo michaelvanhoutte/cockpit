@@ -235,6 +235,8 @@ function everyWorkspaceCanSee(args: CommandArgs): boolean {
   return (
     args.name === 'move_item_to_panel' ||
     args.name === 'add_item_to_panel' ||
+    // An Item no Workspace owned yet is settled in this one by a Split (issue 1828).
+    args.name === 'split_item' ||
     // Sent from an Inbox before the Item belongs to a Workspace, its Run shows in every Inbox (issue 1159).
     args.name === 'send_item_to_claude' ||
     // A settled pair's own payload carries neither Item's decided state

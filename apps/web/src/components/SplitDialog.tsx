@@ -342,7 +342,7 @@ export default function SplitDialog({
               <button
                 type="button"
                 onClick={split}
-                disabled={!cards || making.length === 0}
+                disabled={!cards || making.length === 0 || blocks.length === 0}
                 className="milled rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
                 Split

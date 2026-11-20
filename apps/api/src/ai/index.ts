@@ -209,8 +209,8 @@ export interface AiService {
   /**
    * The Items an Item could be split into, each with the blocks that go in it
    * ("Brainstorming: a note holding several ideas can't be taken apart", issue
-   * 1828). **The second call a person waits on**, with the same limits as
-   * `writeAReply`: 2,000 tokens out, cut off at 20 seconds, never repeated. A
+   * 1828). **The second call a person waits on**, cut off at 20 seconds and never
+   * repeated as `writeAReply` is, with 2,000 tokens out. A
    * call that fails or passes the cut-off throws, and the dialog draws one card.
    */
   proposeASplit(brief: SplitBrief, callFor: CallFor): Promise<SplitProposed>;
