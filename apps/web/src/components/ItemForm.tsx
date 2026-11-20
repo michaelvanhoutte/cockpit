@@ -37,7 +37,6 @@ import {
   filingsThatFile,
 } from '@cockpit/shared';
 import { CommandRefused, attachmentUrl, uploadAttachment, uploadThumbnail } from '../api/client';
-import { ThumbnailUnreadable, makeThumbnailCopy } from '../thumbnailCopy';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
 import { refuseWhileOffline } from '../offline';
@@ -665,7 +664,15 @@ function TheForm({
     const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId };
     // Started now, outside the queue, so the decode has a head start; the request below only awaits it.
     const decoding = new AbortController();
-    const made = attachment ? makeThumbnailCopy(attachmentUrl(attachment.id), decoding.signal) : undefined;
+    // Loaded only on a pick, so the copy's code stays out of the initial bundle. A picture
+    // that cannot be read says so; a dropped load or an abort reads as not reached.
+    const made = attachment
+      ? import('../thumbnailCopy').then(({ makeThumbnailCopy, ThumbnailUnreadable }) =>
+          makeThumbnailCopy(attachmentUrl(attachment.id), decoding.signal).catch((failure: unknown) => {
+            throw failure instanceof ThumbnailUnreadable ? new CommandRefused(0, failure.message) : failure;
+          }),
+        )
+      : undefined;
     made?.catch(() => {});
     try {
       refuseWhileOffline();
@@ -677,10 +684,7 @@ function TheForm({
           ? async (signal) => {
               signal.addEventListener('abort', () => decoding.abort());
               refuseWhileOffline();
-              // A picture that cannot be read says so; a dropped load or an abort reads as not reached.
-              const copy = await made!.catch((failure: unknown) => {
-                throw failure instanceof ThumbnailUnreadable ? new CommandRefused(0, failure.message) : failure;
-              });
+              const copy = await made!;
               return uploadThumbnail({ ...envelope, attachmentId: attachment.id, copy, signal });
             }
           : undefined,
