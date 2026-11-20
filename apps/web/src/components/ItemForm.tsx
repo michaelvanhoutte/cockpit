@@ -382,6 +382,11 @@ function TheForm({
   const splitting = useAddingAsChild(workspaceId);
   const headerButtonClass =
     'rounded-md border border-shade/10 bg-surface px-2 py-1 text-xs text-ink-faint hover:border-accent hover:bg-accent-tint hover:text-ink disabled:opacity-50';
+  const splitButton = item && !item.completedAt && (
+    <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
+      Split…
+    </button>
+  );
   /** What Cockpit changed on this item: read behind the paint, so the form is drawn without it. */
   const cockpit = useCockpitChanges(itemId, item);
   /** Read at the moment a save lands rather than when its function was made, which may be a render ago. */
@@ -1767,11 +1772,7 @@ function TheForm({
                     Copy link
                   </button>
                 )}
-                {item && !item.completedAt && (
-                  <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
-                    Split…
-                  </button>
-                )}
+                {splitButton}
                 {readView ? (
                   <button
                     type="button"
@@ -1800,11 +1801,7 @@ function TheForm({
                   Copy link
                 </button>
               )}
-              {item && !item.completedAt && (
-                <button type="button" onClick={(event) => splitting.split(item.id, event.currentTarget)} className={headerButtonClass}>
-                  Split…
-                </button>
-              )}
+              {splitButton}
               <button
                 type="button"
                 disabled={saving}
