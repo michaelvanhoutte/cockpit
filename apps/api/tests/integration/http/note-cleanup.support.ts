@@ -124,6 +124,21 @@ export const writing: { asked: { system: string; item: string }[]; answer: unkno
   fails: false,
 };
 
+/**
+ * The calls proposing how to split an Item ("Brainstorming: a note holding
+ * several ideas can't be taken apart", issue 1828), kept apart and answered
+ * apart for the same reason. `answer` is what the model proposes; `fails` makes
+ * the call itself fail, as a model that cannot be reached does.
+ */
+export const splitting: { asked: { system: string; item: string }[]; answer: unknown; fails: boolean } = {
+  asked: [],
+  answer: { language: 'English', items: [] },
+  fails: false,
+};
+
+/** Whether a call is a split being proposed, by the sentence only that prompt carries. */
+export const isASplit = (call: { system: string }) => call.system.includes('You propose how to take it apart');
+
 /** Whether a call is a story being written, by the sentence only that prompt carries. */
 export const isAStory = (call: { system: string }) => call.system.includes("The holder's description is its story");
 
@@ -159,6 +174,19 @@ export function theModelIs(answering: Answering): void {
     // Sent as blocks, the fixed half first and cached ("Enable prompt caching on the note-cleanup prompt", issue 584);
     // read here as the one text the model sees.
     const system = sent.system.map((block) => block.text).join('\n\n');
+    if (isASplit({ system })) {
+      splitting.asked.push({ system, item: sent.messages[0]!.content });
+      if (splitting.fails) throw new Error('the model could not be reached');
+      return Response.json({
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: sent.model,
+        content: [{ type: 'text', text: JSON.stringify(splitting.answer) }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }
     if (isAStory({ system })) {
       writing.asked.push({ system, item: sent.messages[0]!.content });
       if (writing.fails) throw new Error('the model could not be reached');
@@ -656,6 +684,9 @@ export function aModelThatReads(): void {
     writing.asked.length = 0;
     writing.answer = { language: 'English', story: 'A story of what it holds.' };
     writing.fails = false;
+    splitting.asked.length = 0;
+    splitting.answer = { language: 'English', items: [] };
+    splitting.fails = false;
     // The suite runs with no key at all (vitest.config.ts), which is what keeps
     // every other file's captures from reaching a model. This file is the one
     // that wants a reading, so it sets one - and the fake below is what the key

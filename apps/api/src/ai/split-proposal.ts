@@ -1,7 +1,6 @@
 import { splitBlocksOf, type SplitProposal } from '@cockpit/shared';
-import type { Account } from '../accounts/index.js';
+import { NotFoundInAccountError, type Account } from '../accounts/index.js';
 import { GUEST_ACCOUNT_NAME } from '../accounts/new-user.js';
-import { ItemNotFoundError } from '../accounts/command-service.js';
 import type { Env } from '../env.js';
 import { aiFor } from './index.js';
 
@@ -21,7 +20,7 @@ import { aiFor } from './index.js';
 export async function proposeASplit(env: Env, account: Account, accountName: string, workspaceId: string, itemId: string): Promise<SplitProposal> {
   const sources = await account.splitSources(itemId);
   // Another Workspace's Item is not one this Workspace can name, as on a Panel.
-  if (!sources || (sources.workspaceDecided && sources.workspaceId !== workspaceId)) throw new ItemNotFoundError(itemId);
+  if (!sources || (sources.workspaceDecided && sources.workspaceId !== workspaceId)) throw new NotFoundInAccountError(`item ${itemId} not found`);
   const blocks = splitBlocksOf(sources, sources.additions, sources.attachments);
   const ai = accountName === GUEST_ACCOUNT_NAME || blocks.length < 2 ? null : aiFor(env);
   if (!ai) return { cards: null };

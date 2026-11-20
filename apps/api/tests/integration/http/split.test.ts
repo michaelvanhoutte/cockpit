@@ -1,0 +1,360 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { env } from 'cloudflare:test';
+import { itemsInTheInbox, splitBlocksOf, type WorkspaceSnapshot } from '@cockpit/shared';
+import { DASHBOARD_ID, WORKSPACE_ID, asUser, inTheStore } from '../seed.js';
+import { aModelThatReads, nextId, postChange, splitting } from './note-cleanup.support.js';
+
+/**
+ * L2: *Split* ("Brainstorming: a note holding several ideas can't be taken
+ * apart", issue 1828) through the real Worker and the real store, with the model
+ * faked at the network boundary. Splitting moves rows between an Item, its
+ * words, its Additions and its files in one transaction, and Undo moves them
+ * back in another, so each holds only against a real store. The dialog that
+ * sends them is the browser's (SplitDialog.test.tsx, the F3 walk); whether the
+ * real model proposes a split that holds is the contract tier's
+ * (tests/contract/propose-a-split.v1.test.ts).
+ */
+
+aModelThatReads();
+
+/** What the queue was handed, held at its binding so nothing runs behind a case: a new Item's clean-up, and a story's rewrite. */
+let held: { kind: string; itemId?: string; triggeredBy?: string }[] = [];
+let realQueue: typeof env.ENRICHMENT;
+
+beforeEach(() => {
+  held = [];
+  realQueue = env.ENRICHMENT;
+  env.ENRICHMENT = {
+    send: async (body: (typeof held)[number]) => void held.push(body),
+    sendBatch: async () => {
+      throw new Error('nothing here sends a batch');
+    },
+  } as unknown as typeof env.ENRICHMENT;
+});
+
+afterEach(() => {
+  env.ENRICHMENT = realQueue;
+});
+
+/** Lets what a change queues after it has answered settle. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+const envelope = () => ({ commandId: nextId(), issuedAt: '2026-11-19T10:00:00.000Z', workspaceId: WORKSPACE_ID });
+
+const THREE_PARAGRAPHS = 'Pay the rent before Friday.\n\nBook the ferry to Texel for the 7:45 boat.\n\nAsk Sam whether the quote is final.';
+
+async function aNote(message = THREE_PARAGRAPHS): Promise<string> {
+  const itemId = nextId();
+  expect((await postChange('capture_item', { ...envelope(), itemId, message })).status).toBe(200);
+  return itemId;
+}
+
+async function anAddition(itemId: string, message: string): Promise<string> {
+  const additionId = nextId();
+  expect((await postChange('append_to_item', { ...envelope(), itemId, additionId, message })).status).toBe(200);
+  return additionId;
+}
+
+async function aFile(itemId: string, filename: string): Promise<string> {
+  const attachmentId = nextId();
+  const res = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'image/png',
+      'x-attachment-id': attachmentId,
+      'x-command-id': nextId(),
+      'x-issued-at': '2026-11-19T10:00:00.000Z',
+      'x-workspace-id': WORKSPACE_ID,
+      'x-filename': encodeURIComponent(filename),
+    },
+    body: new Uint8Array([1, 2, 3]),
+  });
+  expect(res.status).toBe(201);
+  return attachmentId;
+}
+
+async function snapshot(): Promise<WorkspaceSnapshot> {
+  const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+  expect(res.status).toBe(200);
+  return (await res.json()) as WorkspaceSnapshot;
+}
+
+const itemOf = async (id: string) => (await snapshot()).items.find((item) => item.id === id);
+
+/** The blocks of an Item as the dialog draws them, read from the snapshot as the browser reads it. */
+async function blocksOf(itemId: string) {
+  const read = await snapshot();
+  const item = read.items.find((one) => one.id === itemId)!;
+  return splitBlocksOf(
+    item,
+    (read.additions ?? []).filter((addition) => addition.itemId === itemId),
+    read.attachments.filter((file) => file.itemId === itemId),
+  );
+}
+
+const split = (itemId: string, was: string, children: { itemId: string; title: string; blockIds: string[] }[]) =>
+  postChange('split_item', { ...envelope(), itemId, was, children });
+
+async function aPanel(name: string): Promise<string> {
+  const panelId = nextId();
+  expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name, kind: 'items' })).status).toBe(200);
+  return panelId;
+}
+
+describe('Triage', () => {
+  describe('a Split makes each ticked card a child Item holding its blocks, and the original keeps the rest', () => {
+    it('makes two children from 3 paragraphs, an Addition and a file, and the original keeps what no card took', async () => {
+      const original = await aNote();
+      const addition = await anAddition(original, 'The ferry is 12 euro.');
+      const file = await aFile(original, 'quote.png');
+      const [rent, ferry] = [nextId(), nextId()];
+      const blocks = await blocksOf(original);
+      expect(blocks.map((block) => block.id)).toEqual(['p0', 'p1', 'p2', `a-${addition}`, `f-${file}`]);
+
+      const answer = await split(original, THREE_PARAGRAPHS, [
+        { itemId: rent, title: 'Pay the rent', blockIds: ['p0'] },
+        { itemId: ferry, title: 'Book the ferry', blockIds: ['p1', `a-${addition}`, `f-${file}`] },
+      ]);
+
+      expect(answer.status).toBe(200);
+      const read = await snapshot();
+      expect(read.items.find((item) => item.id === original)?.description).toBe('Ask Sam whether the quote is final.');
+      expect(read.items.find((item) => item.id === rent)).toMatchObject({ title: 'Pay the rent', description: 'Pay the rent before Friday.' });
+      expect(read.items.find((item) => item.id === ferry)).toMatchObject({ title: 'Book the ferry', description: 'Book the ferry to Texel for the 7:45 boat.' });
+      expect((read.additions ?? []).filter((one) => one.itemId === ferry).map((one) => one.message)).toEqual(['The ferry is 12 euro.']);
+      expect((read.additions ?? []).filter((one) => one.itemId === original)).toEqual([]);
+      expect(read.attachments.filter((one) => one.itemId === ferry).map((one) => one.filename)).toEqual(['quote.png']);
+      expect(read.attachments.filter((one) => one.itemId === original)).toEqual([]);
+      expect((read.children ?? []).filter((row) => row.parentId === original).map((row) => row.childId)).toEqual([rent, ferry]);
+      expect(read.items.find((item) => item.id === original)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('leaves a block no card took in the original, as an unticked card does', async () => {
+      const original = await aNote();
+      const rent = nextId();
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: rent, title: 'Pay the rent', blockIds: ['p0'] }])).status).toBe(200);
+
+      expect((await itemOf(original))?.description).toBe('Book the ferry to Texel for the 7:45 boat.\n\nAsk Sam whether the quote is final.');
+      expect(((await snapshot()).children ?? []).map((row) => row.childId)).toEqual([rent]);
+    });
+
+    it('applies the same split sent twice once', async () => {
+      const original = await aNote();
+      const rent = nextId();
+      const children = [{ itemId: rent, title: 'Pay the rent', blockIds: ['p0'] }];
+
+      expect((await split(original, THREE_PARAGRAPHS, children)).status).toBe(200);
+      const again = await split(original, THREE_PARAGRAPHS, children);
+
+      expect(again.status).toBe(200);
+      expect(await again.json()).toMatchObject({ applied: false });
+      expect(((await snapshot()).children ?? []).filter((row) => row.parentId === original)).toHaveLength(1);
+      expect((await itemOf(original))?.description).toBe('Book the ferry to Texel for the 7:45 boat.\n\nAsk Sam whether the quote is final.');
+    });
+
+    it('puts the children inside the original and files them on no Panel, so none is in the Inbox, where the original is on a Panel', async () => {
+      const original = await aNote();
+      const panel = await aPanel('Home');
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: original, panelId: panel, order: [original] })).status).toBe(200);
+      const [rent, ferry] = [nextId(), nextId()];
+
+      expect(
+        (
+          await split(original, THREE_PARAGRAPHS, [
+            { itemId: rent, title: 'Pay the rent', blockIds: ['p0'] },
+            { itemId: ferry, title: 'Book the ferry', blockIds: ['p1'] },
+          ])
+        ).status,
+      ).toBe(200);
+
+      const read = await snapshot();
+      expect(read.filings.filter((filing) => [rent, ferry].includes(filing.itemId))).toEqual([]);
+      expect(await inTheStore((sql) => sql.exec('SELECT 1 FROM panel_items WHERE item_id IN (?, ?)', rent, ferry).toArray())).toEqual([]);
+      const inbox = itemsInTheInbox(read.items, read.filings, read.children).map((item) => item.id);
+      expect(inbox).not.toContain(rent);
+      expect(inbox).not.toContain(ferry);
+      expect(inbox).not.toContain(original);
+    });
+
+    it('settles an Item no Workspace owned yet in this one', async () => {
+      const original = nextId();
+      expect((await postChange('capture_item', { ...envelope(), itemId: original, message: THREE_PARAGRAPHS, workspaceDecided: false })).status).toBe(200);
+      const rent = nextId();
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: rent, title: 'Pay the rent', blockIds: ['p0'] }])).status).toBe(200);
+
+      const row = (await inTheStore((sql) => sql.exec<{ workspace_decided: number }>('SELECT workspace_decided FROM items WHERE id = ?', original).toArray()))[0];
+      expect(row?.workspace_decided).toBe(1);
+    });
+
+    it('makes a card with no block an Item holding its title', async () => {
+      const original = await aNote();
+      const empty = nextId();
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: empty, title: 'Call the landlord', blockIds: [] }])).status).toBe(200);
+
+      expect((await itemOf(empty))?.description).toBe('Call the landlord');
+      expect((await itemOf(original))?.description).toBe(THREE_PARAGRAPHS);
+    });
+
+    it('refuses words that changed since the dialog was drawn, and a block the Item does not have, changing nothing', async () => {
+      const original = await aNote();
+      const rent = nextId();
+
+      const stale = await split(original, 'Something it said before', [{ itemId: rent, title: 'Pay the rent', blockIds: ['p0'] }]);
+      const unknown = await split(original, THREE_PARAGRAPHS, [{ itemId: rent, title: 'Pay the rent', blockIds: ['p7'] }]);
+
+      expect(stale.status).toBe(400);
+      expect(unknown.status).toBe(400);
+      expect((await snapshot()).children ?? []).toEqual([]);
+      expect((await itemOf(original))?.description).toBe(THREE_PARAGRAPHS);
+    });
+
+    it('queues each new Item to be cleaned up for a title, and none for a split that was sent twice', async () => {
+      const original = await aNote();
+      const [rent, ferry] = [nextId(), nextId()];
+      const children = [
+        { itemId: rent, title: 'Pay the rent', blockIds: ['p0'] },
+        { itemId: ferry, title: 'Book the ferry', blockIds: ['p1'] },
+      ];
+      held = [];
+
+      expect((await split(original, THREE_PARAGRAPHS, children)).status).toBe(200);
+      await split(original, THREE_PARAGRAPHS, children);
+      await settled();
+
+      // The original's own capture may still be arriving: only what the Split asked for is looked at.
+      const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app');
+      expect(cleanUps.map((job) => job.itemId).sort()).toEqual([rent, ferry].sort());
+    });
+
+    it('never rewrites the original, whatever its story setting', async () => {
+      const original = await aNote();
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: original, keepsStory: true })).status).toBe(200);
+      held = [];
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: nextId(), title: 'Pay the rent', blockIds: ['p0'] }])).status).toBe(200);
+      await settled();
+
+      expect(held.filter((job) => job.kind === 'rewrite-story')).toEqual([]);
+    });
+  });
+
+  describe('Undo dismisses the new Items and restores the original', () => {
+    it('brings back its words, Addition and file, dismisses the children, and applies once', async () => {
+      const original = await aNote();
+      const addition = await anAddition(original, 'The ferry is 12 euro.');
+      const file = await aFile(original, 'quote.png');
+      const [rent, ferry] = [nextId(), nextId()];
+      expect(
+        (
+          await split(original, THREE_PARAGRAPHS, [
+            { itemId: rent, title: 'Pay the rent', blockIds: ['p0'] },
+            { itemId: ferry, title: 'Book the ferry', blockIds: ['p1', `a-${addition}`, `f-${file}`] },
+          ])
+        ).status,
+      ).toBe(200);
+      const undo = {
+        itemId: original,
+        description: THREE_PARAGRAPHS,
+        kept: 'Ask Sam whether the quote is final.',
+        children: [
+          { itemId: rent, additionIds: [], attachmentIds: [] },
+          { itemId: ferry, additionIds: [addition], attachmentIds: [file] },
+        ],
+      };
+
+      const first = await postChange('unsplit_item', { ...envelope(), ...undo });
+      const second = await postChange('unsplit_item', { ...envelope(), ...undo });
+
+      expect(first.status).toBe(200);
+      expect(await second.json()).toMatchObject({ applied: false });
+      const read = await snapshot();
+      expect(read.items.find((item) => item.id === original)).toMatchObject({ description: THREE_PARAGRAPHS, childrenCount: 0 });
+      expect(read.items.some((item) => [rent, ferry].includes(item.id))).toBe(false);
+      expect((read.additions ?? []).filter((one) => one.itemId === original).map((one) => one.message)).toEqual(['The ferry is 12 euro.']);
+      expect(read.attachments.filter((one) => one.itemId === original).map((one) => one.filename)).toEqual(['quote.png']);
+    });
+
+    it('leaves words edited since the Split as they are, and still dismisses the children', async () => {
+      const original = await aNote();
+      const rent = nextId();
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: rent, title: 'Pay the rent', blockIds: ['p0'] }])).status).toBe(200);
+      expect((await postChange('set_description', { ...envelope(), issuedAt: '2026-11-19T10:05:00.000Z', itemId: original, description: 'My own words now.' })).status).toBe(200);
+
+      const undone = await postChange('unsplit_item', {
+        ...envelope(),
+        issuedAt: '2026-11-19T10:06:00.000Z',
+        itemId: original,
+        description: THREE_PARAGRAPHS,
+        kept: 'Book the ferry to Texel for the 7:45 boat.\n\nAsk Sam whether the quote is final.',
+        children: [{ itemId: rent, additionIds: [], attachmentIds: [] }],
+      });
+
+      expect(undone.status).toBe(200);
+      expect((await itemOf(original))?.description).toBe('My own words now.');
+      expect(await itemOf(rent)).toBeUndefined();
+    });
+  });
+
+  describe('the proposal names at most 6 Items from at most 40 blocks; with Claude down, one card holds everything', () => {
+    const propose = (itemId: string) => asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/items/${itemId}/split-proposal`, { method: 'POST' });
+
+    it('reads only the first 40 blocks and keeps at most 6 cards, each holding only blocks it was shown', async () => {
+      const original = await aNote(Array.from({ length: 45 }, (_, at) => `Paragraph number ${at + 1}`).join('\n\n'));
+      await aFile(original, 'secret-contents.png');
+      splitting.answer = {
+        language: 'English',
+        items: [
+          { title: 'First', blocks: [1, 2, 99] },
+          ...[3, 4, 5, 6, 7, 8].map((n) => ({ title: `Item ${n}`, blocks: [n] })),
+          { title: 'Too late', blocks: [41, 44] },
+        ],
+      };
+
+      const answer = await propose(original);
+
+      expect(answer.status).toBe(200);
+      const { cards } = (await answer.json()) as { cards: { title: string; blockIds: string[] }[] };
+      expect(cards).toHaveLength(6);
+      expect(cards[0]).toEqual({ title: 'First', blockIds: ['p0', 'p1'] });
+      expect(splitting.asked).toHaveLength(1);
+      const sent = splitting.asked[0]!.item;
+      expect(sent).toContain('(the first 40 of 46)');
+      expect(sent).toContain('Paragraph number 40');
+      expect(sent).not.toContain('Paragraph number 41');
+      // A file is named, and nothing else of it leaves.
+      expect(sent).not.toContain('secret-contents');
+    });
+
+    it.each([
+      ['the model cannot be reached', () => { splitting.fails = true; }],
+      ['the model answers nothing usable', () => { splitting.answer = { language: 'English', items: [{ title: '', blocks: [1] }] }; }],
+    ])('answers no cards, and so one card in the dialog, where %s', async (_what, arrange) => {
+      const original = await aNote();
+      arrange();
+
+      const answer = await propose(original);
+
+      expect(answer.status).toBe(200);
+      expect(await answer.json()).toEqual({ cards: null });
+    });
+
+    it('answers no cards, asking nothing, where there is no key or fewer than two blocks', async () => {
+      const [one, many] = [await aNote('Just one idea.'), await aNote()];
+
+      expect(await (await propose(one)).json()).toEqual({ cards: null });
+      env.ANTHROPIC_API_KEY = '';
+      expect(await (await propose(many)).json()).toEqual({ cards: null });
+
+      expect(splitting.asked).toEqual([]);
+    });
+
+    it('does not name an Item of another Workspace', async () => {
+      const original = await aNote();
+      const answer = await asUser(`http://cockpit.test/v1/workspaces/another-workspace/items/${original}/split-proposal`, { method: 'POST' });
+      expect(answer.status).toBe(404);
+    });
+  });
+});
