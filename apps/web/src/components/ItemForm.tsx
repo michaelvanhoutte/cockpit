@@ -1772,7 +1772,6 @@ function TheForm({
                     Copy link
                   </button>
                 )}
-                {splitButton}
                 {readView ? (
                   <button
                     type="button"
@@ -1801,7 +1800,6 @@ function TheForm({
                   Copy link
                 </button>
               )}
-              {splitButton}
               <button
                 type="button"
                 disabled={saving}
@@ -2285,6 +2283,9 @@ function TheForm({
                           onAPage={onAPage}
                         />
                       </div>
+
+                      {/* *Split…* sits under the words it takes apart, in the form's body and not its header, which has no room for it on a phone (issue 1828). */}
+                      {splitButton && <div className="flex shrink-0 justify-end pt-1">{splitButton}</div>}
 
                       {/* The conversation this Item follows, from the row the Workspace
                         read carries ("Show the conversation an Item follows in its
