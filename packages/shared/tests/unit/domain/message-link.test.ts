@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstMessageLink, firstWebLink, wordsBesideTheLink } from '../../../src/domain/message-link.js';
+import { firstMessageLink, firstWebLink, webLinks, wordsBesideTheLink, wordsBesideTheLinks } from '../../../src/domain/message-link.js';
 
 /**
  * L1: what a person typed beside a pasted message link, once the link is read
@@ -45,6 +45,26 @@ describe('Capture', () => {
       { situation: 'an address that is not a web page', typed: 'mailto:els@example.com ftp://example.com/a', link: null },
     ])('$situation', ({ typed, link }) => {
       expect(firstWebLink(typed, DECLARED)).toBe(link);
+    });
+  });
+
+  describe('webLinks', () => {
+    it.each([
+      { situation: 'three of four, in order', typed: 'https://a.example.com/1 https://a.example.com/2 https://a.example.com/3 https://a.example.com/4', limit: 3, links: ['https://a.example.com/1', 'https://a.example.com/2', 'https://a.example.com/3'] },
+      { situation: 'a link written twice counts once', typed: 'https://a.example.com/1 and again https://a.example.com/1 then https://b.example.com/2', limit: 3, links: ['https://a.example.com/1', 'https://b.example.com/2'] },
+      { situation: 'a declared Teams link is skipped', typed: `${LINK} https://example.com/a`, limit: 3, links: ['https://example.com/a'] },
+      { situation: 'no link', typed: 'call the dentist', limit: 3, links: [] },
+    ])('$situation', ({ typed, limit, links }) => {
+      expect(webLinks(typed, DECLARED, limit)).toEqual(links);
+    });
+  });
+
+  describe('wordsBesideTheLinks', () => {
+    it.each([
+      { situation: 'words around two links', typed: 'compare https://a.example.com/1 and https://b.example.com/2 today', words: 'compare and today' },
+      { situation: 'bare links, one to a line', typed: 'https://a.example.com/1\nhttps://b.example.com/2', words: '' },
+    ])('$situation', ({ typed, words }) => {
+      expect(wordsBesideTheLinks(typed, ['https://a.example.com/1', 'https://b.example.com/2'])).toBe(words);
     });
   });
 });
