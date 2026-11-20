@@ -18,7 +18,7 @@ import type {
 } from '@cockpit/shared';
 import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
 import type { AccountBackup, ForeignRow } from './backup.js';
-import type { ClaudeProposalContext, SendToOfferOn, StorySources, UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, SendToOfferOn, SplitSources, StorySources, UnfiledCandidate } from './repo.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { NamedOn } from '../domain/connection-history.js';
 import type { NameForms } from '../domain/filing-by-name.js';
@@ -158,6 +158,7 @@ export interface AccountStoreRpc extends Rpc.DurableObjectBranded {
    */
   givenDueDateOf(accountName: string, itemId: string): Awaitable<Answer<string | null>>;
   storySources(accountName: string, itemId: string, limit: number): Awaitable<Answer<StorySources | null>>;
+  splitSources(accountName: string, itemId: string): Awaitable<Answer<SplitSources | null>>;
   claudeProposalContext(accountName: string, itemId: string, model: string): Awaitable<Answer<ClaudeProposalContext>>;
   sendToOfferOn(accountName: string, runId: string): Awaitable<Answer<SendToOfferOn | null>>;
   rememberedSentences(accountName: string): Awaitable<Answer<RememberedSentenceList>>;

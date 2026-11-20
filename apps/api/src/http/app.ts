@@ -170,6 +170,8 @@ import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds,
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, checkableOf, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { combineCommandSchemas } from '@cockpit/shared/combine-commands';
+import { splitCommandSchemas } from '@cockpit/shared/split-commands';
+import { proposeASplit } from '../ai/split-proposal.js';
 import { storyCommandSchemas } from '@cockpit/shared/story-commands';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
@@ -871,6 +873,31 @@ const draftRoute = createRoute({
 });
 
 /**
+ * *Split* on an Item ("Brainstorming: a note holding several ideas can't be
+ * taken apart", issue 1828): the cards Claude proposes, asked for while the
+ * dialog is open and waited for, a POST because it spends the key and changes
+ * nothing. The Item is read from the store, not the request. `cards` is null
+ * where Claude could not be asked or proposed nothing, and the dialog draws
+ * one card holding every block.
+ */
+const splitProposalRoute = createRoute({
+  method: 'post',
+  path: '/v1/workspaces/{workspaceId}/items/{itemId}/split-proposal',
+  request: { params: z.object({ workspaceId: z.string(), itemId: z.string() }) },
+  responses: {
+    200: {
+      description: 'The cards proposed, or none where Claude could not be asked',
+      content: {
+        'application/json': {
+          schema: z.object({ cards: z.array(z.object({ title: z.string(), blockIds: z.array(z.string()) })).nullable() }),
+        },
+      },
+    },
+    404: { description: 'Unknown Item', content: { 'application/json': { schema: errorSchema } } },
+  },
+});
+
+/**
  * *Follow a sent email…* in Capture ("Follow a sent email… in Capture", issue
  * 1710): the newest ten emails sent from the Workspace's mail connections, read
  * from their sources during the request, and a pick of one - the Item that
@@ -1210,7 +1237,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     request: {
       body: {
         required: true,
-        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas, ...storyCommandSchemas }[name] } },
+        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas, ...storyCommandSchemas, ...splitCommandSchemas }[name] } },
       },
     },
     responses: {
@@ -1614,6 +1641,11 @@ const routes = app
       throw error;
     }
   })
+  .openapi(splitProposalRoute, async (c) => {
+    const { workspaceId, itemId } = c.req.valid('param');
+    const accountName = c.get('visitor').accountName;
+    return c.json(await proposeASplit(c.env, await openAccount(c.env, accountName), accountName, workspaceId, itemId), 200);
+  })
   .openapi(sentEmailsRoute, async (c) => {
     const { workspaceId } = c.req.valid('param');
     const account = await openAccount(c.env, c.get('visitor').accountName);
@@ -2007,6 +2039,18 @@ const routes = app
   .openapi(commandRoute('remove_child'), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
   .openapi(commandRoute('merge_items'), async (c) => c.json(await change(c, 'merge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('unmerge_items'), async (c) => c.json(await change(c, 'unmerge_items', c.req.valid('json')), 200))
+  .openapi(commandRoute('split_item'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'split_item', payload);
+    // Each new Item is read like a capture: it is proposed a title (issue 1828). Only where it was made, so a resend buys nothing.
+    if (result.applied) {
+      for (const child of payload.children) {
+        c.executionCtx.waitUntil(enqueueCleanUp(c.env, c.get('visitor').accountName, child.itemId, 'split-in-app'));
+      }
+    }
+    return c.json(result, 200);
+  })
+  .openapi(commandRoute('unsplit_item'), async (c) => c.json(await change(c, 'unsplit_item', c.req.valid('json')), 200))
   .openapi(commandRoute('combine_under_new_parent'), async (c) => c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200))
   .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
   .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))

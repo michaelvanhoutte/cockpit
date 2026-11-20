@@ -274,6 +274,8 @@ const commandSenders = {
     api.v1.commands.merge_items.$post({ json: p }, o),
   unmerge_items: (p: CommandPayload<'unmerge_items'>, o?: ClientRequestOptions) =>
     api.v1.commands.unmerge_items.$post({ json: p }, o),
+  split_item: (p: CommandPayload<'split_item'>, o?: ClientRequestOptions) => api.v1.commands.split_item.$post({ json: p }, o),
+  unsplit_item: (p: CommandPayload<'unsplit_item'>, o?: ClientRequestOptions) => api.v1.commands.unsplit_item.$post({ json: p }, o),
   combine_under_new_parent: (p: CommandPayload<'combine_under_new_parent'>, o?: ClientRequestOptions) =>
     api.v1.commands.combine_under_new_parent.$post({ json: p }, o),
   set_keeps_story: (p: CommandPayload<'set_keeps_story'>, o?: ClientRequestOptions) =>

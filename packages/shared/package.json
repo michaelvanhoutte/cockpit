@@ -11,7 +11,8 @@
     "./draft": "./src/api/draft.ts",
     "./sent-emails": "./src/api/sent-emails.ts",
     "./combine-commands": "./src/commands-combine.ts",
-    "./story-commands": "./src/commands-story.ts"
+    "./story-commands": "./src/commands-story.ts",
+    "./split-commands": "./src/commands-split.ts"
   },
   "scripts": {
     "typecheck": "tsc",

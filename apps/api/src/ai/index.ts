@@ -10,6 +10,8 @@ import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for
 import { buildRememberASentence, type EditToRemember } from './prompts/remember-a-sentence.v1.js';
 import { buildDraftAReply, REPLY_LIMITS, type ReplyBrief } from './prompts/draft-a-reply.v1.js';
 import { buildWriteAStory, type StoryBrief } from './prompts/write-a-story.v1.js';
+import { buildProposeASplit, SPLIT_LIMITS, type SplitBrief } from './prompts/propose-a-split.v1.js';
+import { readSplit, type SplitProposed } from './split-cards.js';
 import { readReplyBody, type ReplyWritten } from './reply-body.js';
 import { readStory, type StoryWritten } from './story-text.js';
 import { readSentenceOffer, type SentenceOfferRead } from './sentence-offers.js';
@@ -31,6 +33,8 @@ export type { ReplyBrief } from './prompts/draft-a-reply.v1.js';
 export type { ReplyWritten } from './reply-body.js';
 export type { StoryBrief } from './prompts/write-a-story.v1.js';
 export type { StoryWritten } from './story-text.js';
+export type { SplitBrief } from './prompts/propose-a-split.v1.js';
+export type { SplitProposed } from './split-cards.js';
 export type { ClaudeProposalsRead } from './claude-proposals.js';
 
 /**
@@ -44,6 +48,7 @@ const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';
 const REMEMBER_A_SENTENCE = 'remember-a-sentence.v1';
 const DRAFT_A_REPLY = 'draft-a-reply.v1';
 const WRITE_A_STORY = 'write-a-story.v1';
+const PROPOSE_A_SPLIT = 'propose-a-split.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {
@@ -200,6 +205,15 @@ export interface AiService {
    * `cleanUpNote`.
    */
   writeAStory(brief: StoryBrief, callFor: CallFor): Promise<StoryWritten>;
+
+  /**
+   * The Items an Item could be split into, each with the blocks that go in it
+   * ("Brainstorming: a note holding several ideas can't be taken apart", issue
+   * 1828). **The second call a person waits on**, with the same limits as
+   * `writeAReply`: 2,000 tokens out, cut off at 20 seconds, never repeated. A
+   * call that fails or passes the cut-off throws, and the dialog draws one card.
+   */
+  proposeASplit(brief: SplitBrief, callFor: CallFor): Promise<SplitProposed>;
 }
 
 /**
@@ -361,6 +375,17 @@ export class ClaudeAiService implements AiService {
     const prompt = buildWriteAStory(brief);
     const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'write-a-story', promptVersion: WRITE_A_STORY });
     return 'refused' in answer ? { discarded: answer.refused } : readStory(answer.text);
+  }
+
+  async proposeASplit(brief: SplitBrief, callFor: CallFor): Promise<SplitProposed> {
+    const prompt = buildProposeASplit(brief);
+    const answer = await this.#ask(
+      prompt,
+      prompt.message,
+      { ...callFor, operation: 'propose-a-split', promptVersion: PROPOSE_A_SPLIT },
+      SPLIT_LIMITS,
+    );
+    return 'refused' in answer ? { discarded: answer.refused } : readSplit(answer.text, brief.blocks);
   }
 
   async proposeForClaude(

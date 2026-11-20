@@ -1,4 +1,5 @@
 import { and, desc, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { splitBlocksOf, wordsOfBlocks } from '@cockpit/shared';
 import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
@@ -463,6 +464,19 @@ export class MergeRefusedError extends Error {
   constructor(label: string, source: string) {
     super(`Can't merge ${label}: it finishes at its source, ${source}, so it can't be replaced by another Item`);
     this.name = 'MergeRefusedError';
+  }
+}
+
+/**
+ * A Split of words that are not the ones the dialog was drawn from, or naming a
+ * block the Item does not have ("Brainstorming: a note holding several ideas
+ * can't be taken apart", issue 1828). A 400: the Item is there, and what the
+ * blocks named mean has changed since the dialog read them.
+ */
+export class SplitRefusedError extends Error {
+  constructor(label: string) {
+    super(`Can't split ${label}: it changed since Split was opened. Open Split again.`);
+    this.name = 'SplitRefusedError';
   }
 }
 
@@ -2244,6 +2258,137 @@ export function runCommand<N extends CommandName>(
         const ids = back.map((original) => original.id);
         for (const parentId of [...heldTheMerge, ...itemParentsHolding(db, tenantId, ids)]) storyOfItems.add(parentId);
       }
+      break;
+    }
+    case 'split_item': {
+      const cmd = payload as CommandPayload<'split_item'>;
+      if (!getWorkspace(db, tenantId, cmd.workspaceId)) throw new WorkspaceNotFoundError(cmd.workspaceId);
+      const original = getItem(db, tenantId, cmd.itemId);
+      // Another Workspace's Item is not one this Workspace can name, as on a Panel.
+      if (!original || original.deletedAt || (original.workspaceDecided && original.workspaceId !== cmd.workspaceId)) {
+        throw new ItemNotFoundError(cmd.itemId);
+      }
+      // A resend whose command id was lost finds the Items made already, and splits nothing twice.
+      if (getItem(db, tenantId, cmd.children[0]!.itemId)) {
+        applied = false;
+        db.insert(commands).values(commandRow).run();
+        break;
+      }
+      const additionRows = db
+        .select({ id: itemAdditions.id, message: itemAdditions.message, createdAt: itemAdditions.createdAt })
+        .from(itemAdditions)
+        .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, original.id)))
+        .all();
+      const fileRows = db
+        .select({ id: attachments.id, filename: attachments.filename, contentType: attachments.contentType })
+        .from(attachments)
+        .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id)))
+        .all();
+      const blocks = new Map(splitBlocksOf(original, additionRows, fileRows).map((block) => [block.id, block]));
+      // The blocks named are the ones the dialog drew from these words, or none of this is what was asked.
+      if ((original.description ?? '') !== cmd.was || cmd.children.some((child) => child.blockIds.some((id) => !blocks.has(id)))) {
+        throw new SplitRefusedError(itemLabel(original));
+      }
+      const taken = new Set(cmd.children.flatMap((child) => child.blockIds));
+      const kept = [...blocks.values()].filter((block) => block.kind === 'paragraph' && !taken.has(block.id));
+      const made = cmd.children.map((child) => {
+        const mine = child.blockIds.map((id) => blocks.get(id)!);
+        return {
+          id: child.itemId,
+          // Its own, as a capture's: Claude proposes its title when the clean-up reads it. A card holding no words makes an Item holding its title.
+          item: captureItem(
+            { commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: child.itemId, message: wordsOfBlocks(mine) || child.title, title: child.title },
+            tenantId,
+          ),
+          additionIds: mine.filter((block) => block.kind === 'addition').map((block) => block.id.slice('a-'.length)),
+          attachmentIds: mine.filter((block) => block.kind === 'attachment').map((block) => block.id.slice('f-'.length)),
+        };
+      });
+      const paragraphsTaken = [...blocks.values()].some((block) => block.kind === 'paragraph' && taken.has(block.id));
+      // One in every Inbox until now is this Workspace's from here, as filing settles it.
+      const settled = original.workspaceDecided ? null : decideWorkspace(original, cmd.workspaceId, cmd.issuedAt);
+      if (!original.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        for (const child of made) {
+          // Filed on no Panel: inside the original, which is where the Inbox rule and the Panel it is on look for them.
+          tx.insert(items).values({ ...asStored(child.item), status: DEAD_STATUS_VALUE }).run();
+        }
+        if (settled) settleWorkspace(tx, tenantId, original.id, settled);
+        putInside(tx, tenantId, original.id, made.map((child) => child.id), cmd.issuedAt);
+        for (const child of made) {
+          if (child.additionIds.length > 0) {
+            tx.update(itemAdditions)
+              .set({ itemId: child.id })
+              .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, original.id), inArray(itemAdditions.id, child.additionIds)))
+              .run();
+          }
+          if (child.attachmentIds.length > 0) {
+            tx.update(attachments)
+              .set({ itemId: child.id })
+              .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id), inArray(attachments.id, child.attachmentIds)))
+              .run();
+          }
+        }
+        if (paragraphsTaken) {
+          // What no card took stays, and is the person's own from here: Claude's clean-up may not read it back over the words that left.
+          tx.update(items)
+            .set({
+              description: kept.length === 0 ? null : kept.map((block) => block.text).join('\n\n'),
+              textsSettledAt: original.textsSettledAt ?? cmd.issuedAt,
+              updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt),
+            })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      // The original is never rewritten by a Split, whatever its story setting: what it keeps is the person's own words.
+      break;
+    }
+    case 'unsplit_item': {
+      const cmd = payload as CommandPayload<'unsplit_item'>;
+      const original = getItem(db, tenantId, cmd.itemId);
+      if (!original || (original.workspaceDecided && original.workspaceId !== cmd.workspaceId)) throw new ItemNotFoundError(cmd.itemId);
+      // Only what the original still holds and has not dismissed comes apart, so a second send finds nothing to do.
+      const back = cmd.children.filter((child) => {
+        const one = getItem(db, tenantId, child.itemId);
+        return one !== null && one.deletedAt === null && isInside(db, tenantId, original.id, child.itemId);
+      });
+      applied = back.length > 0;
+      if (applied && !original.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        if (applied) {
+          for (const child of back) {
+            if (child.additionIds.length > 0) {
+              tx.update(itemAdditions)
+                .set({ itemId: original.id })
+                .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, child.itemId), inArray(itemAdditions.id, child.additionIds)))
+                .run();
+            }
+            if (child.attachmentIds.length > 0) {
+              tx.update(attachments)
+                .set({ itemId: original.id })
+                .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, child.itemId), inArray(attachments.id, child.attachmentIds)))
+                .run();
+            }
+            // Dismissed, not erased, as every Item is.
+            tx.update(items)
+              .set({ deletedAt: cmd.issuedAt, updatedAt: cmd.issuedAt })
+              .where(and(eq(items.tenantId, tenantId), eq(items.id, child.itemId), isNull(items.deletedAt)))
+              .run();
+            recountHoldersOf(tx, tenantId, child.itemId);
+            endTheOpenRun(tx, tenantId, child.itemId, cmd.issuedAt);
+          }
+          // The words come back only where the original still reads as the Split left it: an edit since is the person's.
+          if ((original.description ?? null) === cmd.kept) {
+            tx.update(items)
+              .set({ description: cmd.description, updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt) })
+              .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
+              .run();
+          }
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'combine_under_new_parent': {

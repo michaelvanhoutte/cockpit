@@ -43,6 +43,8 @@ export type Trigger =
   | 'sentence-remembered'
   /** A child joined or left a parent that keeps its story, or *Rewrite from its children* was pressed ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). */
   | 'story-changed'
+  /** Split was opened, or its Items were made: the proposal for its cards and the clean-up of each new Item ("Brainstorming: a note holding several ideas can't be taken apart", issue 1828). */
+  | 'split-in-app'
   | 'backfill'
   | 'agent-started'
   | 'connection-test'
