@@ -213,6 +213,81 @@ describe('Triage', () => {
       expect(unfiled.status === 'ok' && unfiled.value.map((item) => item.id).filter((id) => [parent, a, b].includes(id))).toEqual([parent]);
       expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
     });
+
+    it('puts the new parent inside the Item the first is inside, beside it, counted there', async () => {
+      const [novel, chapter, storm, ferry] = [await aPanel('Novel'), await aNote('Chapter 3'), await aNote('Storm scene'), await aNote('Ferry scene')];
+      await file(chapter, novel);
+      expect((await send('add_children', { parentId: chapter, childIds: [storm, ferry] })).status).toBe(200);
+      expect((await send('set_done', { itemId: ferry, done: true })).status).toBe(200);
+      const parent = nextId();
+
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'Combined: Storm scene +1', description: null, childIds: [storm, ferry], panelId: null, dashboardId: null })).status).toBe(200);
+
+      const holding = (parentId: string) =>
+        rows<{ child_id: string }>('SELECT child_id FROM item_children WHERE parent_id = ? AND deleted_at IS NULL ORDER BY position', parentId).then((found) =>
+          found.map((row) => row.child_id),
+        );
+      expect(await holding(chapter)).toEqual([storm, ferry, parent]);
+      expect(await holding(parent)).toEqual([storm, ferry]);
+      const read = await snapshot();
+      expect(read.items.find((item) => item.id === chapter)).toMatchObject({ childrenCount: 3, childrenDone: 1 });
+      expect(read.filings.filter((filing) => filing.itemId === parent)).toEqual([]);
+      const inbox = itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? []).map((item) => item.id);
+      expect(inbox).not.toContain(parent);
+      expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
+    });
+
+    it('takes the Item the first was put inside first, when it is inside several', async () => {
+      const [earlier, later, a, b] = [await aNote('Earlier'), await aNote('Later'), await aNote('Alpha'), await aNote('Bravo')];
+      expect((await send('add_children', { parentId: earlier, childIds: [a] })).status).toBe(200);
+      expect((await send('add_children', { parentId: later, childIds: [a, b] })).status).toBe(200);
+      const parent = nextId();
+
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);
+
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', parent)).toEqual([{ parent_id: earlier }]);
+    });
+
+    /** Each would leave a new parent in no live Item, or inside itself, so it stays in the Inbox. */
+    it.each([
+      {
+        situation: 'the Item the first is inside is dismissed',
+        arrange: async (holder: string) => void expect((await send('set_dismissed', { itemId: holder, dismissed: true })).status).toBe(200),
+        picked: (first: string, second: string) => [first, second],
+      },
+      {
+        situation: 'the Item the first is inside is one of those combined',
+        arrange: async () => undefined,
+        picked: (first: string, _second: string, holder: string) => [first, holder],
+      },
+      {
+        situation: 'the Item the first is inside sits inside one of those combined',
+        arrange: async (holder: string, second: string) => void expect((await send('add_children', { parentId: second, childIds: [holder] })).status).toBe(200),
+        picked: (first: string, second: string) => [first, second],
+      },
+    ])('leaves the new parent in the Inbox when $situation', async ({ arrange, picked }) => {
+      const [holder, first, second] = [await aNote('Chapter 3'), await aNote('Storm scene'), await aNote('Ferry scene')];
+      expect((await send('add_children', { parentId: holder, childIds: [first] })).status).toBe(200);
+      await arrange(holder, second);
+      const parent = nextId();
+
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: picked(first, second, holder), panelId: null, dashboardId: null })).status).toBe(200);
+
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', parent)).toEqual([]);
+      const read = await snapshot();
+      expect(itemsInTheInbox(read.items, filingsThatFile(read.filings, read.panels), read.children ?? []).map((item) => item.id)).toContain(parent);
+    });
+
+    it('never puts the new parent inside a Panel’s own Item, from a tab that had not yet seen the first filed', async () => {
+      const [people, a, b] = [await aPanel('People'), await aNote('Alpha'), await aNote('Bravo')];
+      await file(a, people);
+      const parent = nextId();
+
+      expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);
+
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', parent)).toEqual([]);
+      expect(await rows('SELECT panel_id FROM panel_items WHERE item_id = ?', parent)).toEqual([]);
+    });
   });
 
   describe('Merges undone in turn keep every file on the trail', () => {

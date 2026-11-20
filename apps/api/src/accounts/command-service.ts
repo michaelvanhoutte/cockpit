@@ -2232,11 +2232,22 @@ export function runCommand<N extends CommandName>(
         }
       };
       const story = cmd.description ?? cmd.title;
-      // From a Panel: a new Item filed on it, as a row there. From the Inbox: an Item filed nowhere, so it stays in
-      // the Inbox holding them ("Brainstorming: a Panel is an Item nobody can open", issue 1846). A Dashboard an
-      // older tab names makes no Panel: a Panel is never an Item.
+      // Where the first Item is ("Brainstorming: a Panel is an Item nobody can open", issue 1846). From a Panel: a new
+      // Item filed on it, as a row there. From inside an Item: inside that Item too. From the Inbox: an Item filed
+      // nowhere, so it stays in the Inbox holding them. A Dashboard an older tab names makes no Panel: a Panel is
+      // never an Item.
       const nested = cmd.panelId === null ? null : panelNamedFor(db, tenantId, cmd.workspaceId, cmd.panelId);
       if (cmd.panelId !== null && !nested) throw new PanelNotFoundError(cmd.panelId);
+      // On no Panel, but the first Item is inside an Item: the new parent goes inside that one, beside it, decided here
+      // from the stored rows, not sent, so nothing a tab sends can name the place. The first by when the first Item was
+      // put inside it (`itemParentsHolding`), which passes over a dismissed one and a Panel's own Item; also over one in
+      // another Workspace, and one that is, or sits inside, an Item going into the new parent, which would put an Item
+      // inside itself. None left: the Inbox.
+      const besideFirst = nested
+        ? undefined
+        : itemParentsHolding(db, tenantId, cmd.childIds.slice(0, 1)).find(
+            (id) => getItem(db, tenantId, id)?.workspaceId === cmd.workspaceId && ancestorsAmong(db, tenantId, id, cmd.childIds).length === 0,
+          );
       const { item, filings } = decideCaptureFiling(
         captureItem({ commandId: cmd.commandId, issuedAt: cmd.issuedAt, workspaceId: cmd.workspaceId, itemId: cmd.parentId, message: story, title: cmd.title }, tenantId),
         cmd,
@@ -2245,6 +2256,7 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE, keepsStory: true }).run();
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        if (besideFirst) putInside(tx, tenantId, besideFirst, [item.id], cmd.issuedAt);
         settleChildren(tx);
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();

@@ -49,11 +49,13 @@ export type UnmergeItemsCommand = z.infer<typeof unmergeItemsSchema>;
 
 /**
  * combine_under_new_parent — **Combine ▸ Combine under a new parent** (issue
- * 1826): the Items stay where they are and a new Item holds them. With
- * `panelId` it is filed on that Panel, the one the first Item was on, as a row
- * there; without, it is filed nowhere, so from the Inbox it stays in the Inbox
- * holding them ("Brainstorming: a Panel is an Item nobody can open", issue
- * 1846). Its *Keep its story up to date* is stored as on. `parentId` is the
+ * 1826): the Items stay where they are and a new Item holds them, placed
+ * where the first Item is ("Brainstorming: a Panel is an Item nobody can
+ * open", issue 1846). With `panelId` it is filed on that Panel, the one the
+ * first Item was on, as a row there; without, it goes inside the Item the
+ * first Item is inside, which the store finds itself, or else it is filed
+ * nowhere and stays in the Inbox holding them. Its *Keep its story up to
+ * date* is stored as on. `parentId` is the
  * new Item. `dashboardId` is sent as null and read by nothing: a tab of the
  * release before sends the Dashboard it had open, which made a new Panel then
  * and makes nothing different now, and a Worker of that release, met during a

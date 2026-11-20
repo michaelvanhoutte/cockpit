@@ -101,6 +101,7 @@ export default function CombineDialog({
         undo: () => everyInbox(send({ name: 'unmerge_items', payload: { ...envelope(), itemId, originalIds: childIds } })),
       });
     } else if (choice === 'new-parent') {
+      // On no Panel, the store puts it inside the Item the first is inside, or leaves it in the Inbox.
       const panelId = panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels);
       const answer = everyInbox(send({
         name: 'combine_under_new_parent',

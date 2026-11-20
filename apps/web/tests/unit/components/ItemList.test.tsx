@@ -4248,6 +4248,25 @@ describe('Panels', () => {
       );
     });
 
+    it('combines child rows under a new parent naming no Panel, for the store to put it inside their parent', async () => {
+      const user = await onAPanel();
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+
+      const storm = within(childRows()!).getByText('Storm scene').closest('li')!;
+      await user.click(within(storm).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(within(dialog).getByRole('list', { name: 'Items to combine with' })).getByRole('button', { name: 'Ferry scene' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ childIds: [STORM.id, FERRY.id], panelId: null, dashboardId: null }),
+        }),
+      );
+    });
+
     it('carries a child row picked in the Inbox in the Inbox’s bar', async () => {
       held.filings = [];
       const user = await showList({ items: [CHAPTER, BART] });
