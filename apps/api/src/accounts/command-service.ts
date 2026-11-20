@@ -468,7 +468,7 @@ export class MergeRefusedError extends Error {
 
 /**
  * A story asked for from an Item that holds nothing and has nothing to tell a
- * story from - not a Panel's own Item, not what a Merge made - so the rewrite
+ * story from - not what a Merge made - so the rewrite
  * would only replace its words with "empty for now" ("Keep its story up to
  * date", issue 1827). A 400, as a Merge refused: the Item is there.
  */
