@@ -30,7 +30,7 @@ import { describeForeignRows, type AccountBackup } from './backup.js';
 import { ALLOWANCE_SPENT_MESSAGE } from './allowance.js';
 import type { RestoreReport } from './rpc.js';
 import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
-import type { ClaudeProposalContext, SendToOfferOn, UnfiledCandidate } from './repo.js';
+import type { ClaudeProposalContext, SendToOfferOn, StorySources, UnfiledCandidate } from './repo.js';
 import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
 import type { DecisionHistoryEntry } from '../domain/decision-history.js';
 import type { FindAnswer, ItemSearch } from '../domain/item-search.js';
@@ -204,6 +204,8 @@ export interface Account {
   itemIsFiled(itemId: string): Promise<boolean>;
   /** The due date a pulled connection gave the Item, or null where it gave none (issue 1409). */
   givenDueDateOf(itemId: string): Promise<string | null>;
+  /** What a rewrite of a parent's story is made from, the first `limit` of what it is about; null where it is gone ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). */
+  storySources(itemId: string, limit: number): Promise<StorySources | null>;
   /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;
   /** The send kept under a Run, with what an offer to remember a sentence is made from (issue 1163); null where none was kept. */
@@ -516,6 +518,7 @@ export async function openAccount(env: Env, accountName: string): Promise<Accoun
     recentCapturedTimeZones: async () => unwrap(await store.recentCapturedTimeZones(accountName)),
     itemIsFiled: async (itemId) => unwrap(await store.itemIsFiled(accountName, itemId)),
     givenDueDateOf: async (itemId) => unwrap(await store.givenDueDateOf(accountName, itemId)),
+    storySources: async (itemId, limit) => unwrap(await store.storySources(accountName, itemId, limit)),
     claudeProposalContext: async (itemId, model) => unwrap(await store.claudeProposalContext(accountName, itemId, model)),
     sendToOfferOn: async (runId) => unwrap(await store.sendToOfferOn(accountName, runId)),
     rememberedSentences: async () => unwrap(await store.rememberedSentences(accountName)),

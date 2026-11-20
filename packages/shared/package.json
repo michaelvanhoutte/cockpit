@@ -10,7 +10,8 @@
     "./claude-calls-feed": "./src/api/claude-calls-feed.ts",
     "./draft": "./src/api/draft.ts",
     "./sent-emails": "./src/api/sent-emails.ts",
-    "./combine-commands": "./src/commands-combine.ts"
+    "./combine-commands": "./src/commands-combine.ts",
+    "./story-commands": "./src/commands-story.ts"
   },
   "scripts": {
     "typecheck": "tsc",

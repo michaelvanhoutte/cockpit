@@ -28,8 +28,10 @@ type Choice = 'merge' | 'new-parent' | 'existing-parent';
  * context*, wired to stored data. Three actions as cards, the Items being
  * combined named above them, and "Anything to add?" below. Pressing Combine
  * sends one change: `merge_items`, `combine_under_new_parent`, or
- * `add_children` for an Item you pick. Claude's writing of the texts comes in
- * a later issue, so they are stitched (`stitchedDescription`).
+ * `add_children` for an Item you pick. The texts sent are stitched
+ * (`stitchedDescription`), which is what stands where Claude cannot write: the
+ * server asks Claude for the description of what a Merge or a new parent makes,
+ * replacing the stitched one while it is still Claude's ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
  */
 export default function CombineDialog({
   workspaceId,

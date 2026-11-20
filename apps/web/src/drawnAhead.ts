@@ -280,6 +280,10 @@ function capturedAhead(snapshot: WorkspaceSnapshot, note: CommandPayload<'captur
     // A note just captured holds nothing ("Brainstorming: an Item can't hold other Items", issue 1825).
     childrenCount: 0,
     childrenDone: 0,
+    // Keeps no story, and has none waiting ("Keep its story up to date", issue 1827).
+    keepsStory: false,
+    storyProposal: null,
+    storyProposedAt: null,
     createdAt: note.issuedAt,
     updatedAt: note.issuedAt,
   } as Item;
