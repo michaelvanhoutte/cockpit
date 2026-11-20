@@ -266,6 +266,8 @@ const commandSenders = {
     api.v1.commands.add_item_to_panel.$post({ json: p }, o),
   remove_item_from_panel: (p: CommandPayload<'remove_item_from_panel'>, o?: ClientRequestOptions) =>
     api.v1.commands.remove_item_from_panel.$post({ json: p }, o),
+  put_inside: (p: CommandPayload<'put_inside'>, o?: ClientRequestOptions) =>
+    api.v1.commands.put_inside.$post({ json: p }, o),
   add_children: (p: CommandPayload<'add_children'>, o?: ClientRequestOptions) =>
     api.v1.commands.add_children.$post({ json: p }, o),
   remove_child: (p: CommandPayload<'remove_child'>, o?: ClientRequestOptions) =>

@@ -169,6 +169,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
       };
     case 'add_children':
       return children ? children.put(snapshot, change.payload) : snapshot;
+    case 'put_inside':
+      return children ? children.putInsideInOrder(snapshot, change.payload) : snapshot;
     case 'remove_child':
       return children ? children.takenOut(snapshot, change.payload) : snapshot;
     case 'add_dashboard':
@@ -622,6 +624,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'add_item_to_panel',
   'remove_item_from_panel',
   'add_children',
+  'put_inside',
   'remove_child',
   'remove_attachment',
   'set_thumbnail',
@@ -672,6 +675,7 @@ export function listDrawnOver(list: WorkspaceList, changes: readonly Drawn[]): W
  */
 export interface ChildrenDrawn {
   put: (snapshot: WorkspaceSnapshot, put: CommandPayload<'add_children'>) => WorkspaceSnapshot;
+  putInsideInOrder: (snapshot: WorkspaceSnapshot, put: CommandPayload<'put_inside'>) => WorkspaceSnapshot;
   takenOut: (snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>) => WorkspaceSnapshot;
   /** `finished` is the copy with the Item already finished or reopened. */
   done: (was: WorkspaceSnapshot, finished: WorkspaceSnapshot, done: CommandPayload<'set_done'>) => WorkspaceSnapshot;

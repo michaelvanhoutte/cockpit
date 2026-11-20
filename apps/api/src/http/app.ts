@@ -2008,6 +2008,7 @@ const routes = app
     return c.json(result, 200);
   })
   .openapi(commandRoute('add_children'), async (c) => c.json(await change(c, 'add_children', c.req.valid('json')), 200))
+  .openapi(commandRoute('put_inside', { conflict: 'The item it goes inside has changed since the order was made' }), async (c) => c.json(await change(c, 'put_inside', c.req.valid('json')), 200))
   .openapi(commandRoute('remove_child'), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
   .openapi(commandRoute('merge_items'), async (c) => c.json(await change(c, 'merge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('unmerge_items'), async (c) => c.json(await change(c, 'unmerge_items', c.req.valid('json')), 200))

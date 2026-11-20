@@ -109,6 +109,8 @@ export function ItemRow({
   workspaceId,
   inInbox = false,
   liftedFrom,
+  liftedFromParent,
+  receiving = false,
   onMoveTo,
   onAddTo,
   onOpen,
@@ -165,6 +167,10 @@ export function ItemRow({
    * in the Inbox and on a Filter panel, whose rows are filed on none of their own.
    */
   liftedFrom?: string;
+  /** The parent whose unfolded rows this row is drawn in: a drop onto a row leaves it (issue 1857). */
+  liftedFromParent?: string;
+  /** That a dragged row would go inside this one, shown as an outline and a tint with no line (issue 1857). */
+  receiving?: boolean;
   /**
    * Asked to move this item somewhere, and handed the control the menu was
    * opened from so whatever opens can put the focus back there. Absent on a
@@ -1140,6 +1146,8 @@ export function ItemRow({
       // Which Item this is, for Show on the undo bar to find the row it
       // highlights (`PanelBoard`).
       data-item-id={item.id}
+      // Outlined and tinted while a drop would put a dragged row inside this one (issue 1857).
+      data-receiving={receiving ? '' : undefined}
       {...swipe}
       // The whole row, rather than a grip on it: a row is a card, and what a
       // person aims at when moving one is the card. It is what makes a mouse
@@ -1346,7 +1354,7 @@ export function ItemRow({
           selecting?.picked && selecting.scope && pickedNow(selecting.scope).size > 1
             ? { ids: inTheOrderDrawn(pickedNow(selecting.scope)), scope: selecting.scope }
             : null;
-        liftItem(item.id, liftedFrom ?? null, carrying);
+        liftItem(item.id, liftedFrom ?? null, carrying, liftedFromParent ?? null);
         // After the event returns, for the reason `itemInTheAir` tells the rows
         // a tick late: the picture the browser draws is taken when it does.
         if (selecting?.held && !selecting.picked) setTimeout(selecting.onEndSelection, 0);
@@ -1374,8 +1382,8 @@ export function ItemRow({
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none ${
         selecting?.picked ? 'row-picked hover:row-picked-hover' : 'hover:bg-row-hover'
       } ${
-        dock.openId === item.id ? 'ring-2 ring-inset ring-accent ' : ''
-      }${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
+        dock.openId === item.id || receiving ? 'ring-2 ring-inset ring-accent ' : ''
+      }${receiving ? 'bg-accent/10 ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
         landing === 'before'
           ? 'shadow-landing-before '
           : landing === 'after'

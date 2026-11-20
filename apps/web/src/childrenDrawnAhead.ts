@@ -29,6 +29,41 @@ function putInsideAhead(snapshot: WorkspaceSnapshot, put: CommandPayload<'add_ch
   };
 }
 
+/**
+ * Items dropped onto a row ("Drag to nest in Panels and the Inbox", issue 1857):
+ * the parent's rows in the order carried (a child the order leaves out keeps its
+ * place), its counts grown by those not inside it already, and each Item gone
+ * from the parent or Panel it left, whose counts shrink with it - all at once,
+ * as the server applies it.
+ */
+function putInsideInOrderAhead(snapshot: WorkspaceSnapshot, put: CommandPayload<'put_inside'>): WorkspaceSnapshot {
+  if (put.workspaceId !== snapshot.workspace.id) return snapshot;
+  const byId = new Map(snapshot.items.map((item) => [item.id, item]));
+  const finished = (id: string) => (byId.get(id) ? !stillOpen(byId.get(id)!) : false);
+  let rows = snapshot.children ?? [];
+  let drawn = snapshot;
+  // Out of what they left first, so a parent counted twice is counted right.
+  for (const leave of put.leaves) {
+    if (leave.parentId === undefined) continue;
+    if (!rows.some((row) => row.parentId === leave.parentId && row.childId === leave.itemId)) continue;
+    drawn = withCounts(drawn, leave.parentId, -1, finished(leave.itemId) ? -1 : 0);
+    rows = rows.filter((row) => !(row.parentId === leave.parentId && row.childId === leave.itemId));
+  }
+  const already = new Set(rows.filter((row) => row.parentId === put.parentId).map((row) => row.childId));
+  const arriving = put.childIds.filter((id) => !already.has(id));
+  drawn = withCounts(drawn, put.parentId, arriving.length, arriving.filter(finished).length);
+  const inOrder = new Set(put.order);
+  const placed = put.order.map((childId, position) => ({ parentId: put.parentId, childId, position }));
+  const filings = snapshot.filings.filter(
+    (filing) => !put.leaves.some((leave) => leave.panelId === filing.panelId && leave.itemId === filing.itemId),
+  );
+  return {
+    ...drawn,
+    filings,
+    children: [...rows.filter((row) => row.parentId !== put.parentId || !inOrder.has(row.childId)), ...placed],
+  };
+}
+
 /** One Item taken out of one parent: its row gone, and the parent's counts shrunk by it. */
 function takenOutAhead(snapshot: WorkspaceSnapshot, out: CommandPayload<'remove_child'>): WorkspaceSnapshot {
   if (out.workspaceId !== snapshot.workspace.id) return snapshot;
@@ -82,4 +117,4 @@ function withCounts(snapshot: WorkspaceSnapshot, parentId: string, count: number
 }
 
 
-drawChildrenWith({ put: putInsideAhead, takenOut: takenOutAhead, done: doneAhead, dismissed: dismissedAhead });
+drawChildrenWith({ put: putInsideAhead, putInsideInOrder: putInsideInOrderAhead, takenOut: takenOutAhead, done: doneAhead, dismissed: dismissedAhead });

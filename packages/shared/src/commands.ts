@@ -544,6 +544,43 @@ export const addChildrenSchema = commandEnvelopeSchema
   });
 export type AddChildrenCommand = z.infer<typeof addChildrenSchema>;
 
+/**
+ * put_inside — Items dropped onto a row to go inside it ("Drag to nest in
+ * Panels and the Inbox", issue 1857): the parent, the Items, the parent's
+ * whole order afterwards, and what each Item leaves, applied whole or
+ * refused whole. `order` is every one of the parent's open and recently
+ * finished children afterwards, as a Panel's is (issue 1435): a finished one
+ * left out keeps its place, and one missing an open child is refused. An Item
+ * that leaves nothing stays wherever else it is, which is an add.
+ */
+export const putInsideSchema = commandEnvelopeSchema
+  .extend({
+    parentId: z.uuid(),
+    childIds: z.array(z.uuid()).min(1).max(CHILDREN_ADDED_AT_ONCE),
+    order: z.array(z.uuid()),
+    /** One entry per place an Item leaves: the Item, and the parent or the Panel it comes out of. */
+    leaves: z
+      .array(
+        z
+          .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
+          .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel'),
+      )
+      .max(CHILDREN_ADDED_AT_ONCE * 4),
+  })
+  // One check with one message, since the initial bundle carries every schema and a sent change is never malformed:
+  // each Item named once, and in the order; the order naming each once, and never the parent; only an Item put
+  // inside leaves anything, and never the parent it goes inside.
+  .refine(
+    (cmd) =>
+      new Set(cmd.childIds).size === cmd.childIds.length &&
+      new Set(cmd.order).size === cmd.order.length &&
+      !cmd.order.includes(cmd.parentId) &&
+      cmd.childIds.every((id) => cmd.order.includes(id)) &&
+      cmd.leaves.every((leave) => cmd.childIds.includes(leave.itemId) && leave.parentId !== cmd.parentId),
+    'not a put-inside change',
+  );
+export type PutInsideCommand = z.infer<typeof putInsideSchema>;
+
 /** remove_child — one Item taken out of one parent, staying wherever else it is (issue 1825). */
 export const removeChildSchema = commandEnvelopeSchema.extend({
   parentId: z.uuid(),
@@ -1367,6 +1404,7 @@ export const commandSchemas = {
   add_item_to_panel: addItemToPanelSchema,
   remove_item_from_panel: removeItemFromPanelSchema,
   add_children: addChildrenSchema,
+  put_inside: putInsideSchema,
   remove_child: removeChildSchema,
   set_done: setDoneSchema,
   set_started: setStartedSchema,

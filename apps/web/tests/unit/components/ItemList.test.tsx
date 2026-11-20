@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, createEvent, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { landItem, liftItem, selectionCarried } from '../../../src/itemInTheAir';
 import { dashboardScope, endSelection, inboxScope, pickedNow, updateSelection, useEndingASinglePick } from '../../../src/selection';
 import { ItemList } from '../../../src/components/ItemList';
+import { loadNestingDrag } from '../../../src/components/useNestingDrop';
 import { foldEveryParent } from '../../../src/unfoldedParents';
 import { UndoWhatJustHappened } from '../../../src/undo';
 import { settleTheShowRequest, useShowRequest } from '../../../src/showItem';
@@ -4618,6 +4619,204 @@ describe('Triage', () => {
 
       expect(within(dialog).getByRole('button', { name: 'Reply to Bart' })).toBeInTheDocument();
       expect(within(dialog).queryByRole('button', { name: 'Somewhere' })).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('Panels', () => {
+  /**
+   * "Drag to nest in Panels and the Inbox" (issue 1857): a row let go on the
+   * middle half of another is put inside it. jsdom has no layout, so each row
+   * is given a box here and the pointer is aimed with `clientY`; the same
+   * arithmetic is tests/unit/nesting.test.ts's rule.
+   */
+  describe('a row dropped on the middle of another row is put inside it, in one change', () => {
+    const MIDDLE = 120;
+    const TOP_QUARTER = 103;
+
+    // The drag's code is fetched as a list mounts; here it is in hand before the first drag.
+    beforeAll(async () => {
+      await loadNestingDrag();
+    });
+
+    /** The row of an Item, with the box it would have: 40 tall, from y = 100. */
+    function rowOf(itemId: string): HTMLElement {
+      const row = document.querySelector<HTMLElement>(`[data-item-row][data-item-id="${itemId}"]`)!;
+      row.getBoundingClientRect = () => ({ top: 100, height: 40, left: 0, width: 300 }) as DOMRect;
+      return row;
+    }
+
+    const transfer = (itemId: string) => ({
+      types: [ITEM_BEING_DRAGGED],
+      getData: (type: string) => (type === ITEM_BEING_DRAGGED ? itemId : ''),
+      setData: vi.fn(),
+      dropEffect: '',
+    });
+
+    /** Picks `itemId` up from where it was, as its row does, and lets go on `onto` at `clientY`. */
+    async function dropOntoRow(itemId: string, onto: string, clientY = MIDDLE, from: string | null = null, keys = {}) {
+      await act(async () => {});
+      liftItem(itemId, from);
+      const row = rowOf(onto);
+      drag('dragOver', row, itemId, clientY);
+      drag('drop', row, itemId, clientY, keys);
+      await settle();
+    }
+
+    /** What a drop comes to is fetched once let go (`RowDropOutcome`), so the change is sent a few turns later. */
+    async function settle() {
+      await act(async () => {
+        await import('../../../src/components/RowDropOutcome');
+        for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+
+    /**
+     * jsdom carries neither the pointer's position nor the keys held through a drag event,
+     * so each is put on the event itself, as the drop test of a gap's place does.
+     */
+    function drag(kind: 'dragOver' | 'drop', row: HTMLElement, itemId: string, clientY: number, keys: Record<string, boolean> = {}) {
+      const event = createEvent[kind](row, { dataTransfer: transfer(itemId) });
+      Object.defineProperty(event, 'clientY', { value: clientY });
+      Object.defineProperty(event, 'clientX', { value: 150 });
+      for (const [key, value] of Object.entries(keys)) Object.defineProperty(event, key, { value });
+      return fireEvent(row, event);
+    }
+
+    const puttingInside = () =>
+      held.send.mock.calls
+        .map(([args]) => args as { name: string; payload: Record<string, unknown> })
+        .filter((args) => args.name === 'put_inside');
+
+    const onFalcon = (...ids: string[]) => ids.map((itemId, position) => ({ panelId: 'p-falcon', itemId, position }));
+
+    it('shows the row it would go inside outlined and tinted, with no line drawn between rows', async () => {
+      held.items = [BART, LISA];
+      held.filings = onFalcon(BART.id, LISA.id);
+      await showList({ items: [BART, LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await act(async () => {});
+      liftItem(BART.id, 'p-falcon');
+
+      drag('dragOver', rowOf(LISA.id), BART.id, MIDDLE);
+
+      expect(rowOf(LISA.id)).toHaveAttribute('data-receiving');
+      expect(document.querySelector('li[aria-hidden="true"].bg-accent')).toBeNull();
+      landItem();
+    });
+
+    it('sends one put-inside leaving the Panel when a row of the same Panel is let go on the middle of another, asking nothing', async () => {
+      held.items = [BART, LISA];
+      held.filings = onFalcon(BART.id, LISA.id);
+      await showList({ items: [BART, LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOntoRow(BART.id, LISA.id, MIDDLE, 'p-falcon');
+
+      expect(puttingInside()).toHaveLength(1);
+      expect(puttingInside()[0]!.payload).toMatchObject({
+        parentId: LISA.id,
+        childIds: [BART.id],
+        order: [BART.id],
+        leaves: [{ itemId: BART.id, panelId: 'p-falcon' }],
+      });
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+
+    it('keeps the gap for the top quarter of a row, which puts nothing inside', async () => {
+      held.items = [BART, LISA];
+      held.filings = onFalcon(BART.id, LISA.id);
+      await showList({ items: [BART, LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOntoRow(BART.id, LISA.id, TOP_QUARTER, 'p-falcon');
+
+      expect(puttingInside()).toHaveLength(0);
+    });
+
+    it('says no to the dragged Item’s own row before it is let go', async () => {
+      held.items = [BART, LISA];
+      held.filings = onFalcon(BART.id, LISA.id);
+      await showList({ items: [BART, LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await act(async () => {});
+      liftItem(BART.id, 'p-falcon');
+
+      const accepted = !drag('dragOver', rowOf(BART.id), BART.id, MIDDLE);
+
+      expect(accepted).toBe(false);
+      expect(rowOf(BART.id)).not.toHaveAttribute('data-receiving');
+      landItem();
+    });
+
+    it('takes a drop onto a row on a sorted Panel that already holds the row dropped', async () => {
+      held.items = [BART, LISA];
+      held.filings = onFalcon(BART.id, LISA.id);
+      await showList({ items: [BART, LISA], openDashboardId: TODAY.id, panelId: 'p-falcon', sorted: true });
+
+      await dropOntoRow(BART.id, LISA.id, MIDDLE, 'p-falcon');
+
+      expect(puttingInside()).toHaveLength(1);
+    });
+
+    it('asks move or add for a row from another Panel, and Move leaves it where Add keeps it', async () => {
+      held.items = [BART, LISA];
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }, ...onFalcon(LISA.id)];
+      const user = await showList({ items: [LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOntoRow(BART.id, LISA.id, MIDDLE, 'p-anna');
+
+      const question = await screen.findByRole('alertdialog');
+      expect(question).toHaveTextContent('Move “Reply to Bart” to Reply to Lisa, or add it there as well?');
+      expect(puttingInside()).toHaveLength(0);
+      await user.click(within(question).getByRole('button', { name: 'Move it here' }));
+      await settle();
+      expect(puttingInside()[0]!.payload).toMatchObject({ leaves: [{ itemId: BART.id, panelId: 'p-anna' }] });
+    });
+
+    it('adds without asking when Ctrl is held, and moves without asking when Shift is', async () => {
+      held.items = [BART, LISA];
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }, ...onFalcon(LISA.id)];
+      await showList({ items: [LISA], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await dropOntoRow(BART.id, LISA.id, MIDDLE, 'p-anna', { ctrlKey: true });
+      await dropOntoRow(BART.id, LISA.id, MIDDLE, 'p-anna', { shiftKey: true });
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(puttingInside().map((sent) => sent.payload.leaves)).toEqual([[], [{ itemId: BART.id, panelId: 'p-anna' }]]);
+    });
+
+    it('puts an Inbox row inside another Inbox row without asking, leaving nothing', async () => {
+      held.items = [BART, LISA];
+      await showList({ items: [BART, LISA] });
+
+      await dropOntoRow(BART.id, LISA.id);
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(puttingInside()[0]!.payload).toMatchObject({ parentId: LISA.id, childIds: [BART.id], leaves: [] });
+    });
+
+    it('puts a whole selection inside in one change', async () => {
+      held.items = [BART, LISA, MAGGIE];
+      await showList({ items: [BART, LISA, MAGGIE] });
+      updateSelection(inboxScope('ws-work'), () => ({ picked: new Set([BART.id, MAGGIE.id]), reachingFrom: null }));
+      await act(async () => {});
+      liftItem(BART.id, null, { ids: [BART.id, MAGGIE.id], scope: inboxScope('ws-work') });
+      const row = rowOf(LISA.id);
+
+      drag('dragOver', row, BART.id, MIDDLE);
+      drag('drop', row, BART.id, MIDDLE);
+      await settle();
+
+      expect(puttingInside()).toHaveLength(1);
+      expect(puttingInside()[0]!.payload).toMatchObject({ parentId: LISA.id, childIds: [BART.id, MAGGIE.id] });
+      endSelection(inboxScope('ws-work'));
+    });
+
+    it('says why when the change is refused', async () => {
+      held.items = [BART, LISA];
+      held.send = vi.fn(() => Promise.reject(new CommandRefused(409, 'this item changed while you were looking at it: try the move again')));
+      await showList({ items: [BART, LISA] });
+
+      await dropOntoRow(BART.id, LISA.id);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('this item changed while you were looking at it');
     });
   });
 });

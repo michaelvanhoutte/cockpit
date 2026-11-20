@@ -1209,10 +1209,10 @@ export async function dragItemOnto(
   const to = await target.boundingBox();
   if (!from || !to) throw new Error(`cannot drag ${title} onto ${onto.title}: one is not on screen`);
 
-  // A quarter into the half being aimed at, so the pointer is unambiguously one
-  // side of the row's middle. Relative to the target, which is what `dragTo`
-  // takes.
-  const y = onto.half === 'top' ? to.height / 4 : (to.height * 3) / 4;
+  // An eighth in from the edge aimed at, inside the outer quarter that is the
+  // gap beside the row: its middle half puts the row inside it (issue 1857).
+  // Relative to the target, which is what `dragTo` takes.
+  const y = onto.half === 'top' ? to.height / 8 : (to.height * 7) / 8;
 
   // `dragTo` rather than a stream of mouse moves, and the difference is not
   // cosmetic: the panel drag above works with the mouse because it is measured
