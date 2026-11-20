@@ -51,6 +51,8 @@ export interface WebRead extends Pick<ReadPastedLinkCommand, 'capturedFrom' | 'c
   wordsBeside: string;
   /** What the person typed beside every link the note held, empty for bare links. */
   words: string;
+  /** How many web links the note held that were asked about, read or not. */
+  linksAsked: number;
 }
 
 /**
@@ -87,6 +89,7 @@ export async function readTheWebPages(
       pages.map((one) => one.link),
     ),
     words,
+    linksAsked: links.length,
   };
 }
 
@@ -135,18 +138,18 @@ export function summariesText(pages: readonly PageOfTheNote[]): string {
 /**
  * The texts the read pages make: the title, and a description of the person's
  * cleaned-up words, then the summaries. **The title is the first page's, unless
- * several pages were read and the note has words**: then it is the clean-up's,
+ * the note held several links, read or not, and has words**: then it is the clean-up's,
  * written from them. A note of links alone has no words to put first, so its
  * description is the summaries alone, whatever the clean-up made of it; one
  * with a link not read keeps what the clean-up made, that link in it.
  */
 export function textsOfThePage(
-  read: Pick<WebRead, 'pages' | 'wordsBeside' | 'words'>,
+  read: Pick<WebRead, 'pages' | 'wordsBeside' | 'words' | 'linksAsked'>,
   cleaned: { title?: string; description: string; readings: ReadPastedLinkTexts['readings']; nextAction?: string },
 ): ReadPastedLinkTexts {
   const words = read.wordsBeside === '' ? '' : cleaned.description.trim();
   const summaries = summariesText(read.pages);
-  const ownTitle = read.pages.length > 1 && read.words !== '' && (cleaned.title ?? '').trim() !== '';
+  const ownTitle = read.linksAsked > 1 && read.words !== '' && (cleaned.title ?? '').trim() !== '';
   return {
     title: ownTitle ? (cleaned.title ?? '').trim() : read.pages[0]!.page.title,
     description: words === '' ? summaries : `${words}\n\n${summaries}`,

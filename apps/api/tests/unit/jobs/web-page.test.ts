@@ -61,7 +61,7 @@ describe('Capture', () => {
       { situation: 'a bare link', words: '', cleaned: 'https://example.com/a', description: SUMMARY },
       { situation: 'a link with words beside it', words: 'call her back Friday', cleaned: 'Call her back on Friday.', description: `Call her back on Friday.\n\n${SUMMARY}` },
     ])('$situation', ({ words, cleaned, description }) => {
-      const texts = textsOfThePage({ pages: [{ link: A, page: PAGE }], wordsBeside: words, words }, { description: cleaned, readings: [] });
+      const texts = textsOfThePage({ pages: [{ link: A, page: PAGE }], wordsBeside: words, words, linksAsked: 1 }, { description: cleaned, readings: [] });
 
       expect(texts).toEqual({ title: PAGE.title, description, readings: [] });
     });
@@ -69,7 +69,7 @@ describe('Capture', () => {
     it('keeps the Next action and the other readings the words made', () => {
       const readings = [{ title: 'Other', description: '', meaning: 'm' }];
 
-      expect(textsOfThePage({ pages: [{ link: A, page: PAGE }], wordsBeside: 'words', words: 'words' }, { description: 'Words.', readings, nextAction: 'Call' })).toMatchObject({ readings, nextAction: 'Call' });
+      expect(textsOfThePage({ pages: [{ link: A, page: PAGE }], wordsBeside: 'words', words: 'words', linksAsked: 1 }, { description: 'Words.', readings, nextAction: 'Call' })).toMatchObject({ readings, nextAction: 'Call' });
     });
   });
 
@@ -129,19 +129,25 @@ describe('Capture', () => {
         expected: { title: 'First', description: `${under('First')}\n\n${under('Second')}` },
       },
     ])('$situation', ({ words, cleaned, expected }) => {
-      const texts = textsOfThePage({ pages: both, wordsBeside: words, words }, { ...cleaned, readings: [] });
+      const texts = textsOfThePage({ pages: both, wordsBeside: words, words, linksAsked: 2 }, { ...cleaned, readings: [] });
 
       expect(texts).toEqual({ ...expected, readings: [] });
     });
 
     it('a page title with asterisks stays inside its bold', () => {
-      const texts = textsOfThePage({ pages: [{ link: A, page: pageTitled('a **b**') }, both[1]!], wordsBeside: '', words: '' }, { description: '', readings: [] });
+      const texts = textsOfThePage({ pages: [{ link: A, page: pageTitled('a **b**') }, both[1]!], wordsBeside: '', words: '', linksAsked: 2 }, { description: '', readings: [] });
 
       expect(texts.description).toContain('**a \\*\\*b\\*\\***');
     });
 
+    it('two links of which one is not readable, with words: the title is still from your words', () => {
+      const texts = textsOfThePage({ pages: [both[0]!], wordsBeside: `compare ${B}`, words: 'compare', linksAsked: 2 }, { title: 'Compare a and b', description: `Compare ${B}`, readings: [] });
+
+      expect(texts.title).toBe('Compare a and b');
+    });
+
     it('a link not read stays in your cleaned-up words, which still come first', () => {
-      const texts = textsOfThePage({ pages: [both[0]!], wordsBeside: B, words: '' }, { description: B, readings: [] });
+      const texts = textsOfThePage({ pages: [both[0]!], wordsBeside: B, words: '', linksAsked: 2 }, { description: B, readings: [] });
 
       expect(texts.description).toBe(`${B}\n\n${SUMMARY}`);
       expect(texts.title).toBe('First');

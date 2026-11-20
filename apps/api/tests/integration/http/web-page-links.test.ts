@@ -220,6 +220,8 @@ ${summaryOf('First page')}
 ${summaryOf('Second page')}` });
       expect(await sourceOf(itemId)).toEqual({ source: 'web', sender: 'example.com', link: LINK });
       expect(await changesTo(itemId)).toEqual(['read_pasted_link']);
+      // The clean-up sees the note as typed, links in it, so it can name the sites in the title.
+      expect(asked.filter(isACleanUp).map((call) => call.note)).toEqual([`compare ${LINK} and ${B}`]);
     });
 
     it('two links and no words: the first page’s title, and the summaries alone', async () => {
