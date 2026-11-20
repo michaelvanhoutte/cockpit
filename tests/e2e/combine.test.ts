@@ -19,7 +19,7 @@ import {
  * F3: the walk that says combining rows picked out of the Inbox works for a
  * person ("Brainstorming: related loose notes can't be brought together", issue
  * 1826). What each of the three actions writes - the Additions, files and places
- * a Merge carries over, what Undo puts back, the Panel a new parent becomes - is
+ * a Merge carries over, what Undo puts back, where a new parent is filed - is
  * proved against a real store in
  * apps/api/tests/integration/http/combine.test.ts; what the dialog offers and
  * sends is apps/web/tests/unit/components/ItemList.test.tsx's. **What is only
