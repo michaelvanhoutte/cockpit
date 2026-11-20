@@ -54,6 +54,7 @@ import { STATUS_LABELS } from '../allItems';
 import { dueDateLabel } from '../dueDate';
 import { PRIORITY_LABELS } from '../priority';
 import { DescriptionBox } from './DescriptionBox';
+import { StoryReview } from './StoryReview';
 import { DESCRIPTION_TEXT_CLASS } from '../description/textClass';
 import { possibleDuplicatesOf } from '../duplicates';
 import {
@@ -2104,6 +2105,18 @@ function TheForm({
                         See suggestions
                       </button>
                     </p>
+                  )}
+                  {/* Claude rewrote a parent's story once the description was yours: *Use it* or *Keep mine* ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). */}
+                  {item && (
+                    <StoryReview
+                      workspaceId={workspaceId}
+                      item={item}
+                      onUsed={(story) => {
+                        // The boxes show what the Item now holds, the editor being rebuilt from it.
+                        settleOn({ description: story });
+                        setReadingPicked((n) => n + 1);
+                      }}
+                    />
                   )}
                   {/* Readings and duplicates both need a decision, so both sit
                     in one banner directly under the title rather than being

@@ -197,6 +197,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     PANELS_BECOME_ITEMS,
     FILINGS_COPIED_AGAIN,
     MERGE_TRAIL,
+    STORY_PROPOSAL,
     ITEM_THUMBNAIL,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
@@ -2025,6 +2026,35 @@ const MERGE_TRAIL: Change = {
 };
 
 /**
+ * What a rewrite of a parent's story leaves for a Review ("Brainstorming: a
+ * parent's description goes stale as children join or leave", issue 1827), the
+ * second half of what `0111-merge-trail` began with `keeps_story`:
+ *
+ * - **`items.story_proposal`**: Claude's new description once the one the Item
+ *   has is yours, held until *Use it* or *Keep mine*; null on every Item that
+ *   never had one.
+ * - **`items.story_proposed_at`**: when it was written.
+ *
+ * Two nullable columns on a table that cannot be rebuilt, nothing written to
+ * an existing row and nothing read until a rewrite writes one, so:
+ * - **Nothing is deleted, re-seeded, wiped or restored.**
+ * - **Stopping halfway:** one change is one transaction (store.ts), so an
+ *   interruption leaves the account as it was.
+ * - **Running a second time:** the store records the change as applied, so it
+ *   never runs twice.
+ * - **Rolled back after it has run:** an older release names neither column and
+ *   ignores them; an Item keeps the description it has, and a proposal waiting
+ *   on it is simply never offered.
+ */
+const STORY_PROPOSAL: Change = {
+  name: '0112-story-proposal',
+  statements: [
+    { sql: 'ALTER TABLE `items` ADD COLUMN `story_proposal` text' },
+    { sql: 'ALTER TABLE `items` ADD COLUMN `story_proposed_at` text' },
+  ],
+};
+
+/**
  * Which image attachment stands for an Item ("Item form: there is no way to
  * mark which image stands for an Item", issue 1863): one nullable column on
  * `items`; `schema.ts` says what it carries.
@@ -2047,7 +2077,7 @@ const MERGE_TRAIL: Change = {
  *   changes, so this one applies the next time the account is opened.
  */
 const ITEM_THUMBNAIL: Change = {
-  name: '0112-item-thumbnail',
+  name: '0113-item-thumbnail',
   statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `thumbnail_attachment_id` text' }],
 };
 

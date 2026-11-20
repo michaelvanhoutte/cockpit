@@ -108,6 +108,7 @@ import {
   enqueueProposalsForSentence,
   enqueueReadingItsMeaning,
   enqueueRepropose,
+  enqueueStoryRewrite,
   enqueueGuestArrivals,
   readWhatTheseNotesMean,
 } from '../jobs/index.js';
@@ -173,6 +174,7 @@ import { connectors, getConnector, messageLinks, phoneLinks, pulledConnectorIds,
 import { handlePush } from '../connectors/push-host.js';
 import { DraftNotMadeError, checkableOf, claudeMayDraft, mailboxesOf, makeTheDraft } from '../connectors/drafts.js';
 import { combineCommandSchemas } from '@cockpit/shared/combine-commands';
+import { storyCommandSchemas } from '@cockpit/shared/story-commands';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
@@ -1212,7 +1214,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     request: {
       body: {
         required: true,
-        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas }[name] } },
+        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas, ...storyCommandSchemas }[name] } },
       },
     },
     responses: {
@@ -1251,7 +1253,16 @@ async function change<N extends CommandName>(
   payload: CommandPayload<N>,
 ): Promise<CommandResult> {
   const account = await openAccount(c.env, c.get('visitor').accountName);
-  return account.applyChange(name, payload);
+  const result = await account.applyChange(name, payload);
+  // A child joined or left a parent that keeps its story up to date, or a story was asked for by name: Claude rewrites it,
+  // behind the answer ("Keep its story up to date", issue 1827).
+  for (const itemId of result.rewriteStoryOf ?? []) {
+    c.executionCtx.waitUntil(enqueueStoryRewrite(c.env, c.get('visitor').accountName, itemId));
+  }
+  for (const itemId of result.storyAskedOf ?? []) {
+    c.executionCtx.waitUntil(enqueueStoryRewrite(c.env, c.get('visitor').accountName, itemId, { anyway: true }));
+  }
+  return result;
 }
 
 /**
@@ -2001,6 +2012,19 @@ const routes = app
   .openapi(commandRoute('merge_items'), async (c) => c.json(await change(c, 'merge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('unmerge_items'), async (c) => c.json(await change(c, 'unmerge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('combine_under_new_parent'), async (c) => c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
+  .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))
+  .openapi(commandRoute('use_story'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'use_story', payload);
+    // The description is new words, as after an edit: what they mean and what to do with the Item are read again.
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+    }
+    return c.json(result, 200);
+  })
+  .openapi(commandRoute('keep_my_story'), async (c) => c.json(await change(c, 'keep_my_story', c.req.valid('json')), 200))
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))
   .openapi(commandRoute('wait_for_reply'), async (c) => c.json(await change(c, 'wait_for_reply', c.req.valid('json')), 200))

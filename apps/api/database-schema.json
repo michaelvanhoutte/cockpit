@@ -3866,6 +3866,24 @@
               "queriedAs": "keepsStory"
             },
             {
+              "name": "story_proposal",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "storyProposal"
+            },
+            {
+              "name": "story_proposed_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "storyProposedAt"
+            },
+            {
               "name": "thumbnail_attachment_id",
               "type": "TEXT",
               "required": false,

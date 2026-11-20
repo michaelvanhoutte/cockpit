@@ -4231,6 +4231,48 @@ describe('Panels', () => {
       );
     });
 
+    it.each([
+      { situation: 'one that is off turns it on', keepsStory: false, sets: true },
+      { situation: 'one that is on turns it off', keepsStory: true, sets: false },
+    ])('Keep its story up to date, on a parent’s row menu, $situation', async ({ keepsStory, sets }) => {
+      held.items = [{ ...CHAPTER, keepsStory }, STORM, FERRY];
+      const user = await showList({ items: [{ ...CHAPTER, keepsStory }], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
+      const entry = await screen.findByRole('menuitem', { name: `Keep its story up to date, ${keepsStory ? 'on' : 'off'}` });
+      await user.click(entry);
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'set_keeps_story', payload: expect.objectContaining({ itemId: CHAPTER.id, keepsStory: sets }) }),
+      );
+    });
+
+    it('Rewrite from its children is on a parent’s menu and on no other row’s', async () => {
+      const user = await onAPanel();
+
+      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Rewrite from its children' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'rewrite_story', payload: expect.objectContaining({ itemId: CHAPTER.id }) }),
+      );
+    });
+
+    it.each([
+      { situation: 'a row that never held anything', row: STORM },
+      { situation: 'a parent that lost its last child, its setting still on', row: { ...STORM, keepsStory: true, childrenCount: 0 } },
+    ])('offers neither on $situation', async ({ row }) => {
+      held.items = [row];
+      held.filings = [{ panelId: 'p-falcon', itemId: STORM.id, position: 0 }];
+      const user = await showList({ items: [row], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await user.click(within(screen.getByText('Storm scene').closest('li')!).getByRole('button', { name: 'Item actions' }));
+      await screen.findByRole('menuitem', { name: 'Open' });
+
+      expect(screen.queryByRole('menuitem', { name: 'Rewrite from its children' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /Keep its story up to date/ })).toBeNull();
+    });
+
     it('takes a child moved to the Inbox out of the Item holding it, or it would be in no Inbox', async () => {
       const user = await onAPanel();
       await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
