@@ -163,7 +163,7 @@ export default function CombineDialog({
           }}
           className="fixed left-1/2 top-1/2 z-floating flex max-h-[90vh] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
-          <Dialog.Title className="text-base font-semibold">
+          <Dialog.Title className="shrink-0 truncate text-base font-semibold">
             {chosen.length < 2 ? `Combine “${chosen[0] ? itemLabel(chosen[0]) : ''}” with…` : `Combine ${chosen.length} Items`}
           </Dialog.Title>
           {itemIds.length < 2 && (
@@ -183,7 +183,8 @@ export default function CombineDialog({
               </li>
             ))}
           </ul>
-          <fieldset className="flex flex-col gap-2">
+          {/* min-w-0: a fieldset is as wide as its widest line unless told otherwise, which would let a long title widen the window. */}
+          <fieldset className="flex min-w-0 flex-col gap-2">
             <legend className="sr-only">How to combine them</legend>
             {card(
               'merge',
