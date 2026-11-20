@@ -4,7 +4,7 @@ import { refusalFrom } from './api/queries';
 import { fetchedChunk, filedOrderOnPanel } from './filing';
 import { planDropOntoARow, leavesAnswered, type RowDropPlan } from './nesting';
 import type { RowDropWas } from './puttingBack';
-import { dashboardOfScope, pickedNow } from './selection';
+import { dashboardOfScope } from './selection';
 import type { Undoable } from './undo';
 import { unfoldAll } from './unfoldedParents';
 
@@ -32,10 +32,12 @@ export interface Asking {
 
 /** What the drop read while it was still a drop: the browser forgets all of it once the event returns. */
 export interface LetGo {
-  itemId: string;
+  /** The Items carried and still picked when let go, in the order drawn: the grabbed one alone, or a selection's. */
+  carried: readonly string[];
+  /** The selection's scope, where a selection was carried. */
+  scope: string | null;
   target: string;
   from: { parentId: string | null; panelId: string | null };
-  carrying: { ids: readonly string[]; scope: string } | null;
   keys: { move: boolean; add: boolean };
   list: { panelId: string | null; heldBy: string | null };
 }
@@ -58,14 +60,11 @@ const labelIn = (data: WorkspaceSnapshot | undefined, id: string) => {
 export function settleRowDrop(d: RowDropDeps, letGo: LetGo): Asking | { refused: string } | null {
   const { data } = d;
   const items = data?.items ?? [];
-  // What is still picked and still open when it is let go, not what was picked up.
-  const stillPicked = letGo.carrying ? pickedNow(letGo.carrying.scope) : null;
+  // Still open when it is let go, not only when it was picked up.
   const open = new Set(items.filter(stillOpen).map((item) => item.id));
-  const carried = (letGo.carrying ? letGo.carrying.ids.filter((id) => stillPicked!.has(id)) : [letGo.itemId]).filter((id) =>
-    open.has(id),
-  );
+  const carried = letGo.carried.filter((id) => open.has(id));
   if (carried.length === 0) return null;
-  const dashboard = letGo.carrying ? dashboardOfScope(letGo.carrying.scope) : null;
+  const dashboard = letGo.scope !== null ? dashboardOfScope(letGo.scope) : null;
   const rows = data?.children ?? [];
   const filings = data?.filings ?? [];
   const plan = planDropOntoARow({
@@ -74,7 +73,7 @@ export function settleRowDrop(d: RowDropDeps, letGo: LetGo): Asking | { refused:
     rows,
     filings,
     from: letGo.from,
-    selectionPanels: letGo.carrying
+    selectionPanels: letGo.scope !== null
       ? (data?.panels ?? []).filter((panel) => panel.dashboardId === dashboard).map((panel) => panel.id)
       : null,
     list: letGo.list,

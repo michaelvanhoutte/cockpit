@@ -4615,11 +4615,11 @@ describe('Panels', () => {
       await settle();
     }
 
-    /** What a drop comes to is fetched once let go (`rowDrop.ts`), so the change is sent a turn later. */
+    /** What a drop comes to is fetched once let go (`RowDropOutcome`), so the change is sent a few turns later. */
     async function settle() {
       await act(async () => {
-        await import('../../../src/rowDrop');
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await import('../../../src/components/RowDropOutcome');
+        for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
       });
     }
 

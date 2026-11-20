@@ -1243,8 +1243,7 @@ export function ItemList({
           {refusal}
         </p>
       )}
-      {nesting.notice}
-      {nesting.question}
+      {nesting.outcome}
 
       <div
         // Tall enough to be dropped on. Without this the box is only as tall as
