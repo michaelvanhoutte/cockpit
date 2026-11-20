@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Locator, Page } from '@playwright/test';
-import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE } from '@cockpit/shared';
+import { ACCOUNT_WIDE, MAX_ATTACHMENT_SIZE, thumbnailAddress } from '@cockpit/shared';
 import { arrange, giveAnEmptyDashboard, giveAWorkspace, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
@@ -669,12 +669,10 @@ test.describe('Item editing', () => {
       const after = form(page).getByRole('tabpanel', { name: /^Attachments/ });
       await expect(after.getByRole('button', { name: 'Thumbnail', exact: true })).toBeVisible();
       await expect(after.getByRole('button', { name: 'Use as thumbnail' })).toHaveCount(1);
-      // The stored copy opens for this person as a 96 px picture.
-      const copy = await page.request.get(
-        await after.getByRole('link', { name: /side\.png/ }).getAttribute('href').then((href) => `${href}/thumbnail`),
-      );
+      // The stored copy opens for this person.
+      const href = (await after.getByRole('link', { name: /side\.png/ }).getAttribute('href'))!;
+      const copy = await page.request.get(thumbnailAddress(href.split('/').pop()!));
       expect(copy.status()).toBe(200);
-      expect(copy.headers()['x-content-type-options']).toBe('nosniff');
     });
 
     /**

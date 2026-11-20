@@ -36,7 +36,7 @@ import {
   type StatusState,
   filingsThatFile,
 } from '@cockpit/shared';
-import { attachmentUrl, uploadAttachment, uploadThumbnail } from '../api/client';
+import { CommandRefused, attachmentUrl, uploadAttachment, uploadThumbnail } from '../api/client';
 import { makeThumbnailCopy } from '../thumbnailCopy';
 import { changes } from '../api/changes';
 import { readAfterOwnChange } from '../api/snapshotReads';
@@ -662,6 +662,10 @@ function TheForm({
     setStopOffered(null);
     setAttachmentError(null);
     const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId };
+    // Started now, outside the queue, so the decode has a head start; the request below only awaits it.
+    const decoding = new AbortController();
+    const made = attachment ? makeThumbnailCopy(attachmentUrl(attachment.id), decoding.signal) : undefined;
+    made?.catch(() => {});
     try {
       refuseWhileOffline();
       const answer = await changes.enqueue(
@@ -669,13 +673,15 @@ function TheForm({
         (result) => readAfterOwnChange(queryClient, workspaceId, result.at),
         undefined,
         attachment
-          ? async (signal) =>
-              uploadThumbnail({
-                ...envelope,
-                attachmentId: attachment.id,
-                copy: await makeThumbnailCopy(attachmentUrl(attachment.id)),
-                signal,
-              })
+          ? async (signal) => {
+              refuseWhileOffline();
+              signal.addEventListener('abort', () => decoding.abort());
+              // The copy's own reason, said as it is rather than as a request that did not arrive.
+              const copy = await made!.catch((failure: unknown) => {
+                throw new CommandRefused(0, failure instanceof Error ? failure.message : 'The thumbnail could not be made.');
+              });
+              return uploadThumbnail({ ...envelope, attachmentId: attachment.id, copy, signal });
+            }
           : undefined,
       );
       return answer;

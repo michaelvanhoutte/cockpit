@@ -127,11 +127,13 @@ describe('Item editing', () => {
       const itemId = await aNote();
       const portrait = await attach(itemId, 'image/gif', 'portrait.gif');
 
-      const first = await pick(itemId, portrait);
+      const commandId = nextId();
+      const first = await pick(itemId, portrait, { commandId });
       const again = await pick(itemId, portrait);
-      const replayed = await pick(itemId, portrait, { commandId: nextId() });
+      const replayed = await pick(itemId, portrait, { commandId });
 
       expect([first.status, again.status, replayed.status]).toEqual([200, 200, 200]);
+      expect(((await replayed.json()) as { applied: boolean }).applied).toBe(false);
       expect(await thumbnailOf(itemId)).toBe(portrait);
     });
 

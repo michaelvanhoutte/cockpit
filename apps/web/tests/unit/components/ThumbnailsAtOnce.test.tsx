@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Attachment, CommandResult, Item, WorkspaceSnapshot } from '@cockpit/shared';
 import { changes } from '../../../src/api/changes';
 import { CommandRefused, fetchSnapshot, fetchWorkspaces, sendCommand, uploadAttachment, uploadThumbnail } from '../../../src/api/client';
+import { makeThumbnailCopy } from '../../../src/thumbnailCopy';
 import { ItemForm } from '../../../src/components/ItemForm';
 import { resetStanding } from '../../../src/offline';
 import { UndoWhatJustHappened } from '../../../src/undo';
@@ -270,6 +271,19 @@ describe('Item editing', () => {
       expect(tab.getAllByRole('button', { name: 'Use as thumbnail' })).toHaveLength(1);
       expect(tab.getByRole('button', { name: 'Thumbnail' })).toBeVisible();
       expect(screen.getByText(/The thumbnail was not changed\./)).toHaveTextContent(`attachment ${SIDE} not found`);
+    });
+
+    it('puts the tag back and says the copy’s own reason when the small copy cannot be made', async () => {
+      vi.mocked(makeThumbnailCopy).mockRejectedValueOnce(new Error('That picture could not be read, so it is not the thumbnail.'));
+      const { user, tab } = await show(TWO_IMAGES(), FRONT);
+
+      await user.click(tab.getByRole('button', { name: 'Use as thumbnail' }));
+      await settle();
+
+      expect(picks).toHaveLength(0);
+      expect(tab.getByRole('button', { name: 'Thumbnail' })).toBeVisible();
+      expect(screen.getByText(/The thumbnail was not changed\./)).toHaveTextContent('That picture could not be read');
+      expect(screen.queryByText(/did not reach the server/)).toBeNull();
     });
 
     it('takes the tag away at once on Stop using, and brings it back saying why when that is refused', async () => {

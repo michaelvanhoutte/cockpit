@@ -423,6 +423,7 @@ export async function uploadThumbnail({
   workspaceId,
   attachmentId,
   commandId,
+  issuedAt,
   copy,
   signal,
 }: {
@@ -430,6 +431,7 @@ export async function uploadThumbnail({
   workspaceId: string;
   attachmentId: string;
   commandId: string;
+  issuedAt: string;
   copy: Blob;
   signal?: AbortSignal;
 }): Promise<CommandResult> {
@@ -440,7 +442,7 @@ export async function uploadThumbnail({
       headers: {
         'Content-Type': copy.type,
         'X-Command-Id': commandId,
-        'X-Issued-At': new Date().toISOString(),
+        'X-Issued-At': issuedAt,
         'X-Workspace-Id': workspaceId,
       },
       body: copy,

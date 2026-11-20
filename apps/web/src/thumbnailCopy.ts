@@ -8,15 +8,18 @@ import { MAX_THUMBNAIL_SIZE, THUMBNAIL_SIDE, thumbnailSource } from '@cockpit/sh
  * A GIF is its first frame. Made on the device, in a canvas, so what the server
  * stores is whatever this browser's encoder made of it.
  */
-export async function makeThumbnailCopy(address: string): Promise<Blob> {
-  const picture = new Image();
-  picture.src = address;
+export async function makeThumbnailCopy(address: string, signal?: AbortSignal): Promise<Blob> {
+  const unreadable = () => new Error('That picture could not be read, so it is not the thumbnail.');
+  // Fetched and decoded under the caller's signal, so giving up on the copy stops both.
+  let picture: ImageBitmap;
   try {
-    await picture.decode();
+    const response = await fetch(address, signal ? { signal } : undefined);
+    if (!response.ok) throw unreadable();
+    picture = await createImageBitmap(await response.blob());
   } catch {
-    throw new Error('That picture could not be read, so it is not the thumbnail.');
+    throw unreadable();
   }
-  const { x, y, side } = thumbnailSource(picture.naturalWidth, picture.naturalHeight);
+  const { x, y, side } = thumbnailSource(picture.width, picture.height);
   if (side <= 0) throw new Error('That picture could not be read, so it is not the thumbnail.');
   const canvas = document.createElement('canvas');
   canvas.width = THUMBNAIL_SIDE;
