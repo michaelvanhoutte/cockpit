@@ -12,7 +12,9 @@
     "./sent-emails": "./src/api/sent-emails.ts",
     "./combine-commands": "./src/commands-combine.ts",
     "./story-commands": "./src/commands-story.ts",
-    "./split-commands": "./src/commands-split.ts"
+    "./split-commands": "./src/commands-split.ts",
+    "./board": "./src/board.ts",
+    "./board-commands": "./src/commands-board.ts"
   },
   "scripts": {
     "typecheck": "tsc",
