@@ -27,6 +27,7 @@
         "apps/api/tests/contract/propose-for-claude.v4.test.ts",
         "apps/api/tests/contract/remember-a-sentence.v1.test.ts",
         "apps/api/tests/contract/resolve-a-place.v1.test.ts",
+        "apps/api/tests/contract/summarise-a-page.v1.test.ts",
         "apps/api/tests/contract/write-a-story.v1.test.ts"
       ]
     },

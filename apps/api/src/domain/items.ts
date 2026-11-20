@@ -45,6 +45,9 @@ export function isStale(item: Item, issuedAt: string): boolean {
 /** Where an Item captured inside Cockpit says it came from: nowhere else. */
 const CAPTURED_HERE = 'internal';
 
+/** What a note captured over MCP carries as its source (`mcp/server.ts`). */
+const MCP_SOURCE = 'mcp';
+
 /** An Item as its row holds it: the one source field written as the two columns there are. */
 export type StoredItem = Omit<Item, 'source' | 'childrenCount' | 'childrenDone'> & {
   source: typeof CAPTURED_HERE;
@@ -510,7 +513,9 @@ export function applyProposedTexts(item: Item, cmd: ProposeItemTextsCommand): It
  * where it is, for the reason `applyProposedTexts` gives.
  */
 export function applyPastedLinkRead(item: Item, cmd: ReadPastedLinkCommand): Item | null {
-  if (item.source !== CAPTURED_HERE || item.sourceId !== null || item.sourceLink !== null) return null;
+  // Own: typed, shared from the Android browser or captured over MCP ("Capture link summaries", issue 1853), which an app's capture never is. An app's own link ends it.
+  const own = (item.source === CAPTURED_HERE && item.sourceId === null) || item.source === MCP_SOURCE;
+  if (!own || item.sourceLink !== null) return null;
   const read: Item = {
     ...item,
     source: cmd.capturedFrom.source,
