@@ -177,6 +177,8 @@ import { combineCommandSchemas } from '@cockpit/shared/combine-commands';
 import { splitCommandSchemas } from '@cockpit/shared/split-commands';
 import { proposeASplit } from './split-proposal.js';
 import { storyCommandSchemas } from '@cockpit/shared/story-commands';
+import { boardCommandSchemas } from '@cockpit/shared/board-commands';
+import { whiteboardsSchema } from '@cockpit/shared/board';
 import { draftAskedSchema, draftMadeSchema, draftNotMadeSchema } from '@cockpit/shared/draft';
 import { followSentAnswerSchema, followSentAskedSchema, sentEmailsAvailableSchema, sentEmailsSchema } from '@cockpit/shared/sent-emails';
 import { followSentEmail, listSentEmails, sentMailCanBeListed } from '../connectors/sent.js';
@@ -203,7 +205,8 @@ app.onError((err, c) => {
     return c.json({ error: err.message }, 404);
   }
   if (err instanceof ConflictInAccountError) {
-    return c.json({ error: err.message }, 409);
+    // Items a change would send to the Inbox with their cards, for the screen to ask about (`onWhiteboardsRefusalSchema`).
+    return c.json({ error: err.message, ...(err.onWhiteboards ? { onWhiteboards: err.onWhiteboards } : {}) }, 409);
   }
   // A 400 rather than a 409: nothing is in the way, the colors are simply not
   // on offer. Shaped like the wire schema's own refusals, which is what the
@@ -723,7 +726,8 @@ const snapshotRoute = createRoute({
   responses: {
     200: {
       description: 'The full read model for one workspace',
-      content: { 'application/json': { schema: workspaceSnapshotSchema } },
+      // The whiteboards in full, which the app's own copy of the schema takes on trust (issue 1829).
+      content: { 'application/json': { schema: workspaceSnapshotSchema.extend({ whiteboards: whiteboardsSchema.optional() }) } },
     },
     404: {
       description: 'Unknown workspace',
@@ -1241,7 +1245,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     request: {
       body: {
         required: true,
-        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas, ...storyCommandSchemas, ...splitCommandSchemas }[name] } },
+        content: { 'application/json': { schema: { ...commandSchemas, ...combineCommandSchemas, ...storyCommandSchemas, ...splitCommandSchemas, ...boardCommandSchemas }[name] } },
       },
     },
     responses: {
@@ -1268,6 +1272,9 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
     },
   });
 }
+
+/** The 409 of a change that would send Items with cards to the Inbox without `takeCardsOff` (issue 1829). */
+const ON_WHITEBOARDS = 'Items it would send to the Inbox are on whiteboards: each is named with its cards, and nothing changed';
 
 /**
  * Every change endpoint is the same two steps, so they are written once:
@@ -1798,7 +1805,7 @@ const routes = app
     async (c) => c.json(await change(c, 'rename_dashboard', c.req.valid('json')), 200),
   )
   .openapi(
-    commandRoute('delete_dashboard', { conflict: 'A workspace keeps at least one dashboard' }),
+    commandRoute('delete_dashboard', { conflict: `A workspace keeps at least one dashboard; or ${ON_WHITEBOARDS.toLowerCase()}` }),
     async (c) => c.json(await change(c, 'delete_dashboard', c.req.valid('json')), 200),
   )
   .openapi(
@@ -1825,7 +1832,7 @@ const routes = app
     commandRoute('set_panel_settings', { conflict: 'The dashboard already has a panel by that name' }),
     async (c) => c.json(await change(c, 'set_panel_settings', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('delete_panel'), async (c) => c.json(await change(c, 'delete_panel', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_panel', { conflict: ON_WHITEBOARDS }), async (c) => c.json(await change(c, 'delete_panel', c.req.valid('json')), 200))
   .openapi(commandRoute('move_panel_to_dashboard'), async (c) => c.json(await change(c, 'move_panel_to_dashboard', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_text'), async (c) => c.json(await change(c, 'set_panel_text', c.req.valid('json')), 200))
   .openapi(commandRoute('set_panel_read_only'), async (c) => c.json(await change(c, 'set_panel_read_only', c.req.valid('json')), 200))
@@ -2018,7 +2025,7 @@ const routes = app
   })
   .openapi(
     commandRoute('move_item_to_panel', {
-      conflict: 'The order sent is not the order of that panel any more',
+      conflict: `The order sent is not the order of that panel any more; or ${ON_WHITEBOARDS.toLowerCase()}`,
     }),
     async (c) =>
       c.json(await changeThatMightSettleARouting(c, 'move_item_to_panel', c.req.valid('json')), 200),
@@ -2030,7 +2037,7 @@ const routes = app
     async (c) =>
       c.json(await changeThatMightSettleARouting(c, 'add_item_to_panel', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('remove_item_from_panel'), async (c) => {
+  .openapi(commandRoute('remove_item_from_panel', { conflict: ON_WHITEBOARDS }), async (c) => {
     const payload = c.req.valid('json');
     const result = await change(c, 'remove_item_from_panel', payload);
     // Off a Panel is a filing changed too, as in `changeThatMightSettleARouting` (issue 1161).
@@ -2041,7 +2048,7 @@ const routes = app
   })
   .openapi(commandRoute('add_children'), async (c) => c.json(await change(c, 'add_children', c.req.valid('json')), 200))
   .openapi(commandRoute('put_inside', { conflict: 'The item it goes inside has changed since the order was made' }), async (c) => c.json(await change(c, 'put_inside', c.req.valid('json')), 200))
-  .openapi(commandRoute('remove_child'), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
+  .openapi(commandRoute('remove_child', { conflict: ON_WHITEBOARDS }), async (c) => c.json(await change(c, 'remove_child', c.req.valid('json')), 200))
   .openapi(commandRoute('merge_items'), async (c) => c.json(await change(c, 'merge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('unmerge_items'), async (c) => c.json(await change(c, 'unmerge_items', c.req.valid('json')), 200))
   .openapi(commandRoute('split_item'), async (c) => {
@@ -2093,7 +2100,7 @@ const routes = app
   .openapi(commandRoute('finish_agent_run'), async (c) =>
     c.json(await change(c, 'finish_agent_run', c.req.valid('json')), 200),
   )
-  .openapi(commandRoute('set_dismissed'), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_dismissed', { conflict: ON_WHITEBOARDS }), async (c) => c.json(await change(c, 'set_dismissed', c.req.valid('json')), 200))
   .openapi(commandRoute('associate'), async (c) => c.json(await change(c, 'associate', c.req.valid('json')), 200))
   .openapi(commandRoute('set_next_action'), async (c) => c.json(await change(c, 'set_next_action', c.req.valid('json')), 200))
   .openapi(commandRoute('set_priority'), async (c) => c.json(await change(c, 'set_priority', c.req.valid('json')), 200))

@@ -228,6 +228,7 @@ import {
   type WhatStood,
 } from '../domain/text-corrections.js';
 import { finishedKeptAfter } from '../domain/workspace-read.js';
+import { BoxInsideItselfError, BoxNotFoundError, CardNotFoundError, NotPlaceableError, OnWhiteboardsError, listWhiteboards } from './board.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 import { retireAgents, whyItFailed } from './retire-agents.js';
 
@@ -348,6 +349,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
           : null,
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
+        whiteboards: listWhiteboards(db, accountName, workspaceId),
       };
     });
   }
@@ -2068,10 +2070,14 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof DashboardNotFoundError ||
         error instanceof PanelNotFoundError ||
         error instanceof LayoutNotFoundError ||
-        error instanceof SourceAccountNotFoundError
+        error instanceof SourceAccountNotFoundError ||
+        error instanceof BoxNotFoundError ||
+        error instanceof CardNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }
+      // Items with cards a change would send to the Inbox, each named for the screen to ask about (issue 1829).
+      if (error instanceof OnWhiteboardsError) return { status: 'conflict', what: error.message, onWhiteboards: error.onWhiteboards };
       if (
         error instanceof SentenceRefusedError ||
         error instanceof WorkspaceNameTakenError ||
@@ -2115,7 +2121,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // A 400 as well: the Item is there, and its words are not the ones the blocks named were read from.
         error instanceof SplitRefusedError ||
         // A 400 as well: the Item is there, and holds nothing a story could be written from.
-        error instanceof StoryRefusedError
+        error instanceof StoryRefusedError ||
+        // A 400 as well: the Item is there, and in the Inbox, so not on any whiteboard.
+        error instanceof NotPlaceableError ||
+        // Same again: every box is there, and a box cannot be inside itself.
+        error instanceof BoxInsideItselfError
       ) {
         return { status: 'refused', what: error.message };
       }
