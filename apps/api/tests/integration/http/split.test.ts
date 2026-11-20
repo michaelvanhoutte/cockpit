@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { itemsInTheInbox, splitBlocksOf, type WorkspaceSnapshot } from '@cockpit/shared';
 import { DASHBOARD_ID, WORKSPACE_ID, asUser, inTheStore } from '../seed.js';
@@ -235,14 +235,18 @@ describe('Triage', () => {
 
       expect((await split(original, THREE_PARAGRAPHS, children)).status).toBe(200);
       await split(original, THREE_PARAGRAPHS, children);
-      await settled();
 
-      // The original's own capture may still be arriving: only what the Split asked for is looked at.
-      const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app');
-      expect(cleanUps.map((job) => job.itemId).sort()).toEqual([rent, ferry].sort());
-      // What to do with each is proposed again where its words changed, and for each new one as for a capture.
-      const proposals = held.filter((job) => job.kind === 'propose-for-claude' && [original, rent, ferry].includes(job.itemId ?? ''));
-      expect(proposals.map((job) => job.itemId).sort()).toEqual([original, rent, ferry].sort());
+      // Queued after the answers, so waited for rather than assumed. The original's own capture may still be arriving: only what the Split asked for is looked at.
+      await vi.waitFor(
+        () => {
+          const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app');
+          expect(cleanUps.map((job) => job.itemId).sort()).toEqual([rent, ferry].sort());
+          // What to do with each is proposed again where its words changed, and for each new one as for a capture.
+          const proposals = held.filter((job) => job.kind === 'propose-for-claude' && [original, rent, ferry].includes(job.itemId ?? ''));
+          expect(proposals.map((job) => job.itemId).sort()).toEqual([original, rent, ferry].sort());
+        },
+        { timeout: 10_000, interval: 25 },
+      );
     });
 
     it('settles the texts of a card whose title was typed and asks no clean-up for it, and leaves the others proposed', async () => {
@@ -265,8 +269,9 @@ describe('Triage', () => {
       );
       expect(rows.find((row) => row.id === typed)?.texts_settled_at).not.toBeNull();
       expect(rows.find((row) => row.id === proposed)?.texts_settled_at).toBeNull();
-      const cleanUps = held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app').map((job) => job.itemId);
-      expect(cleanUps).toEqual([proposed]);
+      const cleanUps = () => held.filter((job) => job.kind === 'clean-up-a-note' && job.triggeredBy === 'split-in-app').map((job) => job.itemId);
+      await vi.waitFor(() => expect(cleanUps()).toContain(proposed), { timeout: 10_000, interval: 25 });
+      expect(cleanUps()).toEqual([proposed]);
     });
 
     it('turns Keep its story up to date on for the original, asks no rewrite, and Undo puts back what it was', async () => {
