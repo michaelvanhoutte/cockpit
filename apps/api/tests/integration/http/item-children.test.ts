@@ -19,7 +19,8 @@ import { ORIGIN, connected, mcp } from './connected-apps.support.js';
 
 /**
  * Integration level, through the real Worker: "Brainstorming: an Item can't
- * hold other Items" (issue 1825). Where an Item sits is a row in the account's
+ * hold other Items" (issue 1825) and "Brainstorming: a Panel is an Item nobody
+ * can open" (issue 1846). Where an Item sits is a row in the account's
  * own store, and the Workspace's read, the store's own Inbox and `find_items`
  * are three separate queries over it, so each holds only against a real one.
  * The browser's half of the Inbox rule is proved at L1
@@ -100,33 +101,102 @@ async function whereAnAppSees(token: string, text: string): Promise<string> {
   return /^Where: (.*)$/m.exec(result.content[0]!.text)?.[1] ?? '';
 }
 
+/** What is filed on a Panel, written the way only a filing is: the Panel's own filings and nothing under its Item. */
+async function filedOnlyOnThePanel(panelId: string, itemId: string, position: number): Promise<void> {
+  await inTheStore((sql) =>
+    sql.exec(
+      'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
+      ACCOUNT_NAME,
+      panelId,
+      itemId,
+      position,
+      daysAgo(0),
+    ),
+  );
+}
+
+/** A row under a Panel's own Item with no filing beside it: what only the release before reads (issue 1846). */
+async function keptOnlyUnderThePanel(panelId: string, itemId: string, position: number): Promise<void> {
+  await inTheStore((sql) =>
+    sql.exec(
+      `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+       VALUES (?, (SELECT item_id FROM panels WHERE id = ?), ?, ?, ?)`,
+      ACCOUNT_NAME,
+      panelId,
+      itemId,
+      position,
+      daysAgo(0),
+    ),
+  );
+}
+
+async function fileOn(panelId: string, itemId: string) {
+  return send('move_item_to_panel', { itemId, panelId, order: [itemId] });
+}
+
 describe('Inbox', () => {
-  describe('the Inbox holds exactly the open Items with no live parent, wherever it is read', () => {
-    it('leaves out a child of an Item that is on no Panel', async () => {
+  /**
+   * "Brainstorming: a Panel is an Item nobody can open" (issue 1846): filed on
+   * a Panel is read from the Panel's filings, inside an Item from the rows of
+   * Items alone. Every filing still writes a row under the Panel's own Item for
+   * the release before, so the last two cases, which hold one of the pair
+   * without the other, are written into the store directly.
+   */
+  describe('the Inbox holds exactly the open Items filed on no live Panel and inside no live Item, wherever it is read', () => {
+    it.each([
+      {
+        situation: 'filed on a live Panel',
+        arrange: async (itemId: string) => expect((await fileOn(await aPanel('Scenes'), itemId)).status).toBe(200),
+        inTheInbox: false,
+        where: /▸ Scenes$/,
+      },
+      {
+        situation: 'filed on a deleted Panel only',
+        arrange: async (itemId: string) => {
+          const panelId = await aPanel('Scenes');
+          expect((await fileOn(panelId, itemId)).status).toBe(200);
+          expect((await send('delete_panel', { panelId })).status).toBe(200);
+        },
+        inTheInbox: true,
+        where: /^Workspace 1 ▸ Inbox$/,
+      },
+      {
+        situation: 'inside a live Item',
+        arrange: async (itemId: string) => expect((await putInside(await anItem('Chapter 3'), itemId)).status).toBe(200),
+        inTheInbox: false,
+        where: /^Workspace 1 ▸ inside Chapter 3$/,
+      },
+      {
+        situation: 'inside a dismissed Item only',
+        arrange: async (itemId: string) => {
+          const chapter = await anItem('Chapter 3');
+          expect((await putInside(chapter, itemId)).status).toBe(200);
+          expect((await send('set_dismissed', { itemId: chapter, dismissed: true })).status).toBe(200);
+        },
+        inTheInbox: true,
+        where: /^Workspace 1 ▸ Inbox$/,
+      },
+      {
+        situation: 'filed on a live Panel the release before never recorded',
+        arrange: async (itemId: string) => filedOnlyOnThePanel(await aPanel('Scenes'), itemId, 0),
+        inTheInbox: false,
+        where: /▸ Scenes$/,
+      },
+      {
+        situation: 'recorded under a live Panel by the release before, but filed on none',
+        arrange: async (itemId: string) => keptOnlyUnderThePanel(await aPanel('Scenes'), itemId, 0),
+        inTheInbox: true,
+        where: /^Workspace 1 ▸ Inbox$/,
+      },
+    ])('$situation', async ({ arrange, inTheInbox, where }) => {
       const { token } = await connected();
-      const chapter = await anItem('Chapter 3');
       const storm = await anItem('Storm scene');
 
-      expect((await putInside(chapter, storm)).status).toBe(200);
+      await arrange(storm);
 
-      expect(await inTheAppsInbox(storm)).toBe(false);
-      expect(await inTheStoresInbox(storm)).toBe(false);
-      expect(await whereAnAppSees(token, 'storm')).toBe('Workspace 1 ▸ inside Chapter 3');
-      // The parent itself is held by nothing, so it stays.
-      expect(await inTheAppsInbox(chapter)).toBe(true);
-    });
-
-    it('puts a child back once its only parent is dismissed', async () => {
-      const { token } = await connected();
-      const chapter = await anItem('Chapter 3');
-      const storm = await anItem('Storm scene');
-      expect((await putInside(chapter, storm)).status).toBe(200);
-
-      expect((await send('set_dismissed', { itemId: chapter, dismissed: true })).status).toBe(200);
-
-      expect(await inTheAppsInbox(storm)).toBe(true);
-      expect(await inTheStoresInbox(storm)).toBe(true);
-      expect(await whereAnAppSees(token, 'storm')).toBe('Workspace 1 ▸ Inbox');
+      expect(await inTheAppsInbox(storm)).toBe(inTheInbox);
+      expect(await inTheStoresInbox(storm)).toBe(inTheInbox);
+      expect(await whereAnAppSees(token, 'storm')).toMatch(where);
     });
 
     it('never holds a Panel’s own Item', async () => {
@@ -150,6 +220,62 @@ describe('Inbox', () => {
 });
 
 describe('Panels', () => {
+  /**
+   * A Panel holds what is filed on it and is never an Item ("Brainstorming: a
+   * Panel is an Item nobody can open", issue 1846). The rows under its own Item
+   * are still written for the release before, so a case holding one of the
+   * pair without the other is written into the store directly.
+   */
+  describe('a Panel shows what is filed on it, never what is recorded under it for the release before', () => {
+    it.each([
+      { situation: 'filed on it, never recorded under it', write: filedOnlyOnThePanel, onThePanel: true },
+      { situation: 'recorded under it, never filed on it', write: keptOnlyUnderThePanel, onThePanel: false },
+    ])('an Item $situation', async ({ write, onThePanel }) => {
+      const panelId = await aPanel('Scenes');
+      const storm = await anItem('Storm scene');
+
+      await write(panelId, storm, 0);
+
+      const read = await snapshot();
+      expect(read.filings.some((filing) => filing.panelId === panelId && filing.itemId === storm)).toBe(onThePanel);
+      expect((read.children ?? []).some((row) => row.childId === storm)).toBe(false);
+    });
+
+    it('keeps the order its filings hold, which a move’s order is checked against', async () => {
+      const panelId = await aPanel('Scenes');
+      const [storm, ferry, kept] = [await anItem('Storm scene'), await anItem('Ferry scene'), await anItem('Kept scene')];
+      await filedOnlyOnThePanel(panelId, storm, 1);
+      await filedOnlyOnThePanel(panelId, ferry, 0);
+      // Recorded under the Panel alone, first in that order: a move need not name it.
+      await keptOnlyUnderThePanel(panelId, kept, 0);
+      const order = async () => (await snapshot()).filings.filter((filing) => filing.panelId === panelId).map((filing) => filing.itemId);
+      expect(await order()).toEqual([ferry, storm]);
+
+      const opening = await anItem('Opening scene');
+      expect((await send('move_item_to_panel', { itemId: opening, panelId, order: [opening, ferry, storm] })).status).toBe(200);
+
+      expect(await order()).toEqual([opening, ferry, storm]);
+    });
+  });
+
+  describe('a Panel is never a parent: an Item filed on one has only Items as parents', () => {
+    it('sends no parent row for the Panel, and an Item holding it is its one parent', async () => {
+      const { token } = await connected();
+      const panelId = await aPanel('Scenes');
+      const chapter = await anItem('Chapter 3');
+      const storm = await anItem('Storm scene');
+      expect((await fileOn(panelId, storm)).status).toBe(200);
+      expect((await send('move_item_to_panel', { itemId: chapter, panelId, order: [chapter, storm] })).status).toBe(200);
+
+      expect((await putInside(chapter, storm)).status).toBe(200);
+
+      const read = await snapshot();
+      expect((read.children ?? []).filter((row) => row.childId === storm).map((row) => row.parentId)).toEqual([chapter]);
+      expect((read.children ?? []).some((row) => row.parentId === panelId)).toBe(false);
+      expect(await whereAnAppSees(token, 'storm')).toBe('Workspace 1 ▸ Dashboard 1 ▸ Scenes; Workspace 1 ▸ inside Chapter 3');
+    });
+  });
+
   describe('an Item can have several parents, and never becomes its own ancestor', () => {
     it('lists a child of two parents under both', async () => {
       const people = await anItem('People');
@@ -258,7 +384,7 @@ describe('Panels', () => {
             finished,
           );
           sql.exec(
-            'INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
             ACCOUNT_NAME,
             panelId,
             id,
@@ -274,9 +400,9 @@ describe('Panels', () => {
     });
 
     it.each([
-      { situation: 'what is filed on a Panel', query: filingsOfTheRead },
-      { situation: 'what an Item holds', query: childRowsOfTheRead },
-    ])('reads $situation by the Items read, through item_children_tenant_child', async ({ query }) => {
+      { situation: 'what is filed on a Panel', query: filingsOfTheRead, index: /panel_items USING INDEX panel_items_tenant_item/ },
+      { situation: 'what an Item holds', query: childRowsOfTheRead, index: /item_children USING INDEX item_children_tenant_child/ },
+    ])('reads $situation by the Items read, through an index on the Item', async ({ query, index }) => {
       await inTheStore(() => undefined);
       const plan = await runInDurableObject(storeNamed(ACCOUNT_NAME), (_instance, state) => {
         const { sql, params } = query(createAccountDb(state.storage), ACCOUNT_NAME, WORKSPACE_ID, {
@@ -288,7 +414,7 @@ describe('Panels', () => {
           .map((row) => row.detail);
       });
 
-      expect(plan).toContainEqual(expect.stringMatching(/item_children USING INDEX item_children_tenant_child/));
+      expect(plan).toContainEqual(expect.stringMatching(index));
     });
   });
 });

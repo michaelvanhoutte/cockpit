@@ -145,15 +145,6 @@ async function alsoFileOn(panelId: string, itemId: string, position: number): Pr
       position,
       AT,
     );
-    // Both tables, as every filing writes them: what the Panel's own Item holds is what is read (issue 1825).
-    sql.exec(
-      'INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at) VALUES (?, ?, ?, ?, ?)',
-      'tenant-default',
-      panelId,
-      itemId,
-      position,
-      AT,
-    );
   });
 }
 
@@ -903,10 +894,12 @@ describe('Capture', () => {
 
 describe('Panels', () => {
   /**
-   * Every Panel is also an Item holding what is filed on it ("Brainstorming:
-   * give every Panel an Item and store filings as Item-in-Item relations",
-   * issue 1824). Nothing reads what that Item holds yet, so this compares the
-   * two stores directly after each change, entered through the real routes.
+   * The release before reads what is filed on a Panel from the rows under the
+   * Panel's own Item ("Brainstorming: a Panel is an Item nobody can open",
+   * issue 1846), so every filing, move, removal, finish and rename still writes
+   * them, and a rollback to it loses nothing. Nothing in this release reads
+   * them, so this compares the two stores directly after each change, entered
+   * through the real routes.
    */
 
   /** One Panel as its filings say and as its Item holds it, with the Item's two counts and the counts its filings make. */
@@ -950,7 +943,7 @@ describe('Panels', () => {
     }
   }
 
-  describe('what a Panel holds and what its own Item holds stay the same through every filing, finish and rename', () => {
+  describe('the release before still reads every filing, move, removal, finish and rename this one makes', () => {
     it.each([
       { situation: 'moved to a Panel', steps: ['move to Falcon'] },
       { situation: 'added to a second Panel', steps: ['move to Falcon', 'add to Anna'] },
@@ -1051,7 +1044,7 @@ describe('Panels', () => {
     });
   });
 
-  describe('a Panel made or deleted is an Item, or stops being one, with it, and that Item is on no list', () => {
+  describe('a Panel made or deleted makes or dismisses the Item the release before reads, which is on no list', () => {
     it.each([
       { situation: 'a Panel added to a Dashboard', made: (dashboardId: string) => aPanel(dashboardId, 'Falcon') },
       {
