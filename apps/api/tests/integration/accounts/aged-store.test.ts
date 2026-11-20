@@ -619,6 +619,20 @@ const rowsFor: {
           VALUES (?, 'it-done-before', 'it-before', 0, ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // A box on a Dashboard's whiteboard (`0114-whiteboards`), for the next update to meet.
+    table: 'board_boxes',
+    sql: `INSERT INTO board_boxes (id, tenant_id, dashboard_id, parent_box_id, label, colour, x, y, w, h, created_at)
+          VALUES ('bx-before', ?, 'db-before', NULL, 'People', 'rose', 0, 0, 400, 300, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    // A card in it (`0114-whiteboards`).
+    table: 'board_cards',
+    sql: `INSERT INTO board_cards (id, tenant_id, dashboard_id, item_id, box_id, x, y, created_at)
+          VALUES ('cd-before', ?, 'db-before', 'it-before', 'bx-before', 10, 20, ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -3774,14 +3788,16 @@ const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => (
 /**
  * An account as it was before `0109-panels-become-items` gave each of its
  * Panels an Item on the same open: without those Items, what they hold, and
- * the columns `0108-item-children` adds.
+ * the columns `0108-item-children` adds; nor the empty boards and the
+ * Dashboards' null layouts `0114-whiteboards` adds.
  */
 const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T => {
   const rows = (table: string) => (kept[table] ?? []) as Record<string, unknown>[];
   const panelIds = new Set(rows('panels').map((row) => row.id));
-  const { item_children: _held, ...rest } = kept;
+  const { item_children: _held, board_boxes: _boxes, board_cards: _cards, ...rest } = kept;
   return {
     ...rest,
+    ...(kept.dashboards ? { dashboards: rows('dashboards').map(({ layout_view: _view, split_share: _share, ...row }) => row) } : {}),
     items: rows('items')
       .filter((row) => !panelIds.has(row.id))
       .map(({ children_count: _count, children_done: _done, merged_into_id: _into, keeps_story: _story, story_proposal: _proposal, story_proposed_at: _proposedAt, thumbnail_attachment_id: _thumbnail, ...row }) => row),

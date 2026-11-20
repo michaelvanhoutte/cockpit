@@ -1838,6 +1838,274 @@
           ]
         },
         {
+          "name": "board_boxes",
+          "strict": true,
+          "queriedAs": "boardBoxes",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "dashboard_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "dashboards",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "dashboardId"
+            },
+            {
+              "name": "parent_box_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "parentBoxId"
+            },
+            {
+              "name": "label",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "label"
+            },
+            {
+              "name": "colour",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "colour"
+            },
+            {
+              "name": "x",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "x"
+            },
+            {
+              "name": "y",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "y"
+            },
+            {
+              "name": "w",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "w"
+            },
+            {
+              "name": "h",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "h"
+            },
+            {
+              "name": "collapsed",
+              "type": "INTEGER",
+              "required": true,
+              "default": "0",
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "collapsed"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "board_boxes_tenant_dashboard",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "dashboard_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            }
+          ]
+        },
+        {
+          "name": "board_cards",
+          "strict": true,
+          "queriedAs": "boardCards",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "dashboard_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "dashboards",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "dashboardId"
+            },
+            {
+              "name": "item_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "itemId"
+            },
+            {
+              "name": "box_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "board_boxes",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "boxId"
+            },
+            {
+              "name": "x",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "x"
+            },
+            {
+              "name": "y",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "y"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "board_cards_dashboard_live_item",
+              "unique": true,
+              "columns": [
+                "dashboard_id",
+                "item_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            },
+            {
+              "name": "board_cards_tenant_dashboard",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "dashboard_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            },
+            {
+              "name": "board_cards_tenant_item",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "item_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            }
+          ]
+        },
+        {
           "name": "claude_code_hook_arrivals",
           "strict": true,
           "queriedAs": "claudeCodeHookArrivals",
@@ -2542,6 +2810,24 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "position"
+            },
+            {
+              "name": "layout_view",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "layoutView"
+            },
+            {
+              "name": "split_share",
+              "type": "REAL",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "splitShare"
             }
           ],
           "indexes": [
