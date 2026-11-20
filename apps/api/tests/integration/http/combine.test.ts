@@ -189,7 +189,7 @@ describe('Triage', () => {
       expect(read.children).toEqual(expect.arrayContaining([expect.objectContaining({ parentId: parent, childId: b })]));
       expect(read.items.find((item) => item.id === parent)).toMatchObject({ title: 'Chapter 3', childrenCount: 3, childrenDone: 0 });
       // The row under the Panel's own Item is the filing, kept for the release before.
-      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL AND parent_id NOT IN (SELECT item_id FROM panels)', parent)).toEqual([]);
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = item_children.parent_id)', parent)).toEqual([]);
       expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
     });
 
@@ -255,26 +255,26 @@ describe('Triage', () => {
     /** Each would leave a new parent in an Item no list draws, or inside itself, so it stays in the Inbox. */
     it.each([
       {
-        situation: 'its parent is dismissed',
+        situation: 'is dismissed',
         arrange: async (holder: string) => void expect((await send('set_dismissed', { itemId: holder, dismissed: true })).status).toBe(200),
         picked: (first: string, second: string) => [first, second],
       },
       {
-        situation: 'its parent is combined too',
+        situation: 'is combined too',
         arrange: async () => undefined,
         picked: (first: string, _second: string, holder: string) => [first, holder],
       },
       {
-        situation: 'its parent sits inside one combined',
+        situation: 'sits inside one combined',
         arrange: async (holder: string, second: string) => void expect((await send('add_children', { parentId: second, childIds: [holder] })).status).toBe(200),
         picked: (first: string, second: string) => [first, second],
       },
       {
-        situation: 'its parent is finished',
+        situation: 'is finished',
         arrange: async (holder: string) => void expect((await send('set_done', { itemId: holder, done: true })).status).toBe(200),
         picked: (first: string, second: string) => [first, second],
       },
-    ])('leaves the new parent in the Inbox when the first Item’s $situation', async ({ arrange, picked }) => {
+    ])('leaves the new parent in the Inbox when the Item the first is inside $situation', async ({ arrange, picked }) => {
       const [holder, first, second] = [await aNote('Chapter 3'), await aNote('Storm scene'), await aNote('Ferry scene')];
       expect((await send('add_children', { parentId: holder, childIds: [first] })).status).toBe(200);
       await arrange(holder, second);
