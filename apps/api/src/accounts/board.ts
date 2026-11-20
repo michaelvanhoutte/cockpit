@@ -89,8 +89,18 @@ export function boxesOfTheBoards(db: Db, tenantId: string, workspaceId: string) 
       collapsed: boardBoxes.collapsed,
     })
     .from(dashboards)
-    .innerJoin(boardBoxes, and(eq(boardBoxes.tenantId, dashboards.tenantId), eq(boardBoxes.dashboardId, dashboards.id), isNull(boardBoxes.deletedAt)))
-    .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.workspaceId, workspaceId), isNull(dashboards.deletedAt)))
+    // A cross join, which SQLite never reorders: driven from the Workspace's Dashboards, as `childRowsOfTheRead` is from its Items.
+    .crossJoin(boardBoxes)
+    .where(
+      and(
+        eq(dashboards.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
+        eq(boardBoxes.tenantId, dashboards.tenantId),
+        eq(boardBoxes.dashboardId, dashboards.id),
+        isNull(boardBoxes.deletedAt),
+      ),
+    )
     .orderBy(asc(boardBoxes.createdAt), asc(boardBoxes.id));
 }
 
@@ -99,8 +109,17 @@ export function cardsOfTheBoards(db: Db, tenantId: string, workspaceId: string) 
   return db
     .select({ id: boardCards.id, dashboardId: boardCards.dashboardId, itemId: boardCards.itemId, boxId: boardCards.boxId, x: boardCards.x, y: boardCards.y })
     .from(dashboards)
-    .innerJoin(boardCards, and(eq(boardCards.tenantId, dashboards.tenantId), eq(boardCards.dashboardId, dashboards.id), isNull(boardCards.deletedAt)))
-    .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.workspaceId, workspaceId), isNull(dashboards.deletedAt)))
+    .crossJoin(boardCards)
+    .where(
+      and(
+        eq(dashboards.tenantId, tenantId),
+        eq(dashboards.workspaceId, workspaceId),
+        isNull(dashboards.deletedAt),
+        eq(boardCards.tenantId, dashboards.tenantId),
+        eq(boardCards.dashboardId, dashboards.id),
+        isNull(boardCards.deletedAt),
+      ),
+    )
     .orderBy(asc(boardCards.createdAt), asc(boardCards.id));
 }
 

@@ -2080,6 +2080,21 @@ const routes = app
     return c.json(result, 200);
   })
   .openapi(commandRoute('combine_under_new_parent'), async (c) => c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200))
+  // A Dashboard's whiteboard ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+  .openapi(commandRoute('place_card'), async (c) => c.json(await change(c, 'place_card', c.req.valid('json')), 200))
+  .openapi(commandRoute('move_card'), async (c) => c.json(await change(c, 'move_card', c.req.valid('json')), 200))
+  .openapi(commandRoute('take_card_off'), async (c) => c.json(await change(c, 'take_card_off', c.req.valid('json')), 200))
+  .openapi(commandRoute('put_cards_back'), async (c) => c.json(await change(c, 'put_cards_back', c.req.valid('json')), 200))
+  .openapi(commandRoute('draw_box'), async (c) => c.json(await change(c, 'draw_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('move_box'), async (c) => c.json(await change(c, 'move_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('resize_box'), async (c) => c.json(await change(c, 'resize_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('rename_box'), async (c) => c.json(await change(c, 'rename_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_box_colour'), async (c) => c.json(await change(c, 'set_box_colour', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_box_collapsed'), async (c) => c.json(await change(c, 'set_box_collapsed', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_box'), async (c) => c.json(await change(c, 'delete_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('restore_box'), async (c) => c.json(await change(c, 'restore_box', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_dashboard_view'), async (c) => c.json(await change(c, 'set_dashboard_view', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_dashboard_split'), async (c) => c.json(await change(c, 'set_dashboard_split', c.req.valid('json')), 200))
   .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
   .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))
   .openapi(commandRoute('use_story'), async (c) => {
