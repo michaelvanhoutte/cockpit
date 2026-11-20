@@ -159,9 +159,40 @@ describe('Triage', () => {
       held = [];
 
       const loose = await aParent({ keeps: false });
+      await addChildren(loose, [await aNote()]);
       expect((await postChange('rewrite_story', { ...envelope(), itemId: loose })).status).toBe(200);
       await untilRewrites(1);
       expect(rewrites()[0]).toMatchObject({ itemId: loose, anyway: true });
+    });
+
+    it('refuses to write a story for an Item that holds nothing, and queues nothing', async () => {
+      const leaf = await aNote('A note with nothing under it');
+
+      const refused = await postChange('rewrite_story', { ...envelope(), itemId: leaf });
+
+      expect(refused.status).toBe(400);
+      await settled();
+      expect(rewrites()).toEqual([]);
+    });
+
+    it('queues one when Undo of a Merge puts originals back into a parent that keeps its story, and none for a repeat add', async () => {
+      const parentId = await aParent();
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      await addChildren(parentId, [a, b]);
+      await untilRewrites(1);
+      held = [];
+      await addChildren(parentId, [a]);
+      await settled();
+      expect(rewrites()).toEqual([]);
+      const merged = nextId();
+      expect((await postChange('merge_items', { ...envelope(), itemId: merged, originalIds: [a, b], title: 'T', description: 'D' })).status).toBe(200);
+      await untilRewrites(2);
+      held = [];
+
+      expect((await postChange('unmerge_items', { ...envelope(), itemId: merged, originalIds: [a, b] })).status).toBe(200);
+
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: parentId });
     });
 
     it('does not rewrite on a run turned off while it waited, unless it was asked for by name', async () => {
@@ -185,6 +216,19 @@ describe('Triage', () => {
       await delivered();
 
       expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null, texts_settled_at: null });
+    });
+
+    it('replaces the description of a Panel\'s own Item, which no one has written, rather than holding a Review nobody can see', async () => {
+      const panelId = nextId();
+      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name: 'Kept', kind: 'items' })).status).toBe(200);
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: panelId, keepsStory: true })).status).toBe(200);
+      const note = await aNote();
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId, order: [note] })).status).toBe(200);
+      await untilRewrites(1);
+
+      await delivered();
+
+      expect(await storyOf(panelId)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null });
     });
 
     it('keeps a description you edited and holds the new version for a Review', async () => {

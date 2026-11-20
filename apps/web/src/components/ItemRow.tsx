@@ -948,14 +948,16 @@ export function ItemRow({
         ),
       ],
       // What it holds is a story Claude can keep up to date, or write once from its children (issue 1827).
-      holds
+      holds || item.keepsStory
         ? [
             <M.Item
               key="keeps-story"
               className={menuItemSplitClass}
               aria-label={`Keep its story up to date, ${item.keepsStory ? 'on' : 'off'}`}
               onSelect={() => {
-                void send({ name: 'set_keeps_story', payload: { ...envelope(), keepsStory: !item.keepsStory } });
+                send({ name: 'set_keeps_story', payload: { ...envelope(), keepsStory: !item.keepsStory } }).catch((failure: unknown) =>
+                  offerToUndo({ what: `Its story setting is unchanged. ${whyNotDone(failure)}` }),
+                );
               }}
             >
               Keep its story up to date
@@ -967,7 +969,9 @@ export function ItemRow({
               key="rewrite-story"
               className={menuItemClass}
               onSelect={() => {
-                void send({ name: 'rewrite_story', payload: envelope() });
+                send({ name: 'rewrite_story', payload: envelope() }).catch((failure: unknown) =>
+                  offerToUndo({ what: `No new story was asked for. ${whyNotDone(failure)}` }),
+                );
               }}
             >
               Rewrite from its children

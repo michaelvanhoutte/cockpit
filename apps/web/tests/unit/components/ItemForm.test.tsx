@@ -2488,6 +2488,17 @@ describe('Item editing', () => {
       expect(sent()).toEqual([expect.objectContaining({ name: 'use_story', payload: expect.objectContaining({ itemId: 'item-1' }) })]);
     });
 
+    it('Use it leaves the box alone where the server found no Review waiting', async () => {
+      held.send.mockImplementationOnce(() => Promise.resolve({ ok: true as const, applied: false }));
+      const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
+
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+      await user.click(screen.getByRole('button', { name: 'Use it' }));
+
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      expect(descriptionBox()).toHaveValue('My own words');
+    });
+
     it('Keep mine sends keep_my_story and leaves the box as it was', async () => {
       const user = await theForm(anItem({ description: 'My own words', ...WAITING }));
 

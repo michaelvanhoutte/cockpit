@@ -62,6 +62,12 @@ describe('Triage', () => {
       else expect(written).toMatchObject(becomes);
     });
 
+    it('replaces a Panel\'s own Item, which is born settled and was never written by a person, and drops the clean-up it was not', () => {
+      const written = applyProposedStory(aParent({ textsSettledAt: MADE, textsProposedAt: MADE }), 'A new story.', LATER, true);
+
+      expect(written).toMatchObject({ description: 'A new story.', storyProposal: null, textsProposedAt: null });
+    });
+
     it('never moves what makes the texts yours or the clock other changes are measured against', () => {
       const proposed = applyProposedStory(aParent(), 'A new story.', LATER)!;
       const waiting = applyProposedStory(aParent({ textsSettledAt: MADE }), 'A new story.', LATER)!;
