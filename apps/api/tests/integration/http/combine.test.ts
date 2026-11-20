@@ -174,10 +174,11 @@ describe('Triage', () => {
   });
 
   describe('Combine under a new parent keeps the Items and adds a parent where the first one was', () => {
-    it('files the new parent on the Panel the first was on, as a row there, keeping its story up to date', async () => {
-      const [a, b, c] = [await aNote('Alpha'), await aNote('Bravo'), await aNote('Charlie')];
+    it('files the new parent on the Panel the first was on, as a row there and inside nothing, keeping its story up to date', async () => {
+      const [a, b, c, chapter] = [await aNote('Alpha'), await aNote('Bravo'), await aNote('Charlie'), await aNote('Chapter 2')];
       const people = await aPanel('People');
       await file(a, people);
+      expect((await send('add_children', { parentId: chapter, childIds: [a] })).status).toBe(200);
       const parent = nextId();
 
       expect((await send('combine_under_new_parent', { parentId: parent, title: 'Chapter 3', description: 'About three', childIds: [a, b, c], panelId: people, dashboardId: null })).status).toBe(200);
@@ -187,6 +188,8 @@ describe('Triage', () => {
       expect(read.filings).toContainEqual(expect.objectContaining({ panelId: people, itemId: a }));
       expect(read.children).toEqual(expect.arrayContaining([expect.objectContaining({ parentId: parent, childId: b })]));
       expect(read.items.find((item) => item.id === parent)).toMatchObject({ title: 'Chapter 3', childrenCount: 3, childrenDone: 0 });
+      // The row under the Panel's own Item is the filing, kept for the release before.
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL AND parent_id NOT IN (SELECT item_id FROM panels)', parent)).toEqual([]);
       expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
     });
 
@@ -238,9 +241,10 @@ describe('Triage', () => {
     });
 
     it('takes the Item the first was put inside first, when it is inside several', async () => {
-      const [earlier, later, a, b] = [await aNote('Earlier'), await aNote('Later'), await aNote('Alpha'), await aNote('Bravo')];
+      // Made the other way round, so an id never stands in for which came first.
+      const [later, earlier, a, b] = [await aNote('Later'), await aNote('Earlier'), await aNote('Alpha'), await aNote('Bravo')];
       expect((await send('add_children', { parentId: earlier, childIds: [a] })).status).toBe(200);
-      expect((await send('add_children', { parentId: later, childIds: [a, b] })).status).toBe(200);
+      expect((await send('add_children', { parentId: later, childIds: [a, b], issuedAt: '2026-11-19T10:05:00.000Z' })).status).toBe(200);
       const parent = nextId();
 
       expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);
@@ -248,24 +252,29 @@ describe('Triage', () => {
       expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', parent)).toEqual([{ parent_id: earlier }]);
     });
 
-    /** Each would leave a new parent in no live Item, or inside itself, so it stays in the Inbox. */
+    /** Each would leave a new parent in an Item no list draws, or inside itself, so it stays in the Inbox. */
     it.each([
       {
-        situation: 'the Item the first is inside is dismissed',
+        situation: 'its parent is dismissed',
         arrange: async (holder: string) => void expect((await send('set_dismissed', { itemId: holder, dismissed: true })).status).toBe(200),
         picked: (first: string, second: string) => [first, second],
       },
       {
-        situation: 'the Item the first is inside is one of those combined',
+        situation: 'its parent is combined too',
         arrange: async () => undefined,
         picked: (first: string, _second: string, holder: string) => [first, holder],
       },
       {
-        situation: 'the Item the first is inside sits inside one of those combined',
+        situation: 'its parent sits inside one combined',
         arrange: async (holder: string, second: string) => void expect((await send('add_children', { parentId: second, childIds: [holder] })).status).toBe(200),
         picked: (first: string, second: string) => [first, second],
       },
-    ])('leaves the new parent in the Inbox when $situation', async ({ arrange, picked }) => {
+      {
+        situation: 'its parent is finished',
+        arrange: async (holder: string) => void expect((await send('set_done', { itemId: holder, done: true })).status).toBe(200),
+        picked: (first: string, second: string) => [first, second],
+      },
+    ])('leaves the new parent in the Inbox when the first Item’s $situation', async ({ arrange, picked }) => {
       const [holder, first, second] = [await aNote('Chapter 3'), await aNote('Storm scene'), await aNote('Ferry scene')];
       expect((await send('add_children', { parentId: holder, childIds: [first] })).status).toBe(200);
       await arrange(holder, second);

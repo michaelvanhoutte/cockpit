@@ -4248,7 +4248,7 @@ describe('Panels', () => {
       );
     });
 
-    it('combines child rows under a new parent naming no Panel, for the store to put it inside their parent', async () => {
+    it('combines child rows under a new parent naming no Panel when the first is filed on none', async () => {
       const user = await onAPanel();
       await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
 
