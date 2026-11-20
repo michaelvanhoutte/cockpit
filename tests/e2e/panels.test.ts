@@ -231,7 +231,8 @@ async function dragRowOnto(page: Page, title: string, onto: string, side: 'left'
   const to = await target.boundingBox();
   if (!to) throw new Error(`cannot drag ${title} onto ${onto}: it is not on screen`);
   await dragged.dragTo(target, {
-    targetPosition: { x: side === 'left' ? to.width / 4 : (to.width * 3) / 4, y: to.height / 2 },
+    // An eighth in, inside the outer quarter: the middle half puts the row inside it (issue 1857).
+    targetPosition: { x: side === 'left' ? to.width / 8 : (to.width * 7) / 8, y: to.height / 2 },
   });
 }
 

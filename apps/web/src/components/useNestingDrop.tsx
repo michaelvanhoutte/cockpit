@@ -1,38 +1,25 @@
 import { Suspense, lazy, useEffect, useState, type RefObject } from 'react';
-import { itemLabel, stillOpen, uuidv7, workspaceIsDecided, childIdsOf, type Item } from '@cockpit/shared';
-import { refusalFrom, useSendCommand, useLatestSnapshot } from '../api/queries';
+import type { Item } from '@cockpit/shared';
+import { useSendCommand, useLatestSnapshot } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
-import { fetchedChunk, filedOrderOnPanel } from '../filing';
+import { fetchedChunk } from '../filing';
 import { itemInTheAir, landItem, panelLiftedFrom, parentLiftedFrom, selectionCarried } from '../itemInTheAir';
-import { planDropOntoARow, refusesNesting, whereOnARow, leavesAnswered, type RowDropPlan } from '../nesting';
-import type { RowDropWas } from '../puttingBack';
-import { dashboardOfScope, pickedNow } from '../selection';
+import { refusesNesting, whereOnARow } from '../nestingAim';
+import type { Asking, RowDropDeps } from '../rowDrop';
 import { useUndo } from '../undo';
-import { unfoldAll } from '../unfoldedParents';
 import { WhateverTheQuestionDoes } from './WhateverTheQuestionDoes';
 
 /** Asked once a drop asks it, as the question between Panels is. */
 const MoveOrAddQuestion = lazy(() => import('./MoveOrAddQuestion'));
 
-/** The code that draws a put-inside ahead, fetched before the first drop that needs it, not carried in the initial bundle. */
+/**
+ * What a drop onto a row comes to and the change it sends (`rowDrop.ts`), and
+ * the code that draws that change ahead, fetched on the first `dragover` that
+ * reaches a row's middle half rather than carried in the initial bundle.
+ */
 let preparing: Promise<unknown> | null = null;
-const prepare = () => (preparing ??= import('../childrenDrawnAhead').catch(() => {}));
-
-type Planned = Exclude<RowDropPlan, { refused: string }>;
-
-interface Asking {
-  plan: Planned;
-  target: string;
-  was: RowDropWas;
-  /** The title of the one dropped, or how many were. */
-  title: string;
-  several: number | undefined;
-  /** What moving it takes it off, in words. */
-  leaves: string;
-  label: string;
-  decides: boolean;
-}
+const prepare = () => (preparing ??= Promise.all([import('../rowDrop'), import('../childrenDrawnAhead')]).catch(() => {}));
 
 /**
  * A row, or a selection, let go on another row's middle half to go inside it
@@ -77,6 +64,8 @@ export function useNestingDrop({
   }, [into]);
 
   const available = !gathered || heldBy !== undefined;
+  const deps: RowDropDeps = { workspaceId, data, send, latest, offerToUndo, setRefusal };
+  const failed = (error: unknown) => setRefusal(error instanceof Error ? error.message : 'That could not be done.');
 
   /** The row of this list under the pointer, never one of a list unfolded inside it, and where on it. */
   const rowUnder = (event: React.DragEvent) => {
@@ -120,50 +109,10 @@ export function useNestingDrop({
 
   const leave = () => setInto(null);
 
-  const label = (id: string) => {
-    const item = data?.items.find((one) => one.id === id);
-    return item ? itemLabel(item) : 'that Item';
-  };
-  const nameOfPanel = (id: string) => data?.panels.find((panel) => panel.id === id)?.name ?? 'that Panel';
-
-  /** The change a drop is, sent, with its Undo; a refusal is said above the rows. */
   const perform = (asked: Asking, answer: 'move' | 'add') => {
-    const { plan, target, was } = asked;
-    const leaves = leavesAnswered(plan, answer);
-    const sent = send({
-      name: 'put_inside',
-      payload: {
-        commandId: uuidv7(),
-        issuedAt: new Date().toISOString(),
-        workspaceId,
-        parentId: target,
-        childIds: plan.childIds,
-        order: plan.order,
-        leaves,
-      },
-    });
-    sent.catch((error: unknown) => setRefusal(refusalFrom({ error }) ?? 'That could not be done.'));
-    unfoldAll([target]);
-    const left = (wasOf: RowDropWas): RowDropWas => ({
-      ...wasOf,
-      parents: wasOf.parents.filter((one) => leaves.some((leave) => leave.parentId === one.parentId)),
-      panels: wasOf.panels.filter((one) => leaves.some((leave) => leave.panelId === one.panelId)),
-    });
-    if (!asked.decides) void import('../puttingBack').catch(() => {});
-    offerToUndo({
-      what: `${asked.several ? `${asked.several} items` : `“${asked.title}”`} put inside ${label(target)}`,
-      unlessRefused: sent,
-      // Going inside settles an Item that belonged to no Workspace, which taking it out does not undo.
-      ...(asked.decides
-        ? {}
-        : {
-            undo: async () =>
-              (await fetchedChunk(() => import('../puttingBack'))).putBackFromARowDrop(
-                { workspaceId, send, latest },
-                left(was),
-              ),
-          }),
-    });
+    void fetchedChunk(() => import('../rowDrop'))
+      .then(({ performRowDrop }) => performRowDrop(deps, asked, answer))
+      .catch(failed);
   };
 
   /** Said on `drop`: true when it was a drop onto a row's middle half, which is then handled whole. */
@@ -175,68 +124,26 @@ export function useNestingDrop({
     if (!itemId) return false;
     setInto(null);
     setRefusal(null);
-    // Read before the drop ends the drag.
-    const from = { parentId: parentLiftedFrom(itemId), panelId: panelLiftedFrom(itemId) };
+    // Read before the drop ends the drag, and before the plan's code is fetched.
     const selection = selectionCarried();
-    const carrying = selection?.ids.includes(itemId) ? selection : null;
-    landItem();
-    const items = data?.items ?? [];
-    // What is still picked and still open when it is let go, not what was picked up.
-    const stillPicked = carrying ? pickedNow(carrying.scope) : null;
-    const open = new Set(items.filter(stillOpen).map((item) => item.id));
-    const carried = (carrying ? carrying.ids.filter((id) => stillPicked!.has(id)) : [itemId]).filter((id) => open.has(id));
-    if (carried.length === 0) return true;
-    const dashboard = carrying ? dashboardOfScope(carrying.scope) : null;
-    const rows = data?.children ?? [];
-    const filings = data?.filings ?? [];
-    const plan = planDropOntoARow({
-      carried,
+    const letGo = {
+      itemId,
       target: under.id,
-      rows,
-      filings,
-      from,
-      selectionPanels: carrying ? (data?.panels ?? []).filter((panel) => panel.dashboardId === dashboard).map((panel) => panel.id) : null,
-      list: { panelId, heldBy: heldBy?.id ?? null },
+      from: { parentId: parentLiftedFrom(itemId), panelId: panelLiftedFrom(itemId) },
+      carrying: selection?.ids.includes(itemId) ? selection : null,
       keys: { move: event.shiftKey, add: event.ctrlKey || event.altKey },
-    });
-    if (!plan) return true;
-    if (plan.refused !== undefined) {
-      setRefusal(plan.refused);
-      return true;
-    }
-    const byId = new Map(items.map((item) => [item.id, item]));
-    const moved = plan.childIds.map((id) => byId.get(id)).filter((item): item is Item => item !== undefined);
-    const was: RowDropWas = {
-      target: under.id,
-      arrived: plan.arrived,
-      parents: [...new Set(plan.leaves.flatMap((one) => (one.parentId ? [one.parentId] : [])))].map((parentId) => ({
-        parentId,
-        itemIds: plan.leaves.filter((one) => one.parentId === parentId).map((one) => one.itemId),
-        was: childIdsOf(rows, parentId),
-      })),
-      panels: [...new Set(plan.leaves.flatMap((one) => (one.panelId ? [one.panelId] : [])))].map((onPanel) => ({
-        panelId: onPanel,
-        itemIds: plan.leaves.filter((one) => one.panelId === onPanel).map((one) => one.itemId),
-        was: filedOrderOnPanel(filings, onPanel),
-      })),
+      list: { panelId, heldBy: heldBy?.id ?? null },
     };
-    const asked: Asking = {
-      plan,
-      target: under.id,
-      was,
-      title: moved.length === 1 ? itemLabel(moved[0]!) : '',
-      several: moved.length > 1 ? moved.length : undefined,
-      leaves: [
-        ...new Set([
-          ...plan.leaves.flatMap((one) => (one.parentId ? [label(one.parentId)] : [])),
-          ...plan.leaves.flatMap((one) => (one.panelId ? [nameOfPanel(one.panelId)] : [])),
-        ]),
-      ].join(', '),
-      label: label(under.id),
-      decides: moved.some((item) => !workspaceIsDecided(item)),
-    };
-    if (plan.answer === 'ask') setAsking(asked);
-    else perform(asked, plan.answer);
+    landItem();
+    void fetchedChunk(() => import('../rowDrop'))
+      .then(({ settleRowDrop, performRowDrop }) => {
+        const settled = settleRowDrop(deps, letGo);
+        if (!settled) return;
+        if ('refused' in settled) setRefusal(settled.refused);
+        else if (settled.plan.answer === 'ask') setAsking(settled);
+        else performRowDrop(deps, settled, settled.plan.answer);
+      })
+      .catch(failed);
     return true;
   };
 

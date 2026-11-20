@@ -4612,6 +4612,15 @@ describe('Panels', () => {
       const row = rowOf(onto);
       drag('dragOver', row, itemId, clientY);
       drag('drop', row, itemId, clientY, keys);
+      await settle();
+    }
+
+    /** What a drop comes to is fetched once let go (`rowDrop.ts`), so the change is sent a turn later. */
+    async function settle() {
+      await act(async () => {
+        await import('../../../src/rowDrop');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
     }
 
     /**
@@ -4709,6 +4718,7 @@ describe('Panels', () => {
       expect(question).toHaveTextContent('Move “Reply to Bart” to Reply to Lisa, or add it there as well?');
       expect(puttingInside()).toHaveLength(0);
       await user.click(within(question).getByRole('button', { name: 'Move it here' }));
+      await settle();
       expect(puttingInside()[0]!.payload).toMatchObject({ leaves: [{ itemId: BART.id, panelId: 'p-anna' }] });
     });
 
@@ -4744,6 +4754,7 @@ describe('Panels', () => {
 
       drag('dragOver', row, BART.id, MIDDLE);
       drag('drop', row, BART.id, MIDDLE);
+      await settle();
 
       expect(puttingInside()).toHaveLength(1);
       expect(puttingInside()[0]!.payload).toMatchObject({ parentId: LISA.id, childIds: [BART.id, MAGGIE.id] });
