@@ -2335,13 +2335,16 @@ export function runCommand<N extends CommandName>(
           }
         }
         // The original is a parent made by Split: its story is kept up to date from here, by later joins and leaves and not by this Split.
-        tx.update(items).set({ keepsStory: true }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
+        // Its description is the person's from here too, or the first join would replace it silently with no Review.
+        tx.update(items)
+          .set({ keepsStory: true, textsSettledAt: original.textsSettledAt ?? cmd.issuedAt, updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt) })
+          .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
+          .run();
         if (paragraphsTaken) {
           // What no card took stays, and is the person's own from here: Claude's clean-up may not read it back over the words that left.
           tx.update(items)
             .set({
               description: kept.length === 0 ? null : kept.map((block) => block.text).join('\n\n'),
-              textsSettledAt: original.textsSettledAt ?? cmd.issuedAt,
               updatedAt: neverBackwards(original.updatedAt, cmd.issuedAt),
             })
             .where(and(eq(items.tenantId, tenantId), eq(items.id, original.id)))
@@ -2387,7 +2390,7 @@ export function runCommand<N extends CommandName>(
             recountHoldersOf(tx, tenantId, child.itemId);
             endTheOpenRun(tx, tenantId, child.itemId, cmd.issuedAt);
           }
-          if (cmd.keepsStory !== undefined) {
+          if (cmd.keepsStory !== undefined && original.keepsStory === true) {
             tx.update(items).set({ keepsStory: cmd.keepsStory }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
           }
           // The words come back only where the original still reads as the Split left it: an edit since is the person's.

@@ -250,6 +250,20 @@ describe('Triage', () => {
       expect((held.send.mock.calls[0]![0] as { payload: { keepsStory: boolean } }).payload.keepsStory).toBe(true);
     });
 
+    it('does not call a title typed when the same words were typed back', async () => {
+      const user = userEvent.setup();
+      open();
+      await waitFor(() => expect(held.proposal).not.toBeNull());
+      answer([{ title: 'Pay the rent', blockIds: ['p0'] }]);
+      await screen.findByText(/Claude proposes 1 new Item/);
+      await user.type(screen.getByRole('textbox', { name: 'Title of Item 1' }), 'x{Backspace}');
+
+      await user.click(screen.getByRole('button', { name: 'Split' }));
+
+      const sent = held.send.mock.calls[0]![0] as { payload: { children: { titleTyped?: boolean }[] } };
+      expect(sent.payload.children[0]!.titleTyped).toBeUndefined();
+    });
+
     it('offers an Undo that sends what comes apart: the words as they were, as the Split left them, and what moved', async () => {
       const user = userEvent.setup();
       open();

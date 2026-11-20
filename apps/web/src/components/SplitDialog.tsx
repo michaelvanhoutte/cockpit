@@ -34,6 +34,8 @@ interface Card {
   on: boolean;
   /** The person typed in its title, so it is theirs. */
   typed?: boolean;
+  /** What it was first called, which typing the same words back does not change. */
+  proposed: string;
 }
 
 /** What a card with nothing to go by is called, from the words of the first block in it. */
@@ -106,7 +108,7 @@ export default function SplitDialog({
         proposed && proposed.length > 0
           ? proposed
           : [{ title: firstWords(blocks.find((block) => block.kind === 'paragraph')?.text ?? ''), blockIds: blocks.map((block) => block.id) }];
-      const made = cardsOf.map((card) => ({ key: uuidv7(), title: card.title, on: true }));
+      const made = cardsOf.map((card) => ({ key: uuidv7(), title: card.title, proposed: card.title, on: true }));
       const where: Record<string, string | null> = {};
       cardsOf.forEach((card, n) => card.blockIds.forEach((id) => (where[id] = made[n]!.key)));
       setClaudeProposed(proposed !== null && proposed.length > 0 ? proposed.length : 0);
@@ -310,7 +312,7 @@ export default function SplitDialog({
                         value={card.title}
                         maxLength={200}
                         aria-label={`Title of Item ${n + 1}`}
-                        onChange={(event) => setCard(card.key, { title: event.target.value, typed: true })}
+                        onChange={(event) => setCard(card.key, { title: event.target.value, typed: event.target.value.trim() !== card.proposed.trim() })}
                         className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-ink-strong outline-none hover:border-shade/10 focus:border-accent"
                       />
                     </div>
@@ -326,7 +328,7 @@ export default function SplitDialog({
               {cards && cards.length < SPLIT_ITEMS_AT_ONCE && (
                 <button
                   type="button"
-                  onClick={() => setCards((was) => [...(was ?? []), { key: uuidv7(), title: '', on: true }])}
+                  onClick={() => setCards((was) => [...(was ?? []), { key: uuidv7(), title: '', proposed: '', on: true }])}
                   className="self-start rounded-md px-2 py-1 text-sm text-accent-deep hover:bg-accent-tint"
                 >
                   + Another Item

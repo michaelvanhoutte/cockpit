@@ -282,6 +282,16 @@ describe('Triage', () => {
       expect(held.filter((job) => job.kind === 'rewrite-story')).toEqual([]);
     });
 
+    it('settles the original’s words when it keeps its story, even where the cards took only an Addition', async () => {
+      const original = await aNote();
+      const addition = await anAddition(original, 'The ferry is 12 euro.');
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: nextId(), title: 'Ferry', blockIds: [`a-${addition}`] }])).status).toBe(200);
+
+      const row = (await inTheStore((sql) => sql.exec<{ texts_settled_at: string | null }>('SELECT texts_settled_at FROM items WHERE id = ?', original).toArray()))[0];
+      expect(row?.texts_settled_at).not.toBeNull();
+    });
+
     it('never rewrites the original, whatever its story setting', async () => {
       const original = await aNote();
       expect((await postChange('set_keeps_story', { ...envelope(), itemId: original, keepsStory: true })).status).toBe(200);
