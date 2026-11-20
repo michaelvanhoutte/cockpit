@@ -62,7 +62,7 @@ export interface CallFor {
  * The AI layer behind a project-owned interface (architecture, "AI layer"):
  * takes domain values, returns domain values, so everything around it stays
  * testable with the model faked. Enrichment runs on ingest, in jobs; nothing a
- * person waits for waits on a model call but `writeAReply`, below.
+ * person waits for waits on a model call but `writeAReply` and `proposeASplit`, below.
  *
  * **No method that nothing reads back.** `summarizeFilingPatterns` wrote a
  * paragraph nothing ever read ("Drop the nightly filing summary, keep the
@@ -191,7 +191,7 @@ export interface AiService {
   /**
    * The body of an email, written as the person from the Item, the points they
    * typed and the conversation's latest messages ("Mail follow-up: Reply… in
-   * Gmail makes an empty draft…", issue 1730). **The one call a person waits
+   * Gmail makes an empty draft…", issue 1730). **A call a person waits
    * on**: held to 1,000 tokens out and cut off at 20 seconds, and **never
    * repeated**, since a retry would run past the cut-off. Answers a refusal
    * rather than throwing for anything the model itself said; a call that fails
