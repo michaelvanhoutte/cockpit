@@ -196,7 +196,8 @@ export function orderIsNotOfTheParent(
 /**
  * A parent's children put in the order given, whole: each one named takes the
  * place it has in the order, one taken out before comes back, and the parent's
- * counts are counted again. A child the order leaves out keeps its place.
+ * counts are counted again. A child the order leaves out keeps its place
+ * among the rest, renumbered with them so no two share a position.
  */
 export function writeChildrenInOrder(
   tx: InATransaction,
@@ -205,7 +206,15 @@ export function writeChildrenInOrder(
   order: readonly string[],
   at: string,
 ): void {
-  order.forEach((childId, position) => {
+  const named = new Set(order);
+  const held = tx.all<{ child_id: string }>(sql`SELECT child_id FROM item_children
+                WHERE tenant_id = ${tenantId} AND parent_id = ${parentId} AND deleted_at IS NULL
+                ORDER BY position, created_at`);
+  // Each slot a left-out child holds stays its; the order fills the others in turn, and runs on after them.
+  const queue = [...order];
+  const arranged = held.map((row) => (named.has(row.child_id) ? queue.shift()! : row.child_id));
+  arranged.push(...queue);
+  arranged.forEach((childId, position) => {
     tx.run(sql`INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
                 VALUES (${tenantId}, ${parentId}, ${childId}, ${position}, ${at})
                 ON CONFLICT (parent_id, child_id) DO UPDATE SET

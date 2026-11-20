@@ -608,9 +608,19 @@ describe('Ordering', () => {
 
       expect(await childrenOf(chapter)).toEqual([arriving, open]);
       const kept = await inTheStore((sql) =>
-        sql.exec<{ position: number; deleted_at: string | null }>('SELECT position, deleted_at FROM item_children WHERE child_id = ?', old).one(),
+        sql
+          .exec<{ child_id: string; position: number }>(
+            'SELECT child_id, position FROM item_children WHERE parent_id = ? AND deleted_at IS NULL ORDER BY position',
+            chapter,
+          )
+          .toArray(),
       );
-      expect(kept).toEqual({ position: 0, deleted_at: null });
+      // Its place, and one no other child shares.
+      expect(kept).toEqual([
+        { child_id: old, position: 0 },
+        { child_id: arriving, position: 1 },
+        { child_id: open, position: 2 },
+      ]);
     });
   });
 });

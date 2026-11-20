@@ -2084,7 +2084,7 @@ export function runCommand<N extends CommandName>(
           continue;
         }
         const from = getItem(db, tenantId, leave.parentId!);
-        if (!from || from.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(leave.parentId!);
+        if (!from || from.deletedAt || from.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(leave.parentId!);
       }
       const inside = ancestorsAmong(db, tenantId, parent.id, cmd.childIds);
       if (inside.length > 0) {
