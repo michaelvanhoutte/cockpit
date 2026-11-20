@@ -73,6 +73,16 @@ async function aFile(itemId: string, filename: string): Promise<string> {
   return attachmentId;
 }
 
+/** The device's small copy sent to the thumbnail route, which is how a pick is made. */
+async function pickThumbnail(itemId: string, attachmentId: string) {
+  const res = await asUser(`http://cockpit.test/v1/items/${itemId}/attachments/${attachmentId}/thumbnail`, {
+    method: 'POST',
+    headers: { 'content-type': 'image/webp', 'x-command-id': nextId(), 'x-issued-at': '2026-11-19T10:00:00.000Z', 'x-workspace-id': WORKSPACE_ID },
+    body: new Uint8Array([1, 2, 3]),
+  });
+  expect(res.status).toBe(200);
+}
+
 async function snapshot(): Promise<WorkspaceSnapshot> {
   const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
   expect(res.status).toBe(200);
@@ -325,6 +335,37 @@ describe('Triage', () => {
       });
       expect(undone.status).toBe(200);
       expect(((await snapshot()).additions ?? []).filter((one) => one.itemId === original)).toHaveLength(120);
+    });
+
+    it('moves the thumbnail with its file, and gives it back to an original with none on Undo', async () => {
+      const original = await aNote();
+      const file = await aFile(original, 'quote.png');
+      await pickThumbnail(original, file);
+      const ferry = nextId();
+      const thumb = async (id: string) =>
+        (await inTheStore((sql) => sql.exec<{ t: string | null }>('SELECT thumbnail_attachment_id AS t FROM items WHERE id = ?', id).toArray()))[0]!.t;
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: ferry, title: 'Book the ferry', blockIds: [`f-${file}`] }])).status).toBe(200);
+
+      expect(await thumb(ferry)).toBe(file);
+      expect(await thumb(original)).toBeNull();
+      const undo = { itemId: original, description: THREE_PARAGRAPHS, kept: THREE_PARAGRAPHS, children: [{ itemId: ferry, additionIds: [], attachmentIds: [file] }] };
+      expect((await postChange('unsplit_item', { ...envelope(), ...undo })).status).toBe(200);
+      expect(await thumb(original)).toBe(file);
+    });
+
+    it('leaves the original’s thumbnail where its file stays, and one it already has after an Undo', async () => {
+      const original = await aNote();
+      const [file, other] = [await aFile(original, 'quote.png'), await aFile(original, 'other.png')];
+      await pickThumbnail(original, file);
+      const ferry = nextId();
+      const thumb = async (id: string) =>
+        (await inTheStore((sql) => sql.exec<{ t: string | null }>('SELECT thumbnail_attachment_id AS t FROM items WHERE id = ?', id).toArray()))[0]!.t;
+
+      expect((await split(original, THREE_PARAGRAPHS, [{ itemId: ferry, title: 'Book the ferry', blockIds: [`f-${other}`] }])).status).toBe(200);
+
+      expect(await thumb(original)).toBe(file);
+      expect(await thumb(ferry)).toBeNull();
     });
 
     it('leaves it all as it is when one of its Items was taken out of the original since, rather than give back words an Item still holds', async () => {

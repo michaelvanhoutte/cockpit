@@ -2353,6 +2353,11 @@ export function runCommand<N extends CommandName>(
               .where(and(eq(attachments.tenantId, tenantId), eq(attachments.itemId, original.id), inArray(attachments.id, ids)))
               .run();
           }
+          // The picture that stood for the original stands for the Item it now sits on, and the original no longer points at a file it lacks.
+          if (original.thumbnailAttachmentId && child.attachmentIds.includes(original.thumbnailAttachmentId)) {
+            tx.update(items).set({ thumbnailAttachmentId: original.thumbnailAttachmentId }).where(and(eq(items.tenantId, tenantId), eq(items.id, child.id))).run();
+            tx.update(items).set({ thumbnailAttachmentId: null }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
+          }
         }
         // The original is a parent made by Split: its story is kept up to date from here, by later joins and leaves and not by this Split.
         // Its description is the person's from here too, or the first join would replace it silently with no Review.
@@ -2386,6 +2391,13 @@ export function runCommand<N extends CommandName>(
         return one !== null && one.deletedAt === null && isInside(db, tenantId, original.id, child.itemId);
       });
       applied = back.length === cmd.children.length;
+      // A thumbnail that goes back with its file, to an original that has none.
+      const thumbnailBack = !original.thumbnailAttachmentId
+        ? (back.flatMap((child) => {
+            const held = getItem(db, tenantId, child.itemId)?.thumbnailAttachmentId;
+            return held && child.attachmentIds.includes(held) ? [{ child: child.itemId, file: held }] : [];
+          })[0] ?? null)
+        : null;
       if (applied && !original.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
@@ -2412,6 +2424,10 @@ export function runCommand<N extends CommandName>(
           }
           if (cmd.keepsStory !== undefined && original.keepsStory === true) {
             tx.update(items).set({ keepsStory: cmd.keepsStory }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
+          }
+          if (thumbnailBack) {
+            tx.update(items).set({ thumbnailAttachmentId: thumbnailBack.file }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
+            tx.update(items).set({ thumbnailAttachmentId: null }).where(and(eq(items.tenantId, tenantId), eq(items.id, thumbnailBack.child))).run();
           }
           // The words come back only where the original still reads as the Split left it: an edit since is the person's.
           if ((original.description ?? null) === cmd.kept) {
