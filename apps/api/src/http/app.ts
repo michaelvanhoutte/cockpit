@@ -1253,13 +1253,13 @@ async function change<N extends CommandName>(
   // A child joined or left a parent that keeps its story up to date, or a story was asked for by name: Claude rewrites it,
   // behind the answer ("Keep its story up to date", issue 1827).
   for (const itemId of result.rewriteStoryOf ?? []) {
-    c.executionCtx.waitUntil(enqueueStoryRewrite(c.env, c.get('visitor').accountName, itemId, { anyway: STORY_ASKED_BY_NAME.has(name) }));
+    c.executionCtx.waitUntil(enqueueStoryRewrite(c.env, c.get('visitor').accountName, itemId));
+  }
+  for (const itemId of result.storyAskedOf ?? []) {
+    c.executionCtx.waitUntil(enqueueStoryRewrite(c.env, c.get('visitor').accountName, itemId, { anyway: true }));
   }
   return result;
 }
-
-/** The changes whose story is asked for whatever the parent's setting: pressing *Rewrite from its children*, and the first story of what Combine makes. */
-const STORY_ASKED_BY_NAME: ReadonlySet<CommandName> = new Set<CommandName>(['rewrite_story', 'merge_items', 'combine_under_new_parent']);
 
 /**
  * A remembered sentence as it stands before it is reworded or deleted

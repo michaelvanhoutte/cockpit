@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, inStoreAsItIs } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
-import { aModelThatReads, batchOf, captureANote, nextId, postChange, theModelReadsAPlace, writing } from './note-cleanup.support.js';
+import { aModelThatReads, batchOf, captureANote, nextId, postChange, writing } from './note-cleanup.support.js';
 
 /**
  * L2: Claude keeping a parent's story up to date ("Brainstorming: a parent's
@@ -132,67 +132,55 @@ describe('Triage', () => {
       expect(rewrites()[0]).toMatchObject({ kind: 'rewrite-story', itemId: parentId });
     });
 
-    it('queues one when an Item is filed on a Panel that keeps its story, and none for another Panel', async () => {
-      const [kept, plain] = [nextId(), nextId()];
-      for (const [panelId, name] of [[kept, 'Kept'], [plain, 'Plain']] as const) {
+    it('queues none when an Item is filed on, moved between or taken off Panels, a parent that keeps its story among them', async () => {
+      const [first, second] = [nextId(), nextId()];
+      for (const [panelId, name] of [[first, 'First'], [second, 'Second']] as const) {
         expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name, kind: 'items' })).status).toBe(200);
       }
-      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
-      const note = await aNote();
+      const parentId = await aParent();
+      await addChildren(parentId, [await aNote()]);
+      await untilRewrites(1);
+      held = [];
 
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: plain, order: [note] })).status).toBe(200);
+      for (const itemId of [await aNote(), parentId]) {
+        expect((await postChange('add_item_to_panel', { ...envelope(), itemId, panelId: first, order: [itemId] })).status).toBe(200);
+        expect((await postChange('move_item_to_panel', { ...envelope(), itemId, panelId: second, order: [itemId] })).status).toBe(200);
+        expect((await postChange('remove_item_from_panel', { ...envelope(), itemId, panelId: second })).status).toBe(200);
+      }
       await settled();
+
       expect(rewrites()).toEqual([]);
-
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: kept, order: [note] })).status).toBe(200);
-      await untilRewrites(1);
-      expect(rewrites()[0]).toMatchObject({ itemId: kept });
     });
 
-    it('queues one when a reading of the note files it on a Panel that keeps its story', async () => {
-      const kept = nextId();
-      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId: kept, name: 'Kept', kind: 'items' })).status).toBe(200);
-      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
-      theModelReadsAPlace({ panels: ['Kept'] });
-      const note = await captureANote({ workspaceDecided: false });
-      held = [];
-
-      await handleQueue(batchOf({ kind: 'clean-up-a-note', accountName: ACCOUNT_NAME, itemId: note, attemptId: nextId() }), env);
-
-      await untilRewrites(1);
-      expect(rewrites()[0]).toMatchObject({ itemId: kept });
-    });
-
-    it('queues none for taking off a Panel an Item was not on, nor for a move that leaves it where it was', async () => {
-      const [kept, other] = [nextId(), nextId()];
-      for (const [panelId, name] of [[kept, 'Kept'], [other, 'Other']] as const) {
-        expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name, kind: 'items' })).status).toBe(200);
-      }
-      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
+    it('refuses Keep its story up to date and Rewrite from its children on a Panel, which tells no story', async () => {
+      const panelId = nextId();
+      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name: 'Shelf', kind: 'items' })).status).toBe(200);
       const note = await aNote();
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId: other, order: [note] })).status).toBe(200);
-      await settled();
-      held = [];
+      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId, order: [note] })).status).toBe(200);
 
-      expect((await postChange('remove_item_from_panel', { ...envelope(), itemId: note, panelId: kept })).status).toBe(200);
-      expect((await postChange('move_item_to_panel', { ...envelope(), itemId: note, panelId: other, order: [note] })).status).toBe(200);
+      expect((await postChange('set_keeps_story', { ...envelope(), itemId: panelId, keepsStory: true })).status).toBe(404);
+      expect((await postChange('rewrite_story', { ...envelope(), itemId: panelId })).status).toBe(404);
       await settled();
       expect(rewrites()).toEqual([]);
     });
 
-    it('queues none for a reorder inside a Panel that keeps its story', async () => {
-      const kept = nextId();
-      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId: kept, name: 'Kept', kind: 'items' })).status).toBe(200);
-      expect((await postChange('set_keeps_story', { ...envelope(), itemId: kept, keepsStory: true })).status).toBe(200);
-      const [first, second] = [await aNote('One'), await aNote('Two')];
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: first, panelId: kept, order: [first] })).status).toBe(200);
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: second, panelId: kept, order: [second, first] })).status).toBe(200);
+    it('queues one for the Item a new parent from Combine goes inside, beside the first Item picked', async () => {
+      const holder = await aParent();
+      const [first, second] = [await aNote('Storm scene'), await aNote('Ferry scene')];
+      await addChildren(holder, [first, second]);
+      await untilRewrites(1);
+      held = [];
+      const parentId = nextId();
+
+      expect((await postChange('combine_under_new_parent', { ...envelope(), parentId, title: 'Combined', description: 'Storm and ferry.', childIds: [first, second], panelId: null, dashboardId: null })).status).toBe(200);
+
       await untilRewrites(2);
-      held = [];
-
-      expect((await postChange('move_item_to_panel', { ...envelope(), itemId: second, panelId: kept, order: [second, first] })).status).toBe(200);
-      await settled();
-      expect(rewrites()).toEqual([]);
+      expect(rewrites()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ itemId: parentId, anyway: true }),
+          expect.objectContaining({ itemId: holder, anyway: false }),
+        ]),
+      );
     });
 
     it('asks for the story of what Combine makes, and of what Rewrite from its children names, whatever the setting', async () => {
@@ -280,19 +268,6 @@ describe('Triage', () => {
       await delivered();
 
       expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null, texts_settled_at: null });
-    });
-
-    it('replaces the description of a Panel\'s own Item, which no one has written, rather than holding a Review nobody can see', async () => {
-      const panelId = nextId();
-      expect((await postChange('add_panel', { ...envelope(), dashboardId: DASHBOARD_ID, panelId, name: 'Kept', kind: 'items' })).status).toBe(200);
-      expect((await postChange('set_keeps_story', { ...envelope(), itemId: panelId, keepsStory: true })).status).toBe(200);
-      const note = await aNote();
-      expect((await postChange('add_item_to_panel', { ...envelope(), itemId: note, panelId, order: [note] })).status).toBe(200);
-      await untilRewrites(1);
-
-      await delivered();
-
-      expect(await storyOf(panelId)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null });
     });
 
     it('keeps a description you edited and holds the new version for a Review', async () => {

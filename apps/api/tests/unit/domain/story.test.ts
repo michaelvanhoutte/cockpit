@@ -62,8 +62,8 @@ describe('Triage', () => {
       else expect(written).toMatchObject(becomes);
     });
 
-    it('replaces a Panel\'s own Item, which is born settled and was never written by a person, and drops the clean-up it was not', () => {
-      const written = applyProposedStory(aParent({ textsSettledAt: MADE, textsProposedAt: MADE }), 'A new story.', LATER, true);
+    it('drops the clean-up\'s mark on a description it replaces, so your next edit corrects the story, not a clean-up', () => {
+      const written = applyProposedStory(aParent({ textsProposedAt: MADE }), 'A new story.', LATER);
 
       expect(written).toMatchObject({ description: 'A new story.', storyProposal: null, textsProposedAt: null });
     });

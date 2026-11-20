@@ -1326,9 +1326,9 @@ export function runCommand<N extends CommandName>(
   const storyOfItems = new Set<string>();
   // Asked for by name, whatever the setting: *Rewrite from its children*, and the first story of what Combine makes.
   const storyAsked = new Set<string>();
-  const rewriteStoryOf = (): { rewriteStoryOf?: string[] } => {
-    const parents = [...new Set([...storyKeepersAmong(db, tenantId, [...storyOfItems]), ...storyAsked])];
-    return parents.length > 0 ? { rewriteStoryOf: parents } : {};
+  const rewriteStoryOf = (): { rewriteStoryOf?: string[]; storyAskedOf?: string[] } => {
+    const kept = storyKeepersAmong(db, tenantId, [...storyOfItems]).filter((id) => !storyAsked.has(id));
+    return { ...(kept.length > 0 ? { rewriteStoryOf: kept } : {}), ...(storyAsked.size > 0 ? { storyAskedOf: [...storyAsked] } : {}) };
   };
 
   switch (name) {

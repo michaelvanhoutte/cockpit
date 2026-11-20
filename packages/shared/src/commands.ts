@@ -1461,7 +1461,9 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * `rewriteStoryOf` names the parents whose story a change asks Claude to
  * rewrite - the ones a child joined or left that keep their story up to date,
  * read off the same atomic call for the reason `settledRouting` is ("Keep its
- * story up to date", issue 1827). Absent where there are none.
+ * story up to date", issue 1827). `storyAskedOf` names the ones asked for
+ * whatever their setting: *Rewrite from its children*, and the first story of
+ * what a Merge or Combine made. Each is absent where there are none.
  *
  * `recordedCorrection` is `true` only for `set_title`/`set_description`, and
  * only where the write recorded or updated a `text_corrections` row - the
@@ -1505,6 +1507,7 @@ export const commandResultSchema = z.object({
   at: z.iso.datetime().optional(),
   settledRouting: z.boolean().optional(),
   rewriteStoryOf: z.array(z.string()).optional(),
+  storyAskedOf: z.array(z.string()).optional(),
   recordedCorrection: z.boolean().optional(),
   addressLetGo: z.string().optional(),
   textsWritten: z.boolean().optional(),
