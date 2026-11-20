@@ -2391,13 +2391,12 @@ export function runCommand<N extends CommandName>(
         return one !== null && one.deletedAt === null && isInside(db, tenantId, original.id, child.itemId);
       });
       applied = back.length === cmd.children.length;
-      // A thumbnail that goes back with its file, to an original that has none.
-      const thumbnailBack = !original.thumbnailAttachmentId
-        ? (back.flatMap((child) => {
-            const held = getItem(db, tenantId, child.itemId)?.thumbnailAttachmentId;
-            return held && child.attachmentIds.includes(held) ? [{ child: child.itemId, file: held }] : [];
-          })[0] ?? null)
-        : null;
+      // A child's thumbnail that is a file going back: it is cleared there, and handed to the original if that has none.
+      const goingBack = back.flatMap((child) => {
+        const held = getItem(db, tenantId, child.itemId)?.thumbnailAttachmentId;
+        return held && child.attachmentIds.includes(held) ? [{ child: child.itemId, file: held }] : [];
+      });
+      const thumbnailBack = !original.thumbnailAttachmentId ? (goingBack[0] ?? null) : null;
       if (applied && !original.workspaceDecided) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
@@ -2425,9 +2424,11 @@ export function runCommand<N extends CommandName>(
           if (cmd.keepsStory !== undefined && original.keepsStory === true) {
             tx.update(items).set({ keepsStory: cmd.keepsStory }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
           }
+          for (const gone of goingBack) {
+            tx.update(items).set({ thumbnailAttachmentId: null }).where(and(eq(items.tenantId, tenantId), eq(items.id, gone.child))).run();
+          }
           if (thumbnailBack) {
             tx.update(items).set({ thumbnailAttachmentId: thumbnailBack.file }).where(and(eq(items.tenantId, tenantId), eq(items.id, original.id))).run();
-            tx.update(items).set({ thumbnailAttachmentId: null }).where(and(eq(items.tenantId, tenantId), eq(items.id, thumbnailBack.child))).run();
           }
           // The words come back only where the original still reads as the Split left it: an edit since is the person's.
           if ((original.description ?? null) === cmd.kept) {
