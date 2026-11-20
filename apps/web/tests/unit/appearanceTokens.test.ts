@@ -101,12 +101,6 @@ describe('Appearance', () => {
       expect(contrast(text === 'on-accent' ? '#ffffff' : dark(text), on)).toBeGreaterThanOrEqual(4.5);
     });
 
-    it.each(['slate', 'teal', 'amber', 'green', 'violet', 'grey'])('the %s category on its tint, the page and a well', (category) => {
-      for (const behind of [dark(`cat-${category}-tint`), page, well]) {
-        expect(contrast(dark(`cat-${category}`), behind)).toBeGreaterThanOrEqual(4.5);
-      }
-    });
-
     it('keeps `over` as a fill under white, as light has it', () => {
       const light = /--color-over:\s*(#[0-9a-f]{6});/.exec(styles)![1]!;
       expect(dark('over')).toBe(light);
@@ -170,7 +164,7 @@ describe('Appearance', () => {
     });
   });
 
-  describe('every swatch a box can take reads at least 4.5:1, in light and in dark', () => {
+  describe('every category colour, the eight a box can take, reads at least 4.5:1, in light and in dark', () => {
     const lightWell = towardsWhite(light('ground'), lightWellShare('well'));
     const darkWell = towardsBlack(dark('ground'), wellShare('well'));
 
