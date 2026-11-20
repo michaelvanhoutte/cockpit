@@ -529,9 +529,11 @@ export const panels = sqliteTable(
      * release before reads filings from: a Panel is never an Item
      * ("Brainstorming: a Panel is an Item nobody can open", issue 1846), so it
      * is still made, renamed and dismissed with the Panel for a rollback. Read
-     * now only to leave that Item out: of every list, search and Item read
-     * (`notAPanelsOwnItem`), and as a parent from every Item-inside-Item read
-     * (`noPanelsItem`, `ancestorsAmong`, `itemParentsHolding`). Its title is
+     * to write that Item's rows (`mirrorFilingsOf`, `renamePanelsItem`,
+     * `dismissPanelsItems`), and to leave that Item out: of every list, search
+     * and Item read (`notAPanelsOwnItem`), and as a parent from every
+     * Item-inside-Item read and the Inbox rule (`noPanelsItem`, `noLiveParent`,
+     * `ancestorsAmong`, `itemParentsHolding`). Its title is
      * the Panel's, it is in the Panel's Workspace, and its texts are settled,
      * so Claude never rewrites it. **Its id is the Panel's own id**, which is what lets the
      * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
