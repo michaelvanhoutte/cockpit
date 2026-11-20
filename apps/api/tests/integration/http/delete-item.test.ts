@@ -267,3 +267,28 @@ describe('MCP connections', () => {
     });
   });
 });
+
+describe('MCP connections', () => {
+  describe('changing an Item’s Panels over MCP never leaves one with cards in the Inbox', () => {
+    async function placed(): Promise<string> {
+      const itemId = await anItem('Storm scene', { panelIds: [await aPanel('Book')] });
+      expect((await send('place_card', { cardId: nextId(), dashboardId: DASHBOARD_ID, itemId, boxId: null, x: 0, y: 0 })).status).toBe(200);
+      return itemId;
+    }
+
+    it('moves it from one Panel to another, never on no Panel between the two', async () => {
+      const { token } = await connected();
+      const itemId = await placed();
+      await aPanel('Drafts');
+      expect((await call(token, 'update_item', { id: itemId, remove_panels: ['Book'], add_panels: ['Drafts'] })).isError).toBeFalsy();
+    });
+
+    it('refuses to move it to the Inbox, saying why in words an app can act on', async () => {
+      const { token } = await connected();
+      const itemId = await placed();
+      const answer = await call(token, 'update_item', { id: itemId, move_to_panel: 'Inbox' });
+      expect(answer.isError).toBe(true);
+      expect(textOf(answer)).toContain('"Storm scene" would be left in the Inbox while on a whiteboard. Take it off the whiteboard in Cockpit first');
+    });
+  });
+});

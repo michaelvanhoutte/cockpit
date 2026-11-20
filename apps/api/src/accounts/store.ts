@@ -1234,6 +1234,12 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
           value: { results, stopped: { at, because: 'conflict', what: 'it was changed a moment ago' } },
         };
       }
+      if (answer.status === 'conflict' && answer.onWhiteboards) {
+        // Said to a connected app, which has no way to answer the screen's question ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+        const held = answer.onWhiteboards.map((one) => `"${one.title}"`).join(', ');
+        const what = `${held} would be left in the Inbox while on a whiteboard. Take it off the whiteboard in Cockpit first`;
+        return { status: 'ok', value: { results, stopped: { at, because: 'conflict', what } } };
+      }
       if (answer.status === 'missing' || answer.status === 'conflict' || answer.status === 'refused') {
         return { status: 'ok', value: { results, stopped: { at, because: answer.status, what: answer.what } } };
       }

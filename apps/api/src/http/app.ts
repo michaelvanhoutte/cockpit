@@ -1266,7 +1266,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
             409: {
               description: extra.conflict,
               // A change that would send Items with cards to the Inbox names them, for the screen to ask about.
-              content: { 'application/json': { schema: extra.onWhiteboards ? onWhiteboardsRefusalSchema : errorSchema } },
+              content: { 'application/json': { schema: extra.onWhiteboards ? errorSchema.extend({ onWhiteboards: onWhiteboardsRefusalSchema.shape.onWhiteboards.optional() }) : errorSchema } },
             },
           }
         : {}),

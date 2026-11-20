@@ -310,8 +310,8 @@ describe('Whiteboard', () => {
     });
   });
 
-  describe('a Dashboard’s layout and divider are kept per Dashboard', () => {
-    it('keeps the layout and divider chosen on one Dashboard, and nothing on another', async () => {
+  describe('a Dashboard’s view and divider are kept per Dashboard', () => {
+    it('keeps the view and divider chosen on one Dashboard, and nothing on another', async () => {
       const other = await aDashboard('Plot');
       await ok('set_dashboard_view', { dashboardId: DASHBOARD_ID, view: 'side' });
       await ok('set_dashboard_split', { dashboardId: DASHBOARD_ID, splitShare: 0.55 });
@@ -321,7 +321,7 @@ describe('Whiteboard', () => {
     });
 
     it.each([
-      { situation: 'a layout with no icon', command: 'set_dashboard_view', body: { view: 'mosaic' } },
+      { situation: 'a view with no icon', command: 'set_dashboard_view', body: { view: 'mosaic' } },
       { situation: 'a divider past the edge', command: 'set_dashboard_split', body: { splitShare: 1.2 } },
     ])('refuses $situation', async ({ command, body }) => {
       expect((await send(command, { dashboardId: DASHBOARD_ID, ...body })).status).toBe(400);
@@ -588,6 +588,17 @@ describe('Whiteboard', () => {
   });
 
   describe('the same change sent twice is applied once', () => {
+    it('places one card for a card placed twice, though its box has gone since', async () => {
+      const { itemId } = await aFiledItem('Storm scene');
+      const boxId = await aBox('People');
+      const placing = { cardId: nextId(), dashboardId: DASHBOARD_ID, itemId, boxId, x: 0, y: 0 };
+      await ok('place_card', placing);
+      await ok('delete_box', { boxId });
+      expect((await ok('place_card', placing)).applied).toBe(false);
+      expect(await rowsIn('board_cards')).toBe(1);
+    });
+
+
     it('draws one box for a box drawn twice', async () => {
       const boxId = await aBox('People');
       expect((await ok('draw_box', { boxId, dashboardId: DASHBOARD_ID, parentBoxId: null, label: 'People', colour: null, x: 0, y: 0, w: 1, h: 1 })).applied).toBe(false);

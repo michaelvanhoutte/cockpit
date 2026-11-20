@@ -390,6 +390,8 @@ export function runBoardCommand<N extends BoardCommandName>(db: AccountDb, tenan
     case 'place_card': {
       const cmd = payload as CommandPayload<'place_card'>;
       if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) throw new DashboardNotFoundError(cmd.dashboardId);
+      // A resend whose command id was lost finds the card made already, whatever has happened to it or its box since.
+      if (db.select({ id: boardCards.id }).from(boardCards).where(eq(boardCards.id, cmd.cardId)).get()) return recordOnly();
       const item = getItem(db, tenantId, cmd.itemId);
       // A dismissed Item is gone, and another Workspace's is not one this Workspace can name, as on a Panel.
       if (!item || item.deletedAt !== null || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) throw new ItemNotFoundError(cmd.itemId);
@@ -397,7 +399,6 @@ export function runBoardCommand<N extends BoardCommandName>(db: AccountDb, tenan
       // A finished one with no parent is refused too, so reopening it never puts a card in the Inbox.
       if (!item.workspaceDecided || inTheInbox(db, tenantId, item.id)) throw new NotPlaceableError(itemLabel(item), item.completedAt !== null);
       parentBoxOn(db, tenantId, cmd.dashboardId, cmd.boxId);
-      if (db.select({ id: boardCards.id }).from(boardCards).where(eq(boardCards.id, cmd.cardId)).get()) return recordOnly();
       const already = db
         .select({ id: boardCards.id })
         .from(boardCards)
@@ -455,8 +456,9 @@ export function runBoardCommand<N extends BoardCommandName>(db: AccountDb, tenan
     case 'draw_box': {
       const cmd = payload as CommandPayload<'draw_box'>;
       if (!getDashboard(db, tenantId, cmd.workspaceId, cmd.dashboardId)) throw new DashboardNotFoundError(cmd.dashboardId);
-      parentBoxOn(db, tenantId, cmd.dashboardId, cmd.parentBoxId);
+      // A resend finds the box drawn already, whatever has happened to it since.
       if (db.select({ id: boardBoxes.id }).from(boardBoxes).where(eq(boardBoxes.id, cmd.boxId)).get()) return recordOnly();
+      parentBoxOn(db, tenantId, cmd.dashboardId, cmd.parentBoxId);
       db.transaction((tx) => {
         tx.insert(boardBoxes)
           .values({
