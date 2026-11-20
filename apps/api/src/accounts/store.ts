@@ -157,11 +157,13 @@ import {
   getEmailLocalPart,
   getWorkspace,
   isItemFiled,
+  storySources,
   claudeProposalContext,
   sendToOfferOn,
   listRememberedSentences,
   openItemsASentenceMayFit,
   type ClaudeProposalContext,
+  type StorySources,
   type SendToOfferOn,
   itemsToRead,
   judgeableItemsForAccount,
@@ -690,6 +692,11 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
    */
   recentCapturedTimeZones(accountName: string): Answer<string[]> {
     return this.#answer(accountName, (db) => recentCapturedTimeZones(db, accountName));
+  }
+
+  /** What a rewrite of a parent's story is made from ("Keep its story up to date", issue 1827). */
+  storySources(accountName: string, itemId: string, limit: number): Answer<StorySources | null> {
+    return this.#answer(accountName, (db) => storySources(db, accountName, itemId, limit));
   }
 
   /** Where an Item stands, for proposing what to do with it ("Propose what to do with each item before you look", issue 1161). */

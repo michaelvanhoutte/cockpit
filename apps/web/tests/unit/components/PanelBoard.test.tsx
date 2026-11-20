@@ -86,7 +86,7 @@ const PERSONAL: Dashboard = {
   name: 'Personal',
 };
 
-function aPanel(id: string, name: string): Panel {
+function aPanel(id: string, name: string, over: Partial<Panel> = {}): Panel {
   return {
     id,
     tenantId: 'tenant',
@@ -100,6 +100,7 @@ function aPanel(id: string, name: string): Panel {
     filter: null,
     sort: null,
     columns: null,
+    ...over,
   };
 }
 
@@ -615,6 +616,49 @@ describe('Panels', () => {
       }
     });
 
+    /**
+     * "Brainstorming: a parent's description goes stale as children join or
+     * leave" (issue 1827): *Keep its story up to date* and *Rewrite from its
+     * children* are in the menu of a Panel that holds Items. What Claude then
+     * writes is the server's (apps/api/tests/integration/http/story.test.ts).
+     */
+    it.each([
+      { situation: 'one that is off turns it on', keepsStory: false, sets: true },
+      { situation: 'one that is on turns it off', keepsStory: true, sets: false },
+    ])('Keep its story up to date, on a panel of items $situation', async ({ keepsStory, sets }) => {
+      const { mutate, user } = showBoard({ panels: [aPanel('falcon', 'Project Falcon', { keepsStory })] });
+
+      openMenu('Project Falcon');
+      const entry = await screen.findByRole('menuitemcheckbox', { name: 'Keep its story up to date' });
+      expect(entry).toHaveAttribute('aria-checked', String(keepsStory));
+      await user.click(entry);
+
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'set_keeps_story', payload: expect.objectContaining({ itemId: 'falcon', keepsStory: sets }) }),
+      );
+    });
+
+    it('Rewrite from its children asks for one rewrite, whatever the setting', async () => {
+      const { mutate, user } = showBoard({ panels: [aPanel('falcon', 'Project Falcon')] });
+
+      await choose(user, 'Project Falcon', 'Rewrite from its children');
+
+      expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ name: 'rewrite_story', payload: expect.objectContaining({ itemId: 'falcon' }) }));
+    });
+
+    it.each([
+      { situation: 'a filter', panel: aFilter('due', 'Due soon') },
+      { situation: 'a panel of text', panel: aPanelOfText('words', 'What matters') },
+    ])('offers neither on $situation, which holds no Items', async ({ panel }) => {
+      showBoard({ panels: [panel] });
+
+      openMenu(panel.name);
+
+      await screen.findByRole('menuitem', { name: 'Settings…' });
+      expect(screen.queryByRole('menuitemcheckbox', { name: 'Keep its story up to date' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Rewrite from its children' })).toBeNull();
+    });
+
     it('can be reached by keyboard, so the browser’s own menu key has something to open it from', () => {
       showBoard();
 
@@ -879,8 +923,9 @@ describe('Panels', () => {
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: select
-        // all, rename, sort, move to another dashboard, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(5);
+        // all, settings, sort, rewrite from its children, move to another dashboard, delete
+        // (and the one setting, Keep its story up to date, which is a checkbox entry).
+        expect(screen.getAllByRole('menuitem')).toHaveLength(6);
       },
     );
   });

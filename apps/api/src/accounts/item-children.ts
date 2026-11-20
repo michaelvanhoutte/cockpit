@@ -74,7 +74,7 @@ export function dismissPanelsItems(
 }
 
 /** The Panels an Item is filed on now, read before a move takes it off them. */
-export function panelsHolding(tx: InATransaction, tenantId: string, itemId: string): string[] {
+export function panelsHolding(tx: InATransaction | AccountDb, tenantId: string, itemId: string): string[] {
   return tx
     .select({ panelId: panelItems.panelId })
     .from(panelItems)

@@ -344,6 +344,8 @@ const panelColumns = {
   sortCriteria: panels.sortCriteria,
   // The narrowest a column may be, or null for one list.
   columns: panels.columns,
+  // Whether Claude keeps the description of the Panel's own Item up to date ("Keep its story up to date", issue 1827).
+  keepsStory: sql<boolean>`coalesce((SELECT keeps_story FROM items WHERE items.id = ${panels.itemId}), 0)`.mapWith(Boolean).as('keeps_story'),
 };
 
 /**
@@ -753,6 +755,9 @@ const itemColumns = {
   updatedAt: items.updatedAt,
   childrenCount: items.childrenCount,
   childrenDone: items.childrenDone,
+  keepsStory: items.keepsStory,
+  storyProposal: items.storyProposal,
+  storyProposedAt: items.storyProposedAt,
 };
 
 /**
@@ -1025,6 +1030,82 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
       .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId), notAPanelsOwnItem()))
       .get() ?? null
   );
+}
+
+/**
+ * An Item whose description Claude keeps, or a Panel's own Item - which
+ * `getItem` leaves out, a Panel being changed as a Panel - as its row holds
+ * it: what the story commands and the rewrite job name ("Keep its story up to
+ * date", issue 1827). A dismissed one is read too, for the caller to refuse.
+ */
+export function getStoryHolder(db: AccountDb, tenantId: string, itemId: string): Item | null {
+  return db.select(itemColumns).from(items).where(and(eq(items.tenantId, tenantId), eq(items.id, itemId))).get() ?? null;
+}
+
+/**
+ * Which of these hold a story Claude keeps up to date, and are not dismissed:
+ * the Items named, and the Panels' own Items for the Panels named, each once.
+ * What a child joining or leaving asks to be rewritten (`rewriteStoryOf`).
+ */
+export function storyKeepersAmong(db: AccountDb, tenantId: string, itemIds: readonly string[], panelIds: readonly string[]): string[] {
+  const ids = [...new Set(itemIds)];
+  const panelsOf = [...new Set(panelIds)];
+  if (ids.length === 0 && panelsOf.length === 0) return [];
+  const named = (list: readonly string[]) => sql.join(list.map((id) => sql`${id}`), sql`, `);
+  const rows = db.all<{ id: string }>(sql`SELECT id FROM items
+                                            WHERE tenant_id = ${tenantId} AND keeps_story = 1 AND deleted_at IS NULL
+                                              AND (${ids.length > 0 ? sql`id IN (${named(ids)})` : sql`0`}
+                                                   OR ${panelsOf.length > 0
+                                                     ? sql`id IN (SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND id IN (${named(panelsOf)}))`
+                                                     : sql`0`})`);
+  return rows.map((row) => row.id);
+}
+
+/** What `storySources` reads. */
+export interface StorySources {
+  workspaceId: string;
+  title: string;
+  description: string | null;
+  keepsStory: boolean;
+  children: { title: string; description: string | null }[];
+  /** How many Items it holds in all, of which `children` are the first. */
+  held: number;
+}
+
+/**
+ * What a rewrite of a story is made from: the Item or Panel's own Item, and up
+ * to `limit` of the Items it holds in its order, with the words each carries.
+ * Where it holds none - a Merge's Item - the words its originals left on it as
+ * Additions stand in, in the order written. Null where the Item is gone.
+ */
+export function storySources(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+  limit: number,
+): StorySources | null {
+  const holder = getStoryHolder(db, tenantId, itemId);
+  if (!holder || holder.deletedAt) return null;
+  const rows = db.all<{ title: string; description: string | null }>(
+    sql`SELECT k.title AS title, k.description AS description
+          FROM item_children c JOIN items k ON k.id = c.child_id
+         WHERE c.tenant_id = ${tenantId} AND c.parent_id = ${itemId} AND c.deleted_at IS NULL AND k.deleted_at IS NULL
+         ORDER BY c.position, c.created_at, c.child_id
+         LIMIT ${limit}`,
+  );
+  const held = holder.childrenCount ?? 0;
+  const children =
+    rows.length > 0
+      ? rows
+      : db
+          .select({ message: itemAdditions.message })
+          .from(itemAdditions)
+          .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, itemId)))
+          .orderBy(itemAdditions.createdAt)
+          .limit(limit)
+          .all()
+          .map((addition) => ({ title: addition.message, description: null }));
+  return { workspaceId: holder.workspaceId, title: holder.title, description: holder.description, keepsStory: holder.keepsStory === true, children, held: Math.max(held, rows.length) };
 }
 
 /** One series as its row holds it, with what each copy is made from, or null where the account has none by that id. */
