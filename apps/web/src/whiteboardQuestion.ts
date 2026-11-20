@@ -126,12 +126,15 @@ export function putCardsBackAfter(
     const taken = (await Promise.allSettled(answers)).flatMap((one) => (one.status === 'fulfilled' ? cardsTakenOffBy(one.value) : []));
     if (taken.length === 0) return undone;
     // Behind every change the inverse sends, some of which it makes only after a read: a card comes back only to an Item out of the Inbox.
-    await undone;
-    return putCardsBack(send, workspaceId, taken);
+    // Sent even where part of the inverse was refused: a card whose Item is still in the Inbox stays off anyway.
+    const [inverted] = await Promise.allSettled([undone]);
+    await putCardsBack(send, workspaceId, taken);
+    if (inverted.status === 'rejected') throw inverted.reason;
+    return inverted.value;
   };
 }
 
-/** Cards taken off brought back, a hundred to a change (`CARDS_PUT_BACK_AT_ONCE`). */
+/** Cards taken off brought back, a hundred to a change: `CARDS_PUT_BACK_AT_ONCE`, not imported so the initial bundle carries none of the board's module. */
 export function putCardsBack(send: SendsCardsBack, workspaceId: string, cardIds: readonly string[]): Promise<unknown> {
   const back = [];
   for (let at = 0; at < cardIds.length; at += 100) {

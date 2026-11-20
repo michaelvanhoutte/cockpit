@@ -211,15 +211,19 @@ export async function fileOnto(
   if (takenOut.length > 0) {
     const pairs = [...leftParents].flatMap(([childId, parentIds]) => parentIds.map((parentId) => ({ childId, parentId })));
     void Promise.allSettled(takenOut).then(async (settled) => {
-      if (!settled.some((one) => one.status === 'rejected' && one.reason instanceof KeptOnTheWhiteboard)) return;
+      // Only the Items the question was about; the rest moved as asked.
+      const kept = new Set(pairs.flatMap(({ childId }, at) => (settled[at]!.status === 'rejected' && (settled[at] as PromiseRejectedResult).reason instanceof KeptOnTheWhiteboard ? [childId] : [])));
+      if (kept.size === 0) return;
       const { landed } = await answered;
       pairs.forEach(({ childId, parentId }, at) => {
-        if (settled[at]!.status !== 'fulfilled') return;
+        if (!kept.has(childId) || settled[at]!.status !== 'fulfilled') return;
         void d
           .send({ name: 'add_children', payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId, parentId, childIds: [childId] } })
           .catch(() => {});
       });
-      await putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed, wasOn).catch(() => {});
+      await putSeveralBack({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, landed.filter((item) => kept.has(item.id)), wasOn).catch(() => {});
+      // Picked again, as a refused one is.
+      updateSelection(selectionScope, (was) => ({ picked: new Set([...was.picked, ...kept]), reachingFrom: null }));
     });
   }
   // Onto a panel only, as a single move does: the Inbox has nowhere to show

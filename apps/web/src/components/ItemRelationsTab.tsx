@@ -1,4 +1,5 @@
 import { itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { DEFAULT_SPLIT_SHARE } from '@cockpit/shared/board';
 import { useNavigate } from '@tanstack/react-router';
 import { useSendCommand } from '../api/queries';
 import { boardLayoutOf } from '../boardLayout';
@@ -27,9 +28,9 @@ export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: s
     const { view, splitShare } = boardLayoutOf(data, place.dashboardId);
     const envelope = { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, dashboardId: place.dashboardId };
     if (atADesk && view === 'panels') void send({ name: 'set_dashboard_view', payload: { ...envelope, view: 'side' } }).catch(() => {});
-    // A board its divider has shut is opened again.
-    if (atADesk && view !== 'panels' && view !== 'board' && splitShare === 1) {
-      void send({ name: 'set_dashboard_split', payload: { ...envelope, splitShare: 0.4 } }).catch(() => {});
+    // A board its divider has shut is opened again, whichever two-pane view it opens in.
+    if (atADesk && view !== 'board' && splitShare === 1) {
+      void send({ name: 'set_dashboard_split', payload: { ...envelope, commandId: uuidv7(), splitShare: DEFAULT_SPLIT_SHARE } }).catch(() => {});
     }
     showTheCard(place.dashboardId, place.cardId);
     void navigate({ to: '/w/$workspaceId/d/$dashboardId', params: { workspaceId, dashboardId: place.dashboardId }, search: {} });

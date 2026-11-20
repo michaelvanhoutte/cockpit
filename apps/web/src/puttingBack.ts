@@ -164,7 +164,8 @@ export async function takeOutOfParents(d: Pick<Putting, 'workspaceId' | 'send'>,
   if (refused) {
     // Kept on a whiteboard at "Take it off there too?": back inside the parents it did leave, so Cancel changes nothing.
     if (refused.reason instanceof KeptOnTheWhiteboard) {
-      await putBackInParents(d, childId, parentIds.filter((_, at) => settled[at]!.status === 'fulfilled'));
+      // Its own refusal is not this change's: the Kept is what the caller has to hear.
+      await putBackInParents(d, childId, parentIds.filter((_, at) => settled[at]!.status === 'fulfilled')).catch(() => {});
     }
     throw refused.reason;
   }
