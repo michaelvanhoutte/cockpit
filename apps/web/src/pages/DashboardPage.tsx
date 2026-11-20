@@ -60,6 +60,7 @@ export function DashboardPage() {
           filings={data.filings}
           attachments={data.attachments}
           agentRuns={data.agentRuns}
+          childRows={data.children ?? []}
         />
       )}
     </div>

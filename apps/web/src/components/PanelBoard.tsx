@@ -17,7 +17,9 @@ import {
   DEFAULT_FILTER_SORT,
   drawnRows,
   groupFilterRows,
-  itemsShownOn,
+  panelRows,
+  isLater,
+  ancestorIdsOf,
   sortOf,
 } from '@cockpit/shared';
 import type {
@@ -27,6 +29,7 @@ import type {
   FilterGrouping,
   AgentRun,
   Attachment,
+  ChildRow,
   Item,
   Layout,
   LayoutRow,
@@ -39,6 +42,7 @@ import { useUndo } from '../undo';
 import { scrollWhileDragging } from '../dragScroll';
 import { filtersUsingPanel, isGrouped, joinedBy } from '../filters';
 import { browserStore } from '../lastVisited';
+import { setLaterShown, useLaterShown } from '../laterItems';
 import { clearDashboardFilter, useDashboardFilter } from '../dashboardFilter';
 import { DashboardFilterBar } from './DashboardFilterBar';
 import { useMeasuredWidth, useScreenWidth } from '../panels/useScreenWidth';
@@ -157,6 +161,7 @@ export function PanelBoard({
   filings,
   attachments = [],
   agentRuns = [],
+  childRows = [],
 }: {
   workspaceId: string;
   dashboard: Dashboard;
@@ -185,6 +190,8 @@ export function PanelBoard({
   attachments?: readonly Attachment[];
   /** The workspace's open runs, which is all a Dashboard filter's Agent running condition reads. */
   agentRuns?: readonly AgentRun[];
+  /** The workspace's parent-to-child rows, which a Panel's *later* count reads its hidden children from. */
+  childRows?: readonly ChildRow[];
 }) {
   const screenWidth = useScreenWidth();
   /**
@@ -436,8 +443,9 @@ export function PanelBoard({
   const withAttachments = itemIdsWithAttachments(attachments);
   const withRun = itemIdsWithRun(agentRuns);
   /** What a Panel shows: its own Items, or what its Filter gathers, narrowed by the Dashboard filter (`itemsShownOn`, which Go to panel counts with too). */
-  const itemsOf = (panel: Panel): Item[] =>
-    itemsShownOn(panel, {
+  const laterShownOn = useLaterShown();
+  const rowsOf = (panel: Panel, hideLater: boolean) =>
+    panelRows(panel, {
       items,
       filings,
       panelsInWorkspace,
@@ -446,6 +454,8 @@ export function PanelBoard({
       withAttachments,
       withRun,
       today,
+      hideLater,
+      children: childRows,
     });
   /**
    * **While a Dashboard filter is on, a Panel with no matching Item is not
@@ -454,7 +464,8 @@ export function PanelBoard({
    * proportions; nothing is stored, so clearing the filter brings every Panel
    * back.
    */
-  const shows = new Map(panels.map((panel) => [panel.id, itemsOf(panel)]));
+  const rowsByPanel = new Map(panels.map((panel) => [panel.id, rowsOf(panel, !laterShownOn(panel.id))]));
+  const shows = new Map([...rowsByPanel].map(([id, drawn]) => [id, drawn.rows]));
   /**
    * A Filter's rows under a heading each, where it is grouped ("Group a Filter
    * panel's items by the Dashboard or Panel they are filed on", issue 805):
@@ -832,6 +843,17 @@ export function PanelBoard({
     // Or a child row unfolded under one of its rows, which Find unfolds before
     // it asks ("Brainstorming: an Item can't hold other Items", issue 1825).
     if (!(shows.get(panelId) ?? []).some((item) => item.id === landing.itemId) && row === null) {
+      // A row set aside as later: show them, and the row is drawn on the next pass.
+      const panel = panels.find((one) => one.id === panelId);
+      if (panel && !laterShownOn(panelId)) {
+        const all = rowsOf(panel, false).rows;
+        const above = ancestorIdsOf(childRows, landing.itemId);
+        const target = items.find((item) => item.id === landing.itemId);
+        if (all.some((item) => item.id === landing.itemId || above.has(item.id)) || (target && isLater(target.dueDate, today))) {
+          setLaterShown(panelId, true);
+          return;
+        }
+      }
       if (filteringOn) clearDashboardFilter(browserStore(), dashboard.id);
       else settleLanding(landing);
       return;
@@ -1470,6 +1492,8 @@ export function PanelBoard({
                           workspaceId={workspaceId}
                           dashboardFiltered={filteringOn}
                           items={shows.get(panel.id) ?? []}
+                          later={rowsByPanel.get(panel.id)?.later ?? 0}
+                          laterShown={laterShownOn(panel.id)}
                           groups={groupsOf(panel)}
                           panelsInWorkspace={panelsInWorkspace}
                           dashboards={dashboards}

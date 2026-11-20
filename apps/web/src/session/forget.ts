@@ -8,6 +8,7 @@ import { forgetInboxCollapsed } from '../inboxCollapsed';
 import { forgetPanelListCollapsed, forgetPanelListWidth } from '../panelList';
 import { forgetEveryDashboardFilter } from '../dashboardFilter';
 import { forgetEveryAllItemsTab } from '../allItemsTab';
+import { forgetEveryLaterShown } from '../laterItems';
 import { forgetEverySeenChange } from '../cockpitChanges';
 import { forgetWhatJustHappened } from '../undo';
 import { forgetEverySavedRead } from '../persistence';
@@ -36,9 +37,9 @@ import { changes } from '../api/changes';
  *   the size a drag last left the item form at, the width a drag last left it
  *   docked to, the size a drag last left the Inbox column and the Panel list at, whether the
  *   Inbox and the Panel list are collapsed, which dashboards are filtered,
- *   which workspaces show their All items tab, and which of what Cockpit
- *   changed on an item has been seen, all eleven in localStorage - the last
- *   ten of them
+ *   which workspaces show their All items tab, which Panels show their later Items, and which of what Cockpit
+ *   changed on an item has been seen, all twelve in localStorage - the last
+ *   eleven of them
  *   because leaving one behind gives the first person's answer to the second;
  * - the note an update's reload kept from Capture, in this tab's session storage;
  * - what the undo bar is still offering, which is a title of theirs drawn over
@@ -75,6 +76,7 @@ export async function forgetEverything(queryClient: QueryClient): Promise<void> 
   forgetPanelListWidth(browserStore());
   forgetEveryDashboardFilter(browserStore());
   forgetEveryAllItemsTab(browserStore());
+  forgetEveryLaterShown(browserStore());
   forgetEverySeenChange(browserStore());
   forgetWhatJustHappened();
   discardKeptCapture(tabMemory());

@@ -2005,3 +2005,40 @@ async function twoPanelsInARow(
   const under = page.getByTestId('row-line').first();
   return { first, second, row, under, items };
 }
+
+/**
+ * "Items due months from now crowd this week's work" (issue 1873). F3 for the
+ * wiring only: that a Panel opens with an Item due 60 days out hidden, shows it
+ * from its menu and keeps it shown over a reload. Which rows are set aside, and
+ * how the header and menu say so, is packages/shared/tests/unit/domain/panel-contents.test.ts
+ * and apps/web/tests/unit/components/PanelBoard.test.tsx.
+ */
+test.describe('Panels', () => {
+  test.describe('a Panel of items hides an Item due more than 30 days out until its menu shows it', () => {
+    test('opens with it hidden and counted as later, shows it from the menu, and keeps it shown after a reload', async ({ page, isMobile }) => {
+      const panel = uniqueTitle('Tasks');
+      const [soon, later] = [uniqueTitle('Renew the passport'), uniqueTitle('Cancel the VPN')];
+      const dueIn60Days = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10); // clock-ok: the browser under test runs on the real clock, so the due date is counted from it
+      const name = await ownDashboard(page, isMobile, [panel], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [soon, later]);
+        await arrange(page, 'set_due_date', { itemId: board.panels[0]!.itemIds[1], dueDate: dueIn60Days });
+      });
+      const region = page.getByRole('region', { name: panel });
+
+      await expect.poll(() => itemsOn(page, panel)).toEqual([soon]);
+      // On a phone the suffix sits on the header's one line beside the count.
+      const suffix = region.getByRole('button', { name: '· 1 later' });
+      await expect(suffix).toBeVisible();
+      const [count, beside] = await Promise.all([region.locator('header').getByText('1', { exact: true }).boundingBox(), suffix.boundingBox()]);
+      expect(Math.abs(count!.y - beside!.y)).toBeLessThan(count!.height);
+
+      await choosePanelAction(page, panel, 'Show 1 later item', isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([soon, later]);
+      await expect(region.getByRole('button', { name: '· 1 later' })).toHaveCount(0);
+
+      await page.reload();
+      await openDashboard(page, name, isMobile);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([soon, later]);
+    });
+  });
+});

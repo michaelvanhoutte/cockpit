@@ -37,6 +37,7 @@ import {
 import { CommandRefused } from '../../../src/api/client';
 import { ITEM_BEING_DRAGGED } from '../../../src/dropAt';
 import { setPanelsCollapsed } from '../../../src/panelsCollapsed';
+import { forgetEveryLaterShown, isLaterShown, setLaterShown } from '../../../src/laterItems';
 import { dashboardScope, shownOn } from '../../../src/selection';
 import { useCommand, useSendCommand } from '../../../src/api/queries';
 import { entriesIn, isListedSection, usePanelListing } from '../../../src/panelList';
@@ -232,6 +233,7 @@ function showBoard({
   attachments = [] as Attachment[],
   agentRuns = [] as AgentRun[],
   filings = [] as Filing[],
+  childRows = [] as { parentId: string; childId: string; position: number }[],
   /** The refusal every change is answered with, where a case is about one. */
   error,
   /** What a Panel's + and **Add an item…** open Capture with; none offers neither. */
@@ -245,6 +247,7 @@ function showBoard({
   attachments?: Attachment[];
   agentRuns?: AgentRun[];
   filings?: Filing[];
+  childRows?: { parentId: string; childId: string; position: number }[];
   error?: Error;
   opensCapture?: OpenCaptureOn;
 } = {}) {
@@ -279,6 +282,7 @@ function showBoard({
           attachments={drawnAttachments}
           agentRuns={drawnRuns}
           filings={filings}
+          childRows={childRows}
         />
       </CaptureOpenerContext.Provider>
     </QueryClientProvider>
@@ -4965,6 +4969,155 @@ describe('Layouts', () => {
       fireEvent.pointerDown(bandOf('This week'), { button: 0, pointerId: 1, pointerType: 'mouse' });
 
       expect(seamsAreOpen()).toBe(false);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('a Panel of items sets aside the Items due more than 30 days out, and its menu shows them', () => {
+    const ID = (n: number) => `11111111-1111-7111-8111-00000000000${n}`;
+    const near = { ...anItem(ID(1), 'Renew passport'), dueDate: '2026-11-25' };
+    const edge = { ...anItem(ID(2), 'Book the dentist'), dueDate: '2026-12-20' };
+    const far = { ...anItem(ID(3), 'Cancel NordVPN'), dueDate: '2028-02-01' };
+    const farToo = { ...anItem(ID(4), 'Renew the lease'), dueDate: '2027-05-01' };
+    const filed = (...rows: Item[]): Filing[] => rows.map((item, position) => ({ panelId: 'tasks', itemId: item.id, position }));
+    const board = (extra: Parameters<typeof showBoard>[0] = {}) =>
+      showBoard({
+        panels: [aPanel('tasks', 'Tasks'), aPanel('reading', 'To read')],
+        items: [near, edge, far, farToo],
+        filings: filed(near, edge, far, farToo),
+        ...extra,
+      });
+    const header = () => within(handleOf('Tasks'));
+
+    beforeEach(() => {
+      // Only the date is held still, so the board reads 20 Nov 2026 and timers run as usual.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-20T12:00:00Z'));
+      localStorage.clear();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      act(() => forgetEveryLaterShown(localStorage));
+    });
+
+    it('draws the rows within 30 days and says how many are later after the count', () => {
+      board();
+
+      expect(rowsOf('Tasks')).toEqual([expect.stringContaining('Renew passport'), expect.stringContaining('Book the dentist')]);
+      expect(header().getByText('2')).toBeVisible();
+      expect(header().getByRole('button', { name: '· 2 later' })).toBeVisible();
+    });
+
+    it('adds nothing to the header where no Item is later', () => {
+      board({ items: [near, edge], filings: filed(near, edge) });
+
+      expect(header().queryByText(/later/)).toBeNull();
+    });
+
+    it('shows the later rows and the full count on a click of the count’s suffix', async () => {
+      const { user } = board();
+
+      await user.click(header().getByRole('button', { name: '· 2 later' }));
+
+      expect(rowsOf('Tasks')).toHaveLength(4);
+      expect(header().getByText('4')).toBeVisible();
+      expect(header().queryByText(/later/)).toBeNull();
+    });
+
+    it.each([
+      { rows: [near, edge, far], entry: 'Show 1 later item' },
+      { rows: [near, edge, far, farToo], entry: 'Show 2 later items' },
+    ])('offers $entry while they are hidden, and Hide later items once shown', async ({ rows, entry }) => {
+      const { user } = board({ items: rows, filings: filed(...rows) });
+
+      await user.click(menuButtonOf('Tasks'));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+
+      expect(rowsOf('Tasks')).toHaveLength(rows.length);
+      await user.click(menuButtonOf('Tasks'));
+      expect(await screen.findByRole('menuitem', { name: 'Hide later items' })).toBeVisible();
+      expect(screen.queryByRole('menuitem', { name: /Show \d+ later/ })).toBeNull();
+    });
+
+    it('offers neither entry on a Panel with no later Item', async () => {
+      const { user } = board({ items: [near], filings: filed(near) });
+
+      await user.click(menuButtonOf('Tasks'));
+
+      await screen.findByRole('menuitem', { name: 'Settings…' });
+      expect(screen.queryByRole('menuitem', { name: /later item/ })).toBeNull();
+    });
+
+    it('keeps the choice to the Panel it was made on', async () => {
+      const readingFar = { ...anItem(ID(5), 'Read the manual'), dueDate: '2027-06-01' };
+      const { user } = board({
+        items: [near, far, readingFar],
+        filings: [...filed(near, far), { panelId: 'reading', itemId: readingFar.id, position: 0 }],
+      });
+
+      await user.click(menuButtonOf('Tasks'));
+      await user.click(await screen.findByRole('menuitem', { name: 'Show 1 later item' }));
+
+      expect(rowsOf('Tasks')).toHaveLength(2);
+      expect(rowsOf('To read')).toEqual([]);
+    });
+
+    it('remembers the choice for a board drawn again, and forgets it at sign-out', async () => {
+      const { user, unmount } = board();
+      await user.click(header().getByRole('button', { name: '· 2 later' }));
+      unmount();
+
+      board();
+      expect(rowsOf('Tasks')).toHaveLength(4);
+
+      act(() => forgetEveryLaterShown(localStorage));
+      expect(isLaterShown('tasks')).toBe(false);
+    });
+
+    it('shows them for this visit where the browser refuses to store the choice', () => {
+      const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('refused');
+      });
+      board();
+
+      act(() => setLaterShown('tasks', true));
+
+      expect(rowsOf('Tasks')).toHaveLength(4);
+      refuse.mockRestore();
+    });
+
+    it('does not draw a Panel the Dashboard filter leaves with only later matches', () => {
+      writeDashboardFilter(localStorage, 'today', { ...NO_DASHBOARD_FILTER, text: 'NordVPN' });
+      board();
+
+      expect(screen.queryByRole('region', { name: 'Tasks' })).toBeNull();
+    });
+
+    it('leaves later Items out of what Select all picks, and picks them once shown', () => {
+      board();
+      expect([...shownOn(dashboardScope('today'), true)]).toEqual([near.id, edge.id]);
+
+      act(() => setLaterShown('tasks', true));
+      expect([...shownOn(dashboardScope('today'), true)]).toEqual([near.id, edge.id, far.id, farToo.id]);
+    });
+
+    it('counts a child due 60 days out under a shown parent as later', () => {
+      const farChild = { ...anItem(ID(6), 'Renew the contract'), dueDate: '2027-01-19' };
+      const parent = { ...near, childrenCount: 1, childrenDone: 0 };
+      board({
+        items: [parent, farChild],
+        filings: filed(parent),
+        childRows: [{ parentId: parent.id, childId: farChild.id, position: 0 }],
+      });
+
+      expect(header().getByRole('button', { name: '· 1 later' })).toBeVisible();
+    });
+
+    it('sets nothing aside on a Panel of text', () => {
+      showBoard({ panels: [aPanelOfText('notes', 'Notes')] });
+
+      expect(within(screen.getByRole('region', { name: 'Notes' })).queryByText(/later/)).toBeNull();
     });
   });
 });
