@@ -108,10 +108,17 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
         ? snapshot
         : { ...snapshot, attachments: [...snapshot.attachments, { id, tenantId: snapshot.workspace.tenantId, itemId, filename, size, contentType, createdAt }] };
     }
-    case 'remove_attachment':
-      return change.payload.workspaceId !== snapshot.workspace.id
-        ? snapshot
-        : { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== change.payload.attachmentId) };
+    case 'remove_attachment': {
+      if (change.payload.workspaceId !== snapshot.workspace.id) return snapshot;
+      const { attachmentId, itemId } = change.payload;
+      const without = { ...snapshot, attachments: snapshot.attachments.filter((held) => held.id !== attachmentId) };
+      // The file that stood for its Item takes the thumbnail with it, as the server does.
+      return snapshot.items.some((item) => item.id === itemId && item.thumbnailAttachmentId === attachmentId)
+        ? withItem(without, itemId, { thumbnailAttachmentId: null })
+        : without;
+    }
+    case 'set_thumbnail':
+      return withItem(snapshot, change.payload.itemId, { thumbnailAttachmentId: change.payload.attachmentId });
     case 'set_done': {
       const finished = withItem(snapshot, change.payload.itemId, {
         completedAt: change.payload.done ? change.payload.issuedAt : null,
@@ -613,6 +620,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'add_children',
   'remove_child',
   'remove_attachment',
+  'set_thumbnail',
   // An addition the outbox could not keep, sent by the queue instead (issue 1640).
   'append_to_item',
   'set_done',

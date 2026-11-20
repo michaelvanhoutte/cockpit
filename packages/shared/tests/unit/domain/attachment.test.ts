@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_ATTACHMENT_SIZE,
+  THUMBNAIL_SIDE,
   attachmentContentTypeSchema,
   attachmentFilenameSchema,
+  canBeThumbnail,
   resolveAttachmentType,
+  thumbnailCopyTypeSchema,
+  thumbnailSource,
 } from '../../../src/domain/attachment.js';
 
 /**
@@ -69,5 +73,47 @@ describe('Item editing', () => {
 
   it('caps a stored file at 25MB', () => {
     expect(MAX_ATTACHMENT_SIZE).toBe(25 * 1024 * 1024);
+  });
+});
+
+/**
+ * L1: "Item form: there is no way to mark which image stands for an Item" (issue
+ * 1863). Which pictures may stand for an Item, and which part of one the small
+ * copy is cut from, are pure decisions over a type and two numbers.
+ */
+describe('Item editing', () => {
+  describe('only a picture can be an Item’s thumbnail', () => {
+    it.each([
+      { situation: 'a PNG', type: 'image/png', allowed: true },
+      { situation: 'a JPEG', type: 'image/jpeg', allowed: true },
+      { situation: 'a GIF', type: 'image/gif', allowed: true },
+      { situation: 'a WebP', type: 'image/webp', allowed: true },
+      { situation: 'a PDF', type: 'application/pdf', allowed: false },
+      { situation: 'a clip', type: 'video/mp4', allowed: false },
+      { situation: 'a text file', type: 'text/plain', allowed: false },
+    ])('$situation is $allowed', ({ type, allowed }) => {
+      expect(canBeThumbnail(type)).toBe(allowed);
+    });
+
+    it('makes its small copy a PNG, a JPEG or a WebP, never a GIF', () => {
+      expect(thumbnailCopyTypeSchema.safeParse('image/webp').success).toBe(true);
+      expect(thumbnailCopyTypeSchema.safeParse('image/gif').success).toBe(false);
+    });
+  });
+
+  describe('the thumbnail is the largest centred square of the picture, scaled to 96 px', () => {
+    it.each([
+      { situation: 'a landscape 4000 × 3000', width: 4000, height: 3000, from: { x: 500, y: 0, side: 3000 } },
+      { situation: 'a portrait 600 × 900', width: 600, height: 900, from: { x: 0, y: 150, side: 600 } },
+      { situation: 'a square', width: 500, height: 500, from: { x: 0, y: 0, side: 500 } },
+      { situation: 'a picture smaller than 96 px, scaled up', width: 40, height: 30, from: { x: 5, y: 0, side: 30 } },
+      { situation: 'an odd-sized one, in whole pixels', width: 101, height: 50, from: { x: 25, y: 0, side: 50 } },
+    ])('takes $situation from $from.x, $from.y, $from.side px square', ({ width, height, from }) => {
+      expect(thumbnailSource(width, height)).toEqual(from);
+    });
+
+    it('is drawn at the side the copy has, which is 96 px', () => {
+      expect(THUMBNAIL_SIDE).toBe(96);
+    });
   });
 });

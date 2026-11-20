@@ -29,7 +29,7 @@ import { occurrenceDueAt, type SeriesRow } from '../domain/series.js';
 import { nextOccurrenceDueAt, occurrenceNotBroughtBack } from './occurrences.js';
 import type { Env } from '../env.js';
 import type { AccountSnapshot, Answer, ChangeToRun, ChangesApplied } from './answer.js';
-import { inGroupsOf } from '../domain/attachments.js';
+import { inGroupsOf, thumbnailR2Key } from '../domain/attachments.js';
 import type { AttachmentForDownload } from '../domain/attachments.js';
 import type { AccountStoreRpc, RestoreReport } from './rpc.js';
 import { accountChanges } from './changes.js';
@@ -114,6 +114,8 @@ import {
   AgentRunNotFoundError,
   AgentRunRefusedError,
   AttachmentIdTakenError,
+  AttachmentNotFoundError,
+  ThumbnailRefusedError,
   DashboardNameTakenError,
   DashboardNotFoundError,
   DashboardOrderStaleError,
@@ -1985,7 +1987,8 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       ? sql
           .exec<{ r2_key: string }>('SELECT DISTINCT r2_key FROM attachments')
           .toArray()
-          .map((row) => row.r2_key)
+          // A picked thumbnail's small copy sits beside its file (`thumbnailR2Key`).
+          .flatMap((row) => [row.r2_key, thumbnailR2Key(row.r2_key)])
       : [];
 
     this.ctx.storage.transactionSync(() => {
@@ -2042,6 +2045,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
     } catch (error) {
       if (
         error instanceof ItemNotFoundError ||
+        error instanceof AttachmentNotFoundError ||
         error instanceof SentenceNotFoundError ||
         error instanceof AgentRunNotFoundError ||
         error instanceof WorkspaceNotFoundError ||
@@ -2080,6 +2084,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // A 400 as well: the Item is there, and the rule asked for is one it cannot take.
         error instanceof RepeatRefusedError ||
         error instanceof WaitRefusedError ||
+        error instanceof ThumbnailRefusedError ||
         error instanceof DraftRefusedError ||
         // A 400 rather than a 404 or a 409: the panel exists and nothing is in
         // the way - it is simply not the kind of panel that takes this.

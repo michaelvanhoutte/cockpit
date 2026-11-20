@@ -3864,6 +3864,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "keepsStory"
+            },
+            {
+              "name": "thumbnail_attachment_id",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "thumbnailAttachmentId"
             }
           ],
           "indexes": [

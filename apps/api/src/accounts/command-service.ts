@@ -1,5 +1,5 @@
 import { and, desc, eq, exists, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
-import { CLAUDE_REPORTED_STAGES, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
+import { CLAUDE_REPORTED_STAGES, canBeThumbnail, DRAFT_STARTING_PREFIX, NEEDS_YOU_WITHOUT_A_QUESTION, RECURRING_REFUSALS, REPORT_NOTE_LIMIT, claudeResultLink, claudeSessionLink, firstDayAfter, itemFromASource, itemLabel, reportSaysWhatItNeeds, nextColor, REMEMBERED_SENTENCES_KEPT, uuidv7 } from '@cockpit/shared';
 import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, Item, PanelKind } from '@cockpit/shared';
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
@@ -233,6 +233,26 @@ export class AttachmentIdTakenError extends Error {
   constructor(attachmentId: string) {
     super(`attachment ${attachmentId} already names a different upload`);
     this.name = 'AttachmentIdTakenError';
+  }
+}
+
+/**
+ * A thumbnail picked from an attachment that is not there for this Item (gone
+ * since the pick began, or another Item's, or another account's), in the same
+ * words whichever it is, so a 404 says nothing about whose file it is.
+ */
+export class AttachmentNotFoundError extends Error {
+  constructor(attachmentId: string) {
+    super(`attachment ${attachmentId} not found`);
+    this.name = 'AttachmentNotFoundError';
+  }
+}
+
+/** A thumbnail picked from an attachment that is not a picture, in the words the person is told. */
+export class ThumbnailRefusedError extends Error {
+  constructor() {
+    super('Only a picture can be the thumbnail.');
+    this.name = 'ThumbnailRefusedError';
   }
 }
 
@@ -2957,6 +2977,40 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
+        // Removing the file that stands for the Item takes the thumbnail with it
+        // ("Item form: there is no way to mark which image stands for an Item",
+        // issue 1863); removing any other leaves it. Its small copy stays in R2,
+        // as the file does.
+        if (item.thumbnailAttachmentId === cmd.attachmentId) {
+          tx.update(items)
+            .set({ thumbnailAttachmentId: null })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'set_thumbnail': {
+      const cmd = payload as CommandPayload<'set_thumbnail'>;
+      const item = getItem(db, tenantId, cmd.itemId);
+      if (!item || item.deletedAt) throw new ItemNotFoundError(cmd.itemId);
+      if (cmd.attachmentId !== null) {
+        // Only one of this Item's own pictures: a file removed since the pick
+        // began, another Item's or another account's reads as not there.
+        const file = getAttachment(db, tenantId, cmd.attachmentId);
+        if (!file || file.itemId !== item.id) throw new AttachmentNotFoundError(cmd.attachmentId);
+        if (!canBeThumbnail(file.contentType)) throw new ThumbnailRefusedError();
+      }
+      if (!item.workspaceDecided) everyWorkspaceSees(commandRow);
+      db.transaction((tx) => {
+        // The same pick twice writes the same value; a second one writes nothing new.
+        if (item.thumbnailAttachmentId !== cmd.attachmentId) {
+          tx.update(items)
+            .set({ thumbnailAttachmentId: cmd.attachmentId })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, cmd.itemId)))
+            .run();
+        }
         tx.insert(commands).values(commandRow).run();
       });
       break;

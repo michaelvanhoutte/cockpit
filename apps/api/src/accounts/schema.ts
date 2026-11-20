@@ -1073,6 +1073,16 @@ export const items = sqliteTable(
      * CHECK, the same trade `started_at` records.
      */
     waitingSince: text('waiting_since'),
+    /**
+     * The one image attachment of this Item that stands for it ("Item form:
+     * there is no way to mark which image stands for an Item", issue 1863),
+     * and null while none does. Carries no index, no foreign key and no CHECK:
+     * no filter or sort reads it, `attachments` rows are hard-deleted and
+     * nothing restricts that, and a Merge may leave it naming a file that has
+     * moved to another Item, so a reader checks the file is the Item's own.
+     * Written by `set_thumbnail`, cleared by `remove_attachment` naming it.
+     */
+    thumbnailAttachmentId: text('thumbnail_attachment_id'),
     priority: text('priority').$type<Priority>(),
     /**
      * When the person first set or cleared `priority` ("Read a priority you

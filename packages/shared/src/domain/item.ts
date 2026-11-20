@@ -192,6 +192,8 @@ export const itemSchema = z.object({
   dueDateChosenAt: z.iso.datetime().nullable(),
   /** The series this Item is an occurrence of, and null for one that has never repeated ("Repeat an Item on a schedule", issue 1405). The rule is the series', in the Workspace snapshot's `series`; a stopped series is still named. */
   seriesId: z.uuid().nullable().default(null),
+  /** The one image attachment of this Item that stands for it, and null while none does ("Item form: there is no way to mark which image stands for an Item", issue 1863). Names an attachment the Item may no longer own after a Merge moved its files, so a reader checks it is among the Item's own. Optional, so a saved read from before it still draws and reads as none. */
+  thumbnailAttachmentId: z.uuid().nullable().optional(),
   unseen: z.boolean(),
   /** Tombstone, never a hard delete (architecture.md §4.2). */
   deletedAt: z.iso.datetime().nullable(),
