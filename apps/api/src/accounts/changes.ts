@@ -198,6 +198,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     FILINGS_COPIED_AGAIN,
     MERGE_TRAIL,
     STORY_PROPOSAL,
+    ITEM_THUMBNAIL,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -2051,6 +2052,33 @@ const STORY_PROPOSAL: Change = {
     { sql: 'ALTER TABLE `items` ADD COLUMN `story_proposal` text' },
     { sql: 'ALTER TABLE `items` ADD COLUMN `story_proposed_at` text' },
   ],
+};
+
+/**
+ * Which image attachment stands for an Item ("Item form: there is no way to
+ * mark which image stands for an Item", issue 1863): one nullable column on
+ * `items`; `schema.ts` says what it carries.
+ *
+ * Its failure modes, per the `scoping` skill:
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored** (CLAUDE.md, "Deployed
+ *   data is real"): one `ADD COLUMN`, and no statement that reads or writes a
+ *   row. It is the whole of the expand; there is no contract step.
+ * - **If it stops halfway:** it cannot. One statement, committed with the
+ *   record that it ran in one `transactionSync` (store.ts).
+ * - **The second time it runs:** it does not, having been recorded.
+ * - **Rows that already break the new rule:** none can; every existing Item
+ *   reads NULL, which is no thumbnail. Nothing is backfilled.
+ * - **What is in each environment:** real Items in staging and production, each
+ *   gaining a NULL; nothing is written on deploy.
+ * - **Rolled back after it has run:** an older release never names the column,
+ *   so a picked thumbnail is not drawn and its small copy sits unused in R2.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_THUMBNAIL: Change = {
+  name: '0113-item-thumbnail',
+  statements: [{ sql: 'ALTER TABLE `items` ADD COLUMN `thumbnail_attachment_id` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

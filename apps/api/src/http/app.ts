@@ -18,6 +18,10 @@ import {
   commandResultSchema,
   commandSchemas,
   MAX_ATTACHMENT_SIZE,
+  MAX_THUMBNAIL_SIZE,
+  canBeThumbnail,
+  setThumbnailSchema,
+  thumbnailCopyTypeSchema,
   MAX_RECORDING_BYTES,
   TRANSCRIPTION_PATH,
   registeredUserListSchema,
@@ -90,7 +94,7 @@ import {
 import { checkHealth } from '../accounts/probe.js';
 import { transcriberFor } from '../transcription/index.js';
 import { ALLOWANCE_SPENT_MESSAGE, allowanceSpent } from '../accounts/allowance.js';
-import { attachmentR2Key, type AttachmentForDownload } from '../domain/attachments.js';
+import { attachmentR2Key, thumbnailR2Key, type AttachmentForDownload } from '../domain/attachments.js';
 import {
   ATTACHMENT_LINK_PREFIX,
   attachmentLinkAddress,
@@ -2052,6 +2056,15 @@ const routes = app
   .openapi(commandRoute('remove_attachment'), async (c) =>
     c.json(await change(c, 'remove_attachment', c.req.valid('json')), 200),
   )
+  // Only *Stop using as thumbnail* comes this way: a pick carries the device's
+  // small copy and is written by the thumbnail upload route below, so an id
+  // posted here would name a picture with nothing to draw.
+  .openapi(commandRoute('set_thumbnail'), async (c) => {
+    const cmd = c.req.valid('json');
+    if (cmd.attachmentId !== null) throw new RefusedByAccountError('A thumbnail is picked by sending its small copy.');
+    return c.json(await change(c, 'set_thumbnail', cmd), 200);
+  }
+  )
   .openapi(commandRoute('set_duplicate_settled'), async (c) =>
     c.json(await change(c, 'set_duplicate_settled', c.req.valid('json')), 200),
   )
@@ -2225,6 +2238,69 @@ const routes = app
     const cmd = { ...parsedCommand.data, size: object.size };
 
     return c.json(await account.applyChange('add_attachment', cmd), 201);
+  })
+  // --- an Item's thumbnail ("Item form: there is no way to mark which image
+  // stands for an Item", issue 1863): the small copy the device made of one of
+  // its image attachments, stored beside the original and recorded by
+  // `set_thumbnail`. Outside the OpenAPI/JSON contract for the reason the
+  // attachment upload above is.
+  .post('/v1/items/:itemId/attachments/:attachmentId/thumbnail', async (c) => {
+    const itemId = c.req.param('itemId');
+    const attachmentId = c.req.param('attachmentId');
+
+    // Refused from the headers alone, before anything reads the body.
+    const contentType = thumbnailCopyTypeSchema.safeParse(c.req.header('content-type'));
+    if (!contentType.success) return c.json({ error: 'a thumbnail is a PNG, JPEG or WebP picture' }, 400);
+    const declaredSize = Number(c.req.header('content-length'));
+    if (!Number.isInteger(declaredSize) || declaredSize <= 0 || declaredSize > MAX_THUMBNAIL_SIZE) {
+      return c.json({ error: `a thumbnail may be at most ${MAX_THUMBNAIL_SIZE} bytes` }, 413);
+    }
+    const parsedCommand = setThumbnailSchema.safeParse({
+      commandId: c.req.header('x-command-id'),
+      issuedAt: c.req.header('x-issued-at'),
+      workspaceId: c.req.header('x-workspace-id'),
+      itemId,
+      attachmentId,
+    });
+    if (!parsedCommand.success) {
+      return c.json({ error: 'validation failed', issues: parsedCommand.error.issues }, 400);
+    }
+
+    const accountName = c.get('visitor').accountName;
+    const account = await openAccount(c.env, accountName);
+    // One of this Item's own pictures, asked of this account's own rows: an
+    // id that is another account's, another Item's or gone is the same 404.
+    const attachment = await account.attachmentForDownload(attachmentId);
+    if (!attachment || attachment.itemId !== itemId) {
+      return c.json({ error: `attachment ${attachmentId} not found` }, 404);
+    }
+    if (!canBeThumbnail(attachment.contentType)) {
+      return c.json({ error: 'Only a picture can be the thumbnail.' }, 400);
+    }
+
+    // The bytes themselves are counted, since a header is only a claim, and
+    // this is checked before R2 is touched.
+    const copy = await c.req.arrayBuffer();
+    if (copy.byteLength === 0 || copy.byteLength > MAX_THUMBNAIL_SIZE) {
+      return c.json({ error: `a thumbnail may be at most ${MAX_THUMBNAIL_SIZE} bytes` }, 413);
+    }
+    await c.env.ATTACHMENTS.put(thumbnailR2Key(attachment.r2Key), copy, {
+      httpMetadata: { contentType: contentType.data },
+    });
+    return c.json(await account.applyChange('set_thumbnail', parsedCommand.data), 200);
+  })
+  .get('/v1/attachments/:attachmentId/thumbnail', async (c) => {
+    const attachmentId = c.req.param('attachmentId');
+    const account = await openAccount(c.env, c.get('visitor').accountName);
+    const attachment = await account.attachmentForDownload(attachmentId);
+    const object = attachment && (await c.env.ATTACHMENTS.get(thumbnailR2Key(attachment.r2Key)));
+    // The stored type or nothing: a copy is only ever one of the three the upload accepts.
+    const type = thumbnailCopyTypeSchema.safeParse(object?.httpMetadata?.contentType);
+    if (!object || !type.success) return c.json({ error: `attachment ${attachmentId} has no thumbnail` }, 404);
+    return new Response(object.body as unknown as ReadableStream, {
+      status: 200,
+      headers: { 'Content-Type': type.data, 'X-Content-Type-Options': 'nosniff' },
+    });
   })
   .get('/v1/attachments/:attachmentId', async (c) => {
     const attachmentId = c.req.param('attachmentId');

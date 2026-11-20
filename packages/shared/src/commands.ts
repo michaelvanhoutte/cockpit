@@ -961,6 +961,20 @@ export const removeAttachmentSchema = commandEnvelopeSchema.extend({
 export type RemoveAttachmentCommand = z.infer<typeof removeAttachmentSchema>;
 
 /**
+ * set_thumbnail ("Item form: there is no way to mark which image stands for an
+ * Item", issue 1863) - which one of an Item's image attachments stands for it,
+ * or none. **With an attachment it is written by the thumbnail upload route**
+ * (`apps/api/src/http/app.ts`) once the device's small copy is in R2, never
+ * posted as JSON; with `null`, *Stop using as thumbnail*, it goes through the
+ * change queue like any other change.
+ */
+export const setThumbnailSchema = commandEnvelopeSchema.extend({
+  itemId: z.uuid(),
+  attachmentId: z.uuid().nullable(),
+});
+export type SetThumbnailCommand = z.infer<typeof setThumbnailSchema>;
+
+/**
  * set_item_form_presentation — whether the account has the Item's form drawn
  * centered or docked to the side ("Let the item's form dock to the side of the
  * screen instead of opening as a dialog", issue 481). Account-scoped:
@@ -1379,6 +1393,7 @@ export const commandSchemas = {
   set_description: setDescriptionSchema,
   add_attachment: addAttachmentSchema,
   remove_attachment: removeAttachmentSchema,
+  set_thumbnail: setThumbnailSchema,
   set_item_form_presentation: setItemFormPresentationSchema,
   set_follow_up_days: setFollowUpDaysSchema,
   set_email_address: setEmailAddressSchema,

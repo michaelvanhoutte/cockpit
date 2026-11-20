@@ -86,6 +86,7 @@ function withoutLaterColumns(row: Record<string, SqlStorageValue>): Record<strin
     keeps_story: _keepsStory,
     story_proposal: _storyProposal,
     story_proposed_at: _storyProposedAt,
+    thumbnail_attachment_id: _thumbnailAttachmentId,
     ...rest
   } = row;
   return rest;
@@ -3783,7 +3784,7 @@ const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T =
     ...rest,
     items: rows('items')
       .filter((row) => !panelIds.has(row.id))
-      .map(({ children_count: _count, children_done: _done, merged_into_id: _into, keeps_story: _story, story_proposal: _proposal, story_proposed_at: _proposedAt, ...row }) => row),
+      .map(({ children_count: _count, children_done: _done, merged_into_id: _into, keeps_story: _story, story_proposal: _proposal, story_proposed_at: _proposedAt, thumbnail_attachment_id: _thumbnail, ...row }) => row),
     panels: rows('panels').map(({ item_id: _itemId, ...row }) => row),
     // `0111-merge-trail`'s columns, null on every row an account already had.
     ...(kept.item_additions ? { item_additions: rows('item_additions').map(({ from_item_id: _from, ...row }) => row) } : {}),

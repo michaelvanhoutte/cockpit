@@ -134,6 +134,7 @@ export function captureItem(cmd: CaptureItemCommand, tenantId: string): Item {
     claudeProposals: null,
     // Nothing repeats until a person says so ("Repeat an Item on a schedule", issue 1405).
     seriesId: null,
+    thumbnailAttachmentId: null,
     sourceResolvedAt: null,
     nextAction: asNextAction(cmd.nextAction),
     completedAt: null,
