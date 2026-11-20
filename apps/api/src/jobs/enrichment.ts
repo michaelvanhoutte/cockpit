@@ -1719,8 +1719,8 @@ export async function rewriteStory(env: Env, job: RewriteStoryJob): Promise<void
   const sources = await account.storySources(job.itemId, STORY_CHILDREN_READ);
   if (!sources) return say(job.itemId, 'no story was written: the item is gone');
   if (!job.anyway && !sources.keepsStory) return say(job.itemId, 'no story was written: it no longer keeps its story up to date');
-  // Nothing held, so nothing to say: the story waits for what comes next rather than being replaced by "empty for now" (a rewrite asked for by name is refused for such an Item, as it would only do that).
-  if (!job.anyway && sources.children.length === 0) return say(job.itemId, 'no story was written: it holds nothing now');
+  // Nothing held, so nothing to say, asked by name or not: the story waits for what comes next rather than being replaced by "empty for now".
+  if (sources.children.length === 0) return say(job.itemId, 'no story was written: it holds nothing now');
   const { read } = childrenForStory(sources.children);
   const written = await ai.writeAStory(
     { title: sources.title, description: sources.description, children: read, held: sources.held },
@@ -1741,6 +1741,11 @@ export async function rewriteStory(env: Env, job: RewriteStoryJob): Promise<void
       story: written.story,
     });
     say(job.itemId, result.applied ? 'wrote the story' : 'the story already said so');
+    // A description replaced is new words, so what they mean and what to do with the Item are read again, as after a clean-up.
+    if (result.applied && result.textsWritten) {
+      await enqueueReadingItsMeaning(env, job.accountName, job.itemId, job.triggeredBy ?? 'story-changed');
+      await enqueueProposalForClaude(env, job.accountName, job.itemId, 'item-changed');
+    }
   } catch (error) {
     if (error instanceof NotFoundInAccountError) return say(job.itemId, 'nothing was written: the item went while it was being read');
     throw error;

@@ -64,14 +64,20 @@ export function applyProposedStory(item: Item, story: string, at: string): Item 
   return { ...item, storyProposal: story, storyProposedAt: at };
 }
 
-/** *Use it*: Claude's version is the description, and it stays the person's. Null where no Review waits. */
-export function applyUseStory(item: Item): Item | null {
-  if (!item.storyProposal) return null;
-  return { ...item, description: item.storyProposal, storyProposal: null, storyProposedAt: null };
+/**
+ * *Use it*: Claude's version is the description, and it stays the person's.
+ * Null where the version reviewed is not the one waiting - none waits, or a
+ * newer rewrite replaced it - so nothing the person did not read is written.
+ * `textsProposedAt` goes, as it does when a story replaces a description
+ * silently: the person's next edit corrects Claude's story, not a clean-up.
+ */
+export function applyUseStory(item: Item, reviewed: string): Item | null {
+  if (!item.storyProposal || item.storyProposal !== reviewed) return null;
+  return { ...item, description: item.storyProposal, storyProposal: null, storyProposedAt: null, textsProposedAt: null };
 }
 
-/** *Keep mine*: Claude's version is dropped. Null where no Review waits. */
-export function applyKeepMyStory(item: Item): Item | null {
-  if (!item.storyProposal) return null;
+/** *Keep mine*: Claude's version is dropped. Null where the version reviewed is not the one waiting, which a newer rewrite leaves to be reviewed. */
+export function applyKeepMyStory(item: Item, reviewed: string): Item | null {
+  if (!item.storyProposal || item.storyProposal !== reviewed) return null;
   return { ...item, storyProposal: null, storyProposedAt: null };
 }

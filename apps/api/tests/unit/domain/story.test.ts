@@ -80,17 +80,28 @@ describe('Triage', () => {
   describe('Use it makes Claude\'s version the description and Keep mine drops it', () => {
     const waiting = aParent({ textsSettledAt: MADE, storyProposal: 'Claude\'s version.', storyProposedAt: MADE });
 
-    it('Use it replaces the description, which stays yours, and clears the Review', () => {
-      expect(applyUseStory(waiting)).toMatchObject({ description: 'Claude\'s version.', textsSettledAt: MADE, storyProposal: null, storyProposedAt: null });
+    it('Use it replaces the description, which stays yours, clears the Review and the clean-up\'s mark', () => {
+      expect(applyUseStory({ ...waiting, textsProposedAt: MADE }, 'Claude\'s version.')).toMatchObject({
+        description: 'Claude\'s version.',
+        textsSettledAt: MADE,
+        textsProposedAt: null,
+        storyProposal: null,
+        storyProposedAt: null,
+      });
     });
 
     it('Keep mine leaves the description and clears the Review', () => {
-      expect(applyKeepMyStory(waiting)).toMatchObject({ description: 'Three notes about the crossing.', textsSettledAt: MADE, storyProposal: null, storyProposedAt: null });
+      expect(applyKeepMyStory(waiting, 'Claude\'s version.')).toMatchObject({ description: 'Three notes about the crossing.', textsSettledAt: MADE, storyProposal: null, storyProposedAt: null });
     });
 
     it('either one answered again, or with no Review waiting, changes nothing', () => {
-      expect(applyUseStory(aParent())).toBeNull();
-      expect(applyKeepMyStory(aParent())).toBeNull();
+      expect(applyUseStory(aParent(), 'Claude\'s version.')).toBeNull();
+      expect(applyKeepMyStory(aParent(), 'Claude\'s version.')).toBeNull();
+    });
+
+    it('either one naming a version older than the one waiting changes nothing, so a newer rewrite is never taken unread', () => {
+      expect(applyUseStory(waiting, 'An older version.')).toBeNull();
+      expect(applyKeepMyStory(waiting, 'An older version.')).toBeNull();
     });
   });
 

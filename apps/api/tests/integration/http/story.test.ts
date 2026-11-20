@@ -199,6 +199,22 @@ describe('Triage', () => {
       expect(rewrites()[0]).toMatchObject({ itemId: loose, anyway: true });
     });
 
+    it('queues one when a child is dismissed, and one when it is brought back', async () => {
+      const parentId = await aParent();
+      const child = await aNote();
+      await addChildren(parentId, [child]);
+      await untilRewrites(1);
+      held = [];
+
+      expect((await postChange('set_dismissed', { ...envelope(), itemId: child, dismissed: true })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: parentId });
+      held = [];
+      expect((await postChange('set_dismissed', { ...envelope(), itemId: child, dismissed: false })).status).toBe(200);
+      await untilRewrites(1);
+      expect(rewrites()[0]).toMatchObject({ itemId: parentId });
+    });
+
     it('refuses to write a story for an Item that holds nothing, and queues nothing', async () => {
       const leaf = await aNote('A note with nothing under it');
 
@@ -289,8 +305,8 @@ describe('Triage', () => {
       await untilRewrites(2);
       await delivered();
 
-      expect((await postChange('use_story', { ...envelope(), itemId: used })).status).toBe(200);
-      expect((await postChange('keep_my_story', { ...envelope(), itemId: kept })).status).toBe(200);
+      expect((await postChange('use_story', { ...envelope(), itemId: used, story: 'A story of what it holds.' })).status).toBe(200);
+      expect((await postChange('keep_my_story', { ...envelope(), itemId: kept, story: 'A story of what it holds.' })).status).toBe(200);
 
       expect(await storyOf(used)).toMatchObject({ description: 'A story of what it holds.', story_proposal: null });
       expect((await storyOf(used)).texts_settled_at).not.toBeNull();
@@ -306,6 +322,50 @@ describe('Triage', () => {
       await delivered();
 
       expect(await storyOf(parentId)).toMatchObject({ description: 'A story of what it holds.', keeps_story: 1 });
+    });
+  });
+
+  describe('what a story is written from, and what follows it', () => {
+    it('writes a Merge\'s first story from what the originals said and from the Items they held', async () => {
+      const [a, b, held3] = [await aNote('Book flights to Lisbon'), await aNote('Hotel in Alfama'), await aNote('Renew passport')];
+      await addChildren(a, [held3]);
+      const merged = nextId();
+      expect((await postChange('merge_items', { ...envelope(), itemId: merged, originalIds: [a, b], title: 'Lisbon', description: 'Stitched' })).status).toBe(200);
+      await vi.waitFor(() => expect(rewrites().some((job) => job.kind === 'rewrite-story' && job.itemId === merged)).toBe(true), { timeout: 15_000 });
+      held = held.filter((job) => job.kind === 'rewrite-story' && job.itemId === merged);
+
+      await delivered();
+
+      expect(writing.asked).toHaveLength(1);
+      for (const words of ['Book flights to Lisbon', 'Hotel in Alfama', 'Renew passport']) expect(writing.asked[0]!.item).toContain(words);
+    });
+
+    it('writes nothing for a story asked for by name once nothing is held, rather than calling it empty', async () => {
+      const parentId = await aParent({ keeps: false });
+      const child = await aNote();
+      await addChildren(parentId, [child]);
+      expect((await postChange('rewrite_story', { ...envelope(), itemId: parentId })).status).toBe(200);
+      await untilRewrites(1);
+      expect((await postChange('remove_child', { ...envelope(), parentId, childId: child })).status).toBe(200);
+      const before = await storyOf(parentId);
+
+      await delivered();
+
+      expect(writing.asked).toEqual([]);
+      expect(await storyOf(parentId)).toEqual(before);
+    });
+
+    it('asks again what to do with an Item whose description a story replaced, and not where it waits for a Review', async () => {
+      const [replaced, reviewed] = [await aParent(), await aParent({ yours: true })];
+      for (const parentId of [replaced, reviewed]) await addChildren(parentId, [await aNote('Storm scene')]);
+      await untilRewrites(2);
+      held = held.filter((job) => job.kind === 'rewrite-story');
+
+      await delivered();
+
+      const proposals = () => held.filter((job) => job.kind === 'propose-for-claude').map((job) => (job as { itemId: string }).itemId);
+      await vi.waitFor(() => expect(proposals()).toContain(replaced), { timeout: 15_000 });
+      expect(proposals()).not.toContain(reviewed);
     });
   });
 

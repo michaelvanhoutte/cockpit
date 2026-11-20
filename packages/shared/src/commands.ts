@@ -1492,8 +1492,9 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * Cockpit address, and receive mail at it", issue 1466). Read off the same
  * atomic call for the reason `settledRouting` is, and never sent to the browser.
  *
- * `textsWritten` is present only for `read_pasted_link`, and only where it
- * applied: whether the title and description changed too (the texts it
+ * `textsWritten` is present only for `read_pasted_link` and `propose_story`
+ * (where it says whether the description was replaced rather than held for a
+ * Review), and only where it applied: whether the title and description changed too (the texts it
  * carried, else the ones a capture makes of the message read), which they do
  * not where a person made the texts their own first. Read off the same
  * atomic call for the reason `settledRouting` is.

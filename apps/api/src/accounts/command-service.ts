@@ -2494,6 +2494,7 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        textsWritten = updated.description !== holder.description;
         db.transaction((tx) => {
           storeItem(tx, tenantId, updated);
           tx.insert(commands).values(commandRow).run();
@@ -2507,8 +2508,8 @@ export function runCommand<N extends CommandName>(
       const holder = getItem(db, tenantId, cmd.itemId);
       if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
-      const decided = name === 'use_story' ? applyUseStory(holder) : applyKeepMyStory(holder);
-      // Answered from another tab already, or a Review that never was: nothing waits, so nothing changes.
+      const decided = name === 'use_story' ? applyUseStory(holder, cmd.story) : applyKeepMyStory(holder, cmd.story);
+      // Answered from another tab already, replaced by a newer rewrite, or a Review that never was: nothing changes.
       applied = decided !== null;
       db.transaction((tx) => {
         if (decided) {
@@ -3760,6 +3761,10 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        // Dismissed or brought back, it leaves or rejoins every Item holding it ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
+        if (name === 'set_dismissed' && (existing.deletedAt === null) !== (updated.deletedAt === null)) {
+          for (const parentId of itemParentsHolding(db, tenantId, [cmd.itemId])) storyOfItems.add(parentId);
+        }
         // A correction only for the two texts, and only where Cockpit had
         // actually proposed something to correct - an Item it never proposed
         // for teaches nothing ("Learn how you write from the titles you

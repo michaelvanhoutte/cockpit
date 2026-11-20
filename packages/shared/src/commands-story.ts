@@ -28,12 +28,16 @@ export type SetKeepsStoryCommand = z.infer<typeof setKeepsStorySchema>;
 export const rewriteStorySchema = commandEnvelopeSchema.extend({ itemId: z.uuid() });
 export type RewriteStoryCommand = z.infer<typeof rewriteStorySchema>;
 
-/** use_story - *Use it* on a Review: Claude's new version becomes the description, which stays yours. */
-export const useStorySchema = commandEnvelopeSchema.extend({ itemId: z.uuid() });
+/**
+ * use_story - *Use it* on a Review: Claude's new version becomes the
+ * description, which stays yours. `story` is the version reviewed: a newer one
+ * waiting instead is left for its own Review, as it is by keep_my_story.
+ */
+export const useStorySchema = commandEnvelopeSchema.extend({ itemId: z.uuid(), story: z.string().max(DESCRIPTION_MAX_LENGTH) });
 export type UseStoryCommand = z.infer<typeof useStorySchema>;
 
 /** keep_my_story - *Keep mine* on a Review: Claude's new version is dropped and the description stays as it is. */
-export const keepMyStorySchema = commandEnvelopeSchema.extend({ itemId: z.uuid() });
+export const keepMyStorySchema = commandEnvelopeSchema.extend({ itemId: z.uuid(), story: z.string().max(DESCRIPTION_MAX_LENGTH) });
 export type KeepMyStoryCommand = z.infer<typeof keepMyStorySchema>;
 
 /**

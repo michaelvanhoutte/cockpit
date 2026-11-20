@@ -2010,7 +2010,16 @@ const routes = app
   .openapi(commandRoute('combine_under_new_parent'), async (c) => c.json(await change(c, 'combine_under_new_parent', c.req.valid('json')), 200))
   .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
   .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))
-  .openapi(commandRoute('use_story'), async (c) => c.json(await change(c, 'use_story', c.req.valid('json')), 200))
+  .openapi(commandRoute('use_story'), async (c) => {
+    const payload = c.req.valid('json');
+    const result = await change(c, 'use_story', payload);
+    // The description is new words, as after an edit: what they mean and what to do with the Item are read again.
+    if (result.applied) {
+      c.executionCtx.waitUntil(enqueueReadingItsMeaning(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+      c.executionCtx.waitUntil(enqueueProposalForClaude(c.env, c.get('visitor').accountName, payload.itemId, 'item-changed'));
+    }
+    return c.json(result, 200);
+  })
   .openapi(commandRoute('keep_my_story'), async (c) => c.json(await change(c, 'keep_my_story', c.req.valid('json')), 200))
   .openapi(commandRoute('set_done'), async (c) => c.json(await change(c, 'set_done', c.req.valid('json')), 200))
   .openapi(commandRoute('set_started'), async (c) => c.json(await change(c, 'set_started', c.req.valid('json')), 200))

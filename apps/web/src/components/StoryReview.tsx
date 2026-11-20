@@ -28,7 +28,7 @@ export function StoryReview({
   const answer = async (name: 'use_story' | 'keep_my_story') => {
     setRefusal(null);
     try {
-      const result = await send({ name, payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: item.id } });
+      const result = await send({ name, payload: { commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: item.id, story: proposal } });
       // Answered already elsewhere, or replaced by a newer one: what is on screen was not stored, so the boxes are not filled with it.
       if (name === 'use_story' && result.applied) onUsed(proposal);
       setOpen(false);

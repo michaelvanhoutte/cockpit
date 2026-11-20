@@ -2485,7 +2485,7 @@ describe('Item editing', () => {
       await user.click(screen.getByRole('button', { name: 'Use it' }));
 
       await waitFor(() => expect(descriptionBox()).toHaveValue(WAITING.storyProposal));
-      expect(sent()).toEqual([expect.objectContaining({ name: 'use_story', payload: expect.objectContaining({ itemId: 'item-1' }) })]);
+      expect(sent()).toEqual([expect.objectContaining({ name: 'use_story', payload: expect.objectContaining({ itemId: 'item-1', story: WAITING.storyProposal }) })]);
     });
 
     it('Use it leaves the box alone where the server found no Review waiting', async () => {
@@ -2505,7 +2505,9 @@ describe('Item editing', () => {
       await user.click(screen.getByRole('button', { name: 'Review' }));
       await user.click(screen.getByRole('button', { name: 'Keep mine' }));
 
-      await waitFor(() => expect(sent()).toEqual([expect.objectContaining({ name: 'keep_my_story' })]));
+      await waitFor(() =>
+        expect(sent()).toEqual([expect.objectContaining({ name: 'keep_my_story', payload: expect.objectContaining({ story: WAITING.storyProposal }) })]),
+      );
       expect(descriptionBox()).toHaveValue('My own words');
     });
 
