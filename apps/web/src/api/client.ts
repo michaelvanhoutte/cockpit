@@ -483,7 +483,14 @@ export async function sendCommand<N extends ClientCommandName>(
   /** Aborts the request, for a sender that has given up waiting on it (`captureOutboxSender.tsx`). */
   signal?: AbortSignal,
 ): Promise<CommandResult> {
-  const send = commandSenders[name] as (p: never, o?: ClientRequestOptions) => Promise<Response>;
+  const send = (commandSenders[name as keyof typeof commandSenders] ??
+    // A whiteboard's own commands (`@cockpit/shared/board-commands`, issue 1829) have no entry above: each is posted to its
+    // route by its name, so the initial bundle carries no sender of theirs.
+    ((p: never, o?: ClientRequestOptions) =>
+      (api.v1.commands as unknown as Record<string, { $post: (body: { json: never }, o?: ClientRequestOptions) => Promise<Response> }>)[name]!.$post(
+        { json: p },
+        o,
+      ))) as (p: never, o?: ClientRequestOptions) => Promise<Response>;
   const res = await send(payload as never, signal ? { init: { signal } } : undefined);
   if (!res.ok) {
     throw new CommandRefused(res.status, (await refusalFrom(res)) ?? `${name} failed: ${res.status}`);
