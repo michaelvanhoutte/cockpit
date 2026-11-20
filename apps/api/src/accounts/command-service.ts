@@ -2018,7 +2018,10 @@ export function runCommand<N extends CommandName>(
       const wasOn = panelsHolding(db, tenantId, cmd.itemId);
       // The Panels it leaves, read before the move takes it off them.
       if (decided.takesItOffPanels) {
-        for (const panelId of decided.fromPanelIds ?? panelsHolding(db, tenantId, cmd.itemId)) storyOfPanels.add(panelId);
+        // Not the one it lands on: an Item taken off a Panel and put on it again holds the same Items, as a reorder does.
+        for (const panelId of decided.fromPanelIds ?? panelsHolding(db, tenantId, cmd.itemId)) {
+          if (panelId !== cmd.panelId) storyOfPanels.add(panelId);
+        }
       }
 
       db.transaction((tx) => {
@@ -2051,6 +2054,7 @@ export function runCommand<N extends CommandName>(
       const item = getItem(db, tenantId, cmd.itemId);
       if (!item || item.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      const wasOnIt = panelsHolding(db, tenantId, cmd.itemId).includes(panel.id);
 
       db.transaction((tx) => {
         // One row. What is left keeps the places it had: a gap in the numbering
@@ -2068,7 +2072,8 @@ export function runCommand<N extends CommandName>(
         mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
-      storyOfPanels.add(panel.id);
+      // Taking off a Panel it was not on changes nothing it holds.
+      if (wasOnIt) storyOfPanels.add(panel.id);
       break;
     }
     case 'add_children': {
