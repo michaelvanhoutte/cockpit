@@ -1,3 +1,4 @@
+import type { HTMLAttributes, ReactNode } from 'react';
 import { asNextAction, doneOfHeld, holdsItems, itemLabel, itemStatus, type Item } from '@cockpit/shared';
 import { DEADLINE_PILLS, deadlineOf } from '../dueDate';
 import { capturingApp, sourceOnARow, type SourceNames } from '../itemSource';
@@ -26,6 +27,8 @@ export function BoardCard({
   onMenu,
   onOpenChild,
   nested = false,
+  renaming = null,
+  titleProps,
 }: {
   item: Item;
   sourceNames: SourceNames | undefined;
@@ -41,6 +44,10 @@ export function BoardCard({
   onOpenChild?: (itemId: string) => void;
   /** Drawn inside a parent's card, which has no ⋮ or unfolding of its own. */
   nested?: boolean;
+  /** The field the title is typed in while it is renamed in place, drawn in the title's place (issue 1830). */
+  renaming?: ReactNode;
+  /** What the board listens for on the title: a click on a selected card's title renames it. */
+  titleProps?: HTMLAttributes<HTMLSpanElement> | undefined;
 }) {
   const status = itemStatus(item);
   const done = status === 'done';
@@ -73,7 +80,11 @@ export function BoardCard({
             {unfolded ? '▾' : '▸'}
           </button>
         )}
-        <span className={`line-clamp-2 min-w-0 flex-1 text-[13px] leading-tight font-medium ${done ? 'text-ink-faint line-through' : 'text-ink-strong'}`}>{label}</span>
+        {renaming ?? (
+          <span {...titleProps} className={`line-clamp-2 min-w-0 flex-1 text-[13px] leading-tight font-medium ${done ? 'text-ink-faint line-through' : 'text-ink-strong'}`}>
+            {label}
+          </span>
+        )}
         {onMenu && !nested && (
           <button
             type="button"

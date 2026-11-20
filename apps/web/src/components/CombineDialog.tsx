@@ -18,6 +18,7 @@ import { useSendCommand } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { sourceOnARow } from '../itemSource';
 import { useUndo } from '../undo';
+import { unfoldWhenDrawn } from '../boardFocus';
 import { ParentPicker, addAsChildren } from './AddAsChildOf';
 
 type Choice = 'merge' | 'new-parent' | 'existing-parent';
@@ -105,19 +106,23 @@ export default function CombineDialog({
     } else if (choice === 'new-parent') {
       // On no Panel, the store puts it inside the Item the first is inside, or leaves it in the Inbox.
       const panelId = panelTheFirstIsOn(childIds[0], dashboardId, data.filings, data.panels);
+      const parentId = uuidv7();
       const answer = everyInbox(send({
         name: 'combine_under_new_parent',
         payload: {
           ...envelope(),
-          parentId: uuidv7(),
+          parentId,
           title,
           description: parentDescription(chosen, note),
           childIds,
           panelId,
           // From the Inbox the new parent is an Item that stays there holding them, never a Panel ("Brainstorming: a Panel is an Item nobody can open", issue 1846).
           dashboardId: null,
+          // Where the first Item has a card on this Dashboard's whiteboard, the new parent's goes at its spot (issue 1830).
+          ...(dashboardId ? { onBoard: { dashboardId, cardId: uuidv7() } } : {}),
         },
       }));
+      if (dashboardId) unfoldWhenDrawn(parentId);
       offerToUndo({ what: `${chosen.length} Items combined under “${title}”`, unlessRefused: answer });
     } else if (parent) {
       addAsChildren({ workspaceId, send, offerToUndo, children: data.children ?? [] }, chosen, parent);

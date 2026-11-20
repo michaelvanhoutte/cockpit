@@ -287,7 +287,9 @@ async function showList({
   groups = undefined as FilterGroup[] | undefined,
   groupByProposal = false,
   columns = null as PanelColumns | null,
+  onTakeOffTheWhiteboard = undefined as (() => void) | undefined,
 }: {
+  onTakeOffTheWhiteboard?: (() => void) | undefined;
   columns?: PanelColumns | null;
   groupByProposal?: boolean;
   items?: Item[];
@@ -312,6 +314,7 @@ async function showList({
           groups={groups}
           groupByProposal={groupByProposal}
           columns={columns}
+          onTakeOffTheWhiteboard={onTakeOffTheWhiteboard}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -1772,6 +1775,29 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Undo' }));
 
       expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: undoes }));
+    });
+  });
+});
+
+describe('Whiteboard', () => {
+  describe('a card’s menu is its row’s, with Take off the whiteboard added', () => {
+    it('offers it where the list is a card’s menu, and sends nothing until it is chosen', async () => {
+      const takenOff = vi.fn();
+      const user = await showList({ items: [BART], gathered: true, openDashboardId: TODAY.id, onTakeOffTheWhiteboard: takenOff });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      expect(takenOff).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('menuitem', { name: 'Take off the whiteboard' }));
+      expect(takenOff).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers it on no ordinary row', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await screen.findByRole('menuitem', { name: 'Combine with…' });
+      expect(screen.queryByRole('menuitem', { name: 'Take off the whiteboard' })).toBeNull();
     });
   });
 });
@@ -4511,6 +4537,22 @@ describe('Triage', () => {
         expect.objectContaining({
           name: 'combine_under_new_parent',
           payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: null }),
+        }),
+      );
+    });
+
+    it('sends the Dashboard’s whiteboard with the new parent, so its card is drawn where the first card is', async () => {
+      held.dashboards = [TODAY];
+      held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const { user, dialog } = await combining([BART, LISA]);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ onBoard: { dashboardId: TODAY.id, cardId: expect.any(String) } }),
         }),
       );
     });

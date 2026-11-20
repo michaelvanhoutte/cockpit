@@ -380,20 +380,21 @@ test.describe('Panels', () => {
  * are one to a screen, so there is nowhere to drag between.
  */
 test.describe('Panels', () => {
-  test.describe('a drop from one panel onto another asks which it is, and sends what was chosen', () => {
-    test('adds the item to the second panel, leaving it on the first', async ({
+  test.describe('a drop from one panel onto another asks which it is, and sends what was chosen, unless Shift or Ctrl already chose', () => {
+    test('adds the item to the second panel, leaving it on the first; Shift moves and Ctrl adds a row without asking', async ({
       page,
       isMobile,
     }) => {
       test.skip(isMobile, 'two panels are not on one screen here');
       const second = uniqueTitle('Anna');
       const title = uniqueTitle('Belongs on both');
+      const [moved, added] = [uniqueTitle('Moves with Shift'), uniqueTitle('Adds with Ctrl')];
       const { panel } = await ownDashboardWithAPanel(page, isMobile, {
         morePanels: [second],
-        onThePanel: [title],
+        onThePanel: [title, moved, added],
       });
       await expect(page.getByRole('region', { name: second })).toBeVisible();
-      await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title, moved, added]);
 
       // Dragged from one panel to the other: both answers are possible, so it
       // asks rather than guessing.
@@ -411,8 +412,29 @@ test.describe('Panels', () => {
 
       // On both at once, which is the whole point of a panel being a view over
       // one shared list rather than a folder.
-      await expect.poll(() => itemsOn(page, panel)).toEqual([title]);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title, moved, added]);
       await expect.poll(() => itemsOn(page, second)).toEqual([title]);
+
+      // With a key held the question is already answered: Shift moves, Ctrl adds.
+      const dragWith = async (key: 'Shift' | 'Control', label: string) => {
+        const row = await page.getByRole('region', { name: panel }).getByRole('listitem').filter({ hasText: label }).boundingBox();
+        if (!row) throw new Error(`${label} is not on screen`);
+        await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+        // Held as it is let go, which is when the keys are read.
+        await page.keyboard.down(key);
+        await page.mouse.move(to.x + to.width / 2 + 2, to.y + to.height / 2, { steps: 2 });
+        await page.mouse.up();
+        await page.keyboard.up(key);
+      };
+      await dragWith('Shift', moved);
+      await expect.poll(() => itemsOn(page, second)).toContain(moved);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title, added]);
+      await dragWith('Control', added);
+      await expect.poll(() => itemsOn(page, second)).toContain(added);
+      await expect.poll(() => itemsOn(page, panel)).toEqual([title, added]);
+      await expect(question).toHaveCount(0);
     });
   });
 });

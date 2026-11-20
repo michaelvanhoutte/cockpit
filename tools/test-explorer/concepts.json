@@ -326,7 +326,7 @@
     {
       "key": "Whiteboard",
       "label": "Whiteboard",
-      "browserWalks": 2,
+      "browserWalks": 4,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/web/src/whiteboard/**",

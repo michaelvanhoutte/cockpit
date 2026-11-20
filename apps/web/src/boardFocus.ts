@@ -64,3 +64,22 @@ export function cardWanted(dashboardId: string): string | null {
 export function useCardWanted(): unknown {
   return useSyncExternalStore(subscribe, () => wanted, () => null);
 }
+
+/**
+ * Parents made by Combine from a Dashboard ("Brainstorming: cards on the
+ * whiteboard can't be nested, combined or moved between boxes", issue 1830),
+ * whose card the board draws unfolded to its children once the read brings it.
+ */
+const toUnfold = new Set<string>();
+
+/** Asks the board to draw this Item's card unfolded when it first has one. */
+export function unfoldWhenDrawn(itemId: string): void {
+  toUnfold.add(itemId);
+}
+
+/** The Items asked to be unfolded that this board now draws a card of, each taken so it is unfolded once. */
+export function takeUnfolds(drawn: ReadonlySet<string>): string[] {
+  const now = [...toUnfold].filter((id) => drawn.has(id));
+  for (const id of now) toUnfold.delete(id);
+  return now;
+}
