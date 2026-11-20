@@ -204,7 +204,7 @@ export interface Account {
   itemIsFiled(itemId: string): Promise<boolean>;
   /** The due date a pulled connection gave the Item, or null where it gave none (issue 1409). */
   givenDueDateOf(itemId: string): Promise<string | null>;
-  /** What a rewrite of a parent's story is made from, the first `limit` Items it holds in its order; null where it is gone (issue 1827). */
+  /** What a rewrite of a parent's story is made from, the first `limit` of what it is about; null where it is gone ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827). */
   storySources(itemId: string, limit: number): Promise<StorySources | null>;
   /** Where an Item stands - its Workspace, the Panels it is on, the folders sent to before - for proposing what to do with it (issue 1161). Read by the enrichment job and by nothing else. */
   claudeProposalContext(itemId: string, model: string): Promise<ClaudeProposalContext>;

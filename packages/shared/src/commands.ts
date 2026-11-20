@@ -1419,7 +1419,7 @@ export type SelfSentCommandName =
   | 'propose_item_panel'
   | 'propose_item_fields'
   | 'propose_item_for_claude'
-  // Claude's rewrite of a parent's story (issue 1827).
+  // Claude's rewrite of a parent's story ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
   | 'propose_story'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
