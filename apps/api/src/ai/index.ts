@@ -9,9 +9,7 @@ import { buildResolveAPlace } from './prompts/resolve-a-place.v1.js';
 import { buildProposeForClaude, type ItemToPropose } from './prompts/propose-for-claude.v4.js';
 import { buildRememberASentence, type EditToRemember } from './prompts/remember-a-sentence.v1.js';
 import { buildDraftAReply, REPLY_LIMITS, type ReplyBrief } from './prompts/draft-a-reply.v1.js';
-import { buildWriteAStory, type StoryBrief } from './prompts/write-a-story.v1.js';
 import { readReplyBody, type ReplyWritten } from './reply-body.js';
-import { readStory, type StoryWritten } from './story-text.js';
 import { readSentenceOffer, type SentenceOfferRead } from './sentence-offers.js';
 import type { RememberedSentence } from '../domain/remembered-sentences.js';
 import { readClaudeProposals, type ClaudeProposalsRead } from './claude-proposals.js';
@@ -29,8 +27,6 @@ export type { EditToRemember } from './prompts/remember-a-sentence.v1.js';
 export type { SentenceOfferRead } from './sentence-offers.js';
 export type { ReplyBrief } from './prompts/draft-a-reply.v1.js';
 export type { ReplyWritten } from './reply-body.js';
-export type { StoryBrief } from './prompts/write-a-story.v1.js';
-export type { StoryWritten } from './story-text.js';
 export type { ClaudeProposalsRead } from './claude-proposals.js';
 
 /**
@@ -43,7 +39,6 @@ const RESOLVE_A_PLACE = 'resolve-a-place.v1';
 const PROPOSE_FOR_CLAUDE = 'propose-for-claude.v4';
 const REMEMBER_A_SENTENCE = 'remember-a-sentence.v1';
 const DRAFT_A_REPLY = 'draft-a-reply.v1';
-const WRITE_A_STORY = 'write-a-story.v1';
 
 /** Whom and what a call is for, as its record names it ("Record every Claude call Cockpit makes", issue 917). */
 export interface CallFor {
@@ -193,13 +188,6 @@ export interface AiService {
    * or passes the cut-off throws, and no draft is made.
    */
   writeAReply(brief: ReplyBrief, callFor: CallFor): Promise<ReplyWritten>;
-
-  /**
-   * A parent's description, written from the Items it holds ("Keep its story up
-   * to date", issue 1827). Refuses and throws on the same terms as
-   * `cleanUpNote`.
-   */
-  writeAStory(brief: StoryBrief, callFor: CallFor): Promise<StoryWritten>;
 }
 
 /**
@@ -355,12 +343,6 @@ export class ClaudeAiService implements AiService {
       REPLY_LIMITS,
     );
     return 'refused' in answer ? { discarded: answer.refused } : readReplyBody(answer.text);
-  }
-
-  async writeAStory(brief: StoryBrief, callFor: CallFor): Promise<StoryWritten> {
-    const prompt = buildWriteAStory(brief);
-    const answer = await this.#ask(prompt, prompt.message, { ...callFor, operation: 'write-a-story', promptVersion: WRITE_A_STORY });
-    return 'refused' in answer ? { discarded: answer.refused } : readStory(answer.text);
   }
 
   async proposeForClaude(

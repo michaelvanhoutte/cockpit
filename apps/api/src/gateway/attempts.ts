@@ -41,8 +41,6 @@ export type Trigger =
   | 'edit-sent-to-claude'
   /** A sentence was remembered, so the open Items it may fit are proposed again (issue 1163). */
   | 'sentence-remembered'
-  /** A child joined or left a parent that keeps its story, or *Rewrite from its children* was pressed (issue 1827). */
-  | 'story-changed'
   | 'backfill'
   | 'agent-started'
   | 'connection-test'

@@ -8,14 +8,11 @@ import {
   type Item,
   type Panel,
   sortOf,
-  uuidv7,
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { saysWhatItShows } from '../filters';
 import { saysHowItIsSorted } from '../sorting';
-import { useSendCommand, whyNotDone } from '../api/queries';
-import { useUndo } from '../undo';
 import { ItemList } from './ItemList';
 import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';
@@ -190,10 +187,6 @@ export function PanelCard({
    */
   const sort = sortOf(panel);
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
-  // A Panel's own Item has its id, which the story commands name (issue 1827).
-  const sendStoryCommand = useSendCommand();
-  const offerToUndo = useUndo();
-  const storyEnvelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId, itemId: panel.id });
   /** Where and when the press on this header that might be a tap began. */
   const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
 
@@ -264,30 +257,6 @@ export function PanelCard({
             ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
             // Not on a Panel of text, which has no rows.
             ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
-            // Claude's story of what the Panel holds, kept up to date as Items join or leave, or written once now (issue 1827).
-            ...(panelTakesItems(panel)
-              ? [
-                  {
-                    label: 'Keep its story up to date',
-                    checked: panel.keepsStory === true,
-                    keepsFocus: true,
-                    onSelect: () => {
-                      sendStoryCommand({ name: 'set_keeps_story', payload: { ...storyEnvelope(), keepsStory: panel.keepsStory !== true } }).catch(
-                        (failure: unknown) => offerToUndo({ what: `Its story setting is unchanged. ${whyNotDone(failure)}` }),
-                      );
-                    },
-                  },
-                  {
-                    label: 'Rewrite from its children',
-                    keepsFocus: true,
-                    onSelect: () => {
-                      sendStoryCommand({ name: 'rewrite_story', payload: storyEnvelope() }).catch((failure: unknown) =>
-                        offerToUndo({ what: `No new story was asked for. ${whyNotDone(failure)}` }),
-                      );
-                    },
-                  },
-                ]
-              : []),
             {
               label: 'Move to another dashboard',
               unavailable: dashboardFiltered

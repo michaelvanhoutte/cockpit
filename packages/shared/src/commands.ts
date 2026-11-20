@@ -24,7 +24,6 @@ import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
 import type { combineCommandSchemas } from './commands-combine.js';
-import type { storyCommandSchemas } from './commands-story.js';
 import {
   REMEMBERED_ACTION_LIMIT,
   REMEMBERED_SENTENCE_LIMIT,
@@ -1404,7 +1403,7 @@ export const commandSchemas = {
  * (`commands-combine.ts`, its own entry point so the app does not carry their
  * schemas in its initial bundle - the API mounts both, `apps/api/src/http/app.ts`).
  */
-type Registered = typeof commandSchemas & typeof combineCommandSchemas & typeof storyCommandSchemas;
+type Registered = typeof commandSchemas & typeof combineCommandSchemas;
 export type CommandName = keyof Registered;
 export type CommandPayload<N extends CommandName> = z.infer<Registered[N]>;
 
@@ -1419,8 +1418,6 @@ export type SelfSentCommandName =
   | 'propose_item_panel'
   | 'propose_item_fields'
   | 'propose_item_for_claude'
-  // Claude's rewrite of a parent's story (issue 1827).
-  | 'propose_story'
   // Sent by the callback Microsoft returns to, which is a navigation rather
   // than a request a page makes - and which carries a sealed credential no
   // browser may ever hand over (see `connectSourceAccountSchema` above).
@@ -1457,11 +1454,6 @@ export type ClientCommandName = Exclude<CommandName, SelfSentCommandName | 'add_
  * to know can read it off this one call rather than asking again, separately
  * and racily, before it ("Re-propose the rest of the inbox the moment you
  * file one", issue 300).
- *
- * `rewriteStoryOf` names the parents whose story a change asks Claude to
- * rewrite - the ones a child joined or left that keep their story up to date,
- * read off the same atomic call for the reason `settledRouting` is ("Keep its
- * story up to date", issue 1827). Absent where there are none.
  *
  * `recordedCorrection` is `true` only for `set_title`/`set_description`, and
  * only where the write recorded or updated a `text_corrections` row - the
@@ -1504,7 +1496,6 @@ export const commandResultSchema = z.object({
   applied: z.boolean(),
   at: z.iso.datetime().optional(),
   settledRouting: z.boolean().optional(),
-  rewriteStoryOf: z.array(z.string()).optional(),
   recordedCorrection: z.boolean().optional(),
   addressLetGo: z.string().optional(),
   textsWritten: z.boolean().optional(),

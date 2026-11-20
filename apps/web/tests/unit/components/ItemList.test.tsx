@@ -4231,55 +4231,6 @@ describe('Panels', () => {
       );
     });
 
-    it.each([
-      { situation: 'one that is off turns it on', keepsStory: false, sets: true },
-      { situation: 'one that is on turns it off', keepsStory: true, sets: false },
-    ])('Keep its story up to date, on a parent’s row menu, $situation', async ({ keepsStory, sets }) => {
-      held.items = [{ ...CHAPTER, keepsStory }, STORM, FERRY];
-      const user = await showList({ items: [{ ...CHAPTER, keepsStory }], openDashboardId: TODAY.id, panelId: 'p-falcon' });
-
-      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
-      const entry = await screen.findByRole('menuitem', { name: `Keep its story up to date, ${keepsStory ? 'on' : 'off'}` });
-      await user.click(entry);
-
-      expect(held.send).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'set_keeps_story', payload: expect.objectContaining({ itemId: CHAPTER.id, keepsStory: sets }) }),
-      );
-    });
-
-    it('Rewrite from its children is on a parent’s menu and on no other row’s', async () => {
-      const user = await onAPanel();
-
-      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
-      await user.click(await screen.findByRole('menuitem', { name: 'Rewrite from its children' }));
-
-      expect(held.send).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'rewrite_story', payload: expect.objectContaining({ itemId: CHAPTER.id }) }),
-      );
-    });
-
-    it('still offers to turn Keep its story up to date off on a parent that lost its last child', async () => {
-      const emptied = { ...CHAPTER, keepsStory: true, childrenCount: 0 };
-      held.items = [emptied];
-      const user = await showList({ items: [emptied], openDashboardId: TODAY.id, panelId: 'p-falcon' });
-
-      await user.click(within(screen.getByText('Chapter 3').closest('li')!).getByRole('button', { name: 'Item actions' }));
-
-      expect(await screen.findByRole('menuitem', { name: 'Keep its story up to date, on' })).toBeInTheDocument();
-    });
-
-    it('offers neither on a row that holds nothing', async () => {
-      held.items = [STORM];
-      held.filings = [{ panelId: 'p-falcon', itemId: STORM.id, position: 0 }];
-      const user = await showList({ items: [STORM], openDashboardId: TODAY.id, panelId: 'p-falcon' });
-
-      await user.click(within(screen.getByText('Storm scene').closest('li')!).getByRole('button', { name: 'Item actions' }));
-      await screen.findByRole('menuitem', { name: 'Open' });
-
-      expect(screen.queryByRole('menuitem', { name: 'Rewrite from its children' })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: /Keep its story up to date/ })).toBeNull();
-    });
-
     it('takes a child moved to the Inbox out of the Item holding it, or it would be in no Inbox', async () => {
       const user = await onAPanel();
       await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));

@@ -3,11 +3,9 @@ import type { Filing, Panel } from './panel.js';
 
 /**
  * Combine ("Brainstorming: related loose notes can't be brought together",
- * issue 1826): what the dialog works out before it sends one change. The texts
- * are stitched from the parts and what the person adds, which is what stands
- * until Claude's description of what was made replaces them, as it does while
- * they are still proposed ("Keep its story up to date", issue 1827), and
- * where Claude cannot write one.
+ * issue 1826): what the dialog works out before it sends one change. Claude's
+ * writing of the description comes in a later issue, so until then the texts
+ * are stitched from the parts and what the person adds.
  */
 
 /** Cut to `max` characters, never between the halves of one. */

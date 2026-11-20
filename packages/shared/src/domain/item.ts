@@ -206,15 +206,6 @@ export const itemSchema = z.object({
    */
   childrenCount: z.number().int().nonnegative().optional(),
   childrenDone: z.number().int().nonnegative().optional(),
-  /**
-   * Whether Claude keeps this Item's description up to date as Items join or
-   * leave it ("Keep its story up to date", issue 1827). Optional, since a copy
-   * saved by an older release holds none, which reads as off.
-   */
-  keepsStory: z.boolean().optional(),
-  /** What Claude rewrote the description to once it was yours, offered as *Review* until you use it or keep yours. Null where nothing waits. */
-  storyProposal: z.string().nullable().optional(),
-  storyProposedAt: z.iso.datetime().nullable().optional(),
 });
 export type Item = z.infer<typeof itemSchema>;
 

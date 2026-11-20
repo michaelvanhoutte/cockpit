@@ -947,37 +947,6 @@ export function ItemRow({
           </M.Item>
         ),
       ],
-      // What it holds is a story Claude can keep up to date, or write once from its children (issue 1827).
-      holds || item.keepsStory
-        ? [
-            <M.Item
-              key="keeps-story"
-              className={menuItemSplitClass}
-              aria-label={`Keep its story up to date, ${item.keepsStory ? 'on' : 'off'}`}
-              onSelect={() => {
-                send({ name: 'set_keeps_story', payload: { ...envelope(), keepsStory: !item.keepsStory } }).catch((failure: unknown) =>
-                  offerToUndo({ what: `Its story setting is unchanged. ${whyNotDone(failure)}` }),
-                );
-              }}
-            >
-              Keep its story up to date
-              <span aria-hidden="true" className="w-3 text-accent-deep">
-                {item.keepsStory ? '✓' : ''}
-              </span>
-            </M.Item>,
-            <M.Item
-              key="rewrite-story"
-              className={menuItemClass}
-              onSelect={() => {
-                send({ name: 'rewrite_story', payload: envelope() }).catch((failure: unknown) =>
-                  offerToUndo({ what: `No new story was asked for. ${whyNotDone(failure)}` }),
-                );
-              }}
-            >
-              Rewrite from its children
-            </M.Item>,
-          ]
-        : [],
       // Claude. *Send to Claude…* where nothing is already running on the row,
       // then the run's own way on while it is open: the session itself, a real
       // link in a new tab as "Open in …" above is, then *End Claude run*, which
