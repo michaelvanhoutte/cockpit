@@ -2076,7 +2076,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
       ) {
         return { status: 'missing', what: error.message };
       }
-      // Items with cards a change would send to the Inbox, each named for the screen to ask about (issue 1829).
+      // Items with cards a change would send to the Inbox, each named for the screen to ask about ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
       if (error instanceof OnWhiteboardsError) return { status: 'conflict', what: error.message, onWhiteboards: error.onWhiteboards };
       if (
         error instanceof SentenceRefusedError ||

@@ -7,7 +7,7 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ACCOUNT_WIDE, UNTITLED, textsFromCapture, uuidv7 } from '@cockpit/shared';
-import { NotFoundInAccountError, RefusedByAccountError, openAccount, putAttachment, type Account } from '../accounts/index.js';
+import { ConflictInAccountError, NotFoundInAccountError, RefusedByAccountError, openAccount, putAttachment, type Account } from '../accounts/index.js';
 import type { Env } from '../env.js';
 import { enqueueCleanUp, enqueueProposalForClaude, enqueueReadingItsMeaning, enqueueRepropose, enqueueStoryRewrite } from '../jobs/enrichment.js';
 import { REPORT_RUN, readReport, reportRunTool } from './report-run.js';
@@ -556,6 +556,12 @@ async function dismiss(
     } catch (error) {
       // Gone between the read and the write.
       if (error instanceof NotFoundInAccountError) return { refusal: NO_SUCH_ITEM };
+      // An Item it held, with cards on a whiteboard, would be left in the Inbox: said in Cockpit's words, nothing changed
+      // ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+      if (error instanceof ConflictInAccountError && error.onWhiteboards) {
+        const held = error.onWhiteboards.map((one) => `"${one.title}"`).join(', ');
+        return { refusal: `Not dismissed: ${held} would be left in the Inbox while on a whiteboard. Take it off the whiteboard in Cockpit first.` };
+      }
       throw error;
     }
   }

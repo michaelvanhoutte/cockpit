@@ -249,3 +249,21 @@ describe('MCP connections', () => {
     });
   });
 });
+
+describe('MCP connections', () => {
+  describe('deleting over MCP never leaves an Item with cards in the Inbox', () => {
+    it('refuses to delete the Item that last held one placed on a whiteboard, saying so, and changes nothing', async () => {
+      const { token } = await connected();
+      const parentId = await anItem('Chapter 3', { panelIds: [await aPanel('Book')] });
+      const childId = await anItem('Storm scene');
+      expect((await send('add_children', { parentId, childIds: [childId] })).status).toBe(200);
+      const placed = { cardId: nextId(), dashboardId: DASHBOARD_ID, itemId: childId, boxId: null, x: 0, y: 0 };
+      expect((await send('place_card', placed)).status).toBe(200);
+
+      const answer = await deleteItem(token, parentId);
+      expect(answer.isError).toBe(true);
+      expect(textOf(answer)).toBe('Not dismissed: "Storm scene" would be left in the Inbox while on a whiteboard. Take it off the whiteboard in Cockpit first.');
+      expect(await shown(parentId)).toBe(true);
+    });
+  });
+});

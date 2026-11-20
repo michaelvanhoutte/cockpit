@@ -39,8 +39,9 @@ export class CardNotFoundError extends Error {
 
 /** An Item in the Inbox dragged onto a board. A 400: the Item is there, and has to be given a place first. */
 export class NotPlaceableError extends Error {
-  constructor(label: string) {
-    super(`${label} is in the Inbox. File it on a Panel or put it inside an Item first.`);
+  /** @param finished a finished Item with no parent, which no Inbox shows, is said to have no place rather than to be in the Inbox. */
+  constructor(label: string, finished = false) {
+    super(`${label} ${finished ? 'is on no Panel and inside no Item' : 'is in the Inbox'}. File it on a Panel or put it inside an Item first.`);
     this.name = 'NotPlaceableError';
   }
 }
@@ -245,13 +246,49 @@ export function putBack(tx: InATransaction, tenantId: string, which: { cardIds: 
       .get();
     if (already) continue;
     const box = card.boxId === null ? null : liveBox(tx, tenantId, card.boxId);
+    // Out of a box that is gone, at the place on the board it was drawn at: its position was the box's.
+    const onOpenSpace = card.boxId !== null && !box ? originOf(tx, tenantId, card.boxId) : null;
     tx.update(boardCards)
-      .set({ deletedAt: null, ...(box ? {} : { boxId: null }) })
+      .set({ deletedAt: null, ...(onOpenSpace ? { boxId: null, x: card.x + onOpenSpace.x, y: card.y + onOpenSpace.y } : {}) })
       .where(and(eq(boardCards.tenantId, tenantId), eq(boardCards.id, card.id)))
       .run();
     back += 1;
   }
   return back;
+}
+
+/**
+ * Where a box's top left corner is on the board, live or not: its own place
+ * plus each box's it sits in. What a card or box keeps its place by once the
+ * box it was placed in is gone.
+ */
+function originOf(db: Db, tenantId: string, boxId: string): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  const seen = new Set<string>();
+  for (let at: string | null = boxId; at !== null && !seen.has(at); ) {
+    seen.add(at);
+    const box = db.select({ x: boardBoxes.x, y: boardBoxes.y, parentBoxId: boardBoxes.parentBoxId }).from(boardBoxes).where(and(eq(boardBoxes.tenantId, tenantId), eq(boardBoxes.id, at))).get();
+    if (!box) break;
+    x += box.x;
+    y += box.y;
+    at = box.parentBoxId;
+  }
+  return { x, y };
+}
+
+/**
+ * The cards an Item dismissed again keeps off its boards carry its new
+ * dismissal's stamp, so bringing it back still finds them: a second dismiss
+ * from a tab that had not seen the first moves `deleted_at` on.
+ */
+export function restampCards(tx: InATransaction, tenantId: string, itemIds: readonly string[], from: string, to: string): void {
+  for (const batch of inBatchesOf([...itemIds], 3)) {
+    tx.update(boardCards)
+      .set({ deletedAt: to })
+      .where(and(eq(boardCards.tenantId, tenantId), inArray(boardCards.itemId, batch), eq(boardCards.deletedAt, from)))
+      .run();
+  }
 }
 
 // --- the board's own commands -----------------------------------------------------
@@ -357,7 +394,8 @@ export function runBoardCommand<N extends BoardCommandName>(db: AccountDb, tenan
       // A dismissed Item is gone, and another Workspace's is not one this Workspace can name, as on a Panel.
       if (!item || item.deletedAt !== null || (item.workspaceDecided && item.workspaceId !== cmd.workspaceId)) throw new ItemNotFoundError(cmd.itemId);
       // One belonging to no Workspace yet is in every Inbox, so it is refused by the rule below.
-      if (!item.workspaceDecided || inTheInbox(db, tenantId, item.id)) throw new NotPlaceableError(itemLabel(item));
+      // A finished one with no parent is refused too, so reopening it never puts a card in the Inbox.
+      if (!item.workspaceDecided || inTheInbox(db, tenantId, item.id)) throw new NotPlaceableError(itemLabel(item), item.completedAt !== null);
       parentBoxOn(db, tenantId, cmd.dashboardId, cmd.boxId);
       if (db.select({ id: boardCards.id }).from(boardCards).where(eq(boardCards.id, cmd.cardId)).get()) return recordOnly();
       const already = db
@@ -512,7 +550,14 @@ export function runBoardCommand<N extends BoardCommandName>(db: AccountDb, tenan
             .where(and(eq(boardBoxes.tenantId, tenantId), inArray(boardBoxes.id, batch), eq(boardBoxes.deletedAt, stamp)))
             .run();
         }
-        if (parentGone) tx.update(boardBoxes).set({ parentBoxId: null }).where(and(eq(boardBoxes.tenantId, tenantId), eq(boardBoxes.id, box.id))).run();
+        if (parentGone) {
+          // On open space where it was drawn, its position having been its parent's.
+          const origin = originOf(tx, tenantId, box.parentBoxId!);
+          tx.update(boardBoxes)
+            .set({ parentBoxId: null, x: box.x + origin.x, y: box.y + origin.y })
+            .where(and(eq(boardBoxes.tenantId, tenantId), eq(boardBoxes.id, box.id)))
+            .run();
+        }
         const cardIds = inBatchesOf(within, 3).flatMap((batch) =>
           tx
             .select({ id: boardCards.id })

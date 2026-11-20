@@ -1370,7 +1370,7 @@ export const boardBoxes = sqliteTable(
 );
 
 /**
- * One Item placed on one Dashboard's whiteboard (issue 1829): at most one live
+ * One Item placed on one Dashboard's whiteboard ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829): at most one live
  * card per Item per board, on open space or in one box of that board. Placing
  * files nothing and filing places nothing. An Item in the Inbox is never on a
  * whiteboard, so a card exists only for an Item filed on a live Panel or inside

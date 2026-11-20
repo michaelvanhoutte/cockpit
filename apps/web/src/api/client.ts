@@ -348,7 +348,7 @@ export function attachmentUrl(attachmentId: string): string {
 /**
  * `ClientCommandName` rather than `CommandName`: the registry in
  * `packages/shared` also holds the commands Cockpit sends itself, which have no
- * endpoint and so no sender above ("Clean up a captured note into a clear title
+ * endpoint and so no route to post to ("Clean up a captured note into a clear title
  * and a fuller message", issue 296).
  */
 export async function sendCommand<N extends ClientCommandName>(

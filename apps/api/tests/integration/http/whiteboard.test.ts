@@ -237,6 +237,31 @@ describe('Whiteboard', () => {
     });
   });
 
+  describe('a card or box keeps its place on the board when the box it was in is gone', () => {
+    it.each([
+      { situation: 'a card put back', box: false },
+      { situation: 'a box brought back', box: true },
+    ])('$situation lands where it was drawn', async ({ box }) => {
+      const outer = nextId();
+      await ok('draw_box', { boxId: outer, dashboardId: DASHBOARD_ID, parentBoxId: null, label: 'Act one', colour: null, x: 5000, y: 3000, w: 900, h: 900 });
+      const inner = nextId();
+      await ok('draw_box', { boxId: inner, dashboardId: DASHBOARD_ID, parentBoxId: outer, label: 'People', colour: null, x: 100, y: 50, w: 400, h: 300 });
+      if (box) {
+        await ok('delete_box', { boxId: inner });
+        await ok('delete_box', { boxId: outer });
+        await ok('restore_box', { boxId: inner });
+        expect((await snapshot()).whiteboards.boxes).toEqual([expect.objectContaining({ id: inner, parentBoxId: null, x: 5100, y: 3050 })]);
+      } else {
+        const { itemId } = await aFiledItem('Storm scene');
+        const cardId = await aCard(itemId, DASHBOARD_ID, inner);
+        await ok('take_card_off', { cardId });
+        await ok('delete_box', { boxId: outer });
+        await ok('put_cards_back', { cardIds: [cardId] });
+        expect(await cardsOf(itemId)).toEqual([{ id: cardId, dashboardId: DASHBOARD_ID, itemId, boxId: null, x: 5110, y: 3070 }]);
+      }
+    });
+  });
+
   describe('the Workspace’s read finds a board’s boxes and cards, and an Item’s cards, through their indexes', () => {
     it.each([
       { situation: 'a board’s boxes', query: boxesOfTheBoards, index: /board_boxes USING INDEX board_boxes_tenant_dashboard/ },
@@ -334,6 +359,14 @@ describe('Whiteboard', () => {
       expect(res.status).toBe(400);
       expect(((await res.json()) as { error: string }).error).toBe('Loose thought is in the Inbox. File it on a Panel or put it inside an Item first.');
       expect(await rowsIn('board_cards')).toBe(0);
+    });
+
+    it('refuses a finished Item filed nowhere, saying to give it a place first', async () => {
+      const itemId = await anItem('Loose thought');
+      await ok('set_done', { itemId, done: true });
+      const { res } = await place(itemId);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('Loose thought is on no Panel and inside no Item. File it on a Panel or put it inside an Item first.');
     });
 
     it('places the same Item once it is filed on a Panel', async () => {
@@ -515,6 +548,16 @@ describe('Whiteboard', () => {
       await ok('set_dismissed', { itemId, dismissed: true });
       expect((await snapshot()).whiteboards.cards).toEqual([]);
 
+      await ok('set_dismissed', { itemId, dismissed: false });
+      expect((await snapshot()).whiteboards.cards).toEqual(before);
+    });
+
+    it('brings back the cards of an Item dismissed twice, from two tabs, with one Undo', async () => {
+      const { itemId } = await aFiledItem('Storm scene');
+      await aCard(itemId);
+      const before = (await snapshot()).whiteboards.cards;
+      await ok('set_dismissed', { itemId, dismissed: true });
+      await ok('set_dismissed', { itemId, dismissed: true });
       await ok('set_dismissed', { itemId, dismissed: false });
       expect((await snapshot()).whiteboards.cards).toEqual(before);
     });
