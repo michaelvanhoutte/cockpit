@@ -136,30 +136,30 @@ test.describe('Triage', () => {
 
       // Combine on a Panel moves its rows ("Panels: Items put inside a parent stay where they were", issue 1876): each is
       // shown once, under the new parent, and Undo files them back on the Panel.
-      const [one, two] = [uniqueTitle('Falcon one'), uniqueTitle('Falcon two')] as const;
+      const [onPanelOne, onPanelTwo] = [uniqueTitle('Falcon one'), uniqueTitle('Falcon two')] as const;
       const falcon = board.panels[0]!;
-      await giveToAPanel(page, falcon, [one, two]);
+      await giveToAPanel(page, falcon, [onPanelOne, onPanelTwo]);
       await page.reload();
       await openDashboard(page, board.name, isMobile);
       const panel = page.getByRole('region', { name: falcon.name });
       if (isMobile) {
-        await holdRow(page, one, false);
-        await tapRow(page, two);
+        await holdRow(page, onPanelOne, false);
+        await tapRow(page, onPanelTwo);
       } else {
-        await panel.getByRole('listitem').filter({ hasText: one }).click({ modifiers: ['ControlOrMeta'] });
-        await panel.getByRole('listitem').filter({ hasText: two }).click({ modifiers: ['ControlOrMeta'] });
+        await panel.getByRole('listitem').filter({ hasText: onPanelOne }).click({ modifiers: ['ControlOrMeta'] });
+        await panel.getByRole('listitem').filter({ hasText: onPanelTwo }).click({ modifiers: ['ControlOrMeta'] });
       }
       await expect(page.getByText('2 selected')).toBeVisible();
       await combineThem(page, isMobile).then((combine) => combine.getByRole('button', { name: 'Combine' }).click());
 
-      const parent = `Combined: ${one} +1`;
+      const parent = `Combined: ${onPanelOne} +1`;
       await expect(panel.getByText(parent, { exact: true })).toBeVisible();
-      await expect(panel.getByText(one, { exact: true })).toHaveCount(1);
-      await expect(panel.getByText(two, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelOne, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelTwo, { exact: true })).toHaveCount(1);
       await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
       await expect(panel.getByText(parent, { exact: true })).toHaveCount(0);
-      await expect(panel.getByText(one, { exact: true })).toHaveCount(1);
-      await expect(panel.getByText(two, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelOne, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelTwo, { exact: true })).toHaveCount(1);
     });
   });
 });
