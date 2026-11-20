@@ -488,10 +488,10 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0112-story-proposal` adds the Review a rewrite leaves once the description is yours ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827),
-    // and `0113-item-thumbnail` which attachment stands for an Item ("Item form: there is no way to mark which image stands for an Item", issue 1863);
+    // `0114-whiteboards` adds each Dashboard's layout and divider ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829),
+    // and its two tables, which a backup taken before it carries no rows of;
     // the guest's demonstration adds rows only, and only to the guest.
-    items: ['story_proposal', 'story_proposed_at', 'thumbnail_attachment_id'],
+    dashboards: ['layout_view', 'split_share'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */
