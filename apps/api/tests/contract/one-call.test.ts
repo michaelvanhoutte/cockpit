@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import type { EditToRemember, ItemToPlace, ItemToPropose, ReplyBrief } from '../../src/ai/index.js';
+import type { EditToRemember, ItemToPlace, ItemToPropose, ReplyBrief, StoryBrief } from '../../src/ai/index.js';
 import type { PlaceTreeWorkspace } from '../../src/domain/spoken-path.js';
 import { A_CONTRACT_RUN, claude, hasAKey } from './support/claude.js';
 
@@ -111,5 +111,19 @@ describe('Triage', () => {
     };
     const answer = await asking.writeAReply(brief, A_CONTRACT_RUN);
     expect(answer, JSON.stringify(answer)).toHaveProperty('body');
+  });
+
+  it('write-a-story.v1 answers with a story, not a discard', async () => {
+    const brief: StoryBrief = {
+      title: 'Chapter 3, the crossing',
+      description: null,
+      children: [
+        { title: 'Book ferry to Texel', description: 'The 07:45 sailing from Den Helder.' },
+        { title: 'Storm scene', description: 'The wind picks up past the Marsdiep and nobody speaks.' },
+      ],
+      held: 2,
+    };
+    const answer = await asking.writeAStory(brief, A_CONTRACT_RUN);
+    expect(answer, JSON.stringify(answer)).toHaveProperty('story');
   });
 });

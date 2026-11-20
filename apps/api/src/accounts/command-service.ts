@@ -57,6 +57,8 @@ import {
   getDashboard,
   getItem,
   getLayout,
+  holdsAStory,
+  storyKeepersAmong,
   getPanel,
   getSeries,
   getFollowUpDays,
@@ -90,6 +92,7 @@ import {
   textCorrectionExistsFor,
 } from './repo.js';
 import { attachmentFromCommand } from '../domain/attachments.js';
+import { applyKeepMyStory, applyProposedStory, applyUseStory } from '../domain/story.js';
 import { captureDay } from '../domain/capture-day.js';
 import {
   applyConversationTurn,
@@ -462,6 +465,19 @@ export class MergeRefusedError extends Error {
   constructor(label: string, source: string) {
     super(`Can't merge ${label}: it finishes at its source, ${source}, so it can't be replaced by another Item`);
     this.name = 'MergeRefusedError';
+  }
+}
+
+/**
+ * A story asked for from an Item that holds nothing and has nothing to tell a
+ * story from - not what a Merge made - so the rewrite
+ * would only replace its words with "empty for now" ("Keep its story up to
+ * date", issue 1827). A 400, as a Merge refused: the Item is there.
+ */
+export class StoryRefusedError extends Error {
+  constructor(label: string) {
+    super(`Can't write a story for ${label}: it holds nothing to write it from`);
+    this.name = 'StoryRefusedError';
   }
 }
 
@@ -1307,6 +1323,15 @@ export function runCommand<N extends CommandName>(
   let addressLetGo: string | null = null;
   // Set only by `read_pasted_link`, where it applied.
   let textsWritten: boolean | null = null;
+  // The Items a child joined or left in `item_children` ("Keep its story up to date", issue 1827); the ones that keep
+  // their story are `rewriteStoryOf` below. Filing on a Panel is never one: a Panel holds Items but tells no story.
+  const storyOfItems = new Set<string>();
+  // Asked for by name, whatever the setting: *Rewrite from its children*, and the first story of what Combine makes.
+  const storyAsked = new Set<string>();
+  const rewriteStoryOf = (): { rewriteStoryOf?: string[]; storyAskedOf?: string[] } => {
+    const kept = storyKeepersAmong(db, tenantId, [...storyOfItems]).filter((id) => !storyAsked.has(id));
+    return { ...(kept.length > 0 ? { rewriteStoryOf: kept } : {}), ...(storyAsked.size > 0 ? { storyAskedOf: [...storyAsked] } : {}) };
+  };
 
   switch (name) {
     case 'create_workspace': {
@@ -2055,6 +2080,7 @@ export function runCommand<N extends CommandName>(
       // One in every Inbox until now is this Workspace's from here, as filing settles it.
       const settling = children.filter((child) => !child.workspaceDecided);
       if (settling.length > 0) everyWorkspaceSees(commandRow);
+      const joining = cmd.childIds.some((id) => !isInside(db, tenantId, parent.id, id));
       db.transaction((tx) => {
         for (const child of settling) {
           // Through `decideWorkspace`, as filing settles one, so its stamp never goes backwards.
@@ -2064,6 +2090,7 @@ export function runCommand<N extends CommandName>(
         putInside(tx, tenantId, parent.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      if (joining) storyOfItems.add(parent.id);
       break;
     }
     case 'put_inside': {
@@ -2127,6 +2154,7 @@ export function runCommand<N extends CommandName>(
         if (applied) takeOut(tx, tenantId, parent.id, cmd.childId, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      if (applied) storyOfItems.add(parent.id);
       break;
     }
     case 'merge_items': {
@@ -2200,6 +2228,10 @@ export function runCommand<N extends CommandName>(
         }
         tx.insert(commands).values(commandRow).run();
       });
+      // Its first story is written from what it brings together, replacing the stitched one while that is Claude's;
+      // what held the originals has lost them and gained it.
+      storyAsked.add(item.id);
+      for (const parentId of parents) storyOfItems.add(parentId);
       break;
     }
     case 'unmerge_items': {
@@ -2217,6 +2249,8 @@ export function runCommand<N extends CommandName>(
       const earlier = new Map(back.map((original) => [original.id, mergedAwayInto(db, tenantId, original.id)]));
       // The run the Merge ended, as Undo of a Dismiss brings it back.
       const reopened = back.flatMap((original) => runEndedWith(db, tenantId, original.id, original.deletedAt));
+      // What held the Merge's Item has lost it.
+      const heldTheMerge = itemParentsHolding(db, tenantId, [merged.id]);
       if (back.some((original) => !original.workspaceDecided)) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
         if (applied) {
@@ -2258,6 +2292,11 @@ export function runCommand<N extends CommandName>(
         }
         tx.insert(commands).values(commandRow).run();
       });
+      if (applied) {
+        // The originals are children again where they were, and the Merge's Item is not.
+        const ids = back.map((original) => original.id);
+        for (const parentId of [...heldTheMerge, ...itemParentsHolding(db, tenantId, ids)]) storyOfItems.add(parentId);
+      }
       break;
     }
     case 'combine_under_new_parent': {
@@ -2316,6 +2355,9 @@ export function runCommand<N extends CommandName>(
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
+      storyAsked.add(item.id);
+      // The Item it went inside has gained a child.
+      if (besideFirst) storyOfItems.add(besideFirst);
       break;
     }
     case 'associate': {
@@ -2465,6 +2507,69 @@ export function runCommand<N extends CommandName>(
           tx.insert(commands).values(commandRow).run();
         });
       }
+      break;
+    }
+    case 'set_keeps_story': {
+      const cmd = payload as CommandPayload<'set_keeps_story'>;
+      const holder = getItem(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      applied = (holder.keepsStory === true) !== cmd.keepsStory;
+      db.transaction((tx) => {
+        if (applied) {
+          tx.update(items)
+            .set({ keepsStory: cmd.keepsStory })
+            .where(and(eq(items.tenantId, tenantId), eq(items.id, holder.id)))
+            .run();
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
+    case 'rewrite_story': {
+      const cmd = payload as CommandPayload<'rewrite_story'>;
+      const holder = getItem(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!holdsAStory(db, tenantId, holder)) throw new StoryRefusedError(itemLabel(holder));
+      // Nothing is written here: the rewrite is the job's, asked for once whatever the setting.
+      db.insert(commands).values(commandRow).run();
+      storyAsked.add(holder.id);
+      break;
+    }
+    case 'propose_story': {
+      const cmd = payload as CommandPayload<'propose_story'>;
+      const holder = getItem(db, tenantId, cmd.itemId);
+      // The same 404, for the reason `propose_item_texts` above gives: the Item may be gone since the job read it.
+      if (!holder || holder.deletedAt) throw new ItemNotFoundError(cmd.itemId);
+      if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
+      const updated = applyProposedStory(holder, cmd.story, cmd.issuedAt);
+      if (updated === null) {
+        // Nothing to say that is not said, and still logged: a redelivery of this job is a replay.
+        db.insert(commands).values(commandRow).run();
+        applied = false;
+      } else {
+        textsWritten = updated.description !== holder.description;
+        db.transaction((tx) => {
+          storeItem(tx, tenantId, updated);
+          tx.insert(commands).values(commandRow).run();
+        });
+      }
+      break;
+    }
+    case 'use_story':
+    case 'keep_my_story': {
+      const cmd = payload as CommandPayload<'use_story'> | CommandPayload<'keep_my_story'>;
+      const holder = getItem(db, tenantId, cmd.itemId);
+      if (!holder || holder.deletedAt || holder.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(cmd.itemId);
+      if (!holder.workspaceDecided) everyWorkspaceSees(commandRow);
+      const decided = name === 'use_story' ? applyUseStory(holder, cmd.story) : applyKeepMyStory(holder, cmd.story);
+      // Answered from another tab already, replaced by a newer rewrite, or a Review that never was: nothing changes.
+      applied = decided !== null;
+      db.transaction((tx) => {
+        if (decided) {
+          storeItem(tx, tenantId, name === 'use_story' ? { ...decided, updatedAt: neverBackwards(holder.updatedAt, cmd.issuedAt) } : decided);
+        }
+        tx.insert(commands).values(commandRow).run();
+      });
       break;
     }
     case 'edit_remembered_sentence': {
@@ -3709,6 +3814,10 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         applied = false;
       } else {
+        // Dismissed or brought back, it leaves or rejoins every Item holding it ("Brainstorming: a parent's description goes stale as children join or leave", issue 1827).
+        if (name === 'set_dismissed' && (existing.deletedAt === null) !== (updated.deletedAt === null)) {
+          for (const parentId of itemParentsHolding(db, tenantId, [cmd.itemId])) storyOfItems.add(parentId);
+        }
         // A correction only for the two texts, and only where Cockpit had
         // actually proposed something to correct - an Item it never proposed
         // for teaches nothing ("Learn how you write from the titles you
@@ -3799,6 +3908,7 @@ export function runCommand<N extends CommandName>(
     // so a tab can tell the announcement is its own.
     at: commandRow.receivedAt,
     ...(settledRouting ? { settledRouting } : {}),
+    ...(applied ? rewriteStoryOf() : {}),
     ...(recordedCorrection ? { recordedCorrection } : {}),
     ...(fieldsSet ? { fieldsSet } : {}),
     ...(addressLetGo ? { addressLetGo } : {}),

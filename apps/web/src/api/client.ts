@@ -278,6 +278,13 @@ const commandSenders = {
     api.v1.commands.unmerge_items.$post({ json: p }, o),
   combine_under_new_parent: (p: CommandPayload<'combine_under_new_parent'>, o?: ClientRequestOptions) =>
     api.v1.commands.combine_under_new_parent.$post({ json: p }, o),
+  set_keeps_story: (p: CommandPayload<'set_keeps_story'>, o?: ClientRequestOptions) =>
+    api.v1.commands.set_keeps_story.$post({ json: p }, o),
+  rewrite_story: (p: CommandPayload<'rewrite_story'>, o?: ClientRequestOptions) =>
+    api.v1.commands.rewrite_story.$post({ json: p }, o),
+  use_story: (p: CommandPayload<'use_story'>, o?: ClientRequestOptions) => api.v1.commands.use_story.$post({ json: p }, o),
+  keep_my_story: (p: CommandPayload<'keep_my_story'>, o?: ClientRequestOptions) =>
+    api.v1.commands.keep_my_story.$post({ json: p }, o),
   set_done: (p: CommandPayload<'set_done'>, o?: ClientRequestOptions) => api.v1.commands.set_done.$post({ json: p }, o),
   set_started: (p: CommandPayload<'set_started'>, o?: ClientRequestOptions) => api.v1.commands.set_started.$post({ json: p }, o),
   wait_for_reply: (p: CommandPayload<'wait_for_reply'>, o?: ClientRequestOptions) =>

@@ -12,6 +12,7 @@ import {
   proposeForClaude,
   readWhatANoteMeans,
   reproposePanels,
+  rewriteStory,
   type EnrichmentJob,
 } from './enrichment.js';
 import { captureGuestArrival } from './guest-arrival.js';
@@ -28,6 +29,8 @@ export {
   proposeForClaude,
   readWhatANoteMeans,
   reproposePanels,
+  rewriteStory,
+  enqueueStoryRewrite,
 } from './enrichment.js';
 export type {
   EnrichmentJob,
@@ -35,6 +38,7 @@ export type {
   ReadWhatItMeansJob,
   ReproposePanelsJob,
   ProposeForClaudeJob,
+  RewriteStoryJob,
   GuestArrivalJob,
 } from './enrichment.js';
 export { enqueueGuestArrivals } from './guest-arrival.js';
@@ -274,6 +278,8 @@ function run(env: Env, job: EnrichmentJob, delivery: { lastAttempt: boolean }): 
       return reproposePanels(env, job);
     case 'propose-for-claude':
       return proposeForClaude(env, job);
+    case 'rewrite-story':
+      return rewriteStory(env, job);
     case 'read-what-a-note-means':
       return readWhatANoteMeans(env, job);
     case 'guest-arrival':
@@ -293,6 +299,7 @@ function describe(job: EnrichmentJob): string {
     case 'clean-up-a-note':
     case 'read-what-a-note-means':
     case 'propose-for-claude':
+    case 'rewrite-story':
       return `item ${job.itemId}`;
     case 're-propose-panels':
       return `workspace ${job.workspaceId}`;

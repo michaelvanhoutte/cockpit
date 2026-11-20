@@ -753,6 +753,9 @@ const itemColumns = {
   updatedAt: items.updatedAt,
   childrenCount: items.childrenCount,
   childrenDone: items.childrenDone,
+  keepsStory: items.keepsStory,
+  storyProposal: items.storyProposal,
+  storyProposedAt: items.storyProposedAt,
 };
 
 /**
@@ -1025,6 +1028,101 @@ export function getItem(db: AccountDb, tenantId: string, itemId: string): Item |
       .where(and(eq(items.tenantId, tenantId), eq(items.id, itemId), notAPanelsOwnItem()))
       .get() ?? null
   );
+}
+
+/**
+ * Which of these Items keep their story up to date and are not dismissed, each
+ * once: what a child joining or leaving asks to be rewritten (`rewriteStoryOf`,
+ * "Keep its story up to date", issue 1827). A Panel's own Item is never one: a
+ * Panel holds Items but tells no story.
+ */
+export function storyKeepersAmong(db: AccountDb, tenantId: string, itemIds: readonly string[]): string[] {
+  const ids = [...new Set(itemIds)];
+  const found: string[] = [];
+  // Chunked, since the store takes no more than 100 bound values in a statement.
+  for (let at = 0; at < ids.length; at += STORY_IDS_PER_STATEMENT) {
+    const rows = db
+      .select({ id: items.id })
+      .from(items)
+      .where(
+        and(
+          eq(items.tenantId, tenantId),
+          eq(items.keepsStory, true),
+          isNull(items.deletedAt),
+          inArray(items.id, ids.slice(at, at + STORY_IDS_PER_STATEMENT)),
+          notAPanelsOwnItem(),
+        ),
+      )
+      .all();
+    for (const row of rows) found.push(row.id);
+  }
+  return found;
+}
+
+const STORY_IDS_PER_STATEMENT = 40;
+
+/**
+ * Whether there is anything to write this Item's story from: it holds Items,
+ * or it is what a Merge made (its originals left their words on it as
+ * Additions). `rewrite_story` refuses an Item that is neither.
+ */
+export function holdsAStory(db: AccountDb, tenantId: string, holder: Item): boolean {
+  if ((holder.childrenCount ?? 0) > 0) return true;
+  return (
+    db.all(sql`SELECT 1 FROM item_additions WHERE tenant_id = ${tenantId} AND item_id = ${holder.id} AND from_item_id IS NOT NULL LIMIT 1`).length > 0
+  );
+}
+
+/** What `storySources` reads. */
+export interface StorySources {
+  workspaceId: string;
+  title: string;
+  description: string | null;
+  keepsStory: boolean;
+  children: { title: string; description: string | null }[];
+  /** How many Items it holds in all, of which `children` are the first. */
+  held: number;
+}
+
+/**
+ * What a rewrite of a story is made from: the Item, and up to `limit` of what
+ * it is about - first the words a Merge's originals left on it as Additions, in
+ * the order written, then the Items it holds in its order, with the words each
+ * carries. `held` counts both in all. Null where the Item is gone.
+ */
+export function storySources(
+  db: AccountDb,
+  tenantId: string,
+  itemId: string,
+  limit: number,
+): StorySources | null {
+  const holder = getItem(db, tenantId, itemId);
+  if (!holder || holder.deletedAt) return null;
+  const rows = db.all<{ title: string; description: string | null }>(
+    sql`SELECT k.title AS title, k.description AS description
+          FROM item_children c JOIN items k ON k.id = c.child_id
+         WHERE c.tenant_id = ${tenantId} AND c.parent_id = ${itemId} AND c.deleted_at IS NULL AND k.deleted_at IS NULL
+         ORDER BY c.position, c.created_at, c.child_id
+         LIMIT ${limit}`,
+  );
+  // What a Merge's originals left, beside the Items it holds: an Item's own appended words are not Items it holds.
+  const left = db
+    .select({ message: itemAdditions.message })
+    .from(itemAdditions)
+    .where(and(eq(itemAdditions.tenantId, tenantId), eq(itemAdditions.itemId, itemId), isNotNull(itemAdditions.fromItemId)))
+    .orderBy(itemAdditions.createdAt)
+    .limit(limit)
+    .all()
+    .map((addition) => ({ title: addition.message, description: null }));
+  const leftInAll =
+    left.length < limit
+      ? left.length
+      : (db.get<{ n: number }>(
+          sql`SELECT count(*) AS n FROM item_additions WHERE tenant_id = ${tenantId} AND item_id = ${itemId} AND from_item_id IS NOT NULL`,
+        )?.n ?? left.length);
+  const children = [...left, ...rows].slice(0, limit);
+  const held = Math.max(holder.childrenCount ?? 0, rows.length) + leftInAll;
+  return { workspaceId: holder.workspaceId, title: holder.title, description: holder.description, keepsStory: holder.keepsStory === true, children, held };
 }
 
 /** One series as its row holds it, with what each copy is made from, or null where the account has none by that id. */
