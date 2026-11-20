@@ -111,7 +111,7 @@ export default function CombineDialog({
           description: parentDescription(chosen, note),
           childIds,
           panelId,
-          // From the Inbox the new parent is an Item that stays there holding them, never a Panel (issue 1846).
+          // From the Inbox the new parent is an Item that stays there holding them, never a Panel ("Brainstorming: a Panel is an Item nobody can open", issue 1846).
           dashboardId: null,
         },
       }));

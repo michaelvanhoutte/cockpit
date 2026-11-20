@@ -525,13 +525,15 @@ export const panels = sqliteTable(
     columns: text('columns'),
     /**
      * The Item kept for this Panel ("Brainstorming: give every Panel an Item and
-     * store filings as Item-in-Item relations", issue 1824), which only the
-     * release before reads: a Panel is never an Item ("Brainstorming: a Panel
-     * is an Item nobody can open", issue 1846), so it is still made, renamed and
-     * dismissed with the Panel for a rollback, and nothing reads it now. Its
-     * title is the Panel's,
-     * it is in the Panel's Workspace, and its texts are settled, so Claude never
-     * rewrites it. **Its id is the Panel's own id**, which is what lets the
+     * store filings as Item-in-Item relations", issue 1824), whose rows the
+     * release before reads filings from: a Panel is never an Item
+     * ("Brainstorming: a Panel is an Item nobody can open", issue 1846), so it
+     * is still made, renamed and dismissed with the Panel for a rollback. Read
+     * now only to leave that Item out: of every list, search and Item read
+     * (`notAPanelsOwnItem`), and as a parent from every Item-inside-Item read
+     * (`noPanelsItem`, `ancestorsAmong`, `itemParentsHolding`). Its title is
+     * the Panel's, it is in the Panel's Workspace, and its texts are settled,
+     * so Claude never rewrites it. **Its id is the Panel's own id**, which is what lets the
      * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
      * to hand out, and makes a replay a no-op.
      *

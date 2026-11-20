@@ -2233,7 +2233,8 @@ export function runCommand<N extends CommandName>(
       };
       const story = cmd.description ?? cmd.title;
       // From a Panel: a new Item filed on it, as a row there. From the Inbox: an Item filed nowhere, so it stays in
-      // the Inbox holding them (issue 1846). A Dashboard an older tab names makes no Panel: a Panel is never an Item.
+      // the Inbox holding them ("Brainstorming: a Panel is an Item nobody can open", issue 1846). A Dashboard an
+      // older tab names makes no Panel: a Panel is never an Item.
       const nested = cmd.panelId === null ? null : panelNamedFor(db, tenantId, cmd.workspaceId, cmd.panelId);
       if (cmd.panelId !== null && !nested) throw new PanelNotFoundError(cmd.panelId);
       const { item, filings } = decideCaptureFiling(
