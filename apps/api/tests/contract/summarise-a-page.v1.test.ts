@@ -30,7 +30,7 @@ describe('Capture', () => {
 
   describe('a pasted link is summarised from its page, and a page that cannot be read is never summarised', () => {
     it('a public article gives a title, a gist and 3 to 5 bullets', async () => {
-      const read = await summarising.summarisePage('https://en.wikipedia.org/wiki/Ghent', A_CONTRACT_RUN);
+      const read = await summarising.summarisePage('https://en.wikipedia.org/wiki/Ghent', '', A_CONTRACT_RUN);
 
       expect(read, JSON.stringify(read)).toHaveProperty('page');
       if (!('page' in read)) return;
@@ -41,7 +41,15 @@ describe('Capture', () => {
     });
 
     it('a page in another language is summarised in that language', async () => {
-      const read = await summarising.summarisePage('https://nl.wikipedia.org/wiki/Gent', A_CONTRACT_RUN);
+      const read = await summarising.summarisePage('https://nl.wikipedia.org/wiki/Gent', '', A_CONTRACT_RUN);
+
+      expect(read, JSON.stringify(read)).toHaveProperty('page');
+      if (!('page' in read)) return;
+      expect(read.page.language.toLowerCase()).toMatch(/dutch|nederlands/);
+    });
+
+    it('a note in another language than the page gets the summary in the note’s language', async () => {
+      const read = await summarising.summarisePage('https://en.wikipedia.org/wiki/Ghent', 'lees dit voor het gesprek van vrijdag', A_CONTRACT_RUN);
 
       expect(read, JSON.stringify(read)).toHaveProperty('page');
       if (!('page' in read)) return;
@@ -49,7 +57,7 @@ describe('Capture', () => {
     });
 
     it('a sign-in page is not readable', async () => {
-      const read = await summarising.summarisePage('https://github.com/login', A_CONTRACT_RUN);
+      const read = await summarising.summarisePage('https://github.com/login', '', A_CONTRACT_RUN);
 
       expect(read, JSON.stringify(read)).toHaveProperty('notReadable');
     });

@@ -7,8 +7,8 @@ import { WEB } from '../domain/named-sources.js';
 /**
  * Reading the web page or PDF a pasted link names, as a step of the clean-up
  * job ("Capture link summaries", issue 1853), after the step that reads a Teams
- * link. The model fetches nothing here and sees nothing of the note: the
- * summary call carries the link alone, and the job puts the description
+ * link. The model fetches nothing here and sees the note only as a hint for the
+ * summary's language: the summary call carries the link, and the job puts the description
  * together from its answer and the clean-up's, so a page can change its own
  * summary and nothing else.
  */
@@ -53,9 +53,11 @@ export async function readTheWebPage(
   callFor: CallFor,
   lastAttempt: boolean,
 ): Promise<WebRead | null> {
+  const captured = item.capturedMessage ?? link;
+  const wordsBeside = wordsBesideTheLink(captured, link);
   let read;
   try {
-    read = await ai.summarisePage(link, callFor);
+    read = await ai.summarisePage(link, wordsBeside, callFor);
   } catch (error) {
     if (!lastAttempt) throw error;
     console.log(
@@ -64,7 +66,6 @@ export async function readTheWebPage(
     return null;
   }
   if (!('page' in read)) return null;
-  const captured = item.capturedMessage ?? link;
   return {
     capturedFrom: {
       source: WEB,
@@ -74,7 +75,7 @@ export async function readTheWebPage(
     },
     capturedMessage: captured,
     page: read.page,
-    wordsBeside: wordsBesideTheLink(captured, link),
+    wordsBeside,
   };
 }
 

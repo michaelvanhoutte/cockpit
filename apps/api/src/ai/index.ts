@@ -151,7 +151,7 @@ export interface AiService {
    * answer outside the schema, or a page that cannot be read, answers
    * `notReadable`; a call that *fails* throws, as `cleanUpNote`'s does.
    */
-  summarisePage(link: string, callFor: CallFor): Promise<PageRead>;
+  summarisePage(link: string, wordsBeside: string, callFor: CallFor): Promise<PageRead>;
 
   /**
    * Which of `panels` an Item belongs on, and nothing else - for a settled
@@ -341,8 +341,8 @@ export class ClaudeAiService implements AiService {
     return 'refused' in answer ? { discarded: answer.refused } : readPlace(answer.text);
   }
 
-  async summarisePage(link: string, callFor: CallFor): Promise<PageRead> {
-    const prompt = buildSummariseAPage(link);
+  async summarisePage(link: string, wordsBeside: string, callFor: CallFor): Promise<PageRead> {
+    const prompt = buildSummariseAPage(link, wordsBeside);
     const about: CallAbout = {
       ...callFor,
       operation: 'summarise-a-page',

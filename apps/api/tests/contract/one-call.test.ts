@@ -60,7 +60,7 @@ describe('Capture', () => {
   hasAKey();
 
   it('summarise-a-page.v1 answers with a page, or with that it cannot be read', async () => {
-    const answer = await asking.summarisePage('https://example.com/', A_CONTRACT_RUN);
+    const answer = await asking.summarisePage('https://example.com/', '', A_CONTRACT_RUN);
     expect(answer, JSON.stringify(answer)).toSatisfy((read: object) => 'page' in read || 'notReadable' in read);
   });
 });

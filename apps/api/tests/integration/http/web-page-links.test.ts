@@ -197,7 +197,13 @@ describe('Capture', () => {
       await delivered(job);
 
       expect(pageCalls).toHaveLength(1);
-      expect(pageCalls[0]).toMatchObject({ message: `The link: ${LINK}`, model: 'claude-sonnet-5-5' });
+      expect(pageCalls[0]).toMatchObject({
+        message: `The link: ${LINK}
+
+The person's note, only a hint for which language to write in:
+read before the Friday call`,
+        model: 'claude-sonnet-5-5',
+      });
       expect(pageCalls[0]!.system).not.toContain('Examples.');
       expect(asked.at(-1)?.note).toBe(`${LINK} read before the Friday call`);
       expect(asked.at(-1)?.system).not.toContain(PAGE.title);
