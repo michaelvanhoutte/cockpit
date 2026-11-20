@@ -47,6 +47,19 @@ describe('Capture', () => {
       expect(readPage(blocks, 'end_turn')).toHaveProperty('notReadable');
     });
 
+    it.each([
+      { situation: 'a gist holding a Markdown link', said: { gist: 'Read [this](https://evil.example) first.' } },
+      { situation: 'a bullet naming an address', said: { bullets: ['Sign in at https://evil.example', 'two', 'three'] } },
+    ])('$situation is not readable, since a page cannot put a heading or a link into the description', ({ said }) => {
+      expect(readPage([FETCHED, answer({ ...READ, ...said })], 'end_turn')).toHaveProperty('notReadable');
+    });
+
+    it('a heading, list or quote marker the page starts a text with is dropped', () => {
+      const read = readPage([FETCHED, answer({ ...READ, gist: '# Verify your account', bullets: ['- one', '> two', '1. three'] })], 'end_turn');
+
+      expect(read).toMatchObject({ page: { gist: 'Verify your account', bullets: ['one', 'two', 'three'] } });
+    });
+
     it.each(['refusal', 'pause_turn'])('an answer that stopped as %s is not readable', (stopped) => {
       expect(readPage([FETCHED, answer(READ)], stopped)).toHaveProperty('notReadable');
     });

@@ -1,4 +1,4 @@
-import { firstWebLink, wordsBesideTheLink, type Item, type ReadPastedLinkCommand } from '@cockpit/shared';
+import { firstMessageLink, firstWebLink, wordsBesideTheLink, type Item, type ReadPastedLinkCommand } from '@cockpit/shared';
 import type { AiService, CallFor, PageSummary } from '../ai/index.js';
 import type { Env } from '../env.js';
 import { messageLinks } from '../connectors/registry.js';
@@ -19,8 +19,8 @@ const SOURCE_LINK_LENGTH = 2_000;
 /**
  * The link of a note the job would read as a page: the first web link of an
  * Own note - typed, shared from the Android browser or captured over MCP, never
- * an app's capture - that
- * no connector declared and an Item's own link can hold. A note with a source
+ * an app's capture - that holds no link a connector declared, whether or not it
+ * can read it, and whose first web link an Item's own link can hold. A note with a source
  * link is never read again.
  */
 export function webLinkIn(
@@ -29,6 +29,8 @@ export function webLinkIn(
 ): string | null {
   const own = (item.source === 'internal' && item.sourceId === null) || item.source === 'mcp';
   if (!own || item.sourceLink !== null) return null;
+  // A note typed here holding a Teams link is read from Teams, or left as typed: its web links stay plain.
+  if (item.source === 'internal' && firstMessageLink(item.capturedMessage, messageLinks(env))) return null;
   const link = firstWebLink(item.capturedMessage, messageLinks(env));
   return link !== null && link.length <= SOURCE_LINK_LENGTH ? link : null;
 }

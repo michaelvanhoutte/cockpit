@@ -4,7 +4,7 @@ import { ACCOUNT_NAME, WORKSPACE_ID, asUser, inStoreAsItIs } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { ORIGIN, connected, mcp } from './connected-apps.support.js';
-import { A_READING, aModelThatReads, asked, captureANote, duringThe, historyOf, isACleanUp, nextId, postChange, reading, textsOf } from './note-cleanup.support.js';
+import { A_READING, aModelThatReads, asked, captureANote, duringThe, historyOf, isACleanUp, nextId, postChange, reading, textsOf, theModelIs } from './note-cleanup.support.js';
 
 /**
  * Integration level: an Own note holding a web page or PDF link is read, and
@@ -263,6 +263,40 @@ read before the Friday call`,
 
       expect(pageCalls).toEqual([]);
       expect(await sourceOf(itemId)).toEqual(AS_TYPED);
+    });
+  });
+
+  describe('the clean-up of the note failing does not spend the page read', () => {
+    it('before the last try: tried again, with the page not written yet and the failure the clean-up’s own', async () => {
+      const { itemId, job } = await captured(`${LINK} read before the Friday call`);
+      theModelIs('fails');
+
+      expect(await delivered(job)).toEqual({ retried: true });
+
+      expect(await sourceOf(itemId)).toEqual(AS_TYPED);
+      expect(await changesTo(itemId)).toEqual([]);
+      expect((await historyOf(itemId))[0]).toMatchObject({ status: 'failed' });
+    });
+
+    it('the page call failing before the last try fails the attempt in the history', async () => {
+      onThePage = 'fails';
+      const { itemId, job } = await captured(LINK);
+
+      expect(await delivered(job)).toEqual({ retried: true });
+
+      expect((await historyOf(itemId))[0]).toMatchObject({ status: 'failed' });
+    });
+  });
+
+  describe('the history records the texts the Item holds', () => {
+    it('the page’s title and the description with its summary, not the clean-up’s own proposal', async () => {
+      const { itemId, job } = await captured(`${LINK} read before the Friday call`);
+
+      await delivered(job);
+
+      expect((await historyOf(itemId))[0]).toMatchObject({ titleAfter: PAGE.title, descriptionAfter: `${A_READING.message}
+
+${SUMMARY}` });
     });
   });
 

@@ -501,10 +501,26 @@ export async function cleanUpACapturedNote(
    * queue tries it again.
    */
   let webPage: Promise<WebRead | null> | null = null;
-  /** The read written with nothing else, where no reading of the note goes with it. */
-  const readAlone = async () => {
+  /** The page, or the failure of its call, which fails the attempt as every other throw here does. */
+  const pageOrFail = async () => {
+    try {
+      return await webPage;
+    } catch (error) {
+      await recordHistory(() =>
+        account.recordRewriteOutcome(attemptId, { status: 'failed', message: error instanceof Error ? error.message : String(error) }),
+      );
+      throw error;
+    }
+  };
+  /**
+   * The read written with nothing else, where no reading of the note goes with it.
+   * **Without the page where the job will be tried again**: a page read lands
+   * with texts, which the retry would then take for a proposal already made and
+   * never read the note's fields.
+   */
+  const readAlone = async (withThePage = true) => {
     if (item && fromLink) await writeThePastedLinkRead(env, account, job, item, fromLink);
-    const web = await webPage;
+    const web = withThePage ? await pageOrFail() : null;
     if (item && web) {
       const texts = textsOfThePage(web, { description: web.wordsBeside, readings: [] });
       await writeThePastedLinkRead(env, account, job, item, { capturedFrom: web.capturedFrom, capturedMessage: web.capturedMessage }, texts);
@@ -645,7 +661,7 @@ export async function cleanUpACapturedNote(
   } catch (error) {
     // The read is kept rather than paid for again: the retry finds the Item
     // already the source's save, and reads it as one.
-    await readAlone();
+    await readAlone(delivery.lastAttempt);
     await recordHistory(() =>
       account.recordRewriteOutcome(attemptId, {
         status: 'failed',
@@ -666,8 +682,10 @@ export async function cleanUpACapturedNote(
   }
 
   // The page, if the note had one to read: a failed call throws here, before anything is written.
-  const web = await webPage;
+  const web = await pageOrFail();
   if (web) say(job.itemId, `read the page its pasted link names from ${web.capturedFrom.sourceLink}`);
+  // What the Item holds once written, which is what the history records: the page's title and the summary where a page was read.
+  let writtenTexts = { title: read.proposal.title, description: read.proposal.message };
   let written;
   try {
     const proposed = {
@@ -687,6 +705,7 @@ export async function cleanUpACapturedNote(
     const texts = web
       ? textsOfThePage(web, { description: proposed.description, readings: proposed.readings, ...(proposed.nextAction === undefined ? {} : { nextAction: proposed.nextAction }) })
       : proposed;
+    writtenTexts = { title: texts.title, description: texts.description };
     const envelope = {
       commandId: crypto.randomUUID(),
       issuedAt: new Date().toISOString(),
@@ -757,8 +776,8 @@ export async function cleanUpACapturedNote(
   const settledIn = whereSaid?.tree.find((workspace) => workspace.id === fieldsSet.workspaceId) ?? null;
   const panelsAsNamed = whereSaid?.tree.flatMap((w) => w.dashboards.flatMap((d) => d.panels)) ?? [];
   const textsOutcome = {
-    titleAfter: written.applied ? read.proposal.title : null,
-    descriptionAfter: written.applied ? read.proposal.message : null,
+    titleAfter: written.applied ? writtenTexts.title : null,
+    descriptionAfter: written.applied ? writtenTexts.description : null,
     message: written.applied
       ? `proposed in ${read.proposal.language}`
       : 'nothing was written: the texts are already edited',

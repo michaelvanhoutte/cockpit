@@ -29,6 +29,21 @@ const oneLine = (max: number) =>
     .pipe(z.string().min(1).max(max));
 
 /**
+ * A gist or bullet as plain text: a Markdown block marker the page started it
+ * with is dropped, so it cannot make a heading, a list or a quote of the
+ * description, and one that holds an address or a Markdown link is refused
+ * whole, as a proposal that names a link is.
+ */
+const MARKDOWN_BLOCK = /^(?:[#>*+|`-]+|\d+[.)])\s*/;
+const A_LINK = /:\/\/|\]\(/;
+const plain = (max: number) =>
+  z
+    .string()
+    .transform((text) => text.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim().replace(MARKDOWN_BLOCK, ''))
+    .pipe(z.string().min(1).max(max))
+    .refine((text) => !A_LINK.test(text));
+
+/**
  * **Strict, so a field the schema never asked for is refused whole**, whatever
  * the page told the model to add: a page can change its own summary and
  * nothing else (priority, due date and Panels are the clean-up's alone).
@@ -36,8 +51,8 @@ const oneLine = (max: number) =>
 const readableSchema = z.strictObject({
   readable: z.literal(true),
   title: oneLine(TITLE_LENGTH),
-  gist: oneLine(500),
-  bullets: z.array(oneLine(400)).min(3).max(5),
+  gist: plain(500),
+  bullets: z.array(plain(400)).min(3).max(5),
   language: oneLine(60),
 });
 

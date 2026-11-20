@@ -79,6 +79,10 @@ describe('Triage', () => {
       expect(itemFromASource([note('A'), note('B')])).toBeUndefined();
     });
 
+    it('lets a note read as a web page be merged, as it finishes at no source', () => {
+      expect(itemFromASource([note('A'), note('B', { source: 'web' })])).toBeUndefined();
+    });
+
     it('lets an Item an app captured over MCP be merged, as it finishes at no source', () => {
       expect(itemFromASource([note('A'), note('B', { source: 'mcp' })])).toBeUndefined();
     });
