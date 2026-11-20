@@ -4846,7 +4846,7 @@ describe('Item editing', () => {
     });
 
     it('closes the form once the Item is split, as the form holds the words from before', async () => {
-      const user = await theForm();
+      const user = await theForm(anItem({ description: 'One idea.\n\nAnother idea.' }));
       await user.click(screen.getByRole('button', { name: 'Split…' }));
       await screen.findByRole('heading', { name: /^Split “/ });
       await waitFor(() => expect(screen.getByRole('button', { name: 'Split' })).toBeEnabled());
