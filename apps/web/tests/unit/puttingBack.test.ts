@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import type { CommandArgs } from '../../src/api/queries';
-import { putBackFromARowDrop, type RowDropWas } from '../../src/puttingBack';
+import { putBackFromACombine, putBackFromARowDrop, type RowDropWas } from '../../src/puttingBack';
 
 /**
  * F1: what Undo sends for a drop onto a row, which puts back both halves
@@ -73,6 +73,44 @@ describe('Panels', () => {
       );
 
       expect(sent.map((change) => change.name)).toEqual(['add_item_to_panel']);
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('Undo of a Combine under a new parent puts everything back', () => {
+    it('files them on their Panel again, takes them out of the new parent and dismisses it', async () => {
+      const sent: CommandArgs[] = [];
+      await putBackFromACombine(
+        {
+          workspaceId: 'ws-work',
+          send: (change) => {
+            sent.push(change);
+            return Promise.resolve({ ok: true, applied: true });
+          },
+          latest: () =>
+            Promise.resolve({
+              items: [],
+              panels: [],
+              children: [
+                { parentId: CHAPTER_4, childId: STORM, position: 0 },
+                { parentId: CHAPTER_4, childId: FERRY, position: 1 },
+              ],
+              filings: [{ panelId: SCENES, itemId: CHAPTER_4, position: 0 }],
+            } as unknown as WorkspaceSnapshot),
+        },
+        { target: CHAPTER_4, arrived: [STORM, FERRY], parents: [], panels: [{ panelId: SCENES, itemIds: [STORM, FERRY], was: [STORM, FERRY] }] },
+      );
+
+      expect(sent.map((change) => change.name)).toEqual([
+        'add_item_to_panel',
+        'remove_child',
+        'add_item_to_panel',
+        'remove_child',
+        'set_dismissed',
+      ]);
+      expect(sent[0]).toMatchObject({ payload: { itemId: STORM, panelId: SCENES, order: [STORM, CHAPTER_4] } });
+      expect(sent.at(-1)).toMatchObject({ payload: { itemId: CHAPTER_4, dismissed: true } });
     });
   });
 });

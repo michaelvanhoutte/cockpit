@@ -2549,6 +2549,17 @@ export function runCommand<N extends CommandName>(
         db.insert(commands).values(commandRow).run();
         break;
       }
+      // What each leaves must be this Workspace's too, as for `put_inside` ("Panels: Items put inside a parent stay where
+      // they were", issue 1876). Checked after the resend above, which has nothing left to leave.
+      const leaves = cmd.leaves ?? [];
+      for (const leave of leaves) {
+        if (leave.panelId !== undefined) {
+          panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, leave.panelId);
+          continue;
+        }
+        const from = getItem(db, tenantId, leave.parentId!);
+        if (!from || from.deletedAt || from.workspaceId !== cmd.workspaceId) throw new ItemNotFoundError(leave.parentId!);
+      }
       const settling = children.filter((child) => !child.workspaceDecided);
       if (settling.length > 0) everyWorkspaceSees(commandRow);
       const settleChildren = (tx: InATransaction) => {
@@ -2570,24 +2581,69 @@ export function runCommand<N extends CommandName>(
         cmd,
         nested ? [nested] : [],
       );
+      // On a Panel it takes the first Item's place there, not the top: the Panel's whole order is written with it (issue 1876).
+      for (const decided of filings) {
+        // Only where the first Item leaves it: one that stays keeps its place, and the new parent goes where it always went.
+        if (!leaves.some((leave) => leave.itemId === cmd.childIds[0] && leave.panelId === decided.panelId)) continue;
+        const first = decided.rows.slice().sort((a, b) => a.position - b.position);
+        const at = first.findIndex((row) => row.itemId === cmd.childIds[0]);
+        if (at < 0) continue;
+        const own = first.findIndex((row) => row.itemId === cmd.parentId);
+        const placed = first.splice(own, 1)[0]!;
+        first.splice(at, 0, placed);
+        first.forEach((row, position) => {
+          row.position = position;
+        });
+        decided.rows = first;
+      }
       // Filed on no Panel (none named, or one that takes no Items), but the first Item is inside an Item: the new parent
       // goes inside that one, beside it, decided here from the stored rows, not sent. The first by when the first Item
       // was put inside it (`itemParentsHolding`), which passes over a dismissed one and a Panel's own Item; also over a
       // finished one, which no list draws, one in another Workspace, and one that is, or sits inside, an Item going
       // into the new parent, which would put an Item inside itself. None left: the Inbox.
+      // The one the first Item leaves, where it names one, since it was picked in that parent's list (issue 1876).
+      const leftByFirst = leaves.find((leave) => leave.itemId === cmd.childIds[0] && leave.parentId !== undefined)?.parentId;
+      const beside = (id: string) => {
+        const holder = getItem(db, tenantId, id);
+        return holder?.workspaceId === cmd.workspaceId && !holder.completedAt && ancestorsAmong(db, tenantId, id, cmd.childIds).length === 0;
+      };
       const besideFirst =
         filings.length > 0
           ? undefined
-          : itemParentsHolding(db, tenantId, cmd.childIds.slice(0, 1)).find((id) => {
-              const holder = getItem(db, tenantId, id);
-              return holder?.workspaceId === cmd.workspaceId && !holder.completedAt && ancestorsAmong(db, tenantId, id, cmd.childIds).length === 0;
-            });
+          : leftByFirst && beside(leftByFirst)
+            ? leftByFirst
+            : itemParentsHolding(db, tenantId, cmd.childIds.slice(0, 1)).find(beside);
       db.transaction((tx) => {
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE, keepsStory: true }).run();
         for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
-        if (besideFirst) putInside(tx, tenantId, besideFirst, [item.id], cmd.issuedAt);
+        if (besideFirst) {
+          putInside(tx, tenantId, besideFirst, [item.id], cmd.issuedAt);
+          // In the first Item's place inside it, rather than at the end (issue 1876).
+          const held = tx
+            .all<{ child_id: string }>(
+              sql`SELECT child_id FROM item_children WHERE tenant_id = ${tenantId} AND parent_id = ${besideFirst} AND deleted_at IS NULL
+                    AND child_id <> ${item.id} ORDER BY position, created_at`,
+            )
+            .map((row) => row.child_id);
+          const at = held.indexOf(cmd.childIds[0]!);
+          const leavesIt = leaves.some((leave) => leave.itemId === cmd.childIds[0] && leave.parentId === besideFirst);
+          if (leavesIt && at >= 0) writeChildrenInOrder(tx, tenantId, besideFirst, [...held.slice(0, at), item.id, ...held.slice(at)], cmd.issuedAt);
+        }
         settleChildren(tx);
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
+        // Each Item gone from what it left, as a drop onto a row takes it (issue 1876).
+        const leftPanels = new Set<string>();
+        for (const leave of leaves) {
+          if (leave.panelId !== undefined) {
+            tx.delete(panelItems)
+              .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, leave.panelId), eq(panelItems.itemId, leave.itemId)))
+              .run();
+            leftPanels.add(leave.panelId);
+          } else {
+            takeOut(tx, tenantId, leave.parentId!, leave.itemId, cmd.issuedAt);
+          }
+        }
+        mirrorFilingsOf(tx, tenantId, leftPanels, cmd.issuedAt);
         // Made from a Dashboard: the new parent's card goes where the first Item's is (issue 1830).
         if (cmd.onBoard) {
           placeCombinedParent(tx, tenantId, {

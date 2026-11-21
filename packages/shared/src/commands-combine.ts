@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { commandEnvelopeSchema } from './commands.js';
+import { commandEnvelopeSchema, leaveSchema } from './commands.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
 import { itemDescriptionSchema, itemTitleSchema } from './domain/item.js';
 import { panelNameSchema } from './domain/panel.js';
@@ -60,8 +60,8 @@ const onBoardSchema = z.object({ dashboardId: z.string().min(1), cardId: z.uuid(
 
 /**
  * combine_under_new_parent — **Combine ▸ Combine under a new parent** (issue
- * 1826): the Items stay where they are and a new Item holds them, placed
- * where the first Item is ("Brainstorming: a Panel is an Item nobody can
+ * 1826): a new Item holds them, each leaving the Panels and parents `leaves`
+ * names (issue 1876), and the new Item is placed where the first Item is ("Brainstorming: a Panel is an Item nobody can
  * open", issue 1846). With `panelId` it is filed on that Panel, the one the
  * first Item was on, as a row there; without, it goes inside the Item the
  * first Item is inside, which the store finds itself, or else it is filed
@@ -81,8 +81,18 @@ export const combineUnderNewParentSchema = commandEnvelopeSchema
     panelId: z.uuid().nullable(),
     dashboardId: z.string().nullable(),
     onBoard: onBoardSchema.optional(),
+    /**
+     * What each Item leaves where it moves, as `put_inside` names it ("Panels: Items put inside a parent stay where
+     * they were", issue 1876): the Panels or parents it comes out of. A tab of the release before sends none, which
+     * leaves nothing.
+     */
+    leaves: z.array(leaveSchema).max(CHILDREN_ADDED_AT_ONCE * 4).optional(),
   })
   .refine((cmd) => eachOnce(cmd.childIds, cmd.parentId), { message: 'each item once, and not the new parent', path: ['childIds'] })
+  .refine((cmd) => (cmd.leaves ?? []).every((leave) => cmd.childIds.includes(leave.itemId)), {
+    message: 'only an Item put inside leaves anything',
+    path: ['leaves'],
+  })
   .refine((cmd) => cmd.panelId === null || cmd.dashboardId === null, {
     message: 'a Panel or a Dashboard, not both',
     path: ['panelId'],

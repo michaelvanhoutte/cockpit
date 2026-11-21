@@ -4278,6 +4278,27 @@ describe('Panels', () => {
       expect(pickedNow(dashboardScope(TODAY.id)).size).toBe(0);
     });
 
+    it('in columns, reads the parent, its children, then the next cell, the children inside the parent’s own cell', async () => {
+      const NEXT = anItem('11111111-1111-7111-8111-000000000023', 'Next cell');
+      held.items = [CHAPTER, STORM, FERRY, NEXT];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: CHAPTER.id, position: 0 },
+        { panelId: 'p-falcon', itemId: NEXT.id, position: 1 },
+      ];
+      const user = await showList({ items: [CHAPTER, NEXT], openDashboardId: TODAY.id, panelId: 'p-falcon', columns: 'medium' });
+
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+      await screen.findByText('Storm scene');
+
+      // The reading order J and K and a shift-click span walk is the order the rows are drawn in.
+      const drawn = [...document.querySelectorAll<HTMLElement>('li[data-item-row]')].map((row) => row.dataset.itemId);
+      expect(drawn).toEqual([CHAPTER.id, STORM.id, FERRY.id, NEXT.id]);
+      // In the parent's cell, so no band spans the grid.
+      const cell = document.querySelector(`[data-column-cell="${CHAPTER.id}"]`)!;
+      expect(cell.contains(childRows())).toBe(true);
+      expect(cell.contains(document.querySelector(`[data-item-id="${NEXT.id}"]`))).toBe(false);
+    });
+
     it('acts on the child from a child row’s menu', async () => {
       const user = await onAPanel();
       await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
@@ -4352,9 +4373,10 @@ describe('Panels', () => {
 
     it('combines child rows under a new parent naming no Panel when the first is filed on none', async () => {
       const user = await onAPanel();
-      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+      // Found rather than got: the unfolder is a lazy chunk, so a sync query races its load (issue 1851).
+      await user.click(await screen.findByRole('button', { name: 'Unfold Chapter 3' }));
 
-      const storm = within(childRows()!).getByText('Storm scene').closest('li')!;
+      const storm = (await within(await waitFor(() => childRows()!)).findByText('Storm scene')).closest('li')!;
       await user.click(within(storm).getByRole('button', { name: 'Item actions' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Combine with…' }));
       const dialog = await screen.findByRole('dialog');
@@ -4417,7 +4439,7 @@ describe('Panels', () => {
       await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
       expect(held.send).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id] }) }),
+        expect.objectContaining({ name: 'put_inside', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id], order: [BART.id], leaves: [] }) }),
       );
       expect(await screen.findByRole('status')).toHaveTextContent('“Reply to Bart” added to Chapter 3');
     });
@@ -4435,9 +4457,49 @@ describe('Panels', () => {
       await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
       expect(held.send).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id] }) }),
+        expect.objectContaining({ name: 'put_inside', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id], order: [BART.id, LISA.id] }) }),
       );
     });
+
+    it('moves a row off its Panel when put inside the Item picked, and Undo files it back there and takes it out', async () => {
+      held.items = [BART, CHAPTER];
+      held.dashboards = [TODAY];
+      held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: BART.id, position: 0 },
+        { panelId: 'p-falcon', itemId: CHAPTER.id, position: 1 },
+      ];
+      const user = await showList({ items: [BART, CHAPTER], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      const bart = screen.getByText('Reply to Bart').closest('li')!;
+      await user.click(within(bart).getByRole('button', { name: 'Item actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add as child of…' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Chapter 3' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'put_inside',
+          payload: expect.objectContaining({
+            parentId: CHAPTER.id,
+            childIds: [BART.id],
+            order: [BART.id],
+            leaves: [{ itemId: BART.id, panelId: 'p-falcon' }],
+          }),
+        }),
+      );
+      held.send.mockClear();
+      await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }));
+
+      await waitFor(() =>
+        expect(held.send.mock.calls.map(([args]) => (args as { name: string }).name)).toEqual(['add_item_to_panel', 'remove_child']),
+      );
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'add_item_to_panel', payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }) }),
+      );
+    });
+
 
     it('offers no Item waiting in every Inbox, which belongs to no Workspace to hold anything in', async () => {
       const waiting = { ...anItem('11111111-1111-7111-8111-000000000031', 'Somewhere'), workspaceDecided: false };
@@ -4491,8 +4553,8 @@ describe('Triage', () => {
       expect(within(dialog).getByText('Combine 2 Items')).toBeInTheDocument();
       expect(within(dialog).getAllByRole('radio').map((card) => card.closest('label')!.textContent)).toEqual([
         'Merge into one new ItemThe originals are replaced by one new Item.',
-        'Combine under a new parentThey stay where they are. A new Item holds them.',
-        'Combine under an existing parentThey stay where they are. An Item you pick holds them.',
+        'Combine under a new parentThey move out of where they are. A new Item holds them.',
+        'Combine under an existing parentThey move out of where they are. An Item you pick holds them.',
       ]);
       expect(within(dialog).getByRole('radio', { name: /Combine under a new parent/ })).toBeChecked();
       expect(dialog.className).toContain('w-[min(34rem,calc(100vw-2rem))]');
@@ -4582,7 +4644,7 @@ describe('Triage', () => {
       await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
 
       expect(held.send).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'add_children', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id] }) }),
+        expect.objectContaining({ name: 'put_inside', payload: expect.objectContaining({ parentId: CHAPTER.id, childIds: [BART.id, LISA.id], order: [BART.id, LISA.id] }) }),
       );
     });
 

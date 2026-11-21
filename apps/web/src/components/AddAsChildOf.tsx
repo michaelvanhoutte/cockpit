@@ -1,7 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMemo, useState } from 'react';
 import {
-  CHILDREN_ADDED_AT_ONCE,
   descendantIdsOf,
   itemLabel,
   stillOpen,
@@ -9,9 +8,13 @@ import {
   workspaceIsDecided,
   type ChildRow,
   type Item,
+  type WorkspaceSnapshot,
 } from '@cockpit/shared';
 import type { CommandArgs } from '../api/queries';
+import { fetchedChunk } from '../filing';
+import { leavesOfAPick, planPuttingInside, wasBeforeLeaving, type PickedIn } from '../nesting';
 import type { Undoable } from '../undo';
+import { unfoldAll, unfoldedNow } from '../unfoldedParents';
 // What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
 import '../childrenDrawnAhead';
 
@@ -63,7 +66,7 @@ export default function AddAsChildOf({
           className="fixed left-1/2 top-1/2 z-floating flex max-h-[90vh] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border border-shade/10 bg-surface p-5 shadow-lg"
         >
           <Dialog.Title className="truncate text-base font-semibold">{title}</Dialog.Title>
-          <p className="text-sm text-ink-soft">They stay where they are. An Item you pick holds them.</p>
+          <p className="text-sm text-ink-soft">They move out of where they are. An Item you pick holds them.</p>
           <ParentPicker chosen={chosen} items={items} children={children} onPick={setParent} autoFocus />
           <div className="flex justify-end gap-2">
             <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
@@ -162,39 +165,53 @@ export function ParentPicker({
 }
 
 /**
- * Puts the chosen Items inside the parent picked and offers Undo, which takes
- * out the ones it put in. One already inside that parent stays, and Undo leaves
- * it there. Here rather than in `useAddingAsChild`, so none of it is in the
- * initial bundle.
+ * Puts the chosen Items inside the parent picked, **moving them** ("Panels: Items put inside a parent stay where
+ * they were", issue 1876): the change a drop onto a row sends, with the leaves worked out here from where they were
+ * picked, and its Undo, which files them back where they were. One already inside that parent with nothing to leave
+ * stays, and Undo leaves it there. Here rather than in `useAddingAsChild`, so none of it is in the initial bundle.
  */
 export function addAsChildren(
   d: {
     workspaceId: string;
     send: (change: CommandArgs) => Promise<unknown>;
+    latest: (workspaceId: string) => Promise<WorkspaceSnapshot>;
     offerToUndo: (change: Undoable) => void;
-    children: readonly ChildRow[];
+    data: Pick<WorkspaceSnapshot, 'children' | 'filings' | 'panels'>;
+    where: PickedIn;
   },
   chosen: readonly Item[],
   parent: Item,
 ): void {
-  const already = new Set(d.children.filter((row) => row.parentId === parent.id).map((row) => row.childId));
-  const arriving = chosen.filter((item) => !already.has(item.id));
-  if (arriving.length === 0) return;
-  const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId: d.workspaceId });
-  // As many changes as a change takes Items, for a selection bigger than that.
-  const batches: Item[][] = [];
-  for (let at = 0; at < arriving.length; at += CHILDREN_ADDED_AT_ONCE) {
-    batches.push(arriving.slice(at, at + CHILDREN_ADDED_AT_ONCE));
-  }
-  const answer = Promise.all(
-    batches.map((batch) =>
-      d.send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: batch.map((item) => item.id) } }),
-    ),
+  const rows = d.data.children ?? [];
+  const carried = chosen.map((item) => item.id);
+  const leaves = leavesOfAPick({ carried, target: parent.id, rows, filings: d.data.filings, panels: d.data.panels, where: d.where, unfolded: unfoldedNow() });
+  const batches = planPuttingInside({ carried, target: parent.id, rows, leaves });
+  if (batches.length === 0) return;
+  const arriving = chosen.filter((item) => batches.some((batch) => batch.childIds.includes(item.id)));
+  const sent = batches.map((batch) =>
+    d.send({
+      name: 'put_inside',
+      payload: {
+        commandId: uuidv7(),
+        issuedAt: new Date().toISOString(),
+        workspaceId: d.workspaceId,
+        parentId: parent.id,
+        childIds: batch.childIds,
+        order: batch.order,
+        leaves: batch.leaves,
+      },
+    }),
   );
+  const answer = Promise.all(sent);
+  unfoldAll([parent.id]);
   // **No way back once one belonged to no Workspace**: going inside settles it
   // in this one, and taking it out leaves it in this Inbox alone, not in every
   // Workspace's, as a move withholds its Undo for the same reason.
   const decides = arriving.some((item) => !workspaceIsDecided(item));
+  if (!decides) void import('../puttingBack').catch(() => {});
+  const was = batches.map((batch) =>
+    wasBeforeLeaving({ target: parent.id, arrived: batch.arrived, leaves: batch.leaves, rows, filings: d.data.filings }),
+  );
   d.offerToUndo({
     what:
       arriving.length === 1
@@ -204,12 +221,10 @@ export function addAsChildren(
     ...(decides
       ? {}
       : {
-          undo: () =>
-            Promise.all(
-              arriving.map((item) =>
-                d.send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: item.id } }),
-              ),
-            ),
+          undo: async () => {
+            const { putBackFromARowDrop } = await fetchedChunk(() => import('../puttingBack'));
+            for (const one of was) await putBackFromARowDrop({ workspaceId: d.workspaceId, send: d.send, latest: d.latest }, one);
+          },
         }),
   });
 }

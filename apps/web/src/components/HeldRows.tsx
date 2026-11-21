@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
-import { childrenOf, itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { childrenOf, dayOf, isLater, itemLabel, panelTakesItems, uuidv7, type Item } from '@cockpit/shared';
 import { useSendCommand } from '../api/queries';
 import { putCardsBackAfter } from '../whiteboardQuestion';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import { useUnfolded } from '../unfoldedParents';
+import { useLaterShown } from '../laterItems';
 import { ItemList } from './ItemList';
 // What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
 import '../childrenDrawnAhead';
@@ -31,9 +32,19 @@ export default function HeldRows({
 }) {
   const { unfolded } = useUnfolded(parent.id);
   const { data } = useSnapshot(workspaceId);
+  const laterShownOn = useLaterShown();
+  // Under a Panel of Items that sets later Items aside, a child due that far out is too (issue 1873).
+  const setsLaterAside =
+    panelId !== null &&
+    !laterShownOn(panelId) &&
+    panelTakesItems(data?.panels.find((panel) => panel.id === panelId) ?? { kind: 'filter' });
+  const today = dayOf(new Date());
   const held = useMemo(
-    () => childrenOf(data?.children ?? [], data?.items ?? [], parent.id),
-    [data?.children, data?.items, parent.id],
+    () =>
+      childrenOf(data?.children ?? [], data?.items ?? [], parent.id).filter(
+        (child) => !setsLaterAside || !isLater(child.dueDate, today),
+      ),
+    [data?.children, data?.items, parent.id, setsLaterAside, today],
   );
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -52,8 +63,8 @@ export default function HeldRows({
   };
   if (!unfolded || held.length === 0) return null;
   return (
-    // The whole width in columns, under the parent's line, rather than a cell of its own.
-    <li className="col-span-full border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
+    // In columns the parent's own cell holds them (`rowFor` in `ItemList`), so they sit in its column.
+    <li className="border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
       <ItemList
         workspaceId={workspaceId}
         items={held}

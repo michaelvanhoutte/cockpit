@@ -52,6 +52,7 @@ describe('Panels', () => {
         display: 'grid',
         gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${PANEL_COLUMN_WIDTHS.medium}px), 1fr))`,
         columnGap: 24,
+        alignItems: 'start',
       });
     });
 

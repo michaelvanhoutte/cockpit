@@ -18,6 +18,7 @@ import { dashboardScope, pickAll } from '../selection';
 import { useOpenCaptureOn } from '../captureOpener';
 import { PanelText } from '../panels/PanelText';
 import { SurfaceMenu, SurfaceMenuButton, menuButtonClassName, opensOnKey, opensOnActivate } from './Menu';
+import { setLaterShown } from '../laterItems';
 import {
   NOTHING_CHOSEN_TO_SHOW,
   NOTHING_FILED_HERE,
@@ -84,6 +85,13 @@ export interface PanelCardProps {
    * Absent where the Filter is not, and on every other Panel.
    */
   groups?: readonly FilterGroup[] | undefined;
+  /**
+   * How many rows a Panel of Items sets aside as due more than 30 days out
+   * (`panelRows`), and whether it shows them. The header says how many are
+   * set aside, and the menu offers to show or hide them.
+   */
+  later?: number;
+  laterShown?: boolean;
   /** The workspace's own Panels - what a Filter's funnel reads a Panel condition's values back against. */
   panelsInWorkspace: readonly Panel[];
   /** The Workspace's Dashboards, which name a Filter's Dashboard condition in its funnel sentence. */
@@ -149,6 +157,8 @@ export function PanelCard({
   workspaceId,
   items,
   groups,
+  later = 0,
+  laterShown = false,
   panelsInWorkspace,
   dashboards,
   onSettings,
@@ -247,6 +257,14 @@ export function PanelCard({
                       ),
                   },
                 ]
+              : []),
+            // Items due more than 30 days out, set aside while this Panel
+            // hides them (issue 1873); only while it holds one.
+            ...(panelTakesItems(panel) && later > 0 && !laterShown
+              ? [{ label: later === 1 ? 'Show 1 later item' : `Show ${later} later items`, onSelect: () => setLaterShown(panel.id, true) }]
+              : []),
+            ...(panelTakesItems(panel) && laterShown && later > 0
+              ? [{ label: 'Hide later items', onSelect: () => setLaterShown(panel.id, false) }]
               : []),
             // The name and every setting of the Panel, in one form: nothing
             // else here changes them ("Change a Panel's name and settings in
@@ -481,6 +499,16 @@ export function PanelCard({
                     <span className="shrink-0 text-xs tabular-nums text-ink-faint @max-[200px]:hidden">
                       {items.length}
                     </span>
+                  )}
+                  {/* What is set aside, quiet, and a way to show it. Only while hidden. */}
+                  {!text && later > 0 && !laterShown && (
+                    <button
+                      type="button"
+                      onClick={() => setLaterShown(panel.id, true)}
+                      className="shrink-0 text-xs tabular-nums text-ink-faint hover:text-ink @max-[200px]:hidden"
+                    >
+                      · {later} later
+                    </button>
                   )}
                   {/* That the text is read rather than written in, said out loud
                     because nothing else on the panel says it: a box with no

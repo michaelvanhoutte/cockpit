@@ -377,14 +377,18 @@ export function ItemList({
   useHeldTo(onDashboard || heldBy ? null : scope);
 
   const filingSeveral = useFilingSeveral({ workspaceId, openDashboardId, scope, picked });
-  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting);
+  const addingAsChild = useAddingAsChild(workspaceId, heldBy ? undefined : stopSelecting, {
+    panelId,
+    heldBy: heldBy?.id ?? null,
+    dashboardId: onDashboard ? openDashboardId : null,
+  });
   const editing = useEditingSeveral({
     workspaceId,
     picked,
     filing: filingSeveral.filing,
     scope,
-    onAddAsChildOf: () => addingAsChild.ask(picked),
-    onCombine: addingAsChild.combine,
+    onAddAsChildOf: () => addingAsChild.ask(picked, null, true),
+    onCombine: (ids) => addingAsChild.combine(ids, null, true),
   });
   const { whereItIs, showOnItsPanel, nameOf, addPanelFor, filteredDashboardIds } = filingSeveral;
 
@@ -1102,7 +1106,8 @@ export function ItemList({
     alsoNotIn: string | null = null,
     group?: readonly Item[],
     landing?: 'before' | 'after',
-  ) => (
+  ) => {
+    const row = (
     <>
     <ItemRow
       item={item}
@@ -1201,7 +1206,20 @@ export function ItemList({
       </Suspense>
     )}
     </>
-  );
+    );
+    // In columns a parent and its unfolded children are one cell, so they stay
+    // in the parent's column and the line grows to hold them rather than the
+    // children spanning the Panel (issue 1878). The cell is layout, not an Item,
+    // so it is no listitem: a row is still found as the one listitem with its title.
+    return columns !== null && holdsItems(item) ? (
+      <li role="presentation" className="min-w-0" data-column-cell={item.id}>
+        {/* Alone in this list a row is its last child and would lose the separator its neighbours keep. */}
+        <ul role="list" className="[&>li[data-item-row]]:border-b">{row}</ul>
+      </li>
+    ) : (
+      row
+    );
+  };
 
   /**
    * The Panels proposed for two or more of the rows, in the order of the

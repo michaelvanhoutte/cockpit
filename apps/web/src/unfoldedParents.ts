@@ -34,6 +34,11 @@ export function unfoldAll(itemIds: Iterable<string>): void {
   listeners.forEach((listener) => listener());
 }
 
+/** The parents unfolded now, for a plan made at the moment of a click. */
+export function unfoldedNow(): ReadonlySet<string> {
+  return unfolded;
+}
+
 /** Whether this parent shows its children, and the one way to change it. */
 export function useUnfolded(itemId: string): { unfolded: boolean; toggle: () => void } {
   const open = useSyncExternalStore(
