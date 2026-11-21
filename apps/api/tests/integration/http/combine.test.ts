@@ -113,7 +113,7 @@ describe('Triage', () => {
       const [a, b] = [await aNote('Storm over the ferry'), await aNote('Captain asleep')];
       const people = await aPanel('People');
       await inTheStore((sql) => {
-        givePanelItsItemFromBefore(sql, people);
+        givePanelItsItemFromBefore(sql, people, { live: true });
         sql.exec(`INSERT INTO ${table}, position, created_at) VALUES (?, ?, ?, 0, ?)`, ACCOUNT_NAME, people, a, '2026-11-19T09:00:00.000Z');
       });
       const merged = nextId();
@@ -290,6 +290,12 @@ describe('Triage', () => {
     it('never puts the new parent inside a Panel’s own Item, from a tab that had not yet seen the first filed', async () => {
       const [people, a, b] = [await aPanel('People'), await aNote('Alpha'), await aNote('Bravo')];
       await file(a, people);
+      // The Panel's own Item holding it, live, as a release promoted back past "Brainstorming: Panels still carry a
+      // hidden Item each" (issue 1833) writes them.
+      await inTheStore((sql) => {
+        givePanelItsItemFromBefore(sql, people, { live: true });
+        sql.exec('INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at) VALUES (?, ?, ?, 0, ?)', ACCOUNT_NAME, people, a, '2026-11-19T09:00:00.000Z');
+      });
       const parent = nextId();
 
       expect((await send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: null, dashboardId: null })).status).toBe(200);

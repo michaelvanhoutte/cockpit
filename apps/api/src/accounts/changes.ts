@@ -1828,8 +1828,9 @@ const ITEM_CHILDREN: Change = {
  * Every live Panel becomes an Item, and every filing on one is also held by
  * that Item (issue 1824), in one transaction per account, after
  * `0108-item-children` as the Agents' retirement runs after its columns.
- * Reads still come from `panel_items`. The guest's demonstration, written after
- * this, carries the same statements at its end (`guestDemoSeed`).
+ * Reads still come from `panel_items`. The guest's demonstration carried the
+ * same statements at its end until its Panels stopped being Items
+ * ("Brainstorming: Panels still carry a hidden Item each", issue 1833).
  *
  * - **Every live Panel's Item** - filter and text Panels included - is
  *   `internal`, carries the Panel's title and Workspace, has its texts settled
@@ -1853,8 +1854,8 @@ const ITEM_CHILDREN: Change = {
  *     fails the change loudly: its holder is null, which `parent_id NOT NULL`
  *     refuses, rather than being dropped.
  * - **What each environment holds:** staging and production hold real Panels
- *   and filings. This only adds rows and leaves `panel_items` untouched until
- *   it is dropped (issue 1833), so a rollback loses nothing. `pnpm
+ *   and filings. This only adds rows and leaves `panel_items` untouched, so a
+ *   rollback loses nothing. `pnpm
  *   backup:export` runs before each release.
  * - **The interruption windows:** before the transaction commits, nothing has
  *   happened; between `0108-item-children` and this, the account is not served
@@ -6482,7 +6483,8 @@ function guestDemoSeed(accountId: string): Change {
   if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
   const day = new Date().toISOString().slice(0, 10);
   // Its Panels arrive after `0117-panels-items-dismissed`, so, as a Panel made
-  // today, none of them is an Item (issue 1833).
+  // today, none of them is an Item ("Brainstorming: Panels still carry a
+  // hidden Item each", issue 1833).
   if (seeded?.day !== day) seeded = { day, statements: guestDemoStatements(GUEST_ACCOUNT_NAME, day) };
   return { name, statements: seeded.statements };
 }

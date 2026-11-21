@@ -1648,7 +1648,7 @@ export function listFilingsInWorkspace(
  * `listFilingsInWorkspace`'s query: what is filed on a live Panel is read from
  * `panel_items` ("Brainstorming: a Panel is an Item nobody can open", issue
  * 1846), never from the rows under a Panel's own Item, which are tombstoned
- * (issue 1833). Driven from the Items of the read, by
+ * ("Brainstorming: Panels still carry a hidden Item each", issue 1833). Driven from the Items of the read, by
  * `panel_items_tenant_item`, so a Panel's finished Items cost the read nothing.
  */
 export function filingsOfTheRead(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead) {
@@ -1686,7 +1686,8 @@ function heldBy(itemId: Column, tenantId: Column) {
  * A parent that is not a Panel's own Item ("Brainstorming: a Panel is an Item
  * nobody can open", issue 1846): a Panel holds what is filed on it and is never
  * a parent, so every read of Item inside Item leaves out the rows once written
- * under its Item, tombstoned since (issue 1833). One lookup by `panels_item`.
+ * under its Item, tombstoned since ("Brainstorming: Panels still carry a hidden
+ * Item each", issue 1833). One lookup by `panels_item`.
  */
 function noPanelsItem(parentId: Column) {
   return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parentId})`;

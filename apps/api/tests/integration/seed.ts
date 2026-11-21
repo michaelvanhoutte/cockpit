@@ -413,20 +413,22 @@ export async function alsoWorkspaces(): Promise<void> {
 
 /**
  * The Item an older release gave a Panel ("Brainstorming: give every Panel an
- * Item…", issue 1824), written as `0117-panels-items-dismissed` leaves it: the
- * Panel's id, title and Workspace, dismissed, and named by `panels.item_id`. A
- * Panel made today has none ("Brainstorming: Panels still carry a hidden Item
- * each", issue 1833), so a case about the Items of older Panels writes one here.
+ * Item…", issue 1824): the Panel's id, title and Workspace, named by
+ * `panels.item_id`. Dismissed, as `0117-panels-items-dismissed` leaves it, or
+ * `live`, as a release promoted back past "Brainstorming: Panels still carry a
+ * hidden Item each" (issue 1833) makes one for a Panel made then. A Panel made
+ * by a change today has none, so a case about these Items writes one here.
  */
-export function givePanelItsItemFromBefore(sql: SqlStorage, panelId: string): void {
+export function givePanelItsItemFromBefore(sql: SqlStorage, panelId: string, { live = false }: { live?: boolean } = {}): void {
   sql.exec(
     `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, texts_settled_at, status, unseen,
                         created_at, updated_at, deleted_at)
        SELECT p.id, p.tenant_id, d.workspace_id, 1, 'internal', p.name, p.created_at, 'to_process', 0,
-              p.created_at, p.created_at, p.created_at
+              p.created_at, p.created_at, CASE WHEN ? THEN NULL ELSE p.created_at END
          FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
         WHERE p.id = ?
        ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
+    live ? 1 : 0,
     panelId,
   );
   sql.exec('UPDATE panels SET item_id = id WHERE id = ?', panelId);

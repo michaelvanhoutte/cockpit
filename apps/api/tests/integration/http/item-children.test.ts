@@ -118,13 +118,13 @@ async function filedOnlyOnThePanel(panelId: string, itemId: string, position: nu
 }
 
 /**
- * A live row under the Item an older release gave a Panel, with no filing
+ * A live row under the live Item an older release gave a Panel, with no filing
  * beside it: what a release promoted back past "Brainstorming: Panels still
  * carry a hidden Item each" (issue 1833) could leave, which no read follows.
  */
 async function keptOnlyUnderThePanel(panelId: string, itemId: string, position: number): Promise<void> {
   await inTheStore((sql) => {
-    givePanelItsItemFromBefore(sql, panelId);
+    givePanelItsItemFromBefore(sql, panelId, { live: true });
     sql.exec(
       `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
        VALUES (?, (SELECT item_id FROM panels WHERE id = ?), ?, ?, ?)`,
@@ -208,6 +208,8 @@ describe('Inbox', () => {
     it('never holds a Panel’s own Item', async () => {
       const { token } = await connected();
       const panelId = await aPanel('Characters');
+      // Live, as a release promoted back past "Brainstorming: Panels still carry a hidden Item each" (issue 1833) makes it.
+      await inTheStore((sql) => givePanelItsItemFromBefore(sql, panelId, { live: true }));
 
       const read = await snapshot();
       expect(read.items.some((item) => item.id === panelId)).toBe(false);

@@ -538,14 +538,17 @@ export const panels = sqliteTable(
      * store filings as Item-in-Item relations", issue 1824), **unused from
      * "Brainstorming: Panels still carry a hidden Item each" (issue 1833)**:
      * `0117-panels-items-dismissed` dismissed every such Item and tombstoned the
-     * rows under it, no change writes either any more, and a Panel made since
-     * has none. A later release deletes those Items and drops the column. Until
+     * rows under it, and no change writes either any more: a Panel a change
+     * makes since has none. A new account's first and guide Panels are made by
+     * changes before `0109`, so they are given one there and dismissed by
+     * `0117` on the same opening. A later release deletes those Items and drops
+     * the column. Until
      * then it is read only to leave that Item out: of every list, search and
      * Item read (`notAPanelsOwnItem`), and as a parent from every
      * Item-inside-Item read and the Inbox rule (`noPanelsItem`, `noLiveParent`,
      * `ancestorsAmong`, `itemParentsHolding`). **Its id is the Panel's own id.**
      *
-     * Null on a Panel made since, and on a Panel deleted, or on a Dashboard
+     * Null on a Panel a change made since, and on a Panel deleted, or on a Dashboard
      * deleted, before the backfill (`0109-panels-become-items`) ran. **No
      * REFERENCES**: `items` already points here through `proposed_panel_id`,
      * and a link back would put the two tables in a circle a restore cannot
