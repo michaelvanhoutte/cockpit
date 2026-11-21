@@ -377,6 +377,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const addingAsChild = useAddingAsChild(workspaceId);
   const wrapper = useRef<HTMLDivElement>(null);
   const renameLater = useRef<number | null>(null);
+  const nodesNow = useRef<FlowNode[]>([]);
   const pressedAt = useRef<{ x: number; y: number; wasSelected: boolean } | null>(null);
   const cameraPlaced = useRef(false);
   const lastClick = useRef<{ id: string; at: number } | null>(null);
@@ -555,7 +556,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     else
       renameLater.current = window.setTimeout(() => {
         renameLater.current = null;
-        setRenamingId(id);
+        // Still the one selected: a click on another card, or a drag, in the meantime leaves it be.
+        const selected = nodesNow.current.filter((node) => node.selected);
+        if (selected.length === 1 && selected[0]!.id === id) setRenamingId(id);
       }, DOUBLE_MS + 20);
   };
   const renameCard = (item: Item, title: string | null) => {
@@ -765,7 +768,11 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     if (ids.length === 1 && onCard) {
       const target = cardOf(onCard);
       if (target?.itemId === itemId) flash(target.id);
-      else if (target) setDropAsk({ at: { x: event.clientX, y: event.clientY }, targetCardId: target.id, itemId, fromCardId: null });
+      else if (target) {
+        // A row whose Item has a card of its own here: that card comes off if it is put inside.
+        const own = board.cards.find((card) => card.itemId === itemId);
+        setDropAsk({ at: { x: event.clientX, y: event.clientY }, targetCardId: target.id, itemId, fromCardId: own?.id ?? null });
+      }
       return;
     }
     const refused: string[] = [];
@@ -791,6 +798,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   };
 
   // ---- Keys ----
+  nodesNow.current = nodes;
   const selectedNodes = nodes.filter((node) => node.selected);
   const lone = selectedNodes.length === 1 ? selectedNodes[0]! : null;
   useEffect(() => {
@@ -876,6 +884,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           nodes={nodes}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
+          onNodeDragStart={stopRenameLater}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onNodeClick={onNodeClick}

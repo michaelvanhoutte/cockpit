@@ -77,6 +77,11 @@ export function unfoldWhenDrawn(itemId: string): void {
   toUnfold.add(itemId);
 }
 
+/** Withdraws the ask, where the change that would have drawn the card was refused. */
+export function cancelUnfold(itemId: string): void {
+  toUnfold.delete(itemId);
+}
+
 /** The Items asked to be unfolded that this board now draws a card of, each taken so it is unfolded once. */
 export function takeUnfolds(drawn: ReadonlySet<string>): string[] {
   const now = [...toUnfold].filter((id) => drawn.has(id));

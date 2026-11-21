@@ -18,7 +18,7 @@ import { useSendCommand } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { sourceOnARow } from '../itemSource';
 import { useUndo } from '../undo';
-import { unfoldWhenDrawn } from '../boardFocus';
+import { cancelUnfold, unfoldWhenDrawn } from '../boardFocus';
 import { ParentPicker, addAsChildren } from './AddAsChildOf';
 
 type Choice = 'merge' | 'new-parent' | 'existing-parent';
@@ -122,7 +122,11 @@ export default function CombineDialog({
           ...(dashboardId ? { onBoard: { dashboardId, cardId: uuidv7() } } : {}),
         },
       }));
-      if (dashboardId) unfoldWhenDrawn(parentId);
+      // Drawn unfolded once its card is there: only where the first Item has a card on this board, and not if the change is refused.
+      if (dashboardId && data.whiteboards?.cards.some((card) => card.dashboardId === dashboardId && card.itemId === childIds[0])) {
+        unfoldWhenDrawn(parentId);
+        answer.catch(() => cancelUnfold(parentId));
+      }
       offerToUndo({ what: `${chosen.length} Items combined under “${title}”`, unlessRefused: answer });
     } else if (parent) {
       addAsChildren({ workspaceId, send, offerToUndo, children: data.children ?? [] }, chosen, parent);

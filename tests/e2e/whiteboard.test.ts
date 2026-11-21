@@ -205,7 +205,13 @@ test.describe('Whiteboard', () => {
       await expect(page.getByRole('list', { name: `Inside ${chapter}` }).getByText(ferry)).toBeVisible();
       await expect(topCard(page, ferry)).toHaveCount(0);
 
-      // A row from the Panels let go on a card is asked the same, and Combine draws the new parent where the card was.
+      // A row from the Panels let go on a card is asked the same; one whose Item has a card of its own loses it when put inside.
+      await row(storm).dragTo(topCard(page, chapter));
+      await page.getByRole('menuitem', { name: `Put inside ${chapter}` }).click();
+      await expect(page.getByRole('list', { name: `Inside ${chapter}` }).getByText(storm)).toBeVisible();
+      await expect(topCard(page, storm)).toHaveCount(0);
+
+      // And Combine draws the new parent where the card was.
       await row(waves).dragTo(topCard(page, chapter));
       await page.getByRole('menuitem', { name: `Combine with ${chapter}…` }).click();
       const dialog = page.getByRole('dialog', { name: 'Combine 2 Items' });
