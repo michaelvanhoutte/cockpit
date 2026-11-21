@@ -17,22 +17,23 @@ import {
 } from '@xyflow/react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { childIdsOf, itemLabel, uuidv7, workspaceIsDecided, type ChildRow, type Item } from '@cockpit/shared';
+import { childIdsOf, itemLabel, uuidv7, type ChildRow, type Item } from '@cockpit/shared';
 import { SWATCHES, type BoardBox, type BoardCard as PlacedCard, type Swatch } from '@cockpit/shared/board';
-import { useSendCommand, whyNotDone, type CommandArgs } from '../api/queries';
+import { useLatestSnapshot, useSendCommand, whyNotDone, type CommandArgs } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { cardWanted, selectedOnTheBoard, takeUnfolds, useCardWanted } from '../boardFocus';
+import { addAsChildren } from '../components/AddAsChildOf';
 import { DeleteQuestion } from '../components/DeleteQuestion';
 import { useAddingAsChild } from '../components/useAddingAsChild';
 import { ItemList } from '../components/ItemList';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useOpenItem } from '../itemForm';
-import { selectionCarried } from '../itemInTheAir';
+import { panelLiftedFrom, parentLiftedFrom, selectionCarried } from '../itemInTheAir';
 import { dashboardScope, useSelection } from '../selection';
 import { useUndo } from '../undo';
 import { BoardCard } from './BoardCard';
 import { BoardToolbar, type Tool } from './BoardToolbar';
-import { cardUnder, clickRenames, dropAnswers, f2Renames, renameStillWanted } from './gestures';
+import { cardUnder, clickRenames, dropAnswers, f2Renames, offeredWithItsCard, pickedOnTheBoard, renameStillWanted } from './gestures';
 import { BOX_HEAD, CARD_W, GRID, MIN_BOX, boardOf, boxAt, boxesWithin, hiddenByCollapse, originOf, relativeTo, whyNotPlaceable, type Board } from './layout';
 import './boardDrawn';
 
@@ -344,13 +345,23 @@ function useGrid(dashboardId: string): [boolean, () => void] {
 }
 
 type Pending = { x: number; y: number; w: number; h: number; parentBoxId: string | null };
-/** What was let go over a card (`fromCardId` null for a row from the Panels): where to ask, the card it is on and the Item let go. */
-type DropAsk = { at: { x: number; y: number }; targetCardId: string; itemId: string; fromCardId: string | null };
+/**
+ * What was let go over a card: where to ask, the card it is on, the Item let go, its own card on this board
+ * (`fromCardId`, null where it has none), and, for a lone row from the Panels, the Panel and parent it was lifted from.
+ */
+type DropAsk = {
+  at: { x: number; y: number };
+  targetCardId: string;
+  itemId: string;
+  fromCardId: string | null;
+  lifted: { panelId: string | null; parentId: string | null } | null;
+};
 
 function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: string; dashboardId: string; readOnly: boolean }) {
   const { data } = useSnapshot(workspaceId);
   const openItem = useOpenItem();
   const send = useSendCommand();
+  const latest = useLatestSnapshot();
   const offerToUndo = useUndo();
   const flow = useReactFlow<FlowNode>();
   const initialised = useNodesInitialized();
@@ -374,7 +385,8 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const [dropAsk, setDropAsk] = useState<DropAsk | null>(null);
   /** Counted up to draw every node again from the read, where a card was dragged and nothing is sent. */
   const [redrawn, setRedrawn] = useState(0);
-  const addingAsChild = useAddingAsChild(workspaceId);
+  // Picked on this Dashboard, as its selection is: what goes inside a parent leaves the Panels of it each is on (issue 1876).
+  const addingAsChild = useAddingAsChild(workspaceId, undefined, { panelId: null, heldBy: null, dashboardId });
   const wrapper = useRef<HTMLDivElement>(null);
   const renameLater = useRef<number | null>(null);
   const nodesNow = useRef<FlowNode[]>([]);
@@ -594,31 +606,39 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const at = 'changedTouches' in event ? event.changedTouches[0] : event;
     return at ? { x: at.clientX, y: at.clientY } : null;
   };
+  /**
+   * *Put inside* moves the Item, as *Add as child of…* does ("Panels: Items put inside a parent stay where they were",
+   * issue 1876): a card leaves the Panels of this Dashboard it is on, as a selection here does, and a lone row the
+   * Panel or parent it was lifted from, as a row dropped onto a row does. Its own card here comes off too, since the
+   * parent's unfolded card draws it now, and Undo puts it back once the Item is back where it was.
+   */
   const putInside = (ask: DropAsk) => {
     const target = cardOf(ask.targetCardId);
     const parent = target && items.get(target.itemId);
     const child = items.get(ask.itemId);
-    if (!parent || !child) return;
+    if (!parent || !child || !data) return;
     const from = ask.fromCardId ? cardOf(ask.fromCardId) : undefined;
-    const added = send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [child.id] } });
-    // The card it was dragged from goes: the Item is drawn inside the parent's unfolded card now.
-    const off = from ? send({ name: 'take_card_off', payload: { ...envelope(), cardId: from.id } }) : null;
-    added.catch(() => {});
-    off?.catch(() => {});
     setUnfolded((was) => new Set([...was, parent.id]));
-    offerToUndo({
-      what: `“${itemLabel(child)}” added to ${itemLabel(parent)}`,
-      unlessRefused: off ? Promise.all([added, off]) : added,
-      // No way back once it belonged to no Workspace: going inside settles it in this one.
-      ...(workspaceIsDecided(child)
-        ? {
-            undo: async () => {
-              await send({ name: 'remove_child', payload: { ...envelope(), parentId: parent.id, childId: child.id } });
-              if (from) await send({ name: 'put_cards_back', payload: { ...envelope(), cardIds: [from.id] } });
-            },
-          }
-        : {}),
-    });
+    addAsChildren(
+      {
+        workspaceId,
+        send,
+        latest,
+        data,
+        where: pickedOnTheBoard(dashboardId, ask.lifted),
+        offerToUndo: offeredWithItsCard(
+          offerToUndo,
+          from
+            ? {
+                takeOff: () => send({ name: 'take_card_off', payload: { ...envelope(), cardId: from.id } }),
+                putBack: () => send({ name: 'put_cards_back', payload: { ...envelope(), cardIds: [from.id] } }),
+              }
+            : null,
+        ),
+      },
+      [child],
+      parent,
+    );
   };
   const answerDrop = (answer: 'inside' | 'combine' | null) => {
     const ask = dropAsk;
@@ -629,7 +649,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     else {
       const target = cardOf(ask.targetCardId);
       // The card dropped on is the first, so the new parent is drawn where it is.
-      if (target) addingAsChild.combine([target.itemId, ask.itemId]);
+      if (target) addingAsChild.combine([target.itemId, ask.itemId], null, true);
     }
   };
 
@@ -656,7 +676,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     if (over && held && pointer) {
       // It goes back to where it was: nothing moves until one of the two is chosen.
       setRedrawn((was) => was + 1);
-      setDropAsk({ at: pointer, targetCardId: over.id, itemId: held.itemId, fromCardId: held.id });
+      setDropAsk({ at: pointer, targetCardId: over.id, itemId: held.itemId, fromCardId: held.id, lifted: null });
       return;
     }
     for (const node of dragged) {
@@ -770,7 +790,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
       else if (target) {
         // A row whose Item has a card of its own here: that card comes off if it is put inside.
         const own = board.cards.find((card) => card.itemId === itemId);
-        setDropAsk({ at: { x: event.clientX, y: event.clientY }, targetCardId: target.id, itemId, fromCardId: own?.id ?? null });
+        // Read now: the drag forgets where it was lifted from once it ends. A selection of one leaves as a selection does.
+        const lifted = carried?.ids.includes(itemId) ? null : { panelId: panelLiftedFrom(itemId), parentId: parentLiftedFrom(itemId) };
+        setDropAsk({ at: { x: event.clientX, y: event.clientY }, targetCardId: target.id, itemId, fromCardId: own?.id ?? null, lifted });
       }
       return;
     }

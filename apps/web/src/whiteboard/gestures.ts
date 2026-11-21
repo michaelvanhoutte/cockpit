@@ -1,5 +1,7 @@
 import type { ChildRow } from '@cockpit/shared';
+import type { PickedIn } from '../nesting';
 import { refusesNesting } from '../nestingAim';
+import type { Undoable } from '../undo';
 
 /**
  * What a card is dropped on, and what a click on a title comes to ("Brainstorming:
@@ -36,6 +38,47 @@ export function cardUnder(frames: readonly Frame[], point: { x: number; y: numbe
 export function dropAnswers(itemId: string, onto: string, rows: readonly ChildRow[]): ('inside' | 'combine')[] {
   const inside = !refusesNesting([itemId], onto, rows) && !rows.some((row) => row.parentId === onto && row.childId === itemId);
   return inside ? ['inside', 'combine'] : ['combine'];
+}
+
+/**
+ * Where an Item put inside a card was picked, for what it leaves ("Panels: Items put inside a parent stay where they
+ * were", issue 1876): a card, or a row carried with a selection, is picked on this Dashboard as its selection is, and
+ * leaves every Panel of it the Item is on; a lone row leaves the Panel or the parent it was lifted from.
+ */
+export function pickedOnTheBoard(dashboardId: string, lifted: { panelId: string | null; parentId: string | null } | null): PickedIn {
+  return lifted
+    ? { panelId: lifted.panelId, heldBy: lifted.parentId, dashboardId, selection: false }
+    : { panelId: null, heldBy: null, dashboardId, selection: true };
+}
+
+/**
+ * *Put inside* a card, offered back with the Item's own card on this board: the card comes off only once the Item is
+ * on its way inside, a refusal of either is the refusal of both, and Undo puts the card back only after the Item is
+ * back where it was, so it is never brought back onto the board while the Item is in the Inbox. Without a card of its
+ * own here, the change is offered as it is.
+ */
+export function offeredWithItsCard(
+  offerToUndo: (change: Undoable) => void,
+  card: { takeOff: () => Promise<unknown>; putBack: () => Promise<unknown> } | null,
+): (change: Undoable) => void {
+  if (!card) return offerToUndo;
+  return (change) => {
+    const off = card.takeOff();
+    off.catch(() => {});
+    const { undo } = change;
+    offerToUndo({
+      ...change,
+      unlessRefused: Promise.all([change.unlessRefused, off]),
+      ...(undo
+        ? {
+            undo: async () => {
+              await undo();
+              await card.putBack();
+            },
+          }
+        : {}),
+    });
+  };
 }
 
 /** A press and the click that followed it on a title. */

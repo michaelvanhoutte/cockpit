@@ -632,7 +632,7 @@ describe('Whiteboard', () => {
   });
 
   describe('Combine on the board draws the new parent at the first card’s spot, in its box', () => {
-    async function combine(childIds: string[], panelId: string | null, cardId = nextId()) {
+    async function combine(childIds: string[], panelId: string | null, cardId = nextId(), leaves: { itemId: string; panelId: string }[] = []) {
       const parentId = nextId();
       await ok('combine_under_new_parent', {
         parentId,
@@ -642,9 +642,26 @@ describe('Whiteboard', () => {
         panelId,
         dashboardId: null,
         onBoard: { dashboardId: DASHBOARD_ID, cardId },
+        ...(leaves.length > 0 ? { leaves } : {}),
       });
       return { parentId, cardId };
     }
+
+    it('moves the Items off the Panel they leave, in the same change, and the parent’s card still goes at the first card’s spot', async () => {
+      const first = await aFiledItem('Storm scene');
+      const second = await aFiledItem('Ferry scene', first.panelId);
+      await aCard(first.itemId);
+      await aCard(second.itemId);
+
+      const { parentId, cardId } = await combine([first.itemId, second.itemId], first.panelId, nextId(), [
+        { itemId: first.itemId, panelId: first.panelId },
+        { itemId: second.itemId, panelId: first.panelId },
+      ]);
+
+      const read = await snapshot();
+      expect(read.filings.filter((filing) => filing.panelId === first.panelId).map((filing) => filing.itemId)).toEqual([parentId]);
+      expect(read.whiteboards.cards).toEqual([expect.objectContaining({ id: cardId, itemId: parentId })]);
+    });
 
     it('puts the parent’s card in the first card’s box, at its spot, and takes the cards of what it holds off', async () => {
       const first = await aFiledItem('Storm scene');

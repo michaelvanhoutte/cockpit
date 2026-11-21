@@ -199,17 +199,26 @@ test.describe('Whiteboard', () => {
       await dragCardTo(page, ferry, centre(chapterAt));
       const question = page.getByRole('menu', { name: 'Dropped on an Item' });
       await expect(question.getByRole('menuitem')).toHaveText([`Put inside ${chapter}`, `Combine with ${chapter}…`]);
-      const added = answerTo(page, 'add_children');
+      const added = answerTo(page, 'put_inside');
       await question.getByRole('menuitem', { name: `Put inside ${chapter}` }).click();
       expect((await added).status()).toBe(200);
-      await expect(page.getByRole('list', { name: `Inside ${chapter}` }).getByText(ferry)).toBeVisible();
+      const whiteboard = page.locator('[data-whiteboard]');
+      const panels = page.locator('[data-panel-cell]');
+      await expect(whiteboard.getByRole('list', { name: `Inside ${chapter}` }).getByText(ferry)).toBeVisible();
       await expect(topCard(page, ferry)).toHaveCount(0);
+      // Moved, as Add as child of… moves it ("Panels: Items put inside a parent stay where they were", issue 1876): the Panel shows it once, inside Chapter.
+      const onlyInside = async (title: string) => {
+        await expect(panels.locator('[data-child-rows]').getByText(title, { exact: true })).toBeVisible();
+        await expect(panels.getByText(title, { exact: true })).toHaveCount(1);
+      };
+      await onlyInside(ferry);
 
       // A row from the Panels let go on a card is asked the same; one whose Item has a card of its own loses it when put inside.
       await row(storm).dragTo(topCard(page, chapter));
       await page.getByRole('menuitem', { name: `Put inside ${chapter}` }).click();
-      await expect(page.getByRole('list', { name: `Inside ${chapter}` }).getByText(storm)).toBeVisible();
+      await expect(whiteboard.getByRole('list', { name: `Inside ${chapter}` }).getByText(storm)).toBeVisible();
       await expect(topCard(page, storm)).toHaveCount(0);
+      await onlyInside(storm);
 
       // And Combine draws the new parent where the card was.
       await row(waves).dragTo(topCard(page, chapter));
@@ -221,7 +230,7 @@ test.describe('Whiteboard', () => {
       expect(((await combined).request().postDataJSON() as { onBoard?: unknown }).onBoard).toBeTruthy();
       await expect(topCard(page, parent)).toBeVisible();
       await expect(topCard(page, chapter)).toHaveCount(0);
-      await expect(page.getByRole('list', { name: `Inside ${parent}` }).getByText(waves)).toBeVisible();
+      await expect(whiteboard.getByRole('list', { name: `Inside ${parent}` }).getByText(waves)).toBeVisible();
     });
   });
 
