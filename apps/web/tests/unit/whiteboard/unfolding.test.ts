@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { takeUnfolds, unfoldWhenDrawn } from '../../../src/boardFocus';
+import { cancelUnfold, takeUnfolds, unfoldWhenDrawn } from '../../../src/boardFocus';
 
 /**
  * L1: a parent made by Combine from a Dashboard ("Brainstorming: cards on the
@@ -14,6 +14,13 @@ describe('Whiteboard', () => {
       expect(takeUnfolds(new Set(['other']))).toEqual([]);
       expect(takeUnfolds(new Set(['other', 'new-parent']))).toEqual(['new-parent']);
       expect(takeUnfolds(new Set(['other', 'new-parent']))).toEqual([]);
+    });
+
+    it('forgets one whose Combine was refused, so a card it later gets is not unfolded unasked', () => {
+      unfoldWhenDrawn('refused-parent');
+      cancelUnfold('refused-parent');
+
+      expect(takeUnfolds(new Set(['refused-parent']))).toEqual([]);
     });
   });
 });

@@ -32,7 +32,7 @@ import { dashboardScope, useSelection } from '../selection';
 import { useUndo } from '../undo';
 import { BoardCard } from './BoardCard';
 import { BoardToolbar, type Tool } from './BoardToolbar';
-import { cardUnder, clickRenames, dropAnswers, f2Renames } from './gestures';
+import { cardUnder, clickRenames, dropAnswers, f2Renames, renameStillWanted } from './gestures';
 import { BOX_HEAD, CARD_W, GRID, MIN_BOX, boardOf, boxAt, boxesWithin, hiddenByCollapse, originOf, relativeTo, whyNotPlaceable, type Board } from './layout';
 import './boardDrawn';
 
@@ -557,8 +557,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
       renameLater.current = window.setTimeout(() => {
         renameLater.current = null;
         // Still the one selected: a click on another card, or a drag, in the meantime leaves it be.
-        const selected = nodesNow.current.filter((node) => node.selected);
-        if (selected.length === 1 && selected[0]!.id === id) setRenamingId(id);
+        if (renameStillWanted(nodesNow.current.filter((node) => node.selected).map((node) => node.id), id)) setRenamingId(id);
       }, DOUBLE_MS + 20);
   };
   const renameCard = (item: Item, title: string | null) => {
@@ -798,7 +797,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   };
 
   // ---- Keys ----
-  nodesNow.current = nodes;
+  useEffect(() => {
+    nodesNow.current = nodes;
+  }, [nodes]);
   const selectedNodes = nodes.filter((node) => node.selected);
   const lone = selectedNodes.length === 1 ? selectedNodes[0]! : null;
   useEffect(() => {

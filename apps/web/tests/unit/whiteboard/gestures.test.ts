@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChildRow } from '@cockpit/shared';
-import { cardUnder, clickRenames, dropAnswers, f2Renames, type Frame, type TitleClick } from '../../../src/whiteboard/gestures';
+import { cardUnder, clickRenames, dropAnswers, f2Renames, renameStillWanted, type Frame, type TitleClick } from '../../../src/whiteboard/gestures';
 
 /**
  * L1 for what a gesture on the whiteboard comes to ("Brainstorming: cards on
@@ -54,6 +54,15 @@ describe('Whiteboard', () => {
       { situation: 'a board that is only to look at', press: selectedPress, click: plain, readOnly: true, renames: false },
     ])('a click renames: $situation is $renames', ({ press, click, readOnly, renames }) => {
       expect(clickRenames(press, click, readOnly)).toBe(renames);
+    });
+
+    it.each([
+      { situation: 'the card is still the only one selected', selected: ['ferry'], wanted: true },
+      { situation: 'another card was clicked meanwhile', selected: ['storm'], wanted: false },
+      { situation: 'a second was added to the selection', selected: ['ferry', 'storm'], wanted: false },
+      { situation: 'nothing is selected, as after a drag elsewhere', selected: [] as string[], wanted: false },
+    ])('a rename waiting out a double-click goes ahead: $situation is $wanted', ({ selected, wanted }) => {
+      expect(renameStillWanted(selected, 'ferry')).toBe(wanted);
     });
 
     const ready = { readOnly: false, selected: 1, typing: false, windowOpen: false, focusOnBoard: true };

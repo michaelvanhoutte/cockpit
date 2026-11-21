@@ -71,3 +71,8 @@ export function clickRenames(press: TitlePress | null, click: TitleClick, readOn
 export function f2Renames(state: { readOnly: boolean; selected: number; typing: boolean; windowOpen: boolean; focusOnBoard: boolean }): boolean {
   return !state.readOnly && state.selected === 1 && !state.typing && !state.windowOpen && state.focusOnBoard;
 }
+
+/** Whether a rename waiting out a double-click still goes ahead: the card is the one thing selected, as it was at the click. */
+export function renameStillWanted(selected: readonly string[], id: string): boolean {
+  return selected.length === 1 && selected[0] === id;
+}
