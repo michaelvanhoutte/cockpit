@@ -343,19 +343,20 @@ const entryClass = 'block w-full rounded px-3 py-1.5 text-left text-sm text-ink 
  */
 function LabelField({ initial, label, onDone, onEnd }: { initial: string; label: string; onDone: (label: string) => void; onEnd: () => void }) {
   const [text, setText] = useState(initial);
-  const kept = useRef<{ text: string; done: boolean }>({ text: initial, done: false });
+  // What is typed, and what was last sent or found there: each keep sends the text only where it differs.
+  const kept = useRef<{ text: string; sent: string; escaped: boolean }>({ text: initial, sent: initial, escaped: false });
   kept.current.text = text;
-  const finish = (keep: boolean) => {
-    if (kept.current.done) return;
-    kept.current.done = true;
+  const keep = () => {
     const typed = kept.current.text.trim();
-    if (keep && typed !== initial) onDone(typed);
+    if (kept.current.escaped || typed === kept.current.sent) return;
+    kept.current.sent = typed;
+    onDone(typed);
   };
-  // Closed by a press elsewhere, which takes the field away before it can lose the focus.
   useEffect(() => {
-    // Mounted again in development's double run: the field is open once more.
-    kept.current.done = false;
-    return () => finish(true);
+    // Mounted again in development's double run: nothing has been let go.
+    kept.current.escaped = false;
+    // Closed by a press elsewhere, which takes the field away before it can lose the focus.
+    return keep;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
@@ -368,12 +369,11 @@ function LabelField({ initial, label, onDone, onEnd }: { initial: string; label:
       onChange={(event) => setText(event.target.value)}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === 'Enter' || event.key === 'Escape') {
-          finish(event.key === 'Enter');
-          onEnd();
-        }
+        if (event.key === 'Enter') keep();
+        if (event.key === 'Escape') kept.current.escaped = true;
+        if (event.key === 'Enter' || event.key === 'Escape') onEnd();
       }}
-      onBlur={() => finish(true)}
+      onBlur={keep}
       className="w-full rounded-md border border-shade/10 bg-field px-2 py-1 text-sm outline-none focus:border-accent"
     />
   );
@@ -509,7 +509,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const [flashId, setFlashId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
-  // Links and free lines (issue 1831): the kind the next link is drawn as, whether every link names its kind, the link under the pointer, and a link's or line's menu.
+  // Links and free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831): the kind the next link is drawn as, whether every link names its kind, the link under the pointer, and a link's or line's menu.
   const [kindId, setKindId] = useState<string | null>(null);
   const [showLabels, setShowLabels] = useState(false);
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
@@ -611,11 +611,13 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           source: drawn.from.cardId,
           target: drawn.to.cardId,
           type: 'link',
-          ...(drawn.kind.arrow ? { markerEnd: { type: MarkerType.ArrowClosed, color: lineInk(drawn.kind), width: 16, height: 16 } } : {}),
-          data: { drawn, hovered: hoveredLink === drawn.link.id, showLabels },
+          // In the board's units, so an arrowhead is one size whatever the line's stroke.
+          ...(drawn.kind.arrow ? { markerEnd: { type: MarkerType.ArrowClosed, color: lineInk(drawn.kind), width: 28, height: 28, markerUnits: 'userSpaceOnUse' } } : {}),
+          // A link whose menu is open is drawn as one under the pointer is.
+          data: { drawn, hovered: hoveredLink === drawn.link.id || linkMenu?.linkId === drawn.link.id, showLabels },
         }),
       ),
-    [allLinks, kinds, board, unfolded, data?.children, items, hoveredLink, showLabels],
+    [allLinks, kinds, board, unfolded, data?.children, items, hoveredLink, linkMenu?.linkId, showLabels],
   );
 
   // ---- Selection, followed to and from the rows in the Panels pane ----
@@ -717,7 +719,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const pointer = pointerOf(event);
     if (readOnly || !fromCard || !pointer) return;
     const under = typeof document === 'undefined' ? null : document.elementFromPoint(pointer.x, pointer.y);
-    const nested = under?.closest('[data-nested-item]')?.getAttribute('data-nested-item') ?? null;
+    // An Item inside the card the drag began from is what that card holds, and no board draws a link to it.
+    const insideFrom = under?.closest('.react-flow__node')?.getAttribute('data-id') === fromCard.id;
+    const nested = insideFrom ? null : (under?.closest('[data-nested-item]')?.getAttribute('data-nested-item') ?? null);
     const onCard = cardAt(flow.screenToFlowPosition(pointer), new Set([fromCard.id])) ?? (state.toNode ? cardOf(state.toNode.id) : undefined);
     const toItemId = nested ?? onCard?.itemId ?? null;
     if (!toItemId || toItemId === fromCard.itemId) return;
@@ -1132,6 +1136,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           onNodesChange={onNodesChange}
           onConnectEnd={onConnectEnd}
           connectionMode={ConnectionMode.Loose}
+          connectOnClick={false}
           connectionLineStyle={{ stroke: lineInk(kind), strokeWidth: 2, ...(DASHES[kind.style] ? { strokeDasharray: DASHES[kind.style] } : {}) }}
           onEdgeClick={(event, edge) => {
             if (readOnly) return;

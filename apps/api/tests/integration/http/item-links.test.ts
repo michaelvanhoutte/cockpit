@@ -140,6 +140,25 @@ describe('Whiteboard', () => {
       expect((await linksOf()).map((one) => one.id)).toEqual([linkId]);
     });
 
+    it.each([
+      { situation: 'the same two Items related the other way round', second: 'reverse' },
+      { situation: 'a link of another kind changed to the kind the two are linked by already', second: 'rekind' },
+    ])('keeps one link for $situation', async ({ second }) => {
+      const [storm, ferry] = [await aFiledItem('Storm scene'), await aFiledItem('Ferry scene')];
+      const { linkId } = await link(storm, ferry, RELATED);
+      let answer: { applied: boolean };
+      if (second === 'reverse') {
+        const res = (await link(ferry, storm, RELATED)).res;
+        expect(res.status).toBe(200);
+        answer = (await res.json()) as { applied: boolean };
+      } else {
+        const other = (await link(storm, ferry, LEADS_TO)).linkId;
+        answer = await ok('set_link_kind', { linkId: other, kindId: RELATED });
+      }
+      expect(answer.applied).toBe(false);
+      expect((await linksOf()).filter((one) => one.kindId === RELATED).map((one) => one.id)).toEqual([linkId]);
+    });
+
     it('leaves the read while an Item at either end is dismissed, and comes back with it', async () => {
       const [storm, ferry] = [await aFiledItem('Storm scene'), await aFiledItem('Ferry scene')];
       const { linkId } = await link(storm, ferry);

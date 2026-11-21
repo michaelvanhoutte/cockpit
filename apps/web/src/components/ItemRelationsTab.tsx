@@ -70,7 +70,7 @@ export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: s
       {row('Parents', parents)}
       {row('Children', children, notListed)}
       {linked.map((group) => (
-        <div key={group.heading}>{row(group.heading, group.itemIds)}</div>
+        <div key={group.key}>{row(group.heading, group.itemIds)}</div>
       ))}
       {places.length > 0 && (
         <div className="flex flex-col gap-1">

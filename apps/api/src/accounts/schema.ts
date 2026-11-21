@@ -1463,7 +1463,8 @@ export const lineKinds = sqliteTable(
 
 /**
  * A link from one Item to another of the same Workspace, of one of its line
- * kinds, with an optional label of its own (issue 1831). It belongs to the two
+ * kinds, with an optional label of its own ("Brainstorming: the whiteboard
+ * can't show how Items connect", issue 1831). It belongs to the two
  * Items, not to a board: every board holding a card for each draws it. A link
  * touching a dismissed Item is in no read until that Item is back.
  *
@@ -1505,7 +1506,8 @@ export const itemLinks = sqliteTable(
 );
 
 /**
- * A free line on one Dashboard's whiteboard (*Draw line*, issue 1831): two
+ * A free line on one Dashboard's whiteboard (*Draw line*, "Brainstorming: the
+ * whiteboard can't show how Items connect", issue 1831): two
  * points on the board itself and an optional label, empty for none. It belongs
  * to that board alone and joins nothing. Tombstoned: *Remove line* stamps
  * `deleted_at`, and its Undo clears it.

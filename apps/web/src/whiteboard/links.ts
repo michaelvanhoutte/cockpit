@@ -105,6 +105,8 @@ export function kindsOrFixed(workspaceId: string, kinds: readonly LineKind[] | u
 
 /** An Item's links as Relations lists them: by kind, *Leads to* and *Comes from* for one with an arrowhead, one list for one without. */
 export interface LinkGroup {
+  /** The kind and the direction, which no two groups share. */
+  key: string;
   heading: string;
   itemIds: string[];
 }
@@ -118,11 +120,11 @@ export function linksByKind(itemId: string, links: readonly ItemLink[], kinds: r
     const into = mine.filter((link) => link.toItemId === itemId).map((link) => link.fromItemId);
     if (!kind.arrow) {
       const both = [...new Set([...out, ...into])];
-      return both.length > 0 ? [{ heading: kind.name, itemIds: both }] : [];
+      return both.length > 0 ? [{ key: kind.id, heading: kind.name, itemIds: both }] : [];
     }
     const groups: LinkGroup[] = [];
-    if (out.length > 0) groups.push({ heading: kind.name, itemIds: out });
-    if (into.length > 0) groups.push({ heading: kind.role === 'leads_to' ? 'Comes from' : `${kind.name} (from)`, itemIds: into });
+    if (out.length > 0) groups.push({ key: `${kind.id}:out`, heading: kind.name, itemIds: out });
+    if (into.length > 0) groups.push({ key: `${kind.id}:in`, heading: kind.role === 'leads_to' ? 'Comes from' : `${kind.name} (from)`, itemIds: into });
     return groups;
   });
 }

@@ -7,7 +7,7 @@ import { DASHES, lineInk, nearestSides, type DrawnLink, type End, type Rect } fr
  * whiteboard can't show how Items connect", issue 1831), from the POC's: a
  * link is a straight line between the nearest sides of its two cards, in its
  * kind's style and colour, under the cards, with its own label or, on hover,
- * selected or with *Show labels*, its kind's name as plain text. A free line is
+ * with its menu open or with *Show labels*, its kind's name as plain text. A free line is
  * a grey dashed line between two points of the board, its label at its middle.
  */
 
@@ -50,7 +50,7 @@ function frameOf(node: InternalNode, end: End, zoom: number): Rect {
   return { x: x + (inner.left - outer.left) / zoom, y: y + (inner.top - outer.top) / zoom, w: inner.width / zoom, h: inner.height / zoom };
 }
 
-export function LinkEdgeView({ id, source, target, data, markerEnd, selected }: EdgeProps<LinkEdge>) {
+export function LinkEdgeView({ id, source, target, data, markerEnd }: EdgeProps<LinkEdge>) {
   const from = useInternalNode(source);
   const to = useInternalNode(target);
   const zoom = useStore((state) => state.transform[2]);
@@ -60,8 +60,8 @@ export function LinkEdgeView({ id, source, target, data, markerEnd, selected }: 
   const [path, labelX, labelY] = getStraightPath({ sourceX: ends.from.x, sourceY: ends.from.y, targetX: ends.to.x, targetY: ends.to.y });
   const { kind } = drawn;
   const ink = lineInk(kind);
-  const width = selected || data.hovered ? 2.75 : 1.75;
-  const label = drawn.link.label ?? (data.showLabels || data.hovered || selected ? kind.name : null);
+  const width = data.hovered ? 2.75 : 1.75;
+  const label = drawn.link.label ?? (data.showLabels || data.hovered ? kind.name : null);
   return (
     <>
       {kind.style === 'double' ? (
@@ -103,8 +103,9 @@ export const edgeTypes = { link: LinkEdgeView };
 
 /** A board's free lines, in the board's own units, each pressed to change its label or remove it. */
 export function FreeLines({ lines, readOnly, onPress }: { lines: readonly BoardLine[]; readOnly: boolean; onPress: (line: BoardLine, at: { x: number; y: number }) => void }) {
+  // Under the cards and boxes, which the board draws before what it portals: a press on a card where a line crosses it is the card's.
   return (
-    <>
+    <div className="absolute" style={{ left: 0, top: 0, zIndex: -1 }}>
       <svg className="pointer-events-none absolute overflow-visible" style={{ left: 0, top: 0, width: 1, height: 1 }} aria-hidden="true">
         {lines.map((line) => (
           <g key={line.id} data-free-line={line.label || line.id}>
@@ -135,7 +136,7 @@ export function FreeLines({ lines, readOnly, onPress }: { lines: readonly BoardL
           </div>
         ) : null,
       )}
-    </>
+    </div>
   );
 }
 

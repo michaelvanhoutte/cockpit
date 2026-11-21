@@ -214,23 +214,40 @@ function linkOf(db: Db, tenantId: string, workspaceId: string, linkId: string) {
   return link;
 }
 
-/** Whether the two Items are linked that way by that kind already, other than by `except`. */
-function linkedAlready(db: Db, tenantId: string, link: { fromItemId: string; toItemId: string; kindId: string }, except: string | null): boolean {
-  return (
-    db
-      .select({ id: itemLinks.id })
-      .from(itemLinks)
-      .where(
-        and(
-          eq(itemLinks.tenantId, tenantId),
-          eq(itemLinks.fromItemId, link.fromItemId),
-          isNull(itemLinks.deletedAt),
-          eq(itemLinks.toItemId, link.toItemId),
-          eq(itemLinks.kindId, link.kindId),
-          except === null ? undefined : sql`${itemLinks.id} <> ${except}`,
-        ),
-      )
-      .get() !== undefined
+/** Whether a kind draws no arrowhead, so a link of it is the same either way round. */
+function kindIsUndirected(db: Db, tenantId: string, workspaceId: string, kindId: string): boolean {
+  const fixed = LINE_KIND_ROLES.find((role) => fixedLineKindId(workspaceId, role) === kindId);
+  const stored = db.select({ arrow: lineKinds.arrow }).from(lineKinds).where(and(eq(lineKinds.tenantId, tenantId), eq(lineKinds.id, kindId))).get();
+  return !(stored?.arrow ?? (fixed ? FIXED_LINE_KINDS[fixed].arrow : true));
+}
+
+/**
+ * Whether the two Items are linked that way by that kind already, other than
+ * by `except`: either way round for a kind with no arrowhead.
+ */
+function linkedAlready(db: Db, tenantId: string, workspaceId: string, link: { fromItemId: string; toItemId: string; kindId: string }, except: string | null): boolean {
+  const ends = kindIsUndirected(db, tenantId, workspaceId, link.kindId)
+    ? [
+        [link.fromItemId, link.toItemId],
+        [link.toItemId, link.fromItemId],
+      ]
+    : [[link.fromItemId, link.toItemId]];
+  return ends.some(
+    ([from, to]) =>
+      db
+        .select({ id: itemLinks.id })
+        .from(itemLinks)
+        .where(
+          and(
+            eq(itemLinks.tenantId, tenantId),
+            eq(itemLinks.fromItemId, from!),
+            isNull(itemLinks.deletedAt),
+            eq(itemLinks.toItemId, to!),
+            eq(itemLinks.kindId, link.kindId),
+            except === null ? undefined : sql`${itemLinks.id} <> ${except}`,
+          ),
+        )
+        .get() !== undefined,
   );
 }
 
@@ -278,8 +295,10 @@ export function isLinkCommand(name: string): name is LinkCommandName {
 
 /**
  * One change to links, kinds or free lines, scoped to the Workspace the
- * envelope names as every change is. Answers whether it applied; one sent
- * again, or asking for what is so already, applies nothing.
+ * envelope names as every change is. Answers whether it applied: one sent
+ * again, a removal or restore of what is so already, and a link or kind change
+ * that would make a second link between two Items that way of one kind,
+ * apply nothing.
  */
 export function runLinkCommand<N extends LinkCommandName>(db: AccountDb, tenantId: string, name: N, payload: CommandPayload<N>, commandRow: CommandRow): boolean {
   const write = (change: (tx: InATransaction) => void) => {
@@ -301,7 +320,7 @@ export function runLinkCommand<N extends LinkCommandName>(db: AccountDb, tenantI
       itemToLink(db, tenantId, cmd.workspaceId, cmd.fromItemId);
       itemToLink(db, tenantId, cmd.workspaceId, cmd.toItemId);
       kindToDrawWith(db, tenantId, cmd.workspaceId, cmd.kindId);
-      if (linkedAlready(db, tenantId, cmd, null)) return recordOnly();
+      if (linkedAlready(db, tenantId, cmd.workspaceId, cmd, null)) return recordOnly();
       return write((tx) => {
         writeFixedKinds(tx, tenantId, cmd.workspaceId, cmd.issuedAt);
         tx.insert(itemLinks)
@@ -314,7 +333,11 @@ export function runLinkCommand<N extends LinkCommandName>(db: AccountDb, tenantI
       const cmd = payload as CommandPayload<'set_link_kind' | 'set_link_label'>;
       const link = linkOf(db, tenantId, cmd.workspaceId, cmd.linkId);
       if (link.deletedAt !== null) throw new LinkNotFoundError(cmd.linkId);
-      if ('kindId' in cmd) kindToDrawWith(db, tenantId, cmd.workspaceId, cmd.kindId);
+      if ('kindId' in cmd) {
+        kindToDrawWith(db, tenantId, cmd.workspaceId, cmd.kindId);
+        // Not where it would be a second link between the two of that kind: the one there stays, and so does this one's kind.
+        if (linkedAlready(db, tenantId, cmd.workspaceId, { ...link, kindId: cmd.kindId }, link.id)) return recordOnly();
+      }
       return write((tx) => {
         if ('kindId' in cmd) writeFixedKinds(tx, tenantId, cmd.workspaceId, cmd.issuedAt);
         tx.update(itemLinks)
@@ -335,7 +358,7 @@ export function runLinkCommand<N extends LinkCommandName>(db: AccountDb, tenantI
       if (link.deletedAt === null) return recordOnly();
       // Not while either Item is dismissed, nor where the two are linked that way again.
       const gone = [link.fromItemId, link.toItemId].some((id) => getItem(db, tenantId, id)?.deletedAt !== null);
-      if (gone || linkedAlready(db, tenantId, link, link.id)) return recordOnly();
+      if (gone || linkedAlready(db, tenantId, cmd.workspaceId, link, link.id)) return recordOnly();
       return write((tx) => tx.update(itemLinks).set({ deletedAt: null }).where(and(eq(itemLinks.tenantId, tenantId), eq(itemLinks.id, link.id))).run());
     }
     case 'add_line_kind': {

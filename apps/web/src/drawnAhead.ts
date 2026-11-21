@@ -700,6 +700,17 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'set_box_colour',
   'set_box_collapsed',
   'delete_box',
+  // Links, line kinds and free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831).
+  'link_items',
+  'set_link_kind',
+  'set_link_label',
+  'unlink_items',
+  'add_line_kind',
+  'edit_line_kind',
+  'delete_line_kind',
+  'draw_line',
+  'set_line_label',
+  'delete_line',
 ]);
 
 /** The changes in the order they were made, each drawn over the one before. */

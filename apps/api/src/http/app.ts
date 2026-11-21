@@ -1277,7 +1277,7 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
 /** The 409 of a change that would send Items with cards to the Inbox without `takeCardsOff` ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829). */
 const ON_WHITEBOARDS = 'Items it would send to the Inbox are on whiteboards: each is named with its cards, and nothing changed';
 
-/** The 409 of a line kind named as a live kind of the Workspace is, whatever its capitals (issue 1831). */
+/** The 409 of a line kind named as a live kind of the Workspace is, whatever its capitals ("Brainstorming: the whiteboard can't show how Items connect", issue 1831). */
 const LINE_KIND_NAME_TAKEN = 'The Workspace already has a line kind by that name';
 
 /**

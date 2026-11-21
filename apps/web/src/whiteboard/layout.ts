@@ -17,7 +17,7 @@ export const MIN_BOX = { w: 160, h: 100 };
 export interface Board {
   boxes: BoardBox[];
   cards: BoardCard[];
-  /** Its free lines (issue 1831). */
+  /** Its free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831). */
   lines: BoardLine[];
 }
 
