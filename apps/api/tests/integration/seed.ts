@@ -77,7 +77,7 @@ export async function withoutTheGuide(accountName: string = ACCOUNT_NAME): Promi
   if (opened.status !== 'ok') throw new Error(JSON.stringify(opened));
   await inStoreAsItIs(accountName, (sql) => {
     const guide = `SELECT id FROM items WHERE NOT (${NOT_THE_GUIDE})`;
-    // The guide's Panel is an Item too, holding the guide's Tasks (issue 1824).
+    // The guide's Panel was given an Item, which held its Tasks (issue 1824).
     const guidePanelsItem = 'SELECT item_id FROM panels WHERE name = ?';
     sql.exec(
       `DELETE FROM item_children WHERE child_id IN (${guide}) OR parent_id IN (${guidePanelsItem})`,
@@ -408,26 +408,28 @@ export async function alsoWorkspaces(): Promise<void> {
         workspace.at,
       );
     });
-    givePanelsTheirItems(sql);
   });
 }
 
 /**
- * Gives each Panel a fixture wrote straight into the store the Item every
- * Panel has ("Brainstorming: give every Panel an Item…", issue 1824), as
- * `0109-panels-become-items` does: what a Panel holds is read from that Item
- * (issue 1825), so a Panel without one would read as holding nothing.
+ * The Item an older release gave a Panel ("Brainstorming: give every Panel an
+ * Item…", issue 1824): the Panel's id, title and Workspace, named by
+ * `panels.item_id`. Dismissed, as `0117-panels-items-dismissed` leaves it, or
+ * `live`, as a release promoted back past "Brainstorming: Panels still carry a
+ * hidden Item each" (issue 1833) makes one for a Panel made then. A Panel made
+ * by a change today has none, so a case about these Items writes one here.
  */
-export function givePanelsTheirItems(sql: SqlStorage): void {
+export function givePanelItsItemFromBefore(sql: SqlStorage, panelId: string, { live = false }: { live?: boolean } = {}): void {
   sql.exec(
-    `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, texts_settled_at, status, unseen, created_at, updated_at)
-       SELECT p.id, p.tenant_id, d.workspace_id, 1, 'internal', p.name, p.created_at, 'to_process', 0, p.created_at, p.created_at
+    `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, texts_settled_at, status, unseen,
+                        created_at, updated_at, deleted_at)
+       SELECT p.id, p.tenant_id, d.workspace_id, 1, 'internal', p.name, p.created_at, 'to_process', 0,
+              p.created_at, p.created_at, CASE WHEN ? THEN NULL ELSE p.created_at END
          FROM panels p JOIN dashboards d ON d.id = p.dashboard_id
-        WHERE p.item_id IS NULL AND p.deleted_at IS NULL AND d.deleted_at IS NULL`,
+        WHERE p.id = ?
+       ON CONFLICT (id) DO UPDATE SET updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
+    live ? 1 : 0,
+    panelId,
   );
-  sql.exec(
-    `UPDATE panels SET item_id = id
-      WHERE item_id IS NULL AND deleted_at IS NULL
-        AND EXISTS (SELECT 1 FROM dashboards d WHERE d.id = panels.dashboard_id AND d.deleted_at IS NULL)`,
-  );
+  sql.exec('UPDATE panels SET item_id = id WHERE id = ?', panelId);
 }

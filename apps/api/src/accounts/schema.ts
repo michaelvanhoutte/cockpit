@@ -534,27 +534,28 @@ export const panels = sqliteTable(
      */
     columns: text('columns'),
     /**
-     * The Item kept for this Panel ("Brainstorming: give every Panel an Item and
-     * store filings as Item-in-Item relations", issue 1824), whose rows the
-     * release before reads filings from: a Panel is never an Item
-     * ("Brainstorming: a Panel is an Item nobody can open", issue 1846), so it
-     * is still made, renamed and dismissed with the Panel for a rollback. Read
-     * to write that Item's rows (`mirrorFilingsOf`, `renamePanelsItem`,
-     * `dismissPanelsItems`), and to leave that Item out: of every list, search
-     * and Item read (`notAPanelsOwnItem`), and as a parent from every
+     * The Item a Panel was given ("Brainstorming: give every Panel an Item and
+     * store filings as Item-in-Item relations", issue 1824), **unused from
+     * "Brainstorming: Panels still carry a hidden Item each" (issue 1833)**:
+     * `0117-panels-items-dismissed` dismissed every such Item and tombstoned the
+     * rows under it, and no change writes either any more: a Panel a change
+     * makes since has none. A new account's first and guide Panels are made by
+     * changes before `0109`, so they are given one there and dismissed by
+     * `0117` on the same opening. A Panel made while a release before it is
+     * promoted back gets a live Item, written as that release writes it, which
+     * stays live once this one returns. A later release deletes every such
+     * Item, live or dismissed, and drops the column. Until
+     * then it is read only to leave that Item out: of every list, search and
+     * Item read (`notAPanelsOwnItem`), and as a parent from every
      * Item-inside-Item read and the Inbox rule (`noPanelsItem`, `noLiveParent`,
-     * `ancestorsAmong`, `itemParentsHolding`). Its title is
-     * the Panel's, it is in the Panel's Workspace, and its texts are settled,
-     * so Claude never rewrites it. **Its id is the Panel's own id**, which is what lets the
-     * backfill (`0109-panels-become-items`) and `add_panel` write it with no id
-     * to hand out, and makes a replay a no-op.
+     * `ancestorsAmong`, `itemParentsHolding`). **Its id is the Panel's own id.**
      *
-     * Null until the backfill reaches the Panel, and on a Panel deleted, or on
-     * a Dashboard deleted, before it ran, which get none; a Panel deleted since
-     * keeps its Item, dismissed with it. **No REFERENCES**: `items` already
-     * points here through `proposed_panel_id`, and a link back would put the two
-     * tables in a circle a restore cannot order (`tablesParentsFirst`,
-     * restore.ts). The unique index `panels_item` holds one Panel to an Item.
+     * Null on a Panel a change made since, and on a Panel deleted, or on a Dashboard
+     * deleted, before the backfill (`0109-panels-become-items`) ran. **No
+     * REFERENCES**: `items` already points here through `proposed_panel_id`,
+     * and a link back would put the two tables in a circle a restore cannot
+     * order (`tablesParentsFirst`, restore.ts). The unique index `panels_item`
+     * holds one Panel to an Item.
      */
     itemId: text('item_id'),
     /**
@@ -1285,10 +1286,9 @@ export const panelItems = sqliteTable(
  * ("Brainstorming: an Item can't hold other Items", issue 1825). **Only rows
  * whose parent is an Item are read** ("Brainstorming: a Panel is an Item
  * nobody can open", issue 1846): what is filed on a Panel is `panel_items`.
- * Every filing is still written here too, under the Panel's own Item
- * (`panels.item_id`), in the transaction of the change that writes
- * `panel_items` (`item-children.ts`), because the release before reads
- * filings from here, and every read leaves those rows out.
+ * The rows once written under a Panel's own Item (`panels.item_id`) are
+ * tombstoned and no longer written ("Brainstorming: Panels still carry a
+ * hidden Item each", issue 1833), and every read leaves them out.
  *
  * - **Tombstoned, unlike `panel_items`**: taking an Item out sets `deleted_at`,
  *   and putting it back clears it, so the key below is never met twice.

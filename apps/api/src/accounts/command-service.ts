@@ -9,18 +9,13 @@ import { isBoardCommand, keepNoCardInTheInbox, placeCombinedParent, putBack, res
 import { isLinkCommand, runLinkCommand } from './links.js';
 import {
   ancestorsAmong,
-  dismissPanelsItems,
-  insertPanelsItem,
   isInside,
   itemChildrenHeldBy,
   itemParentsHolding,
-  mirrorFilingsOf,
   orderIsNotOfTheParent,
   panelsHeldBy,
-  panelsHolding,
   putInside,
   recountHoldersOf,
-  renamePanelsItem,
   takeOut,
   writeChildrenInOrder,
 } from './item-children.js';
@@ -149,7 +144,6 @@ import {
   panelFromCommand,
   panelNameForMove,
   panelNamed,
-  type PanelRow,
 } from '../domain/panels.js';
 import { inBatchesOf } from '../domain/statements.js';
 import { finishedKeptAfter } from '../domain/workspace-read.js';
@@ -823,29 +817,6 @@ function removedFromItsLayouts(
     .run();
 }
 
-/**
- * A new Panel and the Item it is, in one transaction (issue 1824). `replayed:
- * 'changes nothing'` is for a command whose replay carries the same Panel id,
- * named at the primary key so a title collision still raises. The Item is
- * written only when the Panel was, so a replay that finds a Panel an older
- * Worker made, with no Item, leaves no Item standing for nothing in the Inbox.
- */
-function insertPanel(
-  tx: InATransaction,
-  panel: PanelRow,
-  workspaceId: string,
-  { replayed }: { replayed?: 'changes nothing' } = {},
-): void {
-  const inserting = tx.insert(panels).values({ ...panel, itemId: panel.id });
-  if (replayed) {
-    const made = inserting.onConflictDoNothing({ target: panels.id }).returning({ id: panels.id }).all();
-    if (made.length === 0) return;
-  } else {
-    inserting.run();
-  }
-  insertPanelsItem(tx, panel.tenantId, panel, workspaceId, panel.createdAt);
-}
-
 /** Every Item filed on the Panels `where` picks, each once: what deleting them may leave in the Inbox. */
 function itemsFiledOn(db: AccountDb, tenantId: string, where: SQL | undefined): string[] {
   return db
@@ -967,16 +938,12 @@ function writeFiling(
   tenantId: string,
   itemId: string,
   decided: FilingDecided,
-  at: string,
 ): void {
   if (decided.workspaceSettled) settleWorkspace(tx, tenantId, itemId, decided.workspaceSettled);
-  // Every Panel whose filings this rewrites, for their Items to hold the same (issue 1824).
-  const touched = decided.panelId ? [decided.panelId] : [];
   // Off the Panels it is moved from first, which is what makes this a move
   // rather than an add: the item's own rows there go, and the target panel's
   // arrangement is then written whole.
   if (decided.takesItOffPanels) {
-    touched.push(...(decided.fromPanelIds ?? panelsHolding(tx, tenantId, itemId)));
     tx.delete(panelItems)
       .where(
         and(
@@ -998,7 +965,6 @@ function writeFiling(
       tx.insert(panelItems).values(batch).run();
     }
   }
-  mirrorFilingsOf(tx, tenantId, touched, at);
   if (!decided.panelId || !decided.decision) return;
   tx.insert(decisionHistory).values(decided.decision).onConflictDoNothing().run();
   // The proposal is spent the moment it is read into that entry - cleared here
@@ -1027,8 +993,8 @@ function panelNamedFor(db: AccountDb, tenantId: string, workspaceId: string, pan
  * transaction of the change that settles it: each Panel's order whole, the one
  * decision, and the proposal withdrawn - as `writeFiling` does for a person's.
  */
-function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid, at: string): void {
-  writePanelOrders(tx, tenantId, filed.panels, at);
+function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: string, filed: FiledWhereSaid): void {
+  writePanelOrders(tx, tenantId, filed.panels);
   tx.insert(decisionHistory).values(filed.decision).onConflictDoNothing().run();
   tx.update(items)
     .set({ proposedPanelId: null, proposedPanelReason: null, proposedPanelFit: null })
@@ -1036,13 +1002,8 @@ function writeFilingWhereSaid(tx: InATransaction, tenantId: string, itemId: stri
     .run();
 }
 
-/** Each Panel's order written whole: its filings taken out, the order it is left with put in, and its Item made to hold the same. */
-function writePanelOrders(
-  tx: InATransaction,
-  tenantId: string,
-  panels: readonly { panelId: string; rows: FilingRow[] }[],
-  at: string,
-): void {
+/** Each Panel's order written whole: its filings taken out, and the order it is left with put in. */
+function writePanelOrders(tx: InATransaction, tenantId: string, panels: readonly { panelId: string; rows: FilingRow[] }[]): void {
   for (const panel of panels) {
     tx.delete(panelItems)
       .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, panel.panelId)))
@@ -1051,7 +1012,6 @@ function writePanelOrders(
       tx.insert(panelItems).values(batch).run();
     }
   }
-  mirrorFilingsOf(tx, tenantId, panels.map((panel) => panel.panelId), at);
 }
 
 /** What a series' day comes to, read from the store before anything is written (`bring_back_occurrence`). */
@@ -1455,7 +1415,7 @@ export function runCommand<N extends CommandName>(
         // derived dashboard - both no-ops - but a panel id nothing has seen, so
         // naming `panels.id` would catch nothing and the *title* index would
         // refuse a second Panel 1 and take the whole command down with it.
-        if (dashboardIsNew) insertPanel(tx, firstPanelFor(dashboard, cmd.panelId), workspace.id);
+        if (dashboardIsNew) tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1489,7 +1449,7 @@ export function runCommand<N extends CommandName>(
         // Every dashboard arrives with one, not only a workspace's first:
         // otherwise the `+` in the bar makes a dashboard nothing can be filed
         // onto, one dashboard at a time.
-        if (dashboardIsNew) insertPanel(tx, firstPanelFor(dashboard, cmd.panelId), cmd.workspaceId);
+        if (dashboardIsNew) tx.insert(panels).values(firstPanelFor(dashboard, cmd.panelId)).run();
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1543,15 +1503,12 @@ export function runCommand<N extends CommandName>(
       // every read of either joins to a live dashboard (repo.ts), so
       // tombstoning this one takes them off every screen at once. That is
       // "tombstones, not deletes" doing its job rather than being worked
-      // around. Only the Panels' own Items are dismissed with it (issue 1824),
-      // so restoring the dashboard by hand brings them all back once those
-      // Items' `deleted_at` is cleared as well.
+      // around - restoring the dashboard by hand would bring them all back.
       db.transaction((tx) => {
         tx.update(dashboards)
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(dashboards.tenantId, tenantId), eq(dashboards.id, cmd.dashboardId)))
           .run();
-        dismissPanelsItems(tx, tenantId, { dashboardId: cmd.dashboardId }, cmd.issuedAt);
         keepNoCardInTheInbox(tx, tenantId, filedThere, takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
@@ -1612,7 +1569,7 @@ export function runCommand<N extends CommandName>(
         // it must be a no-op rather than a second panel - and a *name*
         // collision has to raise, which a bare onConflictDoNothing would
         // swallow now that this table has a second unique index.
-        insertPanel(tx, panelFromCommand(cmd, tenantId), cmd.workspaceId, { replayed: 'changes nothing' });
+        tx.insert(panels).values(panelFromCommand(cmd, tenantId)).onConflictDoNothing({ target: panels.id }).run();
         insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
@@ -1760,7 +1717,6 @@ export function runCommand<N extends CommandName>(
           .set({ name: cmd.name, foldedName: foldName(cmd.name) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
-        renamePanelsItem(tx, tenantId, cmd.panelId, cmd.name, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1796,7 +1752,6 @@ export function runCommand<N extends CommandName>(
           })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
-        if (cmd.name !== undefined) renamePanelsItem(tx, tenantId, cmd.panelId, cmd.name, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -1818,7 +1773,6 @@ export function runCommand<N extends CommandName>(
           .set({ deletedAt: cmd.issuedAt })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
-        dismissPanelsItems(tx, tenantId, { panelId: cmd.panelId }, cmd.issuedAt);
         keepNoCardInTheInbox(tx, tenantId, filedThere, takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
@@ -1857,7 +1811,6 @@ export function runCommand<N extends CommandName>(
           .set({ dashboardId: target.id, name, foldedName: foldName(name) })
           .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
           .run();
-        if (name !== panel.name) renamePanelsItem(tx, tenantId, cmd.panelId, name, cmd.issuedAt);
         insertAppended(tx, appended);
         tx.insert(commands).values(commandRow).run();
       });
@@ -2058,7 +2011,7 @@ export function runCommand<N extends CommandName>(
         // `status` is the dead column being satisfied rather than used: it is
         // NOT NULL with a CHECK and nothing reads it (schema.ts).
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).onConflictDoNothing().run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         tx.insert(commands).values(commandRow).run();
       });
       break;
@@ -2092,7 +2045,7 @@ export function runCommand<N extends CommandName>(
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
 
       db.transaction((tx) => {
-        writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
+        writeFiling(tx, tenantId, cmd.itemId, decided);
         keepNoCardInTheInbox(tx, tenantId, [cmd.itemId], takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
@@ -2107,7 +2060,7 @@ export function runCommand<N extends CommandName>(
       const decided = refusedOrFiling(decideAddToPanel(cmd, filingFactsFor(db, tenantId, cmd, [], fromTheSource)));
       if (decided.workspaceSettled) everyWorkspaceSees(commandRow);
       db.transaction((tx) => {
-        writeFiling(tx, tenantId, cmd.itemId, decided, cmd.issuedAt);
+        writeFiling(tx, tenantId, cmd.itemId, decided);
         tx.insert(commands).values(commandRow).run();
       });
       if (decided.decision) settledRouting = true;
@@ -2132,7 +2085,6 @@ export function runCommand<N extends CommandName>(
             ),
           )
           .run();
-        mirrorFilingsOf(tx, tenantId, [panel.id], cmd.issuedAt);
         keepNoCardInTheInbox(tx, tenantId, [cmd.itemId], takeCardsOff, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
@@ -2206,18 +2158,15 @@ export function runCommand<N extends CommandName>(
           const settled = decideWorkspace(child, parent.workspaceId, cmd.issuedAt);
           if (settled) settleWorkspace(tx, tenantId, child.id, settled);
         }
-        const leftPanels = new Set<string>();
         for (const leave of cmd.leaves) {
           if (leave.panelId !== undefined) {
             tx.delete(panelItems)
               .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, leave.panelId), eq(panelItems.itemId, leave.itemId)))
               .run();
-            leftPanels.add(leave.panelId);
           } else {
             takeOut(tx, tenantId, leave.parentId!, leave.itemId, cmd.issuedAt);
           }
         }
-        mirrorFilingsOf(tx, tenantId, leftPanels, cmd.issuedAt);
         writeChildrenInOrder(tx, tenantId, parent.id, cmd.order, cmd.issuedAt);
         tx.insert(commands).values(commandRow).run();
       });
@@ -2286,7 +2235,7 @@ export function runCommand<N extends CommandName>(
       ]);
       db.transaction((tx) => {
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE }).run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         for (const parentId of parents) putInside(tx, tenantId, parentId, [item.id], cmd.issuedAt);
         if (held.length > 0) putInside(tx, tenantId, item.id, held, cmd.issuedAt);
         for (const word of words) {
@@ -2634,7 +2583,7 @@ export function runCommand<N extends CommandName>(
             : itemParentsHolding(db, tenantId, cmd.childIds.slice(0, 1)).find(beside);
       db.transaction((tx) => {
         tx.insert(items).values({ ...asStored(item), status: DEAD_STATUS_VALUE, keepsStory: true }).run();
-        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided, cmd.issuedAt);
+        for (const decided of filings) writeFiling(tx, tenantId, item.id, decided);
         if (besideFirst) {
           putInside(tx, tenantId, besideFirst, [item.id], cmd.issuedAt);
           // In the first Item's place inside it, rather than at the end (issue 1876).
@@ -2651,18 +2600,15 @@ export function runCommand<N extends CommandName>(
         settleChildren(tx);
         putInside(tx, tenantId, item.id, cmd.childIds, cmd.issuedAt);
         // Each Item gone from what it left, as a drop onto a row takes it (issue 1876).
-        const leftPanels = new Set<string>();
         for (const leave of leaves) {
           if (leave.panelId !== undefined) {
             tx.delete(panelItems)
               .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.panelId, leave.panelId), eq(panelItems.itemId, leave.itemId)))
               .run();
-            leftPanels.add(leave.panelId);
           } else {
             takeOut(tx, tenantId, leave.parentId!, leave.itemId, cmd.issuedAt);
           }
         }
-        mirrorFilingsOf(tx, tenantId, leftPanels, cmd.issuedAt);
         // Made from a Dashboard: the new parent's card goes where the first Item's is (issue 1830).
         if (cmd.onBoard) {
           placeCombinedParent(tx, tenantId, {
@@ -2958,7 +2904,7 @@ export function runCommand<N extends CommandName>(
           if (proposed !== null) {
             storeItem(tx, tenantId, proposed.item);
           }
-          if (filed !== null) writeFilingWhereSaid(tx, tenantId, cmd.itemId, filed, cmd.issuedAt);
+          if (filed !== null) writeFilingWhereSaid(tx, tenantId, cmd.itemId, filed);
           tx.insert(commands).values(commandRow).run();
         });
         fieldsSet = {
@@ -3928,7 +3874,7 @@ export function runCommand<N extends CommandName>(
       db.transaction((tx) => {
         if (brought.kind === 'writes') {
           tx.insert(items).values({ ...asStored(brought.item), status: DEAD_STATUS_VALUE }).run();
-          writePanelOrders(tx, tenantId, brought.panels, cmd.issuedAt);
+          writePanelOrders(tx, tenantId, brought.panels);
         }
         tx.update(series)
           .set(

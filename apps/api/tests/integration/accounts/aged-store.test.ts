@@ -4343,7 +4343,7 @@ describe('Panels', () => {
       const name = `aged-store-panel-holds-${panelId}`;
       await storeOfPanels(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, PANELS_BECOME_ITEMS);
 
       expect((await heldBy(name, panelId)).held).toEqual(held);
     });
@@ -4355,7 +4355,7 @@ describe('Panels', () => {
       const name = `aged-store-panel-holds-from-${childId}`;
       await storeOfPanels(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, PANELS_BECOME_ITEMS);
 
       expect(
         await inStoreAsItIs(name, (sql) =>
@@ -4368,7 +4368,7 @@ describe('Panels', () => {
       const name = 'aged-store-panel-holds-dismissed';
       await storeOfPanels(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, PANELS_BECOME_ITEMS);
 
       expect(
         await inStoreAsItIs(name, (sql) => sql.exec("SELECT deleted_at FROM items WHERE id = 'it-ferry'").one()),
@@ -4383,7 +4383,7 @@ describe('Panels', () => {
       const name = `aged-store-panel-counts-${panelId}`;
       await storeOfPanels(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, PANELS_BECOME_ITEMS);
 
       expect((await heldBy(name, panelId)).counts).toEqual(counts);
     });
@@ -4427,7 +4427,12 @@ describe('Panels', () => {
 
       expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
       expect(await ledgerHas(name)).toBe(true);
-      expect((await heldBy(name, 'pn-people')).held).toEqual(['it-villain', 'it-mentor', 'it-hero']);
+      // Written whole, and tombstoned since by `0117-panels-items-dismissed` on the same open.
+      expect(
+        await inStoreAsItIs(name, (sql) =>
+          sql.exec<{ child_id: string }>("SELECT child_id FROM item_children WHERE parent_id = 'pn-people' ORDER BY position").toArray().map((row) => row.child_id),
+        ),
+      ).toEqual(['it-villain', 'it-mentor', 'it-hero']);
     });
 
     it('fails loudly, writing nothing, on a filing whose Panel row is missing', async () => {
@@ -4496,7 +4501,7 @@ describe('Panels', () => {
       const name = `aged-store-copied-again-${panelId}`;
       await writtenByAnOlderRelease(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, COPIED_AGAIN);
 
       expect((await heldBy(name, panelId)).held).toEqual(held);
     });
@@ -4505,7 +4510,7 @@ describe('Panels', () => {
       const name = 'aged-store-copied-again-panels';
       await writtenByAnOlderRelease(name);
 
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, COPIED_AGAIN);
 
       const items = await inStoreAsItIs(name, (sql) =>
         sql
@@ -4526,7 +4531,7 @@ describe('Panels', () => {
     it('adds and changes nothing when it runs a second time', async () => {
       const name = 'aged-store-copied-again-twice';
       await writtenByAnOlderRelease(name);
-      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      await applyChange(name, COPIED_AGAIN);
       const rows = (sql: SqlStorage) => ({
         counts: rowCountsOf(sql),
         held: sql.exec('SELECT * FROM item_children ORDER BY parent_id, child_id').toArray(),
@@ -4541,6 +4546,307 @@ describe('Panels', () => {
       });
 
       expect(await inStoreAsItIs(name, rows)).toEqual(once);
+    });
+  });
+
+  /**
+   * `0117-panels-items-dismissed`, the contract of the Panels' own Items
+   * ("Brainstorming: Panels still carry a hidden Item each", issue 1833,
+   * release C), against a store aged to just before it: each Panel an Item as
+   * releases 1 to S left it, the rows under it, and an Item holding an Item.
+   * Its failure modes are its header's (changes.ts).
+   */
+  describe('a Panel’s own Item is dismissed and stops holding anything, and nothing else moves', () => {
+    const DISMISSED = '0117-panels-items-dismissed';
+    const KEPT = '2026-08-11T10:00:00.000Z';
+
+    /** A store from just before the contract: live, deleted and orphaned Panels with their Items, and a real parent. */
+    async function storeOfPanelItems(name: string): Promise<void> {
+      await agedTo(name, justBefore(DISMISSED));
+      await inStoreAsItIs(name, (sql) => {
+        sql.exec(
+          `INSERT INTO workspaces (id, tenant_id, name, folded_name, color, created_at) VALUES ('ws-a', ?, 'Novel', 'novel', '#6f62b5', ?)`,
+          name,
+          AT,
+        );
+        sql.exec(
+          `INSERT INTO dashboards (id, tenant_id, workspace_id, name, folded_name, created_at, deleted_at)
+           VALUES ('db-live', ?, 'ws-a', 'Book', 'book', ?, NULL), ('db-gone', ?, 'ws-a', 'Gone', 'gone', ?, ?)`,
+          name,
+          AT,
+          name,
+          AT,
+          LATER,
+        );
+        const item = (id: string, title: string, extra: { completedAt?: string; deletedAt?: string; counts?: [number, number] } = {}) =>
+          sql.exec(
+            `INSERT INTO items (id, tenant_id, workspace_id, workspace_decided, source, title, status, unseen, created_at, updated_at,
+                                completed_at, deleted_at, children_count, children_done)
+             VALUES (?, ?, 'ws-a', 1, 'internal', ?, 'to_process', 0, ?, ?, ?, ?, ?, ?)`,
+            id,
+            name,
+            title,
+            AT,
+            extra.deletedAt ?? AT,
+            extra.completedAt ?? null,
+            extra.deletedAt ?? null,
+            extra.counts?.[0] ?? 0,
+            extra.counts?.[1] ?? 0,
+          );
+        const panel = (id: string, dashboard: string, title: string, deletedAt: string | null, itemId: string | null) =>
+          sql.exec(
+            `INSERT INTO panels (id, tenant_id, dashboard_id, name, folded_name, kind, created_at, deleted_at, item_id)
+             VALUES (?, ?, ?, ?, ?, 'items', ?, ?, ?)`,
+            id,
+            name,
+            dashboard,
+            title,
+            title.toLowerCase(),
+            AT,
+            deletedAt,
+            itemId,
+          );
+        // Each Panel's Item, as releases 1 to S keep it: live for a live Panel, dismissed with a deleted one.
+        item('pn-people', 'People', { counts: [3, 1] });
+        item('pn-gone', 'Gone', { deletedAt: LATER, counts: [2, 0] });
+        item('pn-orphan', 'Orphan', { deletedAt: LATER, counts: [1, 0] });
+        panel('pn-people', 'db-live', 'People', null, 'pn-people');
+        panel('pn-gone', 'db-live', 'Gone', LATER, 'pn-gone');
+        panel('pn-orphan', 'db-gone', 'Orphan', null, 'pn-orphan');
+        // Deleted before any Panel had an Item, so it never got one.
+        panel('pn-none', 'db-live', 'Never', LATER, null);
+        item('it-villain', 'Villain');
+        item('it-mentor', 'Mentor');
+        item('it-hero', 'Hero', { completedAt: FINISHED_AT });
+        item('it-loose', 'Loose note');
+        item('it-chapter', 'Chapter 3', { counts: [1, 0] });
+        item('it-scene', 'Storm scene');
+        item('it-old', 'Taken off long ago');
+        const file = (panelId: string, itemId: string, position: number) =>
+          sql.exec('INSERT INTO panel_items (tenant_id, panel_id, item_id, position, created_at) VALUES (?, ?, ?, ?, ?)', name, panelId, itemId, position, AT);
+        const hold = (parentId: string, childId: string, position: number, deletedAt: string | null = null) =>
+          sql.exec(
+            'INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?)',
+            name,
+            parentId,
+            childId,
+            position,
+            AT,
+            deletedAt,
+          );
+        file('pn-people', 'it-villain', 0);
+        file('pn-people', 'it-mentor', 1);
+        file('pn-people', 'it-hero', 2);
+        file('pn-gone', 'it-loose', 0);
+        file('pn-orphan', 'it-scene', 0);
+        hold('pn-people', 'it-villain', 0);
+        hold('pn-people', 'it-mentor', 1);
+        hold('pn-people', 'it-hero', 2);
+        // Taken off People long ago: tombstoned already, and left as it was.
+        hold('pn-people', 'it-old', 3, KEPT);
+        hold('pn-gone', 'it-loose', 0);
+        // Under a deleted Panel's Item with no filing beside it, which the switch's copy step left as it was.
+        hold('pn-gone', 'it-scene', 1);
+        hold('pn-orphan', 'it-scene', 0);
+        // An Item holding an Item, which is no Panel's.
+        hold('it-chapter', 'it-scene', 0);
+      });
+    }
+
+    const rowsOf = (name: string) =>
+      inStoreAsItIs(name, (sql) => ({
+        counts: rowCountsOf(sql),
+        items: sql.exec('SELECT * FROM items ORDER BY id').toArray(),
+        held: sql.exec('SELECT * FROM item_children ORDER BY parent_id, child_id').toArray(),
+        filings: sql.exec('SELECT * FROM panel_items ORDER BY panel_id, item_id').toArray(),
+        panels: sql.exec('SELECT * FROM panels ORDER BY id').toArray(),
+      }));
+    const recorded = (name: string) =>
+      inStoreAsItIs(name, (sql) => sql.exec('SELECT name FROM account_changes WHERE name = ?', DISMISSED).toArray().length);
+
+    /** Each Item's dismissal and counts, by id. */
+    const itemsOf = (name: string) =>
+      inStoreAsItIs(name, (sql) =>
+        Object.fromEntries(
+          sql
+            .exec<{ id: string; deleted_at: string | null; children_count: number; children_done: number }>(
+              "SELECT id, deleted_at, children_count, children_done FROM items WHERE id LIKE 'pn-%' OR id LIKE 'it-%' ORDER BY id",
+            )
+            .toArray()
+            .map(({ id, ...rest }) => [id, rest]),
+        ),
+      );
+    const heldRows = (name: string) =>
+      inStoreAsItIs(name, (sql) =>
+        sql
+          .exec<{ parent_id: string; child_id: string; deleted_at: string | null }>(
+            "SELECT parent_id, child_id, deleted_at FROM item_children WHERE child_id LIKE 'it-%' ORDER BY parent_id, child_id",
+          )
+          .toArray(),
+      );
+
+    /** What the Workspace's read files on each Panel, in order, and what its Inbox holds, by title. */
+    async function whatAPersonSees(name: string) {
+      const read = await storeNamed(name).snapshot(name, 'ws-a');
+      if (read.status !== 'ok') throw new Error(JSON.stringify(read));
+      const { items, filings, panels } = read.value;
+      // The rows of Items held by Items, which the store's read carries beside the rest.
+      const children = (read.value as unknown as { children?: Parameters<typeof itemsInTheInbox>[2] }).children;
+      const titleOf = (id: string) => items.find((one) => one.id === id)?.title ?? id;
+      return {
+        onPanels: Object.fromEntries(
+          panels.map((one) => [
+            one.name,
+            filings
+              .filter((filing) => filing.panelId === one.id)
+              .sort((a, b) => a.position - b.position)
+              .map((filing) => titleOf(filing.itemId)),
+          ]),
+        ),
+        inbox: itemsInTheInbox(items, filingsThatFile(filings, panels), children ?? [])
+          .map((one) => one.title)
+          .sort(),
+        listed: items.map((one) => one.id).filter((id) => id.startsWith('pn-')),
+      };
+    }
+
+    it('dismisses each Panel’s Item not yet dismissed, keeps the others’ dismissal, and leaves every other Item as it was', async () => {
+      const name = 'aged-store-panels-items-dismissed';
+      await storeOfPanelItems(name);
+      const before = await itemsOf(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await itemsOf(name);
+      // As of its own last write, so the same store comes out the same wherever it runs.
+      expect(after['pn-people']).toEqual({ deleted_at: AT, children_count: 0, children_done: 0 });
+      expect(after['pn-gone']).toEqual({ deleted_at: LATER, children_count: 0, children_done: 0 });
+      expect(after['pn-orphan']).toEqual({ deleted_at: LATER, children_count: 0, children_done: 0 });
+      const { 'pn-people': _p, 'pn-gone': _g, 'pn-orphan': _o, ...others } = after;
+      const { 'pn-people': _pb, 'pn-gone': _gb, 'pn-orphan': _ob, ...othersBefore } = before;
+      expect(others).toEqual(othersBefore);
+    });
+
+    it('tombstones every row under a Panel’s Item, keeps one tombstoned already as it was, and leaves an Item’s own children held', async () => {
+      const name = 'aged-store-panels-items-rows';
+      await storeOfPanelItems(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      expect(await heldRows(name)).toEqual([
+        { parent_id: 'it-chapter', child_id: 'it-scene', deleted_at: null },
+        { parent_id: 'pn-gone', child_id: 'it-loose', deleted_at: LATER },
+        { parent_id: 'pn-gone', child_id: 'it-scene', deleted_at: LATER },
+        { parent_id: 'pn-orphan', child_id: 'it-scene', deleted_at: LATER },
+        { parent_id: 'pn-people', child_id: 'it-hero', deleted_at: AT },
+        { parent_id: 'pn-people', child_id: 'it-mentor', deleted_at: AT },
+        { parent_id: 'pn-people', child_id: 'it-old', deleted_at: KEPT },
+        { parent_id: 'pn-people', child_id: 'it-villain', deleted_at: AT },
+      ]);
+      expect((await itemsOf(name))['it-chapter']).toEqual({ deleted_at: null, children_count: 1, children_done: 0 });
+    });
+
+    it('deletes no row, and leaves every filing, Panel and what a person sees as it was', async () => {
+      const name = 'aged-store-panels-items-kept';
+      await storeOfPanelItems(name);
+      const before = await rowsOf(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const after = await rowsOf(name);
+      expect({ ...after.counts, account_changes: 0 }).toEqual({ ...before.counts, account_changes: 0 });
+      expect(after.filings).toEqual(before.filings);
+      expect(after.panels).toEqual(before.panels);
+      expect(await whatAPersonSees(name)).toEqual({
+        // Hero, finished long before the day the read keeps, is filed there as well.
+        onPanels: { People: ['Villain', 'Mentor'] },
+        inbox: ['Chapter 3', 'Loose note', 'Taken off long ago'],
+        listed: [],
+      });
+    });
+
+    it('changes nothing when it runs a second time', async () => {
+      const name = 'aged-store-panels-items-twice';
+      await storeOfPanelItems(name);
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      const once = await rowsOf(name);
+
+      await inStoreAsItIs(name, (sql) => {
+        for (const statement of accountChanges(name).find((change) => change.name === DISMISSED)!.statements) {
+          sql.exec(statement.sql, ...(statement.params ?? []));
+        }
+      });
+
+      expect(await rowsOf(name)).toEqual(once);
+    });
+
+    it('leaves the account exactly as it was and records nothing when it fails before it commits, and runs whole on the next request', async () => {
+      // Its third statement tombstones the rows, after the Items are dismissed; refusing it is the one way in from outside.
+      const name = 'aged-store-panels-items-fails-partway';
+      await storeOfPanelItems(name);
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec("CREATE TRIGGER in_the_way BEFORE UPDATE OF deleted_at ON item_children BEGIN SELECT RAISE(ABORT, 'in the way'); END"),
+      );
+      const before = await rowsOf(name);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(DISMISSED);
+      expect(await rowsOf(name)).toEqual(before);
+      expect(await recorded(name)).toBe(0);
+
+      await inStoreAsItIs(name, (sql) => sql.exec('DROP TRIGGER in_the_way'));
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+      expect(await recorded(name)).toBe(1);
+      expect((await itemsOf(name))['pn-people']?.deleted_at).toBe(AT);
+    });
+
+    it('fails loudly, changing and recording nothing, on an Item held by a live Panel’s Item but not filed on the Panel', async () => {
+      const name = 'aged-store-panels-items-unfiled-row';
+      await storeOfPanelItems(name);
+      await inStoreAsItIs(name, (sql) =>
+        sql.exec(
+          "INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at) VALUES (?, 'pn-people', 'it-loose', 4, ?)",
+          name,
+          AT,
+        ),
+      );
+      const before = await rowsOf(name);
+
+      const failed = await storeNamed(name).workspaces(name);
+
+      expect(failed).toMatchObject({ status: 'not-up-to-date' });
+      expect(JSON.stringify(failed)).toContain(DISMISSED);
+      expect(await rowsOf(name)).toEqual(before);
+      expect(await recorded(name)).toBe(0);
+    });
+  });
+
+  describe('an account from before Panels had Items comes up to date with none of them live and every filing where it was', () => {
+    it('dismisses every Panel’s Item, holds nothing under any, and shows each Panel and the Inbox as before', async () => {
+      const name = 'aged-store-panels-items-from-before';
+      await storeOfPanels(name);
+
+      expect(await storeNamed(name).workspaces(name)).toMatchObject({ status: 'ok' });
+
+      const left = await inStoreAsItIs(name, (sql) => ({
+        live: sql.exec('SELECT id FROM items WHERE deleted_at IS NULL AND id IN (SELECT item_id FROM panels)').toArray(),
+        held: sql.exec('SELECT * FROM item_children WHERE deleted_at IS NULL AND parent_id IN (SELECT item_id FROM panels)').toArray(),
+        dismissed: sql.exec<{ n: number }>("SELECT count(*) AS n FROM items WHERE id LIKE 'pn-%' AND id IN (SELECT item_id FROM panels)").one().n,
+      }));
+      expect(left).toEqual({ live: [], held: [], dismissed: 5 });
+      expect(await inboxOf(name)).toEqual(['Loose note', 'On a deleted Dashboard', 'On a deleted Panel']);
+      expect((await heldBy(name, 'pn-big')).held).toEqual([]);
+      const read = await storeNamed(name).snapshot(name, 'ws-a');
+      if (read.status !== 'ok') throw new Error(JSON.stringify(read));
+      expect(
+        read.value.filings
+          .filter((filing) => filing.panelId === 'pn-big')
+          .sort((a, b) => a.position - b.position)
+          .map((filing) => filing.itemId),
+      ).toEqual(Array.from({ length: BIG }, (_, n) => `it-big-${String(BIG - 1 - n).padStart(3, '0')}`));
     });
   });
 });

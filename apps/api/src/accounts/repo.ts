@@ -784,8 +784,10 @@ export type ItemsOfTheRead = 'every' | 'finished' | { finishedAfter: string };
  * Leaves out the Item a Panel is ("Brainstorming: give every Panel an Item and
  * store filings as Item-in-Item relations", issue 1824): it is never in the
  * Inbox, on no list, found by no search and read by no job, since the Panel is
- * what stands for it. One lookup by `panels_item` per
- * row; a deleted Panel's Item is left out as well.
+ * what stands for it. One lookup by `panels_item` per row. Every such Item is
+ * dismissed ("Brainstorming: Panels still carry a hidden Item each", issue
+ * 1833), so this is what keeps it out of a read of dismissed Items too, until
+ * a later release deletes them.
  */
 function notAPanelsOwnItem() {
   return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${items.id})`;
@@ -1645,8 +1647,8 @@ export function listFilingsInWorkspace(
 /**
  * `listFilingsInWorkspace`'s query: what is filed on a live Panel is read from
  * `panel_items` ("Brainstorming: a Panel is an Item nobody can open", issue
- * 1846), never from the rows under a Panel's own Item, which are still written
- * for the release before to read. Driven from the Items of the read, by
+ * 1846), never from the rows under a Panel's own Item, which are tombstoned
+ * ("Brainstorming: Panels still carry a hidden Item each", issue 1833). Driven from the Items of the read, by
  * `panel_items_tenant_item`, so a Panel's finished Items cost the read nothing.
  */
 export function filingsOfTheRead(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead) {
@@ -1683,8 +1685,9 @@ function heldBy(itemId: Column, tenantId: Column) {
 /**
  * A parent that is not a Panel's own Item ("Brainstorming: a Panel is an Item
  * nobody can open", issue 1846): a Panel holds what is filed on it and is never
- * a parent, so every read of Item inside Item leaves out the rows still written
- * under its Item for the release before. One lookup by `panels_item`.
+ * a parent, so every read of Item inside Item leaves out the rows once written
+ * under its Item, tombstoned since ("Brainstorming: Panels still carry a hidden
+ * Item each", issue 1833). One lookup by `panels_item`.
  */
 function noPanelsItem(parentId: Column) {
   return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${parentId})`;
@@ -2459,7 +2462,7 @@ export function getEmailLocalPart(db: AccountDb, tenantId: string): string | nul
  * Panel and inside no live Item. The browser's half is `itemsInTheInbox`
  * (@cockpit/shared). A Panel or Dashboard tombstoned since the filing leaves
  * its `panel_items` row untouched, which is what puts the Item back in the
- * Inbox, so the Panel and its Dashboard are joined live; the rows still
+ * Inbox, so the Panel and its Dashboard are joined live; the rows once
  * written under a Panel's own Item are no parent.
  */
 function noLiveParent() {

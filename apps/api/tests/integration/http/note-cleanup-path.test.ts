@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { ACCOUNT_WIDE } from '@cockpit/shared';
-import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, givePanelsTheirItems, inStoreAsItIs, inTheStore, storeNamed } from '../seed.js';
+import { ACCOUNT_NAME, WORKSPACE_ID, alsoWorkspaces, inStoreAsItIs, inTheStore, storeNamed } from '../seed.js';
 import { handleQueue } from '../../../src/jobs/index.js';
 import type { EnrichmentJob } from '../../../src/jobs/enrichment.js';
 import { heldProposals } from '../../held-proposals.js';
@@ -73,7 +73,6 @@ async function aDayToDayDashboard(): Promise<void> {
         name.toLowerCase(),
       );
     }
-    givePanelsTheirItems(sql);
   });
 }
 

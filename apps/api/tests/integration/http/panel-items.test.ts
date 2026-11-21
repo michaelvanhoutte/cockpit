@@ -7,6 +7,7 @@ import {
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  givePanelItsItemFromBefore,
   inTheStore,
   seedRegister,
   startFromEmpty,
@@ -894,157 +895,46 @@ describe('Capture', () => {
 
 describe('Panels', () => {
   /**
-   * The release before reads what is filed on a Panel from the rows under the
-   * Panel's own Item ("Brainstorming: a Panel is an Item nobody can open",
-   * issue 1846), so every filing, move, removal, finish and rename still writes
-   * them, and a rollback to it loses nothing. Nothing in this release reads
-   * them, so this compares the two stores directly after each change, entered
-   * through the real routes.
+   * "Brainstorming: Panels still carry a hidden Item each" (issue 1833,
+   * release C): a Panel is no Item, and what is filed on it is written to its
+   * filings alone. A Panel an older release gave an Item keeps that Item
+   * dismissed, with the rows under it tombstoned, and no change writes either
+   * again. Nothing on screen reads them, so the cases read the store directly
+   * after each change, entered through the real routes.
    */
 
-  /** One Panel as its filings say and as its Item holds it, with the Item's two counts and the counts its filings make. */
-  async function bothSides(panelId: string) {
-    return inTheStore((sql) => {
-      const filed = sql
-        .exec<{ item_id: string; position: number }>(
-          'SELECT item_id, position FROM panel_items WHERE panel_id = ? ORDER BY position, item_id',
-          panelId,
-        )
-        .toArray();
-      const held = sql
-        .exec<{ item_id: string; position: number }>(
-          `SELECT c.child_id AS item_id, c.position FROM item_children c JOIN panels p ON p.item_id = c.parent_id
-            WHERE p.id = ? AND c.deleted_at IS NULL ORDER BY c.position, c.child_id`,
-          panelId,
-        )
-        .toArray();
-      const counted = sql
-        .exec<{ children_count: number; children_done: number }>(
-          'SELECT i.children_count, i.children_done FROM items i JOIN panels p ON p.item_id = i.id WHERE p.id = ?',
-          panelId,
-        )
-        .one();
-      const expected = sql
-        .exec<{ children_count: number; children_done: number }>(
-          `SELECT count(*) AS children_count, coalesce(sum(i.completed_at IS NOT NULL), 0) AS children_done
-             FROM panel_items f JOIN items i ON i.id = f.item_id WHERE f.panel_id = ? AND i.deleted_at IS NULL`,
-          panelId,
-        )
-        .one();
-      return { filed, held, counted, expected };
-    });
+  /** Every Item an older release gave a Panel, and every row ever written under one, as stored. */
+  async function whatOlderPanelsLeft() {
+    return inTheStore((sql) => ({
+      items: sql.exec('SELECT * FROM items WHERE id IN (SELECT item_id FROM panels) ORDER BY id').toArray(),
+      held: sql
+        .exec('SELECT * FROM item_children WHERE parent_id IN (SELECT item_id FROM panels) ORDER BY parent_id, child_id')
+        .toArray(),
+    }));
   }
 
-  async function agreeOn(...panelIds: string[]): Promise<void> {
-    for (const panelId of panelIds) {
-      const { filed, held, counted, expected } = await bothSides(panelId);
-      expect(held, `what the Item of ${panelId} holds`).toEqual(filed);
-      expect(counted, `the counts of ${panelId}`).toEqual(expected);
-    }
-  }
-
-  describe('the release before still reads every filing, move, removal, finish and rename this one makes', () => {
-    it.each([
-      { situation: 'moved to a Panel', steps: ['move to Falcon'] },
-      { situation: 'added to a second Panel', steps: ['move to Falcon', 'add to Anna'] },
-      { situation: 'removed from one of two', steps: ['move to Falcon', 'add to Anna', 'remove from Falcon'] },
-      { situation: 'moved to the Inbox', steps: ['move to Falcon', 'add to Anna', 'move to the Inbox'] },
-      { situation: 'reordered on its Panel', steps: ['move to Falcon', 'move to the top of Falcon'] },
-      { situation: 'moved back after leaving', steps: ['move to Falcon', 'move to the Inbox', 'move to Falcon'] },
-    ])('$situation', async ({ steps }) => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const anna = await aPanel(today, 'Anna');
-      const other = await anItem('Renew the domain');
-      expect((await move(other, falcon, [other])).status).toBe(200);
-      const itemId = await anItem('Reply to Bart');
-      const act: Record<string, () => Promise<Response>> = {
-        'move to Falcon': () => move(itemId, falcon, [other, itemId]),
-        'move to the top of Falcon': () => move(itemId, falcon, [itemId, other]),
-        'add to Anna': () => addTo(itemId, anna),
-        'remove from Falcon': () => removeFrom(itemId, falcon),
-        'move to the Inbox': () => move(itemId, null),
-      };
-
-      for (const step of steps) {
-        expect((await act[step]!()).status, step).toBe(200);
-        await agreeOn(falcon, anna);
+  /** A Panel as an older release left it: its dismissed Item, and a tombstoned row under it for the Item filed on it. */
+  async function aPanelFromBefore(dashboardId: string, name: string, filed?: string): Promise<string> {
+    const panelId = await aPanel(dashboardId, name);
+    if (filed) expect((await addTo(filed, panelId)).status).toBe(200);
+    await inTheStore((sql) => {
+      givePanelItsItemFromBefore(sql, panelId);
+      if (filed) {
+        sql.exec(
+          `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at, deleted_at)
+           VALUES ('tenant-default', ?, ?, 0, ?, ?)
+           ON CONFLICT (parent_id, child_id) DO UPDATE SET created_at = excluded.created_at, deleted_at = excluded.deleted_at`,
+          panelId,
+          filed,
+          AT,
+          AT,
+        );
       }
     });
+    return panelId;
+  }
 
-    it.each([
-      { situation: 'finished', send: { command: 'set_done', done: true }, done: 1 },
-      { situation: 'finished, then reopened', send: { command: 'set_done', done: false }, done: 0 },
-      { situation: 'finished, then dismissed', send: { command: 'set_dismissed', dismissed: true }, done: 0 },
-    ])('counts follow an Item $situation', async ({ send: { command, ...change }, done }) => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const itemId = await anItem('Reply to Bart');
-      expect((await move(itemId, falcon)).status).toBe(200);
-      expect((await send('set_done', { workspaceId: WORKSPACE_ID, itemId, done: true })).status).toBe(200);
-      expect((await bothSides(falcon)).counted.children_done).toBe(1);
-
-      expect(
-        (await send(command, { workspaceId: WORKSPACE_ID, itemId, ...change, issuedAt: '2026-09-01T12:00:00.000Z' })).status,
-      ).toBe(200);
-
-      await agreeOn(falcon);
-      expect((await bothSides(falcon)).counted.children_done).toBe(done);
-    });
-
-    it.each([
-      { situation: 'renamed', command: 'rename_panel' },
-      { situation: 'renamed in its settings', command: 'set_panel_settings' },
-    ])('a Panel $situation gives its Item the same title', async ({ command }) => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-
-      expect((await send(command, { workspaceId: WORKSPACE_ID, panelId: falcon, name: 'Project Falcon' })).status).toBe(200);
-
-      expect(
-        await inTheStore((sql) => sql.exec('SELECT title FROM items WHERE id = (SELECT item_id FROM panels WHERE id = ?)', falcon).one()),
-      ).toEqual({ title: 'Project Falcon' });
-    });
-
-    it.each([
-      { situation: 'replayed', fresh: false },
-      { situation: 'sent again as a new change', fresh: true },
-    ])('the same filing $situation is held once, from when it first arrived', async ({ fresh }) => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const itemId = await anItem('Reply to Bart');
-      const commandId = nextId();
-      const sendIt = (issuedAt: string) =>
-        asUser('http://cockpit.test/v1/commands/add_item_to_panel', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            commandId: fresh ? nextId() : commandId,
-            issuedAt,
-            workspaceId: WORKSPACE_ID,
-            itemId,
-            panelId: falcon,
-            order: [itemId],
-          }),
-        });
-      const heldRows = () =>
-        inTheStore((sql) =>
-          sql
-            .exec('SELECT c.child_id, c.created_at FROM item_children c JOIN panels p ON p.item_id = c.parent_id WHERE p.id = ?', falcon)
-            .toArray(),
-        );
-      expect((await sendIt(AT)).status).toBe(200);
-      const once = await heldRows();
-
-      expect((await sendIt('2026-09-01T11:00:00.000Z')).status).toBe(200);
-
-      expect(once).toEqual([{ child_id: itemId, created_at: AT }]);
-      expect(await heldRows()).toEqual(once);
-      await agreeOn(falcon);
-    });
-  });
-
-  describe('a Panel made or deleted makes or dismisses the Item the release before reads, which is on no list', () => {
+  describe('a Panel made today is no Item, and filing on it writes nothing but its filings', () => {
     it.each([
       { situation: 'a Panel added to a Dashboard', made: (dashboardId: string) => aPanel(dashboardId, 'Falcon') },
       {
@@ -1057,68 +947,87 @@ describe('Panels', () => {
           return panelId;
         },
       },
-    ])('$situation is one, in the Panel’s Workspace and on no list', async ({ made }) => {
+      {
+        situation: 'the Panel a new Workspace arrives with',
+        made: async () => {
+          const panelId = nextId();
+          expect(
+            (await send('create_workspace', { workspaceId: nextId(), panelId, name: 'Elsewhere' })).status,
+          ).toBe(200);
+          return panelId;
+        },
+      },
+    ])('$situation', async ({ made }) => {
       const panelId = await made(await aDashboard());
 
-      expect(
-        await inTheStore((sql) =>
-          sql
-            .exec(
-              `SELECT p.item_id, i.title, i.workspace_id, i.texts_settled_at IS NOT NULL AS settled, i.deleted_at
-                 FROM panels p JOIN items i ON i.id = p.item_id WHERE p.id = ?`,
-              panelId,
-            )
-            .one(),
-        ),
-      ).toEqual({ item_id: panelId, title: expect.any(String), workspace_id: WORKSPACE_ID, settled: 1, deleted_at: null });
-      expect((await snapshot()).items.map((item) => item.id)).not.toContain(panelId);
+      expect(await inTheStore((sql) => sql.exec('SELECT item_id FROM panels WHERE id = ?', panelId).one())).toEqual({ item_id: null });
+      expect(await inTheStore((sql) => sql.exec('SELECT count(*) AS n FROM items WHERE id = ?', panelId).one())).toEqual({ n: 0 });
     });
 
+    it('files, moves and removes Items with no row under any Item', async () => {
+      const today = await aDashboard();
+      const falcon = await aPanel(today, 'Falcon');
+      const anna = await aPanel(today, 'Anna');
+      const itemId = await anItem('Reply to Bart');
+
+      expect((await move(itemId, falcon)).status).toBe(200);
+      expect((await addTo(itemId, anna)).status).toBe(200);
+      expect((await removeFrom(itemId, falcon)).status).toBe(200);
+      expect((await move(itemId, null)).status).toBe(200);
+      expect((await move(itemId, falcon)).status).toBe(200);
+
+      expect(await filedOn(itemId)).toEqual(['Falcon']);
+      expect(await inTheStore((sql) => sql.exec('SELECT * FROM item_children WHERE child_id = ?', itemId).toArray())).toEqual([]);
+    });
+  });
+
+  describe('the Item an older release gave a Panel stays dismissed and untouched, whatever is done to the Panel', () => {
+    type Around = { today: string; older: string; other: string; kept: string; item: string };
+    const settingsOf = (older: string, change: Record<string, unknown>) => send('set_panel_settings', { workspaceId: WORKSPACE_ID, panelId: older, ...change });
     it.each([
-      { situation: 'the Panel is deleted', remove: (panelId: string) => send('delete_panel', { workspaceId: WORKSPACE_ID, panelId }) },
+      { situation: 'an Item filed on it', act: ({ older, item, kept }: Around) => addTo(item, older, [item, kept]) },
+      { situation: 'an Item moved onto it', act: ({ older, item, kept }: Around) => move(item, older, [item, kept]) },
+      { situation: 'an Item moved off it to another Panel', act: ({ other, kept }: Around) => move(kept, other) },
+      { situation: 'an Item removed from it', act: ({ older, kept }: Around) => removeFrom(kept, older) },
+      { situation: 'an Item on it moved to the Inbox', act: ({ kept }: Around) => move(kept, null) },
+      { situation: 'it renamed', act: ({ older }: Around) => send('rename_panel', { workspaceId: WORKSPACE_ID, panelId: older, name: 'Project Falcon' }) },
+      { situation: 'it renamed in its settings', act: ({ older }: Around) => settingsOf(older, { name: 'Project Falcon' }) },
       {
-        situation: 'its Dashboard is deleted',
-        remove: async (_panelId: string, dashboardId: string) =>
-          send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId }),
+        situation: 'it moved to a Dashboard where its name is taken',
+        act: async ({ older }: Around) => {
+          const elsewhere = await aDashboard();
+          await aPanel(elsewhere, 'Falcon');
+          return send('move_panel_to_dashboard', { workspaceId: WORKSPACE_ID, panelId: older, dashboardId: elsewhere });
+        },
       },
-    ])('its Item is dismissed when $situation', async ({ remove }) => {
+      { situation: 'its Dashboard deleted', act: ({ today }: Around) => send('delete_dashboard', { workspaceId: WORKSPACE_ID, dashboardId: today }) },
+    ])('$situation', async ({ act }) => {
       const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
+      const other = await aPanel(today, 'Anna');
+      const kept = await anItem('Renew the domain');
+      const older = await aPanelFromBefore(today, 'Falcon', kept);
+      const item = await anItem('Reply to Bart');
+      const before = await whatOlderPanelsLeft();
+      expect(before.items).toContainEqual(expect.objectContaining({ id: older, deleted_at: AT }));
+      expect(before.held).toContainEqual(expect.objectContaining({ parent_id: older, child_id: kept, deleted_at: AT }));
 
-      expect((await remove(falcon, today)).status).toBe(200);
+      expect((await act({ today, older, other, kept, item })).status).toBe(200);
 
-      expect(
-        await inTheStore((sql) => sql.exec('SELECT deleted_at FROM items WHERE id = ?', falcon).one()),
-      ).toEqual({ deleted_at: AT });
+      expect(await whatOlderPanelsLeft()).toEqual(before);
     });
 
     it.each([
-      { command: 'set_done', change: { done: true } },
-      { command: 'set_dismissed', change: { dismissed: true } },
-      { command: 'set_title', change: { title: 'Renamed' } },
-    ])('$command naming a Panel’s id finds no Item and changes nothing', async ({ command, change }) => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      const before = await inTheStore((sql) => sql.exec('SELECT * FROM items WHERE id = ?', falcon).one());
+      { situation: 'finishing it', command: 'set_done', change: { done: true } },
+      { situation: 'dismissing it', command: 'set_dismissed', change: { dismissed: true } },
+      { situation: 'bringing it back', command: 'set_dismissed', change: { dismissed: false } },
+      { situation: 'renaming it', command: 'set_title', change: { title: 'Renamed' } },
+    ])('is found by no change naming its id: $situation', async ({ command, change }) => {
+      const older = await aPanelFromBefore(await aDashboard(), 'Falcon');
+      const before = await whatOlderPanelsLeft();
 
-      expect((await send(command, { workspaceId: WORKSPACE_ID, itemId: falcon, ...change })).status).toBe(404);
+      expect((await send(command, { workspaceId: WORKSPACE_ID, itemId: older, ...change })).status).toBe(404);
 
-      expect(await inTheStore((sql) => sql.exec('SELECT * FROM items WHERE id = ?', falcon).one())).toEqual(before);
-    });
-
-    it('add_panel resent for a Panel an older release made, with no Item, writes no Item', async () => {
-      const today = await aDashboard();
-      const falcon = await aPanel(today, 'Falcon');
-      await inTheStore((sql) => {
-        sql.exec('UPDATE panels SET item_id = NULL WHERE id = ?', falcon);
-        sql.exec('DELETE FROM items WHERE id = ?', falcon);
-      });
-
-      expect(
-        (await send('add_panel', { workspaceId: WORKSPACE_ID, dashboardId: today, panelId: falcon, name: 'Falcon again' })).status,
-      ).toBe(200);
-
-      expect(await inTheStore((sql) => sql.exec('SELECT count(*) AS n FROM items WHERE id = ?', falcon).one())).toEqual({ n: 0 });
+      expect(await whatOlderPanelsLeft()).toEqual(before);
     });
   });
 });

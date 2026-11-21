@@ -10,6 +10,7 @@ import {
   WORKSPACE_ID,
   alsoWorkspaces,
   asUser,
+  givePanelItsItemFromBefore,
   inTheStore,
   seedRegister,
   startFromEmpty,
@@ -116,9 +117,14 @@ async function filedOnlyOnThePanel(panelId: string, itemId: string, position: nu
   );
 }
 
-/** A row under a Panel's own Item with no filing beside it: what only the release before reads (issue 1846). */
+/**
+ * A live row under the live Item an older release gave a Panel, with no filing
+ * beside it: what a release promoted back past "Brainstorming: Panels still
+ * carry a hidden Item each" (issue 1833) could leave, which no read follows.
+ */
 async function keptOnlyUnderThePanel(panelId: string, itemId: string, position: number): Promise<void> {
-  await inTheStore((sql) =>
+  await inTheStore((sql) => {
+    givePanelItsItemFromBefore(sql, panelId, { live: true });
     sql.exec(
       `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
        VALUES (?, (SELECT item_id FROM panels WHERE id = ?), ?, ?, ?)`,
@@ -127,8 +133,8 @@ async function keptOnlyUnderThePanel(panelId: string, itemId: string, position: 
       itemId,
       position,
       daysAgo(0),
-    ),
-  );
+    );
+  });
 }
 
 async function fileOn(panelId: string, itemId: string) {
@@ -139,9 +145,8 @@ describe('Inbox', () => {
   /**
    * "Brainstorming: a Panel is an Item nobody can open" (issue 1846): filed on
    * a Panel is read from the Panel's filings, inside an Item from the rows of
-   * Items alone. Every filing still writes a row under the Panel's own Item for
-   * the release before, so the last two cases, which hold one of the pair
-   * without the other, are written into the store directly.
+   * Items alone. The last two cases, which hold a filing with no row under the
+   * Panel's own Item or the reverse, are written into the store directly.
    */
   describe('the Inbox holds exactly the open Items filed on no live Panel and inside no live Item, wherever it is read', () => {
     it.each([
@@ -178,13 +183,13 @@ describe('Inbox', () => {
         where: /^Workspace 1 ▸ Inbox$/,
       },
       {
-        situation: 'filed on a live Panel the release before never recorded',
+        situation: 'filed on a live Panel with nothing recorded under its own Item',
         arrange: async (itemId: string) => filedOnlyOnThePanel(await aPanel('Scenes'), itemId, 0),
         inTheInbox: false,
         where: /▸ Scenes$/,
       },
       {
-        situation: 'recorded under a live Panel by the release before, but filed on none',
+        situation: 'recorded under a live Panel’s own Item by an older release, but filed on none',
         arrange: async (itemId: string) => keptOnlyUnderThePanel(await aPanel('Scenes'), itemId, 0),
         inTheInbox: true,
         where: /^Workspace 1 ▸ Inbox$/,
@@ -203,6 +208,8 @@ describe('Inbox', () => {
     it('never holds a Panel’s own Item', async () => {
       const { token } = await connected();
       const panelId = await aPanel('Characters');
+      // Live, as a release promoted back past "Brainstorming: Panels still carry a hidden Item each" (issue 1833) makes it.
+      await inTheStore((sql) => givePanelItsItemFromBefore(sql, panelId, { live: true }));
 
       const read = await snapshot();
       expect(read.items.some((item) => item.id === panelId)).toBe(false);
@@ -223,11 +230,11 @@ describe('Inbox', () => {
 describe('Panels', () => {
   /**
    * A Panel holds what is filed on it and is never an Item ("Brainstorming: a
-   * Panel is an Item nobody can open", issue 1846). The rows under its own Item
-   * are still written for the release before, so a case holding one of the
+   * Panel is an Item nobody can open", issue 1846). The rows an older release
+   * wrote under its own Item are read by nothing, so a case holding one of the
    * pair without the other is written into the store directly.
    */
-  describe('a Panel shows what is filed on it, never what is recorded under it for the release before', () => {
+  describe('a Panel shows what is filed on it, never what an older release recorded under its own Item', () => {
     it.each([
       { situation: 'filed on it, never recorded under it', write: filedOnlyOnThePanel, onThePanel: true },
       { situation: 'recorded under it, never filed on it', write: keptOnlyUnderThePanel, onThePanel: false },
