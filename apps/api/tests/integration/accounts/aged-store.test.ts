@@ -633,6 +633,27 @@ const rowsFor: {
           VALUES ('cd-before', ?, 'db-before', 'it-before', 'bx-before', 10, 20, ?)`,
     params: (name) => [name, AT],
   },
+  {
+    // A Workspace's own line kind (`0115-item-links`), for the next update to meet.
+    table: 'line_kinds',
+    sql: `INSERT INTO line_kinds (id, tenant_id, workspace_id, name, folded_name, style, colour, arrow, role, position, created_at)
+          VALUES ('lk-before', ?, 'ws-before', 'Blocks', 'blocks', 'dashed', 'rose', 1, NULL, 2, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    // A link of that kind between two Items (`0115-item-links`).
+    table: 'item_links',
+    sql: `INSERT INTO item_links (id, tenant_id, workspace_id, from_item_id, to_item_id, kind_id, label, created_at)
+          VALUES ('ln-before', ?, 'ws-before', 'it-before', 'it-done-before', 'lk-before', NULL, ?)`,
+    params: (name) => [name, AT],
+  },
+  {
+    // A free line on the Dashboard's whiteboard (`0115-item-links`).
+    table: 'board_lines',
+    sql: `INSERT INTO board_lines (id, tenant_id, dashboard_id, x1, y1, x2, y2, label, created_at)
+          VALUES ('bl-before', ?, 'db-before', 0, 0, 300, 120, 'Act two', ?)`,
+    params: (name) => [name, AT],
+  },
 ];
 
 /**
@@ -3789,12 +3810,13 @@ const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => (
  * An account as it was before `0109-panels-become-items` gave each of its
  * Panels an Item on the same open: without those Items, what they hold, and
  * the columns `0108-item-children` adds; nor the empty boards and the
- * Dashboards' null layouts `0114-whiteboards` adds.
+ * Dashboards' null layouts `0114-whiteboards` adds, nor `0115-item-links`'
+ * empty tables.
  */
 const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T => {
   const rows = (table: string) => (kept[table] ?? []) as Record<string, unknown>[];
   const panelIds = new Set(rows('panels').map((row) => row.id));
-  const { item_children: _held, board_boxes: _boxes, board_cards: _cards, ...rest } = kept;
+  const { item_children: _held, board_boxes: _boxes, board_cards: _cards, line_kinds: _kinds, item_links: _links, board_lines: _lines, ...rest } = kept;
   return {
     ...rest,
     ...(kept.dashboards ? { dashboards: rows('dashboards').map(({ layout_view: _view, split_share: _share, ...row }) => row) } : {}),

@@ -14,6 +14,9 @@ import {
   boxLabelSchema,
   boxSizeSchema,
   dashboardViewSchema,
+  lineKindNameSchema,
+  lineLabelSchema,
+  lineStyleSchema,
   splitShareSchema,
 } from './domain/board.js';
 import { swatchSchema } from './domain/swatches.js';
@@ -138,6 +141,76 @@ export const setDashboardSplitSchema = commandEnvelopeSchema.extend({ dashboardI
 export type SetDashboardSplitCommand = z.infer<typeof setDashboardSplitSchema>;
 
 /**
+ * link_items — a link drawn from one card's dot to another's ("Brainstorming:
+ * the whiteboard can't show how Items connect", issue 1831): between two Items
+ * of the Workspace, of one of its kinds. Refused for an Item linked to itself,
+ * one of another Workspace or none yet, and a dismissed one. A link sent again,
+ * or the same two Items already linked that way by that kind, writes nothing.
+ */
+export const linkItemsSchema = commandEnvelopeSchema
+  .extend({ linkId: z.uuid(), fromItemId: z.uuid(), toItemId: z.uuid(), kindId: z.string().min(1) })
+  .refine((cmd) => cmd.fromItemId !== cmd.toItemId, { message: 'An Item can’t be linked to itself.', path: ['toItemId'] });
+export type LinkItemsCommand = z.infer<typeof linkItemsSchema>;
+
+/** set_link_kind — a link given another of the Workspace's kinds. */
+export const setLinkKindSchema = commandEnvelopeSchema.extend({ linkId: z.uuid(), kindId: z.string().min(1) });
+export type SetLinkKindCommand = z.infer<typeof setLinkKindSchema>;
+
+/** set_link_label — a link's own label, drawn in place of its kind's name; empty is none. */
+export const setLinkLabelSchema = commandEnvelopeSchema.extend({ linkId: z.uuid(), label: lineLabelSchema });
+export type SetLinkLabelCommand = z.infer<typeof setLinkLabelSchema>;
+
+/** unlink_items — *Remove link*; already removed is as good as done. */
+export const unlinkItemsSchema = commandEnvelopeSchema.extend({ linkId: z.uuid() });
+export type UnlinkItemsCommand = z.infer<typeof unlinkItemsSchema>;
+
+/** restore_link — the Undo of `unlink_items`: back, unless either Item has been dismissed or the two are linked that way again. */
+export const restoreLinkSchema = commandEnvelopeSchema.extend({ linkId: z.uuid() });
+export type RestoreLinkCommand = z.infer<typeof restoreLinkSchema>;
+
+const lineKindFields = { name: lineKindNameSchema, style: lineStyleSchema, colour: swatchSchema, arrow: z.boolean() };
+
+/** add_line_kind — *+ New kind…*: a name no live kind of the Workspace has, whatever its capitals. */
+export const addLineKindSchema = commandEnvelopeSchema.extend({ kindId: z.uuid(), ...lineKindFields });
+export type AddLineKindCommand = z.infer<typeof addLineKindSchema>;
+
+/** edit_line_kind — an added kind renamed or redrawn; *Leads to* and *Related* are refused. */
+export const editLineKindSchema = commandEnvelopeSchema.extend({ kindId: z.string().min(1), ...lineKindFields });
+export type EditLineKindCommand = z.infer<typeof editLineKindSchema>;
+
+/** delete_line_kind — an added kind deleted, its links *Related* from then on; *Leads to* and *Related* are refused. */
+export const deleteLineKindSchema = commandEnvelopeSchema.extend({ kindId: z.string().min(1) });
+export type DeleteLineKindCommand = z.infer<typeof deleteLineKindSchema>;
+
+/** restore_line_kind — the Undo of `delete_line_kind`: back, with its links, unless a live kind has its name by now. */
+export const restoreLineKindSchema = commandEnvelopeSchema.extend({ kindId: z.string().min(1) });
+export type RestoreLineKindCommand = z.infer<typeof restoreLineKindSchema>;
+
+/** draw_line — **Draw line**: a free line between two points of one Dashboard's board, with an optional label. */
+export const drawLineSchema = commandEnvelopeSchema.extend({
+  lineId: z.uuid(),
+  dashboardId: z.string().min(1),
+  x1: boardCoordinateSchema,
+  y1: boardCoordinateSchema,
+  x2: boardCoordinateSchema,
+  y2: boardCoordinateSchema,
+  label: lineLabelSchema,
+});
+export type DrawLineCommand = z.infer<typeof drawLineSchema>;
+
+/** set_line_label — a free line's label typed; empty is none. */
+export const setLineLabelSchema = commandEnvelopeSchema.extend({ lineId: z.uuid(), label: lineLabelSchema });
+export type SetLineLabelCommand = z.infer<typeof setLineLabelSchema>;
+
+/** delete_line — *Remove line*; already removed is as good as done. */
+export const deleteLineSchema = commandEnvelopeSchema.extend({ lineId: z.uuid() });
+export type DeleteLineCommand = z.infer<typeof deleteLineSchema>;
+
+/** restore_line — the Undo of `delete_line`, while its Dashboard is there. */
+export const restoreLineSchema = commandEnvelopeSchema.extend({ lineId: z.uuid() });
+export type RestoreLineCommand = z.infer<typeof restoreLineSchema>;
+
+/**
  * Whether a change that would leave an Item in the Inbox while it has cards
  * takes those cards off every board as well (an Item in the Inbox is never on a
  * whiteboard). Absent or false, such a change is refused naming the Items and
@@ -179,5 +252,18 @@ export const boardCommandSchemas = {
   restore_box: restoreBoxSchema,
   set_dashboard_view: setDashboardViewSchema,
   set_dashboard_split: setDashboardSplitSchema,
+  link_items: linkItemsSchema,
+  set_link_kind: setLinkKindSchema,
+  set_link_label: setLinkLabelSchema,
+  unlink_items: unlinkItemsSchema,
+  restore_link: restoreLinkSchema,
+  add_line_kind: addLineKindSchema,
+  edit_line_kind: editLineKindSchema,
+  delete_line_kind: deleteLineKindSchema,
+  restore_line_kind: restoreLineKindSchema,
+  draw_line: drawLineSchema,
+  set_line_label: setLineLabelSchema,
+  delete_line: deleteLineSchema,
+  restore_line: restoreLineSchema,
   ...takingCardsOffSchemas,
 } as const;

@@ -200,6 +200,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     STORY_PROPOSAL,
     ITEM_THUMBNAIL,
     WHITEBOARDS,
+    ITEM_LINKS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -2159,6 +2160,101 @@ const WHITEBOARDS: Change = {
     },
     { sql: 'ALTER TABLE `dashboards` ADD COLUMN `layout_view` text' },
     { sql: 'ALTER TABLE `dashboards` ADD COLUMN `split_share` real' },
+  ],
+};
+
+/**
+ * Links between Items, line kinds and free lines ("Brainstorming: the
+ * whiteboard can't show how Items connect", issue 1831): the `line_kinds`,
+ * `item_links` and `board_lines` tables with their indexes; `schema.ts` says
+ * what each carries. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: three `CREATE
+ *   TABLE`s and five indexes, and no statement that reads or writes a row. No
+ *   Workspace is given its two kinds here: the read supplies *Leads to* and
+ *   *Related* until the first link or kind writes them.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release names none of it; links
+ *   and free lines are not drawn, and the rows wait unread.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const ITEM_LINKS: Change = {
+  name: '0115-item-links',
+  statements: [
+    {
+      sql: `CREATE TABLE \`line_kinds\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`folded_name\` text NOT NULL,
+	\`style\` text NOT NULL,
+	\`colour\` text NOT NULL,
+	\`arrow\` integer NOT NULL,
+	\`role\` text,
+	\`position\` integer NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "line_kinds_arrow_is_a_flag" CHECK(arrow IN (0, 1)),
+	${timestampCheck('line_kinds', 'created_at')},
+	${timestampCheck('line_kinds', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE UNIQUE INDEX IF NOT EXISTS `line_kinds_workspace_live_folded_name` ON `line_kinds` (`tenant_id`,`workspace_id`,`folded_name`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `line_kinds_tenant_workspace` ON `line_kinds` (`tenant_id`,`workspace_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: `CREATE TABLE \`item_links\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`workspace_id\` text NOT NULL,
+	\`from_item_id\` text NOT NULL,
+	\`to_item_id\` text NOT NULL,
+	\`kind_id\` text NOT NULL,
+	\`label\` text,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`workspace_id\`) REFERENCES \`workspaces\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`from_item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`to_item_id\`) REFERENCES \`items\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`kind_id\`) REFERENCES \`line_kinds\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "item_links_not_to_itself" CHECK(from_item_id <> to_item_id),
+	${timestampCheck('item_links', 'created_at')},
+	${timestampCheck('item_links', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `item_links_tenant_from` ON `item_links` (`tenant_id`,`from_item_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `item_links_tenant_to` ON `item_links` (`tenant_id`,`to_item_id`) WHERE `deleted_at` IS NULL',
+    },
+    {
+      sql: `CREATE TABLE \`board_lines\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`tenant_id\` text NOT NULL,
+	\`dashboard_id\` text NOT NULL,
+	\`x1\` real NOT NULL,
+	\`y1\` real NOT NULL,
+	\`x2\` real NOT NULL,
+	\`y2\` real NOT NULL,
+	\`label\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`deleted_at\` text,
+	FOREIGN KEY (\`dashboard_id\`) REFERENCES \`dashboards\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	${timestampCheck('board_lines', 'created_at')},
+	${timestampCheck('board_lines', 'deleted_at')}
+) STRICT`,
+    },
+    {
+      sql: 'CREATE INDEX IF NOT EXISTS `board_lines_tenant_dashboard` ON `board_lines` (`tenant_id`,`dashboard_id`) WHERE `deleted_at` IS NULL',
+    },
   ],
 };
 

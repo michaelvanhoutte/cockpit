@@ -2106,6 +2106,118 @@
           ]
         },
         {
+          "name": "board_lines",
+          "strict": true,
+          "queriedAs": "boardLines",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "dashboard_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "dashboards",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "dashboardId"
+            },
+            {
+              "name": "x1",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "x1"
+            },
+            {
+              "name": "y1",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "y1"
+            },
+            {
+              "name": "x2",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "x2"
+            },
+            {
+              "name": "y2",
+              "type": "REAL",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "y2"
+            },
+            {
+              "name": "label",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "label"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "board_lines_tenant_dashboard",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "dashboard_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            }
+          ]
+        },
+        {
           "name": "claude_code_hook_arrivals",
           "strict": true,
           "queriedAs": "claudeCodeHookArrivals",
@@ -3568,6 +3680,130 @@
           ]
         },
         {
+          "name": "item_links",
+          "strict": true,
+          "queriedAs": "itemLinks",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "workspace_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "workspaces",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "workspaceId"
+            },
+            {
+              "name": "from_item_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "fromItemId"
+            },
+            {
+              "name": "to_item_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "items",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "toItemId"
+            },
+            {
+              "name": "kind_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "line_kinds",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "kindId"
+            },
+            {
+              "name": "label",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "label"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "item_links_tenant_from",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "from_item_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            },
+            {
+              "name": "item_links_tenant_to",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "to_item_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            }
+          ]
+        },
+        {
           "name": "item_meanings",
           "strict": true,
           "queriedAs": "itemMeanings",
@@ -4319,6 +4555,146 @@
                 "tenant_id",
                 "dashboard_id"
               ]
+            }
+          ]
+        },
+        {
+          "name": "line_kinds",
+          "strict": true,
+          "queriedAs": "lineKinds",
+          "columns": [
+            {
+              "name": "id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": 1,
+              "references": null,
+              "queriedAs": "id"
+            },
+            {
+              "name": "tenant_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "tenantId"
+            },
+            {
+              "name": "workspace_id",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": {
+                "table": "workspaces",
+                "column": "id",
+                "onDelete": "RESTRICT"
+              },
+              "queriedAs": "workspaceId"
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "name"
+            },
+            {
+              "name": "folded_name",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "foldedName"
+            },
+            {
+              "name": "style",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "style"
+            },
+            {
+              "name": "colour",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "colour"
+            },
+            {
+              "name": "arrow",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "arrow"
+            },
+            {
+              "name": "role",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "role"
+            },
+            {
+              "name": "position",
+              "type": "INTEGER",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "position"
+            },
+            {
+              "name": "created_at",
+              "type": "TEXT",
+              "required": true,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "createdAt"
+            },
+            {
+              "name": "deleted_at",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "deletedAt"
+            }
+          ],
+          "indexes": [
+            {
+              "name": "line_kinds_tenant_workspace",
+              "unique": false,
+              "columns": [
+                "tenant_id",
+                "workspace_id"
+              ],
+              "where": "`deleted_at` IS NULL"
+            },
+            {
+              "name": "line_kinds_workspace_live_folded_name",
+              "unique": true,
+              "columns": [
+                "tenant_id",
+                "workspace_id",
+                "folded_name"
+              ],
+              "where": "`deleted_at` IS NULL"
             }
           ]
         },

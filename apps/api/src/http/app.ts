@@ -1277,6 +1277,9 @@ function commandRoute<N extends ClientCommandName>(name: N, extra?: { conflict: 
 /** The 409 of a change that would send Items with cards to the Inbox without `takeCardsOff` ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829). */
 const ON_WHITEBOARDS = 'Items it would send to the Inbox are on whiteboards: each is named with its cards, and nothing changed';
 
+/** The 409 of a line kind named as a live kind of the Workspace is, whatever its capitals (issue 1831). */
+const LINE_KIND_NAME_TAKEN = 'The Workspace already has a line kind by that name';
+
 /**
  * Every change endpoint is the same two steps, so they are written once:
  * resolve the account, hand its store the validated body. Nothing here knows
@@ -2097,6 +2100,20 @@ const routes = app
   .openapi(commandRoute('restore_box'), async (c) => c.json(await change(c, 'restore_box', c.req.valid('json')), 200))
   .openapi(commandRoute('set_dashboard_view'), async (c) => c.json(await change(c, 'set_dashboard_view', c.req.valid('json')), 200))
   .openapi(commandRoute('set_dashboard_split'), async (c) => c.json(await change(c, 'set_dashboard_split', c.req.valid('json')), 200))
+  // Links between Items, line kinds and free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831).
+  .openapi(commandRoute('link_items'), async (c) => c.json(await change(c, 'link_items', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_link_kind'), async (c) => c.json(await change(c, 'set_link_kind', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_link_label'), async (c) => c.json(await change(c, 'set_link_label', c.req.valid('json')), 200))
+  .openapi(commandRoute('unlink_items'), async (c) => c.json(await change(c, 'unlink_items', c.req.valid('json')), 200))
+  .openapi(commandRoute('restore_link'), async (c) => c.json(await change(c, 'restore_link', c.req.valid('json')), 200))
+  .openapi(commandRoute('add_line_kind', { conflict: LINE_KIND_NAME_TAKEN }), async (c) => c.json(await change(c, 'add_line_kind', c.req.valid('json')), 200))
+  .openapi(commandRoute('edit_line_kind', { conflict: LINE_KIND_NAME_TAKEN }), async (c) => c.json(await change(c, 'edit_line_kind', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_line_kind'), async (c) => c.json(await change(c, 'delete_line_kind', c.req.valid('json')), 200))
+  .openapi(commandRoute('restore_line_kind', { conflict: LINE_KIND_NAME_TAKEN }), async (c) => c.json(await change(c, 'restore_line_kind', c.req.valid('json')), 200))
+  .openapi(commandRoute('draw_line'), async (c) => c.json(await change(c, 'draw_line', c.req.valid('json')), 200))
+  .openapi(commandRoute('set_line_label'), async (c) => c.json(await change(c, 'set_line_label', c.req.valid('json')), 200))
+  .openapi(commandRoute('delete_line'), async (c) => c.json(await change(c, 'delete_line', c.req.valid('json')), 200))
+  .openapi(commandRoute('restore_line'), async (c) => c.json(await change(c, 'restore_line', c.req.valid('json')), 200))
   .openapi(commandRoute('set_keeps_story'), async (c) => c.json(await change(c, 'set_keeps_story', c.req.valid('json')), 200))
   .openapi(commandRoute('rewrite_story'), async (c) => c.json(await change(c, 'rewrite_story', c.req.valid('json')), 200))
   .openapi(commandRoute('use_story'), async (c) => {
