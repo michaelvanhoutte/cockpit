@@ -794,8 +794,8 @@ test.describe('Panels', () => {
       const [x, y] = await Promise.all([fourth, first].map(async (title) => itemRow(page, title).boundingBox()));
       expect(x!.y).toBe(y!.y);
 
-      // "Panels in columns: an unfolded parent's children span the full width" (issue 1878):
-      // the second, in the right column of the first line, unfolds its child under it, in that column.
+      // "Panels in columns: an unfolded parent's children span the full width…" (issue 1878) asks that they do not:
+      // the second, in the right column of the first line (after the drag above), unfolds its child under it, in that column.
       const box = async (title: string) => (await itemRow(page, title).boundingBox())!;
       const nextLine = (await box(sixth)).y;
       await press(page.getByRole('button', { name: `Unfold ${second}` }), isMobile);

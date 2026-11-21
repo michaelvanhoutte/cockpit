@@ -1190,8 +1190,9 @@ export function ItemList({
     // in the parent's column and the line grows to hold them rather than the
     // children spanning the Panel (issue 1878).
     return columns !== null && holdsItems(item) ? (
-      <li role="presentation" className="min-w-0" data-column-cell={item.id}>
-        <ul role="list">{row}</ul>
+      <li className="min-w-0" data-column-cell={item.id}>
+        {/* Alone in this list a row is its last child and would lose the separator its neighbours keep. */}
+        <ul role="list" className="[&>li[data-item-row]]:border-b">{row}</ul>
       </li>
     ) : (
       row

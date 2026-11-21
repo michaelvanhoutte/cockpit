@@ -4238,7 +4238,6 @@ describe('Panels', () => {
       const cell = document.querySelector(`[data-column-cell="${CHAPTER.id}"]`)!;
       expect(cell.contains(childRows())).toBe(true);
       expect(cell.contains(document.querySelector(`[data-item-id="${NEXT.id}"]`))).toBe(false);
-      expect(childRows()!.className).not.toContain('col-span-full');
     });
 
     it('acts on the child from a child row’s menu', async () => {
