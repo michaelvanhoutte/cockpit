@@ -37,6 +37,7 @@ import type {
   Panel,
   PanelSort,
 } from '@cockpit/shared';
+import type { Swatch } from '@cockpit/shared/board';
 import { useSendCommand, whyNotDone } from '../api/queries';
 import type { CommandArgs } from '../api/queries';
 import { useUndo } from '../undo';
@@ -116,6 +117,7 @@ const FilterQuestion = lazy(() => import('./FilterQuestion'));
 
 /** A Panel's Sort question, fetched only once *Sort…* is chosen, for the reason the Filter question is. */
 const SortQuestion = lazy(() => import('./SortQuestion'));
+const PanelColourQuestion = lazy(() => import('./PanelColourQuestion'));
 const PanelSettingsQuestion = lazy(() => import('./PanelSettingsQuestion'));
 
 /** The dashboard *Move to dashboard…* picks, fetched only once it is chosen, for the reason the Filter question is. */
@@ -246,6 +248,8 @@ export function PanelBoard({
   const [filtering, setFiltering] = useState<string | null>(null);
   /** Which Panel of items' sort is being asked, if any. */
   const [sorting, setSorting] = useState<string | null>(null);
+  /** The Panel whose colour is being asked, when one is. */
+  const [colouring, setColouring] = useState<string | null>(null);
   /**
    * Every dashboard the panel could move to: the workspace's, minus the one
    * it is already on - in tab order, which is the order `dashboards` already
@@ -433,6 +437,7 @@ export function PanelBoard({
   const beingMoved = panels.find((panel) => panel.id === movingPanel);
   const beingFiltered = panels.find((panel) => panel.id === filtering);
   const beingSorted = panels.find((panel) => panel.id === sorting);
+  const beingColoured = panels.find((panel) => panel.id === colouring);
   const beingSet = panels.find((panel) => panel.id === settling);
 
   /**
@@ -1239,6 +1244,15 @@ export function PanelBoard({
     setSorting(null);
   };
 
+  /** A Panel's colour, one of the eight swatches or null for None ("Brainstorming: Panels can't be told apart at a glance", issue 1832). */
+  const setColour = (panelId: string, colour: Swatch | null) => {
+    sendAhead(
+      { name: 'set_panel_colour', payload: { ...envelope(), panelId, colour } },
+      `The colour of “${nameOf(panelId)}” was not saved.`,
+    );
+    setColouring(null);
+  };
+
   const deletePanel = (panelId: string) => {
     sendAhead({ name: 'delete_panel', payload: { ...envelope(), panelId } }, `“${nameOf(panelId)}” was not deleted.`);
     setDeleting(null);
@@ -1506,6 +1520,7 @@ export function PanelBoard({
                             setMovingPanel(null);
                             setFiltering(null);
                             setSorting(null);
+                            setColouring(null);
                             askedFrom.current = openedFrom;
                             setSettlingWidth(drawnWidthOf(panel.id));
                             setSettling(panel.id);
@@ -1515,6 +1530,7 @@ export function PanelBoard({
                             setMovingPanel(null);
                             setFiltering(null);
                             setSorting(null);
+                            setColouring(null);
                             askedFrom.current = openedFrom;
                             setDeleting(panel.id);
                           }}
@@ -1524,6 +1540,7 @@ export function PanelBoard({
                             setDeleting(null);
                             setFiltering(null);
                             setSorting(null);
+                            setColouring(null);
                             askedFrom.current = openedFrom;
                             setMovingPanel(panel.id);
                           }}
@@ -1532,6 +1549,7 @@ export function PanelBoard({
                             setDeleting(null);
                             setMovingPanel(null);
                             setSorting(null);
+                            setColouring(null);
                             askedFrom.current = openedFrom;
                             setFiltering(panel.id);
                           }}
@@ -1540,8 +1558,18 @@ export function PanelBoard({
                             setDeleting(null);
                             setMovingPanel(null);
                             setFiltering(null);
+                            setColouring(null);
                             askedFrom.current = openedFrom;
                             setSorting(panel.id);
+                          }}
+                          onColour={(openedFrom) => {
+                            setSettling(null);
+                            setDeleting(null);
+                            setMovingPanel(null);
+                            setFiltering(null);
+                            setSorting(null);
+                            askedFrom.current = openedFrom;
+                            setColouring(panel.id);
                           }}
                           lifted={
                             dragging?.row
@@ -1655,6 +1683,22 @@ export function PanelBoard({
               onCancel={() => {
                 setSorting(null);
               }}
+              returnFocusTo={askedFrom.current}
+            />
+          </Suspense>
+        </WhateverTheQuestionDoes>
+      )}
+
+      {beingColoured && (
+        <WhateverTheQuestionDoes onFailure={() => setColouring(null)}>
+          <Suspense fallback={null}>
+            <PanelColourQuestion
+              key={beingColoured.id}
+              open
+              panelName={beingColoured.name}
+              colour={beingColoured.colour ?? null}
+              onPick={(colour) => setColour(beingColoured.id, colour)}
+              onCancel={() => setColouring(null)}
               returnFocusTo={askedFrom.current}
             />
           </Suspense>

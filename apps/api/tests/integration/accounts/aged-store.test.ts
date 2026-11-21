@@ -3811,7 +3811,7 @@ const withTheStartAdded = <T extends Record<string, unknown[]>>(kept: T): T => (
  * Panels an Item on the same open: without those Items, what they hold, and
  * the columns `0108-item-children` adds; nor the empty boards and the
  * Dashboards' null layouts `0114-whiteboards` adds, nor `0115-item-links`'
- * empty tables.
+ * empty tables, nor the Panels' null colours `0116-panel-colours` adds.
  */
 const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T => {
   const rows = (table: string) => (kept[table] ?? []) as Record<string, unknown>[];
@@ -3823,7 +3823,7 @@ const withoutPanelsAsItems = <T extends Record<string, unknown[]>>(kept: T): T =
     items: rows('items')
       .filter((row) => !panelIds.has(row.id))
       .map(({ children_count: _count, children_done: _done, merged_into_id: _into, keeps_story: _story, story_proposal: _proposal, story_proposed_at: _proposedAt, thumbnail_attachment_id: _thumbnail, ...row }) => row),
-    panels: rows('panels').map(({ item_id: _itemId, ...row }) => row),
+    panels: rows('panels').map(({ item_id: _itemId, colour: _colour, ...row }) => row),
     // `0111-merge-trail`'s columns, null on every row an account already had.
     ...(kept.item_additions ? { item_additions: rows('item_additions').map(({ from_item_id: _from, ...row }) => row) } : {}),
     ...(kept.attachments ? { attachments: rows('attachments').map(({ moved_from_item_id: _from, ...row }) => row) } : {}),

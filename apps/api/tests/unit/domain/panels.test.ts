@@ -64,6 +64,7 @@ describe('Panels', () => {
         filterConditions: null,
         sortCriteria: null,
         columns: null,
+        colour: null,
         createdAt: AT,
         deletedAt: null,
       });

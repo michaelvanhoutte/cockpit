@@ -201,6 +201,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     ITEM_THUMBNAIL,
     WHITEBOARDS,
     ITEM_LINKS,
+    PANEL_COLOURS,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -2256,6 +2257,28 @@ const ITEM_LINKS: Change = {
       sql: 'CREATE INDEX IF NOT EXISTS `board_lines_tenant_dashboard` ON `board_lines` (`tenant_id`,`dashboard_id`) WHERE `deleted_at` IS NULL',
     },
   ],
+};
+
+/**
+ * A colour per Panel ("Brainstorming: Panels can't be told apart at a glance",
+ * issue 1832): `panels.colour`, one of the eight swatches by name or null for
+ * *None*. Expand only.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: one `ADD COLUMN`,
+ *   nullable with no default, so no row is written and every Panel reads *None*.
+ *   No CHECK, for the reason `dashboards.layout_view` has none: added to a
+ *   table that cannot be rebuilt, and `set_panel_colour`'s schema is the one
+ *   writer.
+ * - **If it stops halfway, or runs twice:** it commits with its record in one
+ *   transaction, and once recorded never runs again.
+ * - **Rolled back after it has run:** an older release names no such column;
+ *   Panels are drawn uncoloured, and the stored colours wait unread.
+ * - **A backup restored from before it:** the restore replays the recorded
+ *   changes, so this one applies the next time the account is opened.
+ */
+const PANEL_COLOURS: Change = {
+  name: '0116-panel-colours',
+  statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `colour` text' }],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */

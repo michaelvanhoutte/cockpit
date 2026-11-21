@@ -198,6 +198,8 @@ export function drawnAhead(snapshot: WorkspaceSnapshot, change: Drawn): Workspac
     }
     case 'set_panel_filter':
       return onPanel(snapshot, change.payload, { filter: { sets: change.payload.sets, groupBy: change.payload.groupBy } });
+    case 'set_panel_colour':
+      return onPanel(snapshot, change.payload, { colour: change.payload.colour });
     case 'set_panel_sort':
       return onPanel(snapshot, change.payload, { sort: change.payload.sort });
     case 'move_panel_to_dashboard':
@@ -685,6 +687,7 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'set_panel_settings',
   'set_panel_filter',
   'set_panel_sort',
+  'set_panel_colour',
   'move_panel_to_dashboard',
   'delete_panel',
   'save_layout',

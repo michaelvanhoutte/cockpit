@@ -258,7 +258,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 31,
+      "browserWalks": 32,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",

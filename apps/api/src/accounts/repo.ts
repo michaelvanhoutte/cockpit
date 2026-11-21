@@ -2,6 +2,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, max, ne, notExists, or, sql } from 'drizzle-orm';
 import type { Column, SQLWrapper } from 'drizzle-orm';
 import { z } from 'zod';
+import { swatchSchema } from '@cockpit/shared/board';
 import {
   DEFAULT_ITEM_FORM_PRESENTATION,
   FOLLOW_UP_DAYS,
@@ -344,6 +345,8 @@ const panelColumns = {
   sortCriteria: panels.sortCriteria,
   // The narrowest a column may be, or null for one list.
   columns: panels.columns,
+  // The colour its header and border are drawn in, or null for None.
+  colour: panels.colour,
 };
 
 /**
@@ -356,22 +359,25 @@ const panelColumns = {
  * remember that the stored kind and the read kind are not the same question.
  */
 function panelAsRead(row: PanelRowRead): Panel {
-  const { filterConditions, sortCriteria, columns: storedColumns, ...rest } = row;
+  const { filterConditions, sortCriteria, columns: storedColumns, colour: storedColour, ...rest } = row;
   const filter = panelFilterFrom(filterConditions);
   const sort = panelSortFrom(sortCriteria);
   // A name this release cannot read is one list, as a sort it cannot read is Manual.
   const columns = panelColumnsSchema.safeParse(storedColumns).data ?? null;
+  // Likewise a colour this release has no swatch for is None.
+  const colour = swatchSchema.safeParse(storedColour).data ?? null;
   return filter === null
-    ? { ...rest, filter: null, sort, columns }
-    : { ...rest, kind: 'filter', filter, sort, columns };
+    ? { ...rest, filter: null, sort, columns, colour }
+    : { ...rest, kind: 'filter', filter, sort, columns, colour };
 }
 
 /** What `panelColumns` selects, before `panelAsRead` turns it into a `Panel`. */
-type PanelRowRead = Omit<Panel, 'kind' | 'filter' | 'sort' | 'columns'> & {
+type PanelRowRead = Omit<Panel, 'kind' | 'filter' | 'sort' | 'columns' | 'colour'> & {
   kind: StoredPanelKind;
   filterConditions: string | null;
   sortCriteria: string | null;
   columns: string | null;
+  colour: string | null;
 };
 
 /**

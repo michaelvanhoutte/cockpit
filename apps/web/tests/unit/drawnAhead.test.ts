@@ -612,6 +612,15 @@ describe('Panels', () => {
       expect(panelOf(manual, PANEL_A)?.sort).toBeNull();
     });
 
+    it('shows the colour a Panel was given, and none when it is set back, on that Panel alone', () => {
+      const coloured = drawnAhead(withPanels(), { name: 'set_panel_colour', payload: { ...panelEnvelope(), panelId: PANEL_A, colour: 'rose' } });
+      const cleared = drawnAhead(coloured, { name: 'set_panel_colour', payload: { ...panelEnvelope(), panelId: PANEL_A, colour: null } });
+
+      expect(panelOf(coloured, PANEL_A)?.colour).toBe('rose');
+      expect(panelOf(coloured, PANEL_B)?.colour ?? null).toBeNull();
+      expect(panelOf(cleared, PANEL_A)?.colour).toBeNull();
+    });
+
     it('takes a deleted Panel off the board with what was filed on it', () => {
       const copy = withPanels();
 

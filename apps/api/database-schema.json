@@ -5024,6 +5024,15 @@
               "primaryKey": null,
               "references": null,
               "queriedAs": "itemId"
+            },
+            {
+              "name": "colour",
+              "type": "TEXT",
+              "required": false,
+              "default": null,
+              "primaryKey": null,
+              "references": null,
+              "queriedAs": "colour"
             }
           ],
           "indexes": [

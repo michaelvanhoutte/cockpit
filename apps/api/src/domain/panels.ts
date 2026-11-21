@@ -72,6 +72,8 @@ export function firstPanelFor(
     sortCriteria: null,
     // One list until somebody splits it.
     columns: null,
+    // None until somebody colours it from its menu.
+    colour: null,
     createdAt: dashboard.createdAt,
     deletedAt: null,
   };
@@ -156,6 +158,8 @@ export interface PanelRow {
   sortCriteria: string | null;
   /** The narrowest a column may be, by name, or null for one list. */
   columns: string | null;
+  /** One of the swatches by name, or null for None. */
+  colour: string | null;
   createdAt: string;
   deletedAt: string | null;
 }
@@ -191,6 +195,7 @@ export function panelFromCommand(cmd: AddPanelCommand, tenantId: string): PanelR
     filterConditions: cmd.kind === 'filter' ? panelFilterAsStored([]) : null,
     sortCriteria: null,
     columns: null,
+    colour: null,
     // The characters as typed, until somebody asks for formatting: it is what
     // costs nothing to draw, and a panel with nothing in it has nothing to
     // format anyway.

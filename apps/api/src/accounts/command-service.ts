@@ -1695,6 +1695,20 @@ export function runCommand<N extends CommandName>(
       });
       break;
     }
+    case 'set_panel_colour': {
+      const cmd = payload as CommandPayload<'set_panel_colour'>;
+      // Any kind of Panel takes one. An id that is not a live Panel of this
+      // Workspace, an Item's among them, is a 404: Items have no colour.
+      panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
+      db.transaction((tx) => {
+        tx.update(panels)
+          .set({ colour: cmd.colour })
+          .where(and(eq(panels.tenantId, tenantId), eq(panels.id, cmd.panelId)))
+          .run();
+        tx.insert(commands).values(commandRow).run();
+      });
+      break;
+    }
     case 'set_panel_read_only': {
       const cmd = payload as CommandPayload<'set_panel_read_only'>;
       const panel = panelTheChangeIsAbout(db, tenantId, cmd.workspaceId, cmd.panelId);
