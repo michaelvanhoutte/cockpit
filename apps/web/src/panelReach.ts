@@ -17,6 +17,7 @@ import { useWorkspaces } from './api/useWorkspaces';
 import { useDrawnSelect } from './api/useSnapshot';
 import { readDashboardFilter } from './dashboardFilter';
 import { browserStore } from './lastVisited';
+import { isLaterShown } from './laterItems';
 import type { PanelListEntry, PanelListSection } from './panelList';
 
 /**
@@ -85,6 +86,8 @@ export function dashboardsOf(snapshot: WorkspaceSnapshot, store: Storage | undef
         withAttachments,
         withRun,
         today,
+        hideLater: !isLaterShown(panel.id),
+        children: snapshot.children,
       });
       return {
         panelId: panel.id,
