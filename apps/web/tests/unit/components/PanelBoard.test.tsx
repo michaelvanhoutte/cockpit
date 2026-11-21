@@ -5169,6 +5169,8 @@ describe('Panels', () => {
       showBoard(withARow([coloured, aPanel('reading', 'To read')]));
 
       expect(header('Project Falcon').style.background).toBe('var(--color-cat-teal-tint)');
+      // Its faint text is drawn soft, so it holds its contrast on the tint.
+      expect(header('Project Falcon').style.getPropertyValue('--color-ink-faint')).toBe('var(--color-ink-soft)');
       expect(within(header('Project Falcon')).getByRole('heading', { name: 'Project Falcon' }).style.color).toBe('var(--color-cat-teal)');
       expect(region('Project Falcon').style.borderColor).toBe('var(--color-cat-teal)');
       // Nothing inside it is tinted or dotted: the colour is the Panel's, not its Items'.
@@ -5183,6 +5185,20 @@ describe('Panels', () => {
       expect(header('To read').style.background).toBe('');
       expect(region('To read').style.borderColor).toBe('');
       expect(region('To read').outerHTML).not.toMatch(/--color-cat-/);
+    });
+
+    it('sends nothing when the question is cancelled or escaped', async () => {
+      const { user, mutate } = showBoard({ panels: [coloured] });
+
+      await choose(user, 'Project Falcon', 'Colour…');
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
+      await choose(user, 'Project Falcon', 'Colour…');
+      await screen.findByRole('radiogroup', { name: 'Colour' });
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
+      expect(mutate).not.toHaveBeenCalled();
     });
 
     it('draws a Panel set to None as one never coloured', () => {
@@ -5204,11 +5220,6 @@ describe('Panels', () => {
       expect(mutate.mock.calls.at(-1)![0]).toMatchObject({ name: 'set_panel_colour', payload: { panelId: 'falcon', colour: 'rose' } });
       await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
 
-      mutate.mockClear();
-      await choose(user, 'Project Falcon', 'Colour…');
-      await user.click(await screen.findByRole('radio', { name: 'Teal' }));
-      expect(mutate).not.toHaveBeenCalled();
-      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
       await choose(user, 'Project Falcon', 'Colour…');
       await user.click(await screen.findByRole('radio', { name: 'None' }));
 

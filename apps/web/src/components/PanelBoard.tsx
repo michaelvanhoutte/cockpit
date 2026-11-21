@@ -1246,8 +1246,6 @@ export function PanelBoard({
 
   /** A Panel's colour, one of the eight swatches or null for None ("Brainstorming: Panels can't be told apart at a glance", issue 1832). */
   const setColour = (panelId: string, colour: Swatch | null) => {
-    // The colour it already has is no change, so nothing is sent.
-    if ((panels.find((panel) => panel.id === panelId)?.colour ?? null) === colour) return setColouring(null);
     sendAhead(
       { name: 'set_panel_colour', payload: { ...envelope(), panelId, colour } },
       `The colour of “${nameOf(panelId)}” was not saved.`,

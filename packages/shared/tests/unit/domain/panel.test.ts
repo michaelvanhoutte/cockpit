@@ -79,17 +79,17 @@ describe('Panels', () => {
 
   describe('a panel’s colour is one of the eight or none, however it was kept', () => {
     it.each([
-      { situation: 'a name this release has never heard of', colour: 'chartreuse', reads: null },
-      { situation: 'a swatch in other capitals', colour: 'Rose', reads: null },
-      { situation: 'none', colour: null, reads: null },
-      { situation: 'a swatch', colour: 'rose', reads: 'rose' },
-    ])('reads $situation as $reads', ({ colour, reads }) => {
+      { situation: 'a colour this version has no swatch for', colour: 'chartreuse', drawn: 'with no colour', reads: null },
+      { situation: 'a swatch name in other capitals', colour: 'Rose', drawn: 'with no colour', reads: null },
+      { situation: 'none', colour: null, drawn: 'with no colour', reads: null },
+      { situation: 'one of the eight', colour: 'rose', drawn: 'in it', reads: 'rose' },
+    ])('a Panel kept with $situation is drawn $drawn', ({ colour, reads }) => {
       const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items', colour };
 
       expect(panelSchema.parse(kept).colour).toBe(reads);
     });
 
-    it('reads a panel with none kept as none', () => {
+    it('a Panel kept from before colours existed is drawn with no colour', () => {
       const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items' };
 
       expect(panelSchema.parse(kept).colour ?? null).toBeNull();

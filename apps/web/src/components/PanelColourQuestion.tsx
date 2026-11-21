@@ -5,7 +5,8 @@ import { swatchInk, swatchLabel, swatchTint } from '../panelColour';
 /**
  * A Panel's colour, picked from the eight swatches or *None* ("Brainstorming:
  * Panels can't be told apart at a glance", issue 1832). A choice is the answer:
- * it is sent and the question closes, with no Save to press after it.
+ * it is sent and the question closes, with no Save to press after it; Cancel
+ * and Escape send nothing.
  *
  * Lazy-loaded from `PanelBoard.tsx`, for the reason `SortQuestion` is.
  */
@@ -66,9 +67,9 @@ function PanelColourQuestion({
             </button>
           </div>
           <div className="flex justify-end pt-4">
-            <button type="button" onClick={onCancel} className="rounded px-3 py-1 text-sm text-ink-soft hover:bg-accent-tint">
+            <Dialog.Close className="shrink-0 rounded-md border border-shade/10 px-3 py-1.5 text-sm text-ink-soft hover:bg-accent-tint hover:text-accent-deep">
               Cancel
-            </button>
+            </Dialog.Close>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

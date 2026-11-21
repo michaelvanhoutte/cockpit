@@ -303,7 +303,10 @@ export function PanelCard({
           ]}
         >
           <header
-            style={colour ? { background: swatchTint(colour) } : undefined}
+            // The header's faint text (its count, `· N later`, read-only) is
+            // drawn as soft over the tint, which the faint ink does not hold
+            // 4.5:1 against in the dark appearance.
+            style={colour ? ({ background: swatchTint(colour), '--color-ink-faint': 'var(--color-ink-soft)' } as React.CSSProperties) : undefined}
             // The handle, and a pointer gesture rather than the browser's own
             // drag-and-drop.
             //

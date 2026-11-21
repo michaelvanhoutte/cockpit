@@ -88,7 +88,7 @@ describe('Panels', () => {
       expect(await colourOf(panelId)).toBe('rose');
     });
 
-    it('reads a stored name this release has no swatch for as none, so a later release’s colour never breaks the read', async () => {
+    it('a Panel whose colour this version has no swatch for is drawn with no colour, and the Workspace still opens', async () => {
       const panelId = await aPanel('Falcon');
       await inTheStore((sql) => sql.exec('UPDATE panels SET colour = ? WHERE id = ?', 'chartreuse', panelId));
 
