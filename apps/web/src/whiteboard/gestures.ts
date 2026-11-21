@@ -53,7 +53,7 @@ export function pickedOnTheBoard(dashboardId: string, lifted: { panelId: string 
 
 /**
  * *Put inside* a card, offered back with the Item's own card on this board: the card comes off only once the Item is
- * on its way inside, a refusal of either is the refusal of both, and Undo puts the card back only after the Item is
+ * accepted inside, a refusal of either is the refusal of both, and Undo puts the card back only after the Item is
  * back where it was, so it is never brought back onto the board while the Item is in the Inbox. Without a card of its
  * own here, the change is offered as it is.
  */
@@ -63,15 +63,17 @@ export function offeredWithItsCard(
 ): (change: Undoable) => void {
   if (!card) return offerToUndo;
   return (change) => {
-    const off = card.takeOff();
+    // After the answer: a refused change leaves the Item where it was, and its card with it.
+    const off = Promise.resolve(change.unlessRefused).then(() => card.takeOff());
     off.catch(() => {});
     const { undo } = change;
     offerToUndo({
       ...change,
-      unlessRefused: Promise.all([change.unlessRefused, off]),
+      unlessRefused: off,
       ...(undo
         ? {
             undo: async () => {
+              await off.catch(() => {});
               await undo();
               await card.putBack();
             },

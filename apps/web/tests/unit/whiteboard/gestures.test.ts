@@ -96,9 +96,10 @@ describe('Whiteboard', () => {
       },
     });
 
-    it('takes its card off once it is on its way inside, and Undo puts the card back only after the Item is back', async () => {
+    it('takes its card off once it is put inside, and Undo puts the card back only after the Item is back', async () => {
       const board = aBoard();
       offeredWithItsCard(board.offer, board.card)(putInside(board.seen));
+      await board.offered()!.unlessRefused;
       expect(board.seen).toEqual(['card off']);
       await board.offered()!.undo!();
       expect(board.seen).toEqual(['card off', 'Ferry back where it was', 'card back']);
@@ -116,6 +117,13 @@ describe('Whiteboard', () => {
       board.refuse();
       offeredWithItsCard(board.offer, board.card)(putInside(board.seen));
       await expect(board.offered()!.unlessRefused).rejects.toThrow('refused');
+    });
+
+    it('leaves its card on the board when putting it inside is refused', async () => {
+      const board = aBoard();
+      offeredWithItsCard(board.offer, board.card)({ ...putInside(board.seen), unlessRefused: Promise.reject(new Error('stale order')) });
+      await expect(board.offered()!.unlessRefused).rejects.toThrow('stale order');
+      expect(board.seen).toEqual([]);
     });
 
     it('offers a row with no card here as it is', () => {

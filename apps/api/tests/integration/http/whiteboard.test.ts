@@ -660,7 +660,7 @@ describe('Whiteboard', () => {
 
       const read = await snapshot();
       expect(read.filings.filter((filing) => filing.panelId === first.panelId).map((filing) => filing.itemId)).toEqual([parentId]);
-      expect(read.whiteboards.cards).toEqual([expect.objectContaining({ id: cardId, itemId: parentId })]);
+      expect(read.whiteboards.cards).toEqual([{ id: cardId, dashboardId: DASHBOARD_ID, itemId: parentId, boxId: null, x: 10, y: 20 }]);
     });
 
     it('puts the parent’s card in the first card’s box, at its spot, and takes the cards of what it holds off', async () => {

@@ -385,7 +385,8 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const [dropAsk, setDropAsk] = useState<DropAsk | null>(null);
   /** Counted up to draw every node again from the read, where a card was dragged and nothing is sent. */
   const [redrawn, setRedrawn] = useState(0);
-  // Picked on this Dashboard, as its selection is: what goes inside a parent leaves the Panels of it each is on (issue 1876).
+  // Picked on this Dashboard, as its selection is: what goes inside a parent leaves the Panels of it each is on
+  // ("Panels: Items put inside a parent stay where they were", issue 1876).
   const addingAsChild = useAddingAsChild(workspaceId, undefined, { panelId: null, heldBy: null, dashboardId });
   const wrapper = useRef<HTMLDivElement>(null);
   const renameLater = useRef<number | null>(null);
