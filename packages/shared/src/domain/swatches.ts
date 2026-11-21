@@ -7,8 +7,8 @@ import { z } from 'zod';
  * how Items connect", issue 1831): the design system's six category colours plus `rose` and `sky`,
  * each with a light and a dark value in `apps/web/src/styles.css`
  * (`--color-cat-<name>` and `-tint`), held to 4.5:1 in both by
- * `appearanceTokens.test.ts`. Stored by name; no colour at all is *None*,
- * stored as null.
+ * `appearanceTokens.test.ts`. Stored by name; a box with no colour at all is
+ * *None*, stored as null, and a line kind always has one.
  */
 export const SWATCHES = ['slate', 'teal', 'green', 'amber', 'rose', 'violet', 'sky', 'grey'] as const;
 export type Swatch = (typeof SWATCHES)[number];

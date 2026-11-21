@@ -960,9 +960,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const b = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     const snap = (v: number) => (grid ? Math.round(v / GRID) * GRID : Math.round(v));
     if (tool === 'line') {
-      // A press with no drag draws nothing, nor one whose ends snap to one point; a line drawn asks for its label at once, which may be left empty.
+      // A press with no drag draws nothing, nor a line under 12 board units long once snapped; a line drawn asks for its label at once, which may be left empty.
       const [x1, y1, x2, y2] = [snap(a.x), snap(a.y), snap(b.x), snap(b.y)];
-      if (Math.hypot(event.clientX - rect.left - drawing.x0, event.clientY - rect.top - drawing.y0) < 12 || (x1 === x2 && y1 === y2)) return;
+      if (Math.hypot(event.clientX - rect.left - drawing.x0, event.clientY - rect.top - drawing.y0) < 12 || Math.hypot(x2 - x1, y2 - y1) < 12) return;
       const lineId = uuidv7();
       void run(
         { name: 'draw_line', payload: { ...envelope(), lineId, dashboardId, x1, y1, x2, y2, label: '' } },
