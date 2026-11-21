@@ -546,6 +546,11 @@ export const addChildrenSchema = commandEnvelopeSchema
   });
 export type AddChildrenCommand = z.infer<typeof addChildrenSchema>;
 
+/** One place an Item leaves: the Item, and the one parent or the one Panel it comes out of. */
+export const leaveSchema = z
+  .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
+  .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel');
+
 /**
  * put_inside — Items dropped onto a row to go inside it ("Drag to nest in
  * Panels and the Inbox", issue 1857): the parent, the Items, the parent's
@@ -561,13 +566,7 @@ export const putInsideSchema = commandEnvelopeSchema
     childIds: z.array(z.uuid()).min(1).max(CHILDREN_ADDED_AT_ONCE),
     order: z.array(z.uuid()),
     /** One entry per place an Item leaves: the Item, and the parent or the Panel it comes out of. */
-    leaves: z
-      .array(
-        z
-          .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
-          .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel'),
-      )
-      .max(CHILDREN_ADDED_AT_ONCE * 4),
+    leaves: z.array(leaveSchema).max(CHILDREN_ADDED_AT_ONCE * 4),
   })
   // One check with one message, since the initial bundle carries every schema and a sent change is never malformed:
   // each Item named once, and in the order; the order naming each once, and never the parent; only an Item put
