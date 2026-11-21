@@ -138,7 +138,10 @@ export function ItemRow({
   onCombine,
   onSplit,
   takeOutOf,
+  onTakeOffTheWhiteboard,
 }: {
+  /** *Take off the whiteboard*, on a card's menu ("Brainstorming: cards on the whiteboard can't be nested, combined or moved between boxes", issue 1830): the card comes off its board and nothing else changes. */
+  onTakeOffTheWhiteboard?: (() => void) | undefined;
   /** *Split…* ("Brainstorming: a note holding several ideas can't be taken apart", issue 1828): opens the Item as blocks to take apart. */
   onSplit?: ((from: HTMLElement | null) => void) | undefined;
   /** *Combine with…* ("Brainstorming: related loose notes can't be brought together", issue 1826): asks which Items to combine this one with. */
@@ -971,6 +974,11 @@ export function ItemRow({
         takeOutOf && (
           <M.Item key="take-out-of" className={menuItemClass} onSelect={takeOutOf.onTakeOut}>
             Take out of {takeOutOf.name}
+          </M.Item>
+        ),
+        onTakeOffTheWhiteboard && (
+          <M.Item key="take-off-the-whiteboard" className={menuItemClass} onSelect={onTakeOffTheWhiteboard}>
+            Take off the whiteboard
           </M.Item>
         ),
       ],

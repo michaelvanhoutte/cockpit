@@ -20,6 +20,7 @@ import { sourceOnARow } from '../itemSource';
 import { fetchedChunk } from '../filing';
 import { leavesOfAPick, wasBeforeLeaving, type PickedIn } from '../nesting';
 import { useUndo } from '../undo';
+import { cancelUnfold, unfoldWhenDrawn } from '../boardFocus';
 import { unfoldAll, unfoldedNow } from '../unfoldedParents';
 import { ParentPicker, addAsChildren } from './AddAsChildOf';
 
@@ -142,9 +143,20 @@ export default function CombineDialog({
           // From the Inbox the new parent is an Item that stays there holding them, never a Panel ("Brainstorming: a Panel is an Item nobody can open", issue 1846).
           dashboardId: null,
           leaves,
+          // Where the first Item has a card on this Dashboard's whiteboard, the new parent's goes at its spot (issue 1830).
+          ...(dashboardId ? { onBoard: { dashboardId, cardId: uuidv7() } } : {}),
         },
       }));
       unfoldAll([parentId]);
+      // The cards the Items have on this board, which come off it where the first has one there: Undo puts them back.
+      const cards = (data.whiteboards?.cards ?? []).filter((card) => card.dashboardId === dashboardId);
+      const carded = cards.some((card) => card.itemId === childIds[0]);
+      const cardsTakenOff = carded ? cards.filter((card) => childIds.includes(card.itemId)).map((card) => card.id) : [];
+      // Drawn unfolded once its card is there: only where the first Item has a card on this board, and not if the change is refused.
+      if (carded) {
+        unfoldWhenDrawn(parentId);
+        answer.catch(() => cancelUnfold(parentId));
+      }
       // **No way back once one belonged to no Workspace**, as for a move (issue 1876).
       const decides = chosen.some((item) => !workspaceIsDecided(item));
       if (!decides) void import('../puttingBack').catch(() => {});
@@ -154,11 +166,14 @@ export default function CombineDialog({
         ...(decides
           ? {}
           : {
-              undo: async () =>
-                (await fetchedChunk(() => import('../puttingBack'))).putBackFromACombine(
+              undo: async () => {
+                await (await fetchedChunk(() => import('../puttingBack'))).putBackFromACombine(
                   { workspaceId, send, latest },
                   { ...was, target: parentId },
-                ),
+                );
+                // Once each is back where it was, so none is in the Inbox when its card comes back.
+                if (cardsTakenOff.length > 0) await send({ name: 'put_cards_back', payload: { ...envelope(), cardIds: cardsTakenOff } });
+              },
             }),
       });
     } else if (parent) {

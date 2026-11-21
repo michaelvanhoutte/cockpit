@@ -259,7 +259,7 @@ function theListBox(): HTMLElement {
  * and does not carry a pointer position through a drop event, so which gap a
  * position picks out is tests/unit/dropAt.test.ts's rule and the browser walk's.
  */
-async function dropOnto(itemId: string, clientY = 1) {
+async function dropOnto(itemId: string, clientY = 1, keys: { shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean } = {}) {
   await act(async () => {});
   await act(async () => {});
   const dataTransfer = {
@@ -269,7 +269,10 @@ async function dropOnto(itemId: string, clientY = 1) {
     dropEffect: '',
   };
   fireEvent.dragOver(theListBox(), { dataTransfer, clientY });
-  fireEvent.drop(theListBox(), { dataTransfer, clientY });
+  // jsdom carries no key through a drag event, so each is put on the event itself, as `drag` does for a drop onto a row.
+  const letGo = createEvent.drop(theListBox(), { dataTransfer, clientY });
+  for (const [key, value] of Object.entries(keys)) Object.defineProperty(letGo, key, { value });
+  fireEvent(theListBox(), letGo);
 }
 
 /** The cache the list reads the snapshot from, so a test can say what the re-read after a change finds. */
@@ -284,7 +287,9 @@ async function showList({
   groups = undefined as FilterGroup[] | undefined,
   groupByProposal = false,
   columns = null as PanelColumns | null,
+  onTakeOffTheWhiteboard = undefined as (() => void) | undefined,
 }: {
+  onTakeOffTheWhiteboard?: (() => void) | undefined;
   columns?: PanelColumns | null;
   groupByProposal?: boolean;
   items?: Item[];
@@ -309,6 +314,7 @@ async function showList({
           groups={groups}
           groupByProposal={groupByProposal}
           columns={columns}
+          onTakeOffTheWhiteboard={onTakeOffTheWhiteboard}
           emptyMessage="Nothing to deal with."
         />
       </UndoWhatJustHappened>
@@ -1457,6 +1463,25 @@ describe('Panels', () => {
     });
 
     it.each([
+      { key: 'Shift', keys: { shiftKey: true }, sends: 'move_item_to_panel' },
+      { key: 'Ctrl', keys: { ctrlKey: true }, sends: 'add_item_to_panel' },
+      { key: 'Option', keys: { altKey: true }, sends: 'add_item_to_panel' },
+    ])('answers without asking when $key is held: sends $sends', async ({ keys, sends }) => {
+      held.filings = [{ panelId: 'p-anna', itemId: BART.id, position: 0 }];
+      await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+      await dropOnto(BART.id, 1, keys);
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(held.mutate).toHaveBeenCalledTimes(1);
+      expect(held.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: sends,
+          payload: expect.objectContaining({ itemId: BART.id, panelId: 'p-falcon' }),
+        }),
+      );
+    });
+
+    it.each([
       { answer: 'Move it here', sends: 'move_item_to_panel' },
       { answer: 'Add it here as well', sends: 'add_item_to_panel' },
     ])('sends $sends when the answer is “$answer”', async ({ answer, sends }) => {
@@ -1750,6 +1775,29 @@ describe('Panels', () => {
       await user.click(screen.getByRole('button', { name: 'Undo' }));
 
       expect(held.send).toHaveBeenCalledWith(expect.objectContaining({ name: undoes }));
+    });
+  });
+});
+
+describe('Whiteboard', () => {
+  describe('a card’s menu is its row’s, with Take off the whiteboard added', () => {
+    it('offers it where the list is a card’s menu, and sends nothing until it is chosen', async () => {
+      const takenOff = vi.fn();
+      const user = await showList({ items: [BART], gathered: true, openDashboardId: TODAY.id, onTakeOffTheWhiteboard: takenOff });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      expect(takenOff).not.toHaveBeenCalled();
+      await user.click(await screen.findByRole('menuitem', { name: 'Take off the whiteboard' }));
+      expect(takenOff).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers it on no ordinary row', async () => {
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const user = await showList({ items: [BART], openDashboardId: TODAY.id, panelId: 'p-falcon' });
+
+      await user.click(screen.getByRole('button', { name: 'Item actions' }));
+      await screen.findByRole('menuitem', { name: 'Combine with…' });
+      expect(screen.queryByRole('menuitem', { name: 'Take off the whiteboard' })).toBeNull();
     });
   });
 });
@@ -3965,15 +4013,26 @@ describe('Triage', () => {
       // Another Dashboard's Panel, which a move from this Dashboard leaves alone.
       const ON_READING = { panelId: 'p-reading', itemId: CHASE.id, position: 0 };
 
-      async function droppedOnFalcon() {
+      async function droppedOnFalcon(keys: Parameters<typeof dropOnto>[2] = {}) {
         held.items = THREE;
         held.filings = [ON_ANNA, ON_READING];
         sendThatFiles();
         const user = await showList({ items: [], openDashboardId: TODAY.id, panelId: 'p-falcon' });
         carry(BART, THREE);
-        await dropOnto(BART.id);
+        await dropOnto(BART.id, 1, keys);
         return user;
       }
+
+      it.each([
+        { key: 'Shift', keys: { shiftKey: true }, sends: ['move_item_to_panel', 'move_item_to_panel', 'add_item_to_panel'] },
+        { key: 'Ctrl', keys: { ctrlKey: true }, sends: Array(3).fill('add_item_to_panel') as string[] },
+      ])('answers for all of them without asking when $key is held', async ({ keys, sends }) => {
+        await droppedOnFalcon(keys);
+
+        await waitFor(() => expect(held.send).toHaveBeenCalledTimes(3));
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+        expect(sentCalls().map(([name]) => name)).toEqual(sends);
+      });
 
       it('asks one question naming how many and where, and files nothing yet', async () => {
         await droppedOnFalcon();
@@ -4540,6 +4599,22 @@ describe('Triage', () => {
         expect.objectContaining({
           name: 'combine_under_new_parent',
           payload: expect.objectContaining({ childIds: [BART.id, LISA.id], panelId: null, dashboardId: null }),
+        }),
+      );
+    });
+
+    it('sends the Dashboard’s whiteboard with the new parent, so its card is drawn where the first card is', async () => {
+      held.dashboards = [TODAY];
+      held.panels = [aPanel('p-falcon', TODAY.id, 'Falcon')];
+      held.filings = [{ panelId: 'p-falcon', itemId: BART.id, position: 0 }];
+      const { user, dialog } = await combining([BART, LISA]);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Combine' }));
+
+      expect(held.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'combine_under_new_parent',
+          payload: expect.objectContaining({ onBoard: { dashboardId: TODAY.id, cardId: expect.any(String) } }),
         }),
       );
     });

@@ -291,6 +291,41 @@ export function restampCards(tx: InATransaction, tenantId: string, itemIds: read
   }
 }
 
+/**
+ * Combine made from a Dashboard ("Brainstorming: cards on the whiteboard can't
+ * be nested, combined or moved between boxes", issue 1830), in its transaction
+ * after the new parent holds its children: the parent's card goes where the
+ * first Item's card is on that board, in its box, and the cards of the Items it
+ * holds come off that board, which its card unfolds to. Nothing is placed
+ * where the first Item has no card there, or the parent landed in the Inbox,
+ * which no board holds; a Dashboard gone meanwhile places nothing and fails
+ * nothing. Answers whether a card was made.
+ */
+export function placeCombinedParent(
+  tx: InATransaction,
+  tenantId: string,
+  on: { workspaceId: string; dashboardId: string; cardId: string; parentId: string; childIds: readonly string[]; at: string },
+): boolean {
+  if (!getDashboard(tx as unknown as AccountDb, tenantId, on.workspaceId, on.dashboardId)) return false;
+  const liveCard = (itemId: string) =>
+    tx
+      .select()
+      .from(boardCards)
+      .where(and(eq(boardCards.tenantId, tenantId), eq(boardCards.dashboardId, on.dashboardId), eq(boardCards.itemId, itemId), isNull(boardCards.deletedAt)))
+      .get();
+  const first = liveCard(on.childIds[0]!);
+  if (!first || inTheInbox(tx, tenantId, on.parentId)) return false;
+  // A box the first card was in is live: `liveCard` found it on a live board, and a deleted box takes its cards off with it.
+  tx.insert(boardCards).values({ id: on.cardId, tenantId, dashboardId: on.dashboardId, itemId: on.parentId, boxId: first.boxId, x: first.x, y: first.y, createdAt: on.at }).run();
+  for (const batch of inBatchesOf([...on.childIds], 2)) {
+    tx.update(boardCards)
+      .set({ deletedAt: on.at })
+      .where(and(eq(boardCards.tenantId, tenantId), eq(boardCards.dashboardId, on.dashboardId), inArray(boardCards.itemId, batch), isNull(boardCards.deletedAt), sql`${boardCards.id} <> ${on.cardId}`))
+      .run();
+  }
+  return true;
+}
+
 // --- the board's own commands -----------------------------------------------------
 
 function liveBox(db: Db, tenantId: string, boxId: string) {

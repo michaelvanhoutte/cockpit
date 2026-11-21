@@ -90,6 +90,33 @@ describe('Whiteboard', () => {
     });
   });
 
+  describe('renaming in place draws a field where the title was, and hands the title its clicks', () => {
+    it('draws the field in the title’s place while it is renamed, and the title otherwise', () => {
+      const { rerender, container } = render(<BoardCard item={anItem()} sourceNames={{}} now={NOW} renaming={<input aria-label="Title" defaultValue="Ferry scene" />} />);
+      const drawn = () => within(container.querySelector<HTMLElement>('[data-card]')!);
+      expect(drawn().getByRole('textbox', { name: 'Title' })).toHaveValue('Ferry scene');
+      expect(drawn().queryByText('Ferry scene')).toBeNull();
+      rerender(<BoardCard item={anItem()} sourceNames={{}} now={NOW} />);
+      expect(drawn().getByText('Ferry scene')).toBeVisible();
+    });
+
+    it('tells the board of a press and a click on the title, and of none elsewhere on the card', async () => {
+      const heard: string[] = [];
+      render(
+        <BoardCard
+          item={anItem({ nextAction: 'Ring the harbour' })}
+          sourceNames={{}}
+          now={NOW}
+          titleProps={{ onPointerDownCapture: () => heard.push('press'), onClick: () => heard.push('click') }}
+        />,
+      );
+      await userEvent.click(screen.getByText('Ring the harbour'));
+      expect(heard).toEqual([]);
+      await userEvent.click(screen.getByText('Ferry scene'));
+      expect(heard).toEqual(['press', 'click']);
+    });
+  });
+
   describe('a parent’s card unfolds to its children in a grid, in their own order, without placing them', () => {
     const parent = anItem({ id: 'parent', title: 'Ferry scene', childrenCount: 3, childrenDone: 2 });
     const children = ['Harbour', 'Storm', 'Arrival'].map((title, n) => anItem({ id: `child-${n}`, title, ...(n < 2 ? { completedAt: '2026-11-19T10:00:00.000Z' } : {}) }));

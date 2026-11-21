@@ -17,21 +17,24 @@ import {
 } from '@xyflow/react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { childIdsOf, itemLabel, uuidv7, type Item } from '@cockpit/shared';
-import { SWATCHES, type BoardBox, type Swatch } from '@cockpit/shared/board';
-import { useSendCommand, whyNotDone, type CommandArgs } from '../api/queries';
+import { childIdsOf, itemLabel, uuidv7, type ChildRow, type Item } from '@cockpit/shared';
+import { SWATCHES, type BoardBox, type BoardCard as PlacedCard, type Swatch } from '@cockpit/shared/board';
+import { useLatestSnapshot, useSendCommand, whyNotDone, type CommandArgs } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
-import { cardWanted, selectedOnTheBoard, useCardWanted } from '../boardFocus';
+import { cardWanted, selectedOnTheBoard, takeUnfolds, useCardWanted } from '../boardFocus';
+import { addAsChildren } from '../components/AddAsChildOf';
 import { DeleteQuestion } from '../components/DeleteQuestion';
+import { useAddingAsChild } from '../components/useAddingAsChild';
 import { ItemList } from '../components/ItemList';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { useOpenItem } from '../itemForm';
-import { selectionCarried } from '../itemInTheAir';
+import { panelLiftedFrom, parentLiftedFrom, selectionCarried } from '../itemInTheAir';
 import { dashboardScope, useSelection } from '../selection';
 import { useUndo } from '../undo';
 import { BoardCard } from './BoardCard';
 import { BoardToolbar, type Tool } from './BoardToolbar';
-import { BOX_HEAD, CARD_W, GRID, MIN_BOX, boardOf, boxAt, boxesWithin, hiddenByCollapse, originOf, relativeTo, whyNotPlaceable } from './layout';
+import { cardUnder, clickRenames, dropAnswers, f2Renames, offeredWithItsCard, pickedOnTheBoard, renameStillWanted } from './gestures';
+import { BOX_HEAD, CARD_W, GRID, MIN_BOX, boardOf, boxAt, boxesWithin, hiddenByCollapse, originOf, relativeTo, whyNotPlaceable, type Board } from './layout';
 import './boardDrawn';
 
 /**
@@ -46,6 +49,14 @@ import './boardDrawn';
  * opens its Item. A left-drag on empty space, Space-drag, a middle-drag or a
  * trackpad scroll pans; Ctrl/Cmd+scroll zooms. On a phone the board is to look
  * at: it opens at a readable zoom and a tap opens the Item.
+ *
+ * "Brainstorming: cards on the whiteboard can't be nested, combined or moved
+ * between boxes" (issue 1830): **a card dropped on a card** - a row from the
+ * Panels or another card - offers *Put inside* (the Item joins it as a child
+ * and shows in its unfolded card) or *Combine with…*; a card dropped anywhere
+ * else moves between boxes and open space and files nothing; *Take off the
+ * whiteboard* is in a card's menu; and a selected card's title or a box's name
+ * renames in place from a click on it or F2.
  */
 
 type CardData = { itemId: string };
@@ -66,7 +77,14 @@ interface Ctx {
   now: number;
   unfolded: ReadonlySet<string>;
   flashId: string | null;
+  /** The card a dragged card or row would be dropped on, ringed. */
+  dropTargetId: string | null;
   renamingId: string | null;
+  /** A press on a title: whether its card or box was selected before the press, which is what a second click renames. */
+  titlePressed: (event: React.PointerEvent, wasSelected: boolean) => void;
+  /** A click on a title that was selected: renames it, a card's a moment later unless it turns out to be a double-click that opens it. */
+  titleClicked: (id: string, kind: 'card' | 'box', event: React.MouseEvent) => void;
+  renameCard: (item: Item, title: string | null) => void;
   toggleUnfolded: (itemId: string) => void;
   cardMenu: (cardId: string, at: { x: number; y: number }) => void;
   boxMenu: (boxId: string, at: { x: number; y: number }) => void;
@@ -90,7 +108,7 @@ function CardView({ id, data, selected }: NodeProps<CardNode>) {
   return (
     <div
       data-card-id={id}
-      className={`rounded-md ${ctx.flashId === id ? 'ring-4 ring-accent animate-pulse' : selected ? 'ring-2 ring-accent' : ''}`}
+      className={`rounded-md ${ctx.flashId === id ? 'ring-4 ring-accent animate-pulse' : ctx.dropTargetId === id ? 'ring-4 ring-accent/60' : selected ? 'ring-2 ring-accent' : ''}`}
     >
       <BoardCard
         item={item}
@@ -101,6 +119,17 @@ function CardView({ id, data, selected }: NodeProps<CardNode>) {
         onUnfold={() => ctx.toggleUnfolded(item.id)}
         {...(ctx.readOnly ? {} : { onMenu: (at: { x: number; y: number }) => ctx.cardMenu(id, at) })}
         onOpenChild={ctx.openItem}
+        {...(ctx.readOnly
+          ? {}
+          : {
+              titleProps: {
+                onPointerDownCapture: (event: React.PointerEvent) => ctx.titlePressed(event, Boolean(selected)),
+                onClick: (event: React.MouseEvent) => ctx.titleClicked(id, 'card', event),
+              },
+            })}
+        renaming={
+          ctx.renamingId === id ? <BoxName initial={item.title} placeholder="Title" onDone={(title) => ctx.renameCard(item, title)} /> : null
+        }
       />
     </div>
   );
@@ -177,6 +206,8 @@ function BoxView({ id, data, selected }: NodeProps<BoxNode>) {
           <BoxName initial={box.label} placeholder="Name this box" onDone={(label) => ctx.rename(box, label)} />
         ) : (
           <span
+            onPointerDownCapture={(event) => !ctx.readOnly && ctx.titlePressed(event, Boolean(selected))}
+            onClick={(event) => !ctx.readOnly && ctx.titleClicked(id, 'box', event)}
             onDoubleClick={(event) => {
               if (ctx.readOnly || event.shiftKey || event.metaKey || event.ctrlKey) return;
               event.stopPropagation();
@@ -224,6 +255,44 @@ function BoxView({ id, data, selected }: NodeProps<BoxNode>) {
 }
 
 const nodeTypes = { card: CardView, box: BoxView };
+
+/**
+ * What was let go on a card (the POC's *Dropped on an Item* menu): *Put inside*
+ * it, which makes it the parent of the Item, or *Combine with it…*. Put inside
+ * is not offered where it would put the Item inside itself or something it
+ * holds, or where it is already inside.
+ */
+function DropQuestion({
+  ask,
+  board,
+  items,
+  children,
+  onAnswer,
+}: {
+  ask: DropAsk;
+  board: Board;
+  items: ReadonlyMap<string, Item>;
+  children: readonly ChildRow[];
+  onAnswer: (answer: 'inside' | 'combine' | null) => void;
+}) {
+  const target = board.cards.find((card) => card.id === ask.targetCardId);
+  const parent = target && items.get(target.itemId);
+  if (!parent) return null;
+  const name = itemLabel(parent);
+  const canGoInside = dropAnswers(ask.itemId, parent.id, children).includes('inside');
+  return (
+    <Floating at={{ x: ask.at.x + 4, y: ask.at.y + 4 }} label="Dropped on an Item" onClose={() => onAnswer(null)}>
+      {canGoInside && (
+        <button type="button" role="menuitem" onClick={() => onAnswer('inside')} className={entryClass}>
+          Put inside {name}
+        </button>
+      )}
+      <button type="button" role="menuitem" onClick={() => onAnswer('combine')} className={entryClass}>
+        Combine with {name}…
+      </button>
+    </Floating>
+  );
+}
 
 /** A menu drawn at a press, moved back inside the window where it would spill out of it. */
 function Floating({ at, label, onClose, children }: { at: { x: number; y: number }; label: string; onClose: () => void; children: ReactNode }) {
@@ -276,11 +345,23 @@ function useGrid(dashboardId: string): [boolean, () => void] {
 }
 
 type Pending = { x: number; y: number; w: number; h: number; parentBoxId: string | null };
+/**
+ * What was let go over a card: where to ask, the card it is on, the Item let go, its own card on this board
+ * (`fromCardId`, null where it has none), and, for a lone row from the Panels, the Panel and parent it was lifted from.
+ */
+type DropAsk = {
+  at: { x: number; y: number };
+  targetCardId: string;
+  itemId: string;
+  fromCardId: string | null;
+  lifted: { panelId: string | null; parentId: string | null } | null;
+};
 
 function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: string; dashboardId: string; readOnly: boolean }) {
   const { data } = useSnapshot(workspaceId);
   const openItem = useOpenItem();
   const send = useSendCommand();
+  const latest = useLatestSnapshot();
   const offerToUndo = useUndo();
   const flow = useReactFlow<FlowNode>();
   const initialised = useNodesInitialized();
@@ -299,7 +380,18 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const [boxMenu, setBoxMenu] = useState<{ boxId: string; at: { x: number; y: number } } | null>(null);
   const [cardMenu, setCardMenu] = useState<{ itemId: string; at: { x: number; y: number }; n: number } | null>(null);
   const [deleting, setDeleting] = useState<BoardBox | null>(null);
+  /** The card a card or row being dragged is over, and what was let go over a card, waiting for *Put inside* or *Combine with…*. */
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropAsk, setDropAsk] = useState<DropAsk | null>(null);
+  /** Counted up to draw every node again from the read, where a card was dragged and nothing is sent. */
+  const [redrawn, setRedrawn] = useState(0);
+  // Picked on this Dashboard, as its selection is: what goes inside a parent leaves the Panels of it each is on
+  // ("Panels: Items put inside a parent stay where they were", issue 1876).
+  const addingAsChild = useAddingAsChild(workspaceId, undefined, { panelId: null, heldBy: null, dashboardId });
   const wrapper = useRef<HTMLDivElement>(null);
+  const renameLater = useRef<number | null>(null);
+  const nodesNow = useRef<FlowNode[]>([]);
+  const pressedAt = useRef<{ x: number; y: number; wasSelected: boolean } | null>(null);
   const cameraPlaced = useRef(false);
   const lastClick = useRef<{ id: string; at: number } | null>(null);
   const narrow = width < NARROW;
@@ -359,7 +451,13 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         );
       return [...boxes, ...cards];
     });
-  }, [board, items]);
+  }, [board, items, redrawn]);
+
+  // A parent made by Combine from this Dashboard is drawn unfolded to its children the first time its card is here.
+  useEffect(() => {
+    const now = takeUnfolds(new Set(board.cards.map((card) => card.itemId)));
+    if (now.length > 0) setUnfolded((was) => new Set([...was, ...now]));
+  }, [board.cards]);
 
   // ---- Selection, followed to and from the rows in the Panels pane ----
   const selectedCards = nodes.filter((node) => node.selected && node.type === 'card') as CardNode[];
@@ -453,6 +551,109 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     });
   };
 
+  // ---- Rename in place: a click on the title of what is selected, or F2 ----
+  const titlePressed = (event: React.PointerEvent, wasSelected: boolean) => {
+    pressedAt.current = { x: event.clientX, y: event.clientY, wasSelected };
+  };
+  const stopRenameLater = () => {
+    if (renameLater.current) window.clearTimeout(renameLater.current);
+    renameLater.current = null;
+  };
+  /** A box is renamed at once; a card's title waits out a double-click, which opens the Item instead. */
+  const titleClicked = (id: string, kind: 'card' | 'box', event: React.MouseEvent) => {
+    const press = pressedAt.current;
+    pressedAt.current = null;
+    stopRenameLater();
+    if (!clickRenames(press, { x: event.clientX, y: event.clientY, detail: event.detail, shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey }, readOnly)) return;
+    if (kind === 'box') setRenamingId(id);
+    else
+      renameLater.current = window.setTimeout(() => {
+        renameLater.current = null;
+        // Still the one selected: a click on another card, or a drag, in the meantime leaves it be.
+        if (renameStillWanted(nodesNow.current.filter((node) => node.selected).map((node) => node.id), id)) setRenamingId(id);
+      }, DOUBLE_MS + 20);
+  };
+  const renameCard = (item: Item, title: string | null) => {
+    setRenamingId(null);
+    if (title === null || title === '' || title === item.title) return;
+    void run({ name: 'set_title', payload: { ...envelope(), itemId: item.id, title } }, 'The title was not changed.');
+  };
+
+  // ---- Take a card off: the card and nothing else ----
+  const takeOff = (card: PlacedCard) => {
+    const item = items.get(card.itemId);
+    const answer = send({ name: 'take_card_off', payload: { ...envelope(), cardId: card.id } });
+    answer.catch(() => {});
+    offerToUndo({
+      what: `“${item ? itemLabel(item) : 'Item'}” taken off the whiteboard`,
+      unlessRefused: answer,
+      undo: () => send({ name: 'put_cards_back', payload: { ...envelope(), cardIds: [card.id] } }),
+    });
+  };
+
+  // ---- Dropped on a card: Put inside it, or Combine with it ----
+  /** The card on the board under a point on it, other than `leaving`: the one drawn last where several overlap. */
+  const cardAt = (point: { x: number; y: number }, leaving: ReadonlySet<string>): PlacedCard | null => {
+    const frames = board.cards.flatMap((card) => {
+      const node = items.has(card.itemId) && !hiddenByCollapse(board.boxes, card.boxId) ? flow.getInternalNode(card.id) : undefined;
+      if (!node) return [];
+      const { x, y } = node.internals.positionAbsolute;
+      return [{ id: card.id, x, y, w: node.measured.width ?? CARD_W, h: node.measured.height ?? 60 }];
+    });
+    const id = cardUnder(frames, point, leaving);
+    return id ? (cardOf(id) ?? null) : null;
+  };
+  const pointerOf = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent) => {
+    const at = 'changedTouches' in event ? event.changedTouches[0] : event;
+    return at ? { x: at.clientX, y: at.clientY } : null;
+  };
+  /**
+   * *Put inside* moves the Item, as *Add as child of…* does ("Panels: Items put inside a parent stay where they were",
+   * issue 1876): a card leaves the Panels of this Dashboard it is on, as a selection here does, and a lone row the
+   * Panel or parent it was lifted from, as a row dropped onto a row does. Its own card here comes off too, since the
+   * parent's unfolded card draws it now, and Undo puts it back once the Item is back where it was.
+   */
+  const putInside = (ask: DropAsk) => {
+    const target = cardOf(ask.targetCardId);
+    const parent = target && items.get(target.itemId);
+    const child = items.get(ask.itemId);
+    if (!parent || !child || !data) return;
+    const from = ask.fromCardId ? cardOf(ask.fromCardId) : undefined;
+    setUnfolded((was) => new Set([...was, parent.id]));
+    addAsChildren(
+      {
+        workspaceId,
+        send,
+        latest,
+        data,
+        where: pickedOnTheBoard(dashboardId, ask.lifted),
+        offerToUndo: offeredWithItsCard(
+          offerToUndo,
+          from
+            ? {
+                takeOff: () => send({ name: 'take_card_off', payload: { ...envelope(), cardId: from.id } }),
+                putBack: () => send({ name: 'put_cards_back', payload: { ...envelope(), cardIds: [from.id] } }),
+              }
+            : null,
+        ),
+      },
+      [child],
+      parent,
+    );
+  };
+  const answerDrop = (answer: 'inside' | 'combine' | null) => {
+    const ask = dropAsk;
+    setDropAsk(null);
+    setDropTargetId(null);
+    if (!ask || !answer) return;
+    if (answer === 'inside') putInside(ask);
+    else {
+      const target = cardOf(ask.targetCardId);
+      // The card dropped on is the first, so the new parent is drawn where it is.
+      if (target) addingAsChild.combine([target.itemId, ask.itemId], null, true);
+    }
+  };
+
   /** Where a node now sits on the board itself. */
   const absoluteNow = (node: FlowNode) => flow.getInternalNode(node.id)?.internals.positionAbsolute ?? node.position;
 
@@ -460,8 +661,25 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     setNodes((was) => applyNodeChanges(changes.filter((change) => change.type !== 'remove'), was));
   }, []);
 
-  /** Let go: each dragged card or box lands in the box under it, or on open space, where it was left. */
-  const onNodeDragStop = (_: unknown, __: FlowNode, dragged: FlowNode[]) => {
+  /** The card a lone card being dragged is over, which would take it, ringed while it is. */
+  const onNodeDrag = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent, node: FlowNode, dragged: FlowNode[]) => {
+    const pointer = pointerOf(event);
+    const over = pointer && node.type === 'card' && dragged.length === 1 ? cardAt(flow.screenToFlowPosition(pointer), new Set([node.id])) : null;
+    setDropTargetId(over?.id ?? null);
+  };
+
+  /** Let go: each dragged card or box lands in the box under it, or on open space, where it was left. A lone card let go over another asks what to do instead. */
+  const onNodeDragStop = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent, first: FlowNode, dragged: FlowNode[]) => {
+    setDropTargetId(null);
+    const pointer = pointerOf(event);
+    const over = pointer && first.type === 'card' && dragged.length === 1 ? cardAt(flow.screenToFlowPosition(pointer), new Set([first.id])) : null;
+    const held = over && first.type === 'card' ? cardOf(first.id) : undefined;
+    if (over && held && pointer) {
+      // It goes back to where it was: nothing moves until one of the two is chosen.
+      setRedrawn((was) => was + 1);
+      setDropAsk({ at: pointer, targetCardId: over.id, itemId: held.itemId, fromCardId: held.id, lifted: null });
+      return;
+    }
     for (const node of dragged) {
       const at = absoluteNow(node);
       if (node.type === 'card') {
@@ -498,6 +716,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const last = lastClick.current;
     if (last && last.id === node.id && at - last.at < DOUBLE_MS) {
       lastClick.current = null;
+      stopRenameLater();
       openItem(node.data.itemId);
       return;
     }
@@ -549,7 +768,12 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     event.preventDefault();
     // What the row allows (`ItemRow`): placing takes nothing from where it was, but any other effect refuses the drop.
     event.dataTransfer.dropEffect = 'move';
+    // A row over a card rings it: letting go there asks what to do with the two.
+    const under = cardUnderPointer(event.target);
+    if (under !== dropTargetId) setDropTargetId(under);
   };
+  const cardUnderPointer = (target: EventTarget | null): string | null =>
+    (target as Element | null)?.closest?.('.react-flow__node-card')?.getAttribute('data-id') ?? null;
   const onDrop = (event: React.DragEvent) => {
     if (readOnly || !data || !event.dataTransfer.types.includes(ITEM_BEING_DRAGGED)) return;
     event.preventDefault();
@@ -558,6 +782,21 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const carried = selectionCarried();
     const ids = carried?.ids.includes(itemId) ? [...carried.ids] : [itemId];
     const point = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    // One row let go on a card is asked about, as a card dragged there is; several are placed as cards.
+    const onCard = cardUnderPointer(event.target);
+    setDropTargetId(null);
+    if (ids.length === 1 && onCard) {
+      const target = cardOf(onCard);
+      if (target?.itemId === itemId) flash(target.id);
+      else if (target) {
+        // A row whose Item has a card of its own here: that card comes off if it is put inside.
+        const own = board.cards.find((card) => card.itemId === itemId);
+        // Read now: the drag forgets where it was lifted from once it ends. A selection of one leaves as a selection does.
+        const lifted = carried?.ids.includes(itemId) ? null : { panelId: panelLiftedFrom(itemId), parentId: parentLiftedFrom(itemId) };
+        setDropAsk({ at: { x: event.clientX, y: event.clientY }, targetCardId: target.id, itemId, fromCardId: own?.id ?? null, lifted });
+      }
+      return;
+    }
     const refused: string[] = [];
     ids.forEach((id, n) => {
       const already = board.cards.find((card) => card.itemId === id);
@@ -582,15 +821,43 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
 
   // ---- Keys ----
   useEffect(() => {
+    nodesNow.current = nodes;
+  }, [nodes]);
+  const selectedNodes = nodes.filter((node) => node.selected);
+  const lone = selectedNodes.length === 1 ? selectedNodes[0]! : null;
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.defaultPrevented) return;
+      if (event.key === 'F2') {
+        // On the board, with one card or box selected and nothing else asking for a key.
+        const typing = event.target instanceof HTMLElement && (/INPUT|TEXTAREA/.test(event.target.tagName) || event.target.isContentEditable);
+        const windowOpen = document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') !== null;
+        const focusOnBoard = wrapper.current?.contains(document.activeElement) ?? false;
+        if (!lone || !f2Renames({ readOnly, selected: selectedNodes.length, typing, windowOpen, focusOnBoard })) return;
+        event.preventDefault();
+        stopRenameLater();
+        setRenamingId(lone.id);
+        return;
+      }
+      if (event.key !== 'Escape') return;
       if (full) setFull(false);
       setTool('select');
       setDrawing(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [full]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full, lone?.id, selectedNodes.length, readOnly]);
+  useEffect(() => stopRenameLater, []);
+  // A name kept or let go hands the focus back to what was renamed, so F2 renames it again.
+  const wasRenaming = useRef<string | null>(null);
+  useEffect(() => {
+    const was = wasRenaming.current;
+    wasRenaming.current = renamingId;
+    if (renamingId !== null || was === null) return;
+    const node = [...(wrapper.current?.querySelectorAll<HTMLElement>('.react-flow__node') ?? [])].find((one) => one.dataset.id === was);
+    node?.focus({ preventScroll: true });
+  }, [renamingId]);
 
   const ctx: Ctx = {
     readOnly,
@@ -600,7 +867,11 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     now,
     unfolded,
     flashId,
+    dropTargetId,
     renamingId,
+    titlePressed,
+    titleClicked,
+    renameCard,
     toggleUnfolded: (itemId) =>
       setUnfolded((was) => {
         const next = new Set(was);
@@ -629,6 +900,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         ref={wrapper}
         data-whiteboard={dashboardId}
         onDragOver={onDragOver}
+        onDragLeave={(event) => !event.currentTarget.contains(event.relatedTarget as globalThis.Node | null) && setDropTargetId(null)}
         onDrop={onDrop}
         className={`${full ? 'fixed inset-0 z-floating' : 'relative h-full w-full'} overflow-hidden rounded-md border border-shade/10 bg-surface`}
       >
@@ -636,6 +908,8 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           nodes={nodes}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
+          onNodeDragStart={stopRenameLater}
+          onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onNodeClick={onNodeClick}
           onNodeContextMenu={(event, node) => {
@@ -748,7 +1022,18 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
               open(0);
             }}
           >
-            <ItemList workspaceId={workspaceId} items={[items.get(cardMenu.itemId)!]} openDashboardId={dashboardId} panelId={null} gathered emptyMessage="" />
+            <ItemList
+              workspaceId={workspaceId}
+              items={[items.get(cardMenu.itemId)!]}
+              openDashboardId={dashboardId}
+              panelId={null}
+              gathered
+              emptyMessage=""
+              onTakeOffTheWhiteboard={() => {
+                const card = board.cards.find((one) => one.itemId === cardMenu.itemId);
+                if (card) takeOff(card);
+              }}
+            />
           </div>,
           document.body,
         )}
@@ -808,6 +1093,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           ))}
         </Floating>
       )}
+
+      {dropAsk && <DropQuestion ask={dropAsk} board={board} items={items} children={data?.children ?? []} onAnswer={answerDrop} />}
+      {addingAsChild.dialog}
 
       <DeleteQuestion
         open={deleting !== null}

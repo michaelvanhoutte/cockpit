@@ -5,7 +5,7 @@ import type { CommandName, CommandPayload, CommandResult, ConversationTurnBy, It
 import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../domain/remembered-sentences.js';
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
-import { isBoardCommand, keepNoCardInTheInbox, putBack, restampCards, runBoardCommand } from './board.js';
+import { isBoardCommand, keepNoCardInTheInbox, placeCombinedParent, putBack, restampCards, runBoardCommand } from './board.js';
 import {
   ancestorsAmong,
   dismissPanelsItems,
@@ -2644,6 +2644,17 @@ export function runCommand<N extends CommandName>(
           }
         }
         mirrorFilingsOf(tx, tenantId, leftPanels, cmd.issuedAt);
+        // Made from a Dashboard: the new parent's card goes where the first Item's is (issue 1830).
+        if (cmd.onBoard) {
+          placeCombinedParent(tx, tenantId, {
+            workspaceId: cmd.workspaceId,
+            dashboardId: cmd.onBoard.dashboardId,
+            cardId: cmd.onBoard.cardId,
+            parentId: item.id,
+            childIds: cmd.childIds,
+            at: cmd.issuedAt,
+          });
+        }
         tx.insert(commands).values(commandRow).run();
       });
       storyAsked.add(item.id);
