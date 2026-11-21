@@ -379,6 +379,11 @@ function LabelField({ initial, label, onDone, onEnd }: { initial: string; label:
   );
 }
 
+/** A label typed and not yet kept is kept before what it labels is removed: leaving the field keeps it, and some browsers' buttons take no focus. */
+function keepTyped() {
+  if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+}
+
 /** A link clicked (the POC's): its kind, its own label, and *Remove link*. */
 function LinkMenu({
   at,
@@ -421,7 +426,7 @@ function LinkMenu({
         <div className="mt-2">
           <LabelField initial={link.label ?? ''} label="Label of this link" onDone={(label) => onLabel(link.id, label)} onEnd={onClose} />
         </div>
-        <button type="button" role="menuitem" onClick={() => onRemove(link.id)} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
+        <button type="button" role="menuitem" onClick={() => (keepTyped(), onRemove(link.id))} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
           Remove link
         </button>
       </div>
@@ -448,7 +453,7 @@ function LineMenu({
     <Floating at={{ x: at.x + 6, y: at.y + 6 }} label="Line" onClose={onClose}>
       <div className="w-56 p-1">
         <LabelField initial={line.label} label="Label this line" onDone={(label) => onLabel(line.id, label)} onEnd={onClose} />
-        <button type="button" role="menuitem" onClick={() => onRemove(line)} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
+        <button type="button" role="menuitem" onClick={() => (keepTyped(), onRemove(line))} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
           Remove line
         </button>
       </div>
@@ -729,6 +734,8 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   };
   const removeLink = (linkId: string) => {
     setLinkMenu(null);
+    // Gone from under the pointer, which will not be heard leaving it.
+    setHoveredLink(null);
     const answer = send({ name: 'unlink_items', payload: { ...envelope(), linkId } });
     answer.catch(() => {});
     offerToUndo({ what: 'Link removed', unlessRefused: answer, undo: () => send({ name: 'restore_link', payload: { ...envelope(), linkId } }) });
@@ -953,11 +960,12 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const b = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     const snap = (v: number) => (grid ? Math.round(v / GRID) * GRID : Math.round(v));
     if (tool === 'line') {
-      // A press with no drag draws nothing; a line drawn asks for its label at once, which may be left empty.
-      if (Math.hypot(b.x - a.x, b.y - a.y) < 12) return;
+      // A press with no drag draws nothing, nor one whose ends snap to one point; a line drawn asks for its label at once, which may be left empty.
+      const [x1, y1, x2, y2] = [snap(a.x), snap(a.y), snap(b.x), snap(b.y)];
+      if (Math.hypot(event.clientX - rect.left - drawing.x0, event.clientY - rect.top - drawing.y0) < 12 || (x1 === x2 && y1 === y2)) return;
       const lineId = uuidv7();
       void run(
-        { name: 'draw_line', payload: { ...envelope(), lineId, dashboardId, x1: snap(a.x), y1: snap(a.y), x2: snap(b.x), y2: snap(b.y), label: '' } },
+        { name: 'draw_line', payload: { ...envelope(), lineId, dashboardId, x1, y1, x2, y2, label: '' } },
         'The line was not drawn.',
       );
       setLineMenu({ lineId, at: { x: event.clientX, y: event.clientY } });

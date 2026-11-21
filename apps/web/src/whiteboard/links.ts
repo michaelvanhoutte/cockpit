@@ -1,4 +1,4 @@
-import { FIXED_LINE_KINDS, fixedLineKindId, type ItemLink, type LineKind, type LineStyle } from '@cockpit/shared/board';
+import { withFixedLineKinds, type ItemLink, type LineKind, type LineStyle } from '@cockpit/shared/board';
 import type { Board } from './layout';
 
 /**
@@ -97,10 +97,9 @@ export const DASHES: Record<LineStyle, string | undefined> = { solid: undefined,
 /** A swatch as the board paints a line: its ink. */
 export const lineInk = (kind: Pick<LineKind, 'colour'>) => `var(--color-cat-${kind.colour})`;
 
-/** The kinds a board offers, before the Workspace's read has any: *Leads to* and *Related*. */
+/** The kinds a board offers: *Leads to* and *Related* always, even over a read kept from before them, then the ones added. */
 export function kindsOrFixed(workspaceId: string, kinds: readonly LineKind[] | undefined): LineKind[] {
-  if (kinds && kinds.length > 0) return [...kinds];
-  return (['leads_to', 'related'] as const).map((role) => ({ id: fixedLineKindId(workspaceId, role), ...FIXED_LINE_KINDS[role] }));
+  return withFixedLineKinds(workspaceId, kinds ?? []);
 }
 
 /** An Item's links as Relations lists them: by kind, *Leads to* and *Comes from* for one with an arrowhead, one list for one without. */

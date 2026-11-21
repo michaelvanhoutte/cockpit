@@ -59,7 +59,7 @@
   --color-cat-grey: #475569;
   --color-cat-grey-tint: #eceff3;
   --color-cat-grey-light: #a7b0be;
-  /* The two a whiteboard's box takes beyond the six (`SWATCHES`, @cockpit/shared/board). */
+  /* The two a whiteboard's boxes and line kinds take beyond the six (`SWATCHES`, @cockpit/shared/board). */
   --color-cat-rose: #a83f5c;
   --color-cat-rose-tint: #fbe8ee;
   --color-cat-rose-light: #f08aa6;

@@ -12,7 +12,8 @@ import { kindsOrFixed, linksByKind } from '../whiteboard/links';
 /**
  * The POC's Relations tab ("Brainstorming: an Item can't hold other Items",
  * issue 1825): Parents, then Children, then its links by kind and direction
- * (*Leads to*, *Comes from*; issue 1831), each one opening that Item, then the
+ * (*Leads to*, *Comes from*; "Brainstorming: the whiteboard can't show how
+ * Items connect", issue 1831), each one opening that Item, then the
  * whiteboards it is on. Fetched when the tab opens, so it costs the initial
  * bundle nothing.
  */

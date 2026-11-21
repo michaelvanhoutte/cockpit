@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorkspaceSnapshot } from '@cockpit/shared';
 import { fixedLineKindId, type BoardCard, type ItemLink, type LineKind, type Whiteboards } from '@cockpit/shared/board';
 import { boardDrawnAhead } from '../../../src/whiteboard/boardDrawn';
-import { linksOnTheBoard, nearestSides, type Rect } from '../../../src/whiteboard/links';
+import { kindsOrFixed, linksOnTheBoard, nearestSides, type Rect } from '../../../src/whiteboard/links';
 
 /**
  * F1 for which links a whiteboard draws and where each meets a card
@@ -36,6 +36,17 @@ describe('Whiteboard', () => {
     it('draws a link of a kind the board does not know as Related', () => {
       const [drawn] = linksOnTheBoard([aLink('storm', 'ferry', 'a-deleted-kind')], KINDS, { cards: [aCard('storm'), aCard('ferry')] }, nothingUnfolded);
       expect(drawn?.kind).toBe(RELATED);
+    });
+  });
+
+  describe('the kind picker always offers Leads to and Related first', () => {
+    const blocks: LineKind = { id: 'blocks', name: 'Blocks', style: 'dashed', colour: 'rose', arrow: true, role: null };
+    it.each([
+      { situation: 'a read with no kinds', kinds: undefined, names: ['Leads to', 'Related'] },
+      { situation: 'a kind added over a read kept from before kinds', kinds: [blocks], names: ['Leads to', 'Related', 'Blocks'] },
+      { situation: 'a read with every kind', kinds: [...KINDS, blocks], names: ['Leads to', 'Related', 'Blocks'] },
+    ])('over $situation', ({ kinds, names }) => {
+      expect(kindsOrFixed('ws', kinds).map((kind) => kind.name)).toEqual(names);
     });
   });
 

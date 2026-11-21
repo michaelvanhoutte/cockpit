@@ -32,7 +32,10 @@ export function useRelations(workspaceId: string, item: Item) {
       return [{ cardId: card.id, dashboardId: dashboard.id, dashboardName: dashboard.name, boxLabel: box ? box.label || 'Box' : null }];
     });
   /** Its links, either way, between it and an Item not dismissed ("Brainstorming: the whiteboard can't show how Items connect", issue 1831). */
-  const links = (boards?.links ?? []).filter((link) => link.fromItemId === item.id || link.toItemId === item.id);
+  // Only to an Item the read holds, as for children: one finished long ago is named by nothing here.
+  const links = (boards?.links ?? []).filter(
+    (link) => (link.fromItemId === item.id && held.has(link.toItemId)) || (link.toItemId === item.id && held.has(link.fromItemId)),
+  );
   return { data, parents, children, notListed, places, links };
 }
 
