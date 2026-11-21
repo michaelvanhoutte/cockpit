@@ -30,6 +30,8 @@ export function columnsStyle(columns: PanelColumns | null): React.CSSProperties 
     // fits rather than one that overflows.
     gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${PANEL_COLUMN_WIDTHS[columns]}px), 1fr))`,
     columnGap: PANEL_COLUMN_GAP,
+    // A parent's cell grows to hold its children; the cell beside it keeps its row's height.
+    alignItems: 'start',
   };
 }
 
