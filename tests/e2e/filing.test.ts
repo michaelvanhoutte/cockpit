@@ -418,13 +418,16 @@ test.describe('Panels', () => {
       // With a key held the question is already answered: Shift moves, Ctrl adds.
       const dragWith = async (key: 'Shift' | 'Control', label: string) => {
         const row = await page.getByRole('region', { name: panel }).getByRole('listitem').filter({ hasText: label }).boundingBox();
-        if (!row) throw new Error(`${label} is not on screen`);
+        // The strip under the rows of the second panel's list, which is no row's middle half: a drop there files, where one on a row's middle puts inside it.
+        const list = await target.locator('.well').boundingBox();
+        if (!row || !list) throw new Error(`${label} or the second panel is not on screen`);
+        const drop = { x: list.x + list.width / 2, y: list.y + list.height - 6 };
         await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
         await page.mouse.down();
-        await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+        await page.mouse.move(drop.x, drop.y, { steps: 12 });
         // Held as it is let go, which is when the keys are read.
         await page.keyboard.down(key);
-        await page.mouse.move(to.x + to.width / 2 + 2, to.y + to.height / 2, { steps: 2 });
+        await page.mouse.move(drop.x + 2, drop.y, { steps: 2 });
         await page.mouse.up();
         await page.keyboard.up(key);
       };
