@@ -23,6 +23,7 @@ import { CONVERSATION_EXCERPT_LENGTH, conversationTurnBySchema } from './domain/
 import { recurringItemContentSchema } from './domain/recurring-item.js';
 import { repeatRuleSchema } from './domain/series.js';
 import { CHILDREN_ADDED_AT_ONCE } from './domain/item-children.js';
+import type { boardCommandSchemas } from './commands-board.js';
 import type { combineCommandSchemas } from './commands-combine.js';
 import type { splitCommandSchemas } from './commands-split.js';
 import type { storyCommandSchemas } from './commands-story.js';
@@ -545,6 +546,11 @@ export const addChildrenSchema = commandEnvelopeSchema
   });
 export type AddChildrenCommand = z.infer<typeof addChildrenSchema>;
 
+/** One place an Item leaves: the Item, and the one parent or the one Panel it comes out of. */
+export const leaveSchema = z
+  .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
+  .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel');
+
 /**
  * put_inside — Items dropped onto a row to go inside it ("Drag to nest in
  * Panels and the Inbox", issue 1857): the parent, the Items, the parent's
@@ -560,13 +566,7 @@ export const putInsideSchema = commandEnvelopeSchema
     childIds: z.array(z.uuid()).min(1).max(CHILDREN_ADDED_AT_ONCE),
     order: z.array(z.uuid()),
     /** One entry per place an Item leaves: the Item, and the parent or the Panel it comes out of. */
-    leaves: z
-      .array(
-        z
-          .object({ itemId: z.uuid(), parentId: z.uuid().optional(), panelId: z.uuid().optional() })
-          .refine((leave) => (leave.parentId === undefined) !== (leave.panelId === undefined), 'one parent or one panel'),
-      )
-      .max(CHILDREN_ADDED_AT_ONCE * 4),
+    leaves: z.array(leaveSchema).max(CHILDREN_ADDED_AT_ONCE * 4),
   })
   // One check with one message, since the initial bundle carries every schema and a sent change is never malformed:
   // each Item named once, and in the order; the order naming each once, and never the parent; only an Item put
@@ -1454,11 +1454,17 @@ export const commandSchemas = {
 } as const;
 
 /**
- * Every command there is: the registry above and the entries Combine adds
- * (`commands-combine.ts`, its own entry point so the app does not carry their
- * schemas in its initial bundle - the API mounts both, `apps/api/src/http/app.ts`).
+ * Every command there is: the registry above and the entries Combine, Split,
+ * the story and the whiteboard add (`commands-combine.ts` and its siblings,
+ * each its own entry point so the app does not carry their schemas in its
+ * initial bundle - the API mounts them all, `apps/api/src/http/app.ts`). The
+ * whiteboard's entries replace the changes they give `takeCardsOff`.
  */
-type Registered = typeof commandSchemas & typeof combineCommandSchemas & typeof storyCommandSchemas & typeof splitCommandSchemas;
+type Registered = Omit<typeof commandSchemas, keyof typeof boardCommandSchemas> &
+  typeof combineCommandSchemas &
+  typeof storyCommandSchemas &
+  typeof splitCommandSchemas &
+  typeof boardCommandSchemas;
 export type CommandName = keyof Registered;
 export type CommandPayload<N extends CommandName> = z.infer<Registered[N]>;
 

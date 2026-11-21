@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
-import { childrenOf, itemLabel, uuidv7, type Item } from '@cockpit/shared';
+import { childrenOf, dayOf, isLater, itemLabel, panelTakesItems, uuidv7, type Item } from '@cockpit/shared';
 import { useSendCommand } from '../api/queries';
+import { putCardsBackAfter } from '../whiteboardQuestion';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import { useUnfolded } from '../unfoldedParents';
+import { useLaterShown } from '../laterItems';
 import { ItemList } from './ItemList';
 // What these send is drawn ahead by it (`ChildrenDrawn`, drawnAhead.ts).
 import '../childrenDrawnAhead';
@@ -30,9 +32,19 @@ export default function HeldRows({
 }) {
   const { unfolded } = useUnfolded(parent.id);
   const { data } = useSnapshot(workspaceId);
+  const laterShownOn = useLaterShown();
+  // Under a Panel of Items that sets later Items aside, a child due that far out is too (issue 1873).
+  const setsLaterAside =
+    panelId !== null &&
+    !laterShownOn(panelId) &&
+    panelTakesItems(data?.panels.find((panel) => panel.id === panelId) ?? { kind: 'filter' });
+  const today = dayOf(new Date());
   const held = useMemo(
-    () => childrenOf(data?.children ?? [], data?.items ?? [], parent.id),
-    [data?.children, data?.items, parent.id],
+    () =>
+      childrenOf(data?.children ?? [], data?.items ?? [], parent.id).filter(
+        (child) => !setsLaterAside || !isLater(child.dueDate, today),
+      ),
+    [data?.children, data?.items, parent.id, setsLaterAside, today],
   );
   const send = useSendCommand();
   const offerToUndo = useUndo();
@@ -43,7 +55,10 @@ export default function HeldRows({
     offerToUndo({
       what: `“${itemLabel(item)}” taken out of ${itemLabel(parent)}`,
       unlessRefused: answer,
-      undo: () => send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
+      // Then any cards *Take off both* took with it, as it went to the Inbox.
+      undo: putCardsBackAfter(send, workspaceId, [answer], () =>
+        send({ name: 'add_children', payload: { ...envelope(), parentId: parent.id, childIds: [item.id] } }),
+      ),
     });
   };
   if (!unfolded || held.length === 0) return null;

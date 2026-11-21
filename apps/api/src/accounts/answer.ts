@@ -13,6 +13,7 @@ import type {
   Series,
   Workspace,
 } from '@cockpit/shared';
+import type { ItemOnWhiteboards, Whiteboards } from '@cockpit/shared/board';
 
 /** The full read model for one workspace, as the store answers it. */
 export interface AccountSnapshot {
@@ -41,6 +42,8 @@ export interface AccountSnapshot {
   duplicates: PossibleDuplicate[];
   /** Every open run on this Workspace's Items: sent to Claude, or started by an Agent before Agents were retired (issue 1165). */
   agentRuns: AgentRun[];
+  /** Every whiteboard of the Workspace's Dashboards ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829). */
+  whiteboards: Whiteboards;
   /** POC (own-event refetch): the newest change this snapshot is built on. */
   upTo: string | undefined;
   /**
@@ -68,7 +71,7 @@ export interface AccountSnapshot {
 export type Answer<T> =
   | { status: 'ok'; value: T }
   | { status: 'missing'; what: string }
-  | { status: 'conflict'; what: string }
+  | { status: 'conflict'; what: string; onWhiteboards?: ItemOnWhiteboards[] }
   | { status: 'refused'; what: string }
   | { status: 'not-up-to-date'; failure: string }
   | { status: 'allowance-spent' };

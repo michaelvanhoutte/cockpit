@@ -1208,3 +1208,87 @@ describe('Panels', () => {
     });
   });
 });
+
+describe('Panels', () => {
+  describe('Items combined under a new parent are drawn at once, the parent where the first one was', () => {
+    const [FIRST, SECOND, OTHER, NEW, HOLDER] = [
+      '11111111-1111-7111-8111-0000000000c1',
+      '11111111-1111-7111-8111-0000000000c2',
+      '11111111-1111-7111-8111-0000000000c3',
+      '11111111-1111-7111-8111-0000000000c4',
+      '11111111-1111-7111-8111-0000000000c5',
+    ];
+    const PANEL = '11111111-1111-7111-8111-0000000000d1';
+    const combine = (leaves: { itemId: string; parentId?: string; panelId?: string }[], panelId: string | null): CommandArgs =>
+      ({
+        name: 'combine_under_new_parent',
+        payload: {
+          commandId: 'c1',
+          issuedAt: AT,
+          workspaceId: 'ws-work',
+          parentId: NEW,
+          title: 'Combined',
+          description: null,
+          childIds: [FIRST, SECOND],
+          panelId,
+          dashboardId: null,
+          leaves,
+        },
+      }) as CommandArgs;
+    const copy = (): WorkspaceSnapshot =>
+      ({
+        workspace: { id: 'ws-work', tenantId: 't' },
+        items: [anItem(FIRST), anItem(SECOND), anItem(OTHER), anItem(HOLDER, { childrenCount: 3, childrenDone: 0 })],
+        filings: [
+          { panelId: PANEL, itemId: OTHER, position: 0 },
+          { panelId: PANEL, itemId: FIRST, position: 1 },
+          { panelId: PANEL, itemId: SECOND, position: 2 },
+        ],
+        panels: [],
+        children: [
+          { parentId: HOLDER, childId: OTHER, position: 0 },
+          { parentId: HOLDER, childId: FIRST, position: 1 },
+          { parentId: HOLDER, childId: SECOND, position: 2 },
+        ],
+      }) as unknown as WorkspaceSnapshot;
+    const heldBy = (snapshot: WorkspaceSnapshot, parentId: string) =>
+      (snapshot.children ?? []).filter((row) => row.parentId === parentId).sort((a, b) => a.position - b.position).map((row) => row.childId);
+
+    it('stands in the first one’s place on its Panel, holding both, which leave the Panel', () => {
+      const drawn = drawnAhead(copy(), combine([{ itemId: FIRST, panelId: PANEL }, { itemId: SECOND, panelId: PANEL }], PANEL));
+
+      expect(drawn.filings.sort((a, b) => a.position - b.position).map((filing) => filing.itemId)).toEqual([OTHER, NEW]);
+      expect(heldBy(drawn, NEW)).toEqual([FIRST, SECOND]);
+      expect(read(drawn, NEW)).toMatchObject({ title: 'Combined', childrenCount: 2, keepsStory: true });
+    });
+
+    it('stands in the first one’s place inside the parent they were picked in, with that parent’s count moved', () => {
+      const drawn = drawnAhead(
+        copy(),
+        combine([{ itemId: FIRST, parentId: HOLDER }, { itemId: SECOND, parentId: HOLDER }], null),
+      );
+
+      expect(heldBy(drawn, HOLDER)).toEqual([OTHER, NEW]);
+      expect(heldBy(drawn, NEW)).toEqual([FIRST, SECOND]);
+      expect(read(drawn, HOLDER)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('stands at the top of the Panel when the first one does not leave it, as the Worker puts it', () => {
+      const drawn = drawnAhead(copy(), combine([{ itemId: SECOND, panelId: PANEL }], PANEL));
+
+      expect(drawn.filings.sort((a, b) => a.position - b.position).map((filing) => filing.itemId)).toEqual([NEW, OTHER, FIRST]);
+    });
+
+    it('stands at the end of the parent they were picked in when the first one does not leave it', () => {
+      const drawn = drawnAhead(copy(), combine([{ itemId: SECOND, parentId: HOLDER }], null));
+
+      expect(heldBy(drawn, HOLDER)).toEqual([OTHER, FIRST, NEW]);
+    });
+
+    it('is drawn once, whether or not a read already holds the new parent', () => {
+      const once = drawnAhead(copy(), combine([], PANEL));
+
+      expect(drawnAhead(once, combine([], PANEL))).toBe(once);
+    });
+  });
+});

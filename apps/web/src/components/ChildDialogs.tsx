@@ -1,5 +1,6 @@
 import type { Item } from '@cockpit/shared';
-import { useSendCommand } from '../api/queries';
+import { useLatestSnapshot, useSendCommand } from '../api/queries';
+import type { PickedIn } from '../nesting';
 import { useSnapshot } from '../api/useSnapshot';
 import { useUndo } from '../undo';
 import AddAsChildOf, { addAsChildren } from './AddAsChildOf';
@@ -11,8 +12,8 @@ const SplitDialog = lazy(() => import('./SplitDialog'));
 
 /** What a row's menu or a selection's bar asked: Items to put inside one you pick, Items to combine, or an Item to split. */
 export type ChildAsk =
-  | { chosen: readonly Item[]; from?: HTMLElement | null | undefined }
-  | { ids: readonly string[]; from?: HTMLElement | null | undefined }
+  | { chosen: readonly Item[]; from?: HTMLElement | null | undefined; where: PickedIn }
+  | { ids: readonly string[]; from?: HTMLElement | null | undefined; where: PickedIn }
   | { splitId: string; from?: HTMLElement | null | undefined; onSplit?: (() => void) | undefined };
 
 /**
@@ -35,6 +36,7 @@ export default function ChildDialogs({
 }) {
   const { data } = useSnapshot(workspaceId);
   const send = useSendCommand();
+  const latest = useLatestSnapshot();
   const offerToUndo = useUndo();
   if ('splitId' in asking) {
     return (
@@ -45,7 +47,7 @@ export default function ChildDialogs({
   }
   if (!data) return null;
   if ('ids' in asking) {
-    return <CombineDialog workspaceId={workspaceId} itemIds={asking.ids} onClose={onClose} onCombined={onDone} returnFocusTo={asking.from} />;
+    return <CombineDialog workspaceId={workspaceId} itemIds={asking.ids} where={asking.where} onClose={onClose} onCombined={onDone} returnFocusTo={asking.from} />;
   }
   return (
     <AddAsChildOf
@@ -54,7 +56,7 @@ export default function ChildDialogs({
       children={data.children ?? []}
       onAdd={(parent) => {
         onDone();
-        addAsChildren({ workspaceId, send, offerToUndo, children: data.children ?? [] }, asking.chosen, parent);
+        addAsChildren({ workspaceId, send, latest, offerToUndo, data, where: asking.where }, asking.chosen, parent);
       }}
       onClose={onClose}
       returnFocusTo={asking.from}

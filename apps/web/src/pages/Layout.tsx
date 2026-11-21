@@ -26,6 +26,9 @@ const KeyboardShortcutsWindow = lazy(() => import('../components/KeyboardShortcu
 // The saving sign shows only once a change has waited half a second, so it is
 // fetched after the first paint; the queue and its leave-site guard stay in the bundle.
 const SavingMark = lazy(() => import('../components/SavingMark'));
+// "Take it off there too?" (`whiteboardQuestion.ts`), fetched when first asked.
+const TakeOffQuestion = lazy(() => import('../components/TakeOffQuestion'));
+import { useWhiteboardQuestion } from '../whiteboardQuestion';
 import { DashboardBar } from '../components/DashboardBar';
 import { GoOnlineOffer, OfflineMark } from '../components/OfflineMark';
 import { goOnline, workOffline } from '../opening';
@@ -122,6 +125,7 @@ export function Layout() {
 
 function TheShell() {
   useServerEvents();
+  const whiteboardQuestion = useWhiteboardQuestion();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data } = useWorkspaces();
@@ -1264,6 +1268,13 @@ function TheShell() {
             onClose={() => setShortcutsFrom(null)}
             returnFocusTo={shortcutsFrom.control}
           />
+        </Suspense>
+      )}
+
+      {/* "Take it off there too?", asked when a change would send an Item with cards to the Inbox. */}
+      {whiteboardQuestion && (
+        <Suspense fallback={null}>
+          <TakeOffQuestion />
         </Suspense>
       )}
 

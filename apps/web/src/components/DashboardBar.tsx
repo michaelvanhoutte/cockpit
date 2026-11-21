@@ -21,9 +21,11 @@ import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { carryAcrossSwitch } from '../itemInTheAir';
 import { browserStore } from '../lastVisited';
 import { useRoomForTheInbox } from '../roomForTheInbox';
+import { LayoutSwitch, PhoneBoardSwitch } from './LayoutSwitch';
 import { keepingTheOpenItem } from '../itemForm';
 import { useTabDrag } from '../tabDrag';
 import { useUndo } from '../undo';
+import { KeptOnTheWhiteboard } from '../whiteboardQuestion';
 import { dashboardToSwitchTo } from '../switchWhileDragging';
 import { FunnelGlyph } from './DashboardFilterBar';
 import { DeleteQuestion } from './DeleteQuestion';
@@ -284,7 +286,8 @@ export function DashboardBar({
       },
     }).catch((failure: unknown) => {
       if (focusOwedAfterDeleting.current === dashboardId) focusOwedAfterDeleting.current = null;
-      offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
+      // Kept on a whiteboard at "Take it off there too?": nothing was done, and nothing to say.
+      if (!(failure instanceof KeptOnTheWhiteboard)) offerToUndo({ what: `“${was}” was not deleted. ${whyNot(failure)}` });
     });
     setDeleting(null);
     // Deleting any other leaves the screen alone.
@@ -585,6 +588,8 @@ export function DashboardBar({
       )}
       {openDashboardId && (
         <div className="ml-auto flex shrink-0 items-end gap-1 pl-2">
+          {/* Panels, whiteboard or both at a desk; one or the other on a phone. */}
+          {roomForTheInbox ? <LayoutSwitch workspaceId={workspaceId} dashboardId={openDashboardId} /> : <PhoneBoardSwitch dashboardId={openDashboardId} />}
           <AddPanel
             workspaceId={workspaceId}
             dashboardId={openDashboardId}

@@ -459,3 +459,113 @@ describe('Triage', () => {
     });
   });
 });
+
+describe('Panels', () => {
+  /**
+   * "Panels: Items put inside a parent stay where they were" (issue 1876): Combine moves its Items, and the new parent
+   * stands in the first one's place. Filings, Item-in-Item rows and their order are stored queries.
+   */
+  describe('Combining under a new parent moves the Items and puts the parent where the first one was', () => {
+    const combine = (parent: string, childIds: string[], panelId: string | null, leaves?: Record<string, string>[]) =>
+      send('combine_under_new_parent', { parentId: parent, title: 'P', description: null, childIds, panelId, dashboardId: null, ...(leaves ? { leaves } : {}) });
+    const onPanel = (panelId: string) =>
+      rows<{ item_id: string }>('SELECT item_id FROM panel_items WHERE panel_id = ? ORDER BY position', panelId).then((found) => found.map((row) => row.item_id));
+    const holding = (parentId: string) =>
+      rows<{ child_id: string }>('SELECT child_id FROM item_children WHERE parent_id = ? AND deleted_at IS NULL ORDER BY position', parentId).then((found) =>
+        found.map((row) => row.child_id),
+      );
+
+    it('leaves the Panel for the new parent, which takes the first one’s place there, and spares a Panel of another Dashboard', async () => {
+      const [a, b, c, d] = [await aNote('Alpha'), await aNote('Bravo'), await aNote('Charlie'), await aNote('Delta')];
+      const [people, elsewhere] = [await aPanel('People'), await aPanel('Elsewhere')];
+      for (const item of [d, b, c, a]) await file(item, people);
+      await file(a, elsewhere);
+      await file(b, elsewhere);
+      const parent = nextId();
+
+      // The Panel as it is: a, c, b, d. The first picked is c, the second.
+      expect(await onPanel(people)).toEqual([a, c, b, d]);
+      expect(
+        (
+          await combine(parent, [c, b], people, [
+            { itemId: c, panelId: people },
+            { itemId: b, panelId: people },
+          ])
+        ).status,
+      ).toBe(200);
+
+      expect(await onPanel(people)).toEqual([a, parent, d]);
+      expect(await holding(parent)).toEqual([c, b]);
+      // The Panel's own Item mirrors it, and a Panel the leaves did not name keeps what it held.
+      expect((await onPanel(elsewhere)).sort()).toEqual([a, b].sort());
+    });
+
+    it('leaves the parent for the new parent, which takes the first one’s place inside it', async () => {
+      const [chapter, a, b, c] = [await aNote('Chapter'), await aNote('Alpha'), await aNote('Bravo'), await aNote('Charlie')];
+      expect((await send('add_children', { parentId: chapter, childIds: [a, b, c] })).status).toBe(200);
+      const parent = nextId();
+
+      expect(
+        (
+          await combine(parent, [b, c], null, [
+            { itemId: b, parentId: chapter },
+            { itemId: c, parentId: chapter },
+          ])
+        ).status,
+      ).toBe(200);
+
+      expect(await holding(chapter)).toEqual([a, parent]);
+      expect(await holding(parent)).toEqual([b, c]);
+      expect((await snapshot()).items.find((item) => item.id === chapter)).toMatchObject({ childrenCount: 2 });
+    });
+
+    it('stands in the Inbox when the Items came from the Inbox, leaving nothing', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const parent = nextId();
+
+      expect((await combine(parent, [a, b], null, [])).status).toBe(200);
+
+      expect(await holding(parent)).toEqual([a, b]);
+      expect(await rows('SELECT panel_id FROM panel_items WHERE item_id = ?', parent)).toEqual([]);
+    });
+
+    it('refuses a leave naming another Workspace’s Panel, whole, writing nothing', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const people = await aPanel('People');
+      await file(a, people);
+      const parent = nextId();
+
+      const refused = await combine(parent, [a, b], people, [{ itemId: a, panelId: nextId() }]);
+
+      expect(refused.status).toBe(404);
+      expect(await onPanel(people)).toEqual([a]);
+      expect((await snapshot()).items.some((item) => item.id === parent)).toBe(false);
+    });
+
+    it('leaves nothing from an older tab that sends no leaves, as before', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const people = await aPanel('People');
+      await file(a, people);
+      const parent = nextId();
+
+      expect((await combine(parent, [a, b], people)).status).toBe(200);
+
+      expect((await onPanel(people)).sort()).toEqual([a, parent].sort());
+    });
+
+    it('makes and leaves nothing more when sent twice', async () => {
+      const [a, b] = [await aNote('Alpha'), await aNote('Bravo')];
+      const people = await aPanel('People');
+      await file(a, people);
+      const parent = nextId();
+      const leaves = [{ itemId: a, panelId: people }];
+      const sent = { commandId: nextId() };
+
+      expect((await send('combine_under_new_parent', { ...sent, parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: people, dashboardId: null, leaves })).status).toBe(200);
+      expect((await send('combine_under_new_parent', { ...sent, parentId: parent, title: 'P', description: null, childIds: [a, b], panelId: people, dashboardId: null, leaves })).status).toBe(200);
+
+      expect(await onPanel(people)).toEqual([parent]);
+      expect(await holding(parent)).toEqual([a, b]);
+    });
+  });
+});

@@ -378,7 +378,7 @@ describe('MCP connections', () => {
       { situation: 'remove_panels', args: { remove_panels: ['Work ▸ Admin'] }, says: ['remove_item_from_panel p-admin in ws-work'] },
       { situation: 'move_to_panel', args: { move_to_panel: 'sales ▸ admin' }, says: ['move_item_to_panel on top p-sales-admin in ws-work'] },
       { situation: 'move_to_panel Inbox, in any case', args: { move_to_panel: 'inbox' }, says: ['move_item_to_panel inbox in ws-work'] },
-      { situation: 'remove_panels then add_panels, in that order', args: { add_panels: ['Sales ▸ Admin'], remove_panels: ['Work ▸ Admin'] }, says: ['remove_item_from_panel p-admin in ws-work', 'add_item_to_panel on top p-sales-admin in ws-work'] },
+      { situation: 'add_panels then remove_panels, so the item is never on no Panel between them', args: { add_panels: ['Sales ▸ Admin'], remove_panels: ['Work ▸ Admin'] }, says: ['add_item_to_panel on top p-sales-admin in ws-work', 'remove_item_from_panel p-admin in ws-work'] },
     ])('writes the form’s own filing commands for $situation, each on top', ({ args, says }) => {
       expect(filed(anItem(), args).commands).toEqual(says);
     });

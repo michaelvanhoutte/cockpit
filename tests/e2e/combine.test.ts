@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { giveADashboard, giveToTheInbox } from './support/arrange';
+import { giveADashboard, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
   dashboardBar,
@@ -80,7 +80,7 @@ test.describe('Triage', () => {
       const [first, second] = [uniqueTitle('Storm scene'), uniqueTitle('Ferry scene')] as const;
       const [rent, ferry] = [uniqueTitle('Pay the rent'), uniqueTitle('Book the ferry')] as const;
       const twoIdeas = `${rent}\n\n${ferry}`;
-      await inboxWithRows(page, isMobile, [first, second, twoIdeas]);
+      const board = await inboxWithRows(page, isMobile, [first, second, twoIdeas]);
       await pickRows(page, [first, second], isMobile);
 
       const dialog = await combineThem(page, isMobile);
@@ -133,6 +133,33 @@ test.describe('Triage', () => {
       await expect(inbox(page).getByText('Ferry', { exact: true })).toHaveCount(0);
       await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
       await expect(itemRow(page, rent)).not.toContainText('of 2 done');
+
+      // Combine on a Panel moves its rows ("Panels: Items put inside a parent stay where they were", issue 1876): each is
+      // shown once, under the new parent, and Undo files them back on the Panel.
+      const [onPanelOne, onPanelTwo] = [uniqueTitle('Falcon one'), uniqueTitle('Falcon two')] as const;
+      const falcon = board.panels[0]!;
+      await giveToAPanel(page, falcon, [onPanelOne, onPanelTwo]);
+      await page.reload();
+      await openDashboard(page, board.name, isMobile);
+      const panel = page.getByRole('region', { name: falcon.name });
+      if (isMobile) {
+        await holdRow(page, onPanelOne, false);
+        await tapRow(page, onPanelTwo);
+      } else {
+        await panel.getByRole('listitem').filter({ hasText: onPanelOne }).click({ modifiers: ['ControlOrMeta'] });
+        await panel.getByRole('listitem').filter({ hasText: onPanelTwo }).click({ modifiers: ['ControlOrMeta'] });
+      }
+      await expect(page.getByText('2 selected')).toBeVisible();
+      await combineThem(page, isMobile).then((combine) => combine.getByRole('button', { name: 'Combine' }).click());
+
+      const parent = `Combined: ${onPanelOne} +1`;
+      await expect(panel.getByText(parent, { exact: true })).toBeVisible();
+      await expect(panel.getByText(onPanelOne, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelTwo, { exact: true })).toHaveCount(1);
+      await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+      await expect(panel.getByText(parent, { exact: true })).toHaveCount(0);
+      await expect(panel.getByText(onPanelOne, { exact: true })).toHaveCount(1);
+      await expect(panel.getByText(onPanelTwo, { exact: true })).toHaveCount(1);
     });
   });
 });

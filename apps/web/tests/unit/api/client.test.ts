@@ -77,3 +77,30 @@ describe('Offline', () => {
     });
   });
 });
+
+describe('Whiteboard', () => {
+  describe('a change to a whiteboard is sent to its own address, as every change is', () => {
+    it('posts placing a card to the place-card address, with what was sent', async () => {
+      const sent: { path: string; body: unknown }[] = [];
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(new URL(String(input), 'http://localhost'), init);
+        sent.push({ path: new URL(request.url, 'http://localhost').pathname, body: await request.json() });
+        return new Response(JSON.stringify({ ok: true, applied: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      const payload = {
+        commandId: '01a0f83f-c040-749a-b6e6-330d17bc4150',
+        issuedAt: '2026-10-01T08:00:00.000Z',
+        workspaceId: 'ws-work',
+        cardId: '01a0f83f-c040-749a-b6e6-330d17bc4151',
+        dashboardId: 'db-plot',
+        itemId: '01a0f83f-c040-749a-b6e6-330d17bc4152',
+        boxId: null,
+        x: 10,
+        y: 20,
+      };
+
+      expect(await sendCommand('place_card', payload)).toEqual({ ok: true, applied: true });
+      expect(sent).toEqual([{ path: '/v1/commands/place_card', body: payload }]);
+    });
+  });
+});

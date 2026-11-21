@@ -603,9 +603,6 @@ export function planUpdate(
     const place = (panel: PanelChoice) => panelPlace(panel.dashboard, panel.name);
     const said: string[] = [];
     const own = (panel: PanelChoice) => ({ commandId: uuidv7(), issuedAt, workspaceId: panel.workspaceId, itemId: item.id });
-    for (const panel of panels.remove) {
-      write('panels', { name: 'remove_item_from_panel', payload: { ...own(panel), panelId: panel.id } });
-    }
     if (panels.remove.length) said.push(`taken off ${list(panels.remove.map(place))}`);
     if (panels.moveTo === 'inbox') {
       // An Item no Workspace has been chosen for is on no Panel already.
@@ -621,6 +618,11 @@ export function planUpdate(
       write('panels', { name: 'add_item_to_panel', onTop: true, payload: { ...own(panel), panelId: panel.id } });
     }
     if (panels.add.length) said.push(`filed on top of ${list(panels.add.map(place))}`);
+    // Taken off last, once it is on every Panel it lands on: a step leaving it on none would put it in the Inbox, which
+    // an Item on a whiteboard is refused ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+    for (const panel of panels.remove) {
+      write('panels', { name: 'remove_item_from_panel', payload: { ...own(panel), panelId: panel.id } });
+    }
     panelsSaid = said.length ? said.join('; ') : null;
   }
 

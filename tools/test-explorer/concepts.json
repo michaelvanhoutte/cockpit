@@ -258,7 +258,7 @@
     {
       "key": "Panels",
       "label": "Panels",
-      "browserWalks": 30,
+      "browserWalks": 31,
       "parent": "Dashboards",
       "sourcePatterns": [
         "apps/api/src/domain/panels.ts",
@@ -321,6 +321,25 @@
         "apps/api/src/http/app.ts",
         "packages/shared/src/domain/panel.ts",
         "packages/shared/src/commands.ts"
+      ]
+    },
+    {
+      "key": "Whiteboard",
+      "label": "Whiteboard",
+      "browserWalks": 2,
+      "parent": "Dashboards",
+      "sourcePatterns": [
+        "apps/web/src/whiteboard/**",
+        "apps/web/src/components/LayoutSwitch.tsx",
+        "apps/web/src/components/TakeOffQuestion.tsx",
+        "apps/web/src/whiteboardQuestion.ts",
+        "apps/web/src/boardLayout.ts",
+        "apps/web/src/boardFocus.ts",
+        "apps/api/src/accounts/board.ts",
+        "packages/shared/src/board.ts",
+        "packages/shared/src/domain/board.ts",
+        "packages/shared/src/domain/swatches.ts",
+        "packages/shared/src/commands-board.ts"
       ]
     },
     {

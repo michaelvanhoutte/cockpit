@@ -26,6 +26,7 @@ import {
 } from '@cockpit/shared';
 import { QueryClientContext } from '@tanstack/react-query';
 import { useCommand, useSendCommand, whyNotDone } from '../api/queries';
+import { putCardsBackAfter } from '../whiteboardQuestion';
 import { phoneLinksOnThisDevice } from '../phoneDevice';
 import { draftBeingStarted, emailEntryFor, emailFromItem, lastMailboxIn, useDraftStarting } from '../emailDraft';
 import { deviceTimeZone } from '../deviceTimeZone';
@@ -39,6 +40,7 @@ import { DEADLINE_PILLS, deadlineOf, dueDateLabel } from '../dueDate';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
 import { dragEnded, inTheOrderDrawn, liftItem, useCarriedIds } from '../itemInTheAir';
 import { pickedNow } from '../selection';
+import { useSelectedOnTheBoard } from '../boardFocus';
 import { HOLD_MS, stillHolding } from '../hold';
 import { useDockedItem } from '../itemForm';
 import { fromHeadingClass, MailboxChoice, mailboxMenuClass } from './MailboxChoice';
@@ -522,7 +524,8 @@ export function ItemRow({
     offerToUndo({
       what: `“${itemLabel(item)}” dismissed`,
       unlessRefused: answer,
-      undo: () =>
+      // Its own cards come back with it; those of the Items it held that *Take off both* took, after it.
+      undo: putCardsBackAfter(send, workspaceId, [answer], () =>
         send({
           name: 'set_dismissed',
           payload: {
@@ -534,6 +537,7 @@ export function ItemRow({
             ...(endedRunId && { reopensRunId: endedRunId }),
           },
         }),
+      ),
     });
   };
 
@@ -574,6 +578,8 @@ export function ItemRow({
   const label = itemLabel(item);
   /** That it holds Items, by the count kept on it. */
   const holds = holdsItems(item);
+  /** That this Item's card is selected on the Dashboard's whiteboard, which rings the row (`boardFocus.ts`). */
+  const cardSelected = useSelectedOnTheBoard(item.id);
   /** The Next action as the row draws it - trimmed, and none for a blank one - or null where there is none. */
   const nextAction = asNextAction(item.nextAction);
   const atSource = openEntryFor(item, conversation, sourceNames, messageLinks, phoneLinksOnThisDevice(phoneLinks));
@@ -1394,10 +1400,12 @@ export function ItemRow({
       // overdue row is no longer filled red. The row being shown in a docked
       // form is ringed instead, and named to assistive tech.
       aria-current={dock.openId === item.id ? 'true' : undefined}
+      // Its card selected on the Dashboard's whiteboard: the selection follows from the card to the row ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
+      data-card-selected={cardSelected ? '' : undefined}
       className={`group relative touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent border-b border-shade/5 last:border-b-0 pointer-coarse:select-none ${
         selecting?.picked ? 'row-picked hover:row-picked-hover' : 'hover:bg-row-hover'
       } ${
-        dock.openId === item.id || receiving ? 'ring-2 ring-inset ring-accent ' : ''
+        dock.openId === item.id || receiving || cardSelected ? 'ring-2 ring-inset ring-accent ' : ''
       }${receiving ? 'bg-accent/10 ' : ''}${carriedInTheAir?.has(item.id) ? 'opacity-40 ' : ''}${
         landing === 'before'
           ? 'shadow-landing-before '
