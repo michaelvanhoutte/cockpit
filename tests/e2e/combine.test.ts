@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import { giveADashboard, giveToAPanel, giveToTheInbox } from './support/arrange';
 import {
   ADA,
@@ -160,6 +160,63 @@ test.describe('Triage', () => {
       await expect(panel.getByText(parent, { exact: true })).toHaveCount(0);
       await expect(panel.getByText(onPanelOne, { exact: true })).toHaveCount(1);
       await expect(panel.getByText(onPanelTwo, { exact: true })).toHaveCount(1);
+    });
+  });
+});
+
+/** A title far wider than any window, in words so that only the cut-off, not a break, can keep it on one line. */
+const longTitle = (label: string) => `${uniqueTitle(label)} ${'and then some more words that run on '.repeat(8)}`.trim();
+
+/** One line ending in an ellipsis: told not to wrap, to hide what overflows and to mark it, and really wider than the box it is cut to. */
+async function endsInAnEllipsis(line: Locator): Promise<void> {
+  await expect(line).toBeVisible();
+  const cut = await line.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      whiteSpace: style.whiteSpace,
+      textOverflow: style.textOverflow,
+      overflow: style.overflowX,
+      wider: el.scrollWidth > el.clientWidth,
+    };
+  });
+  expect(cut).toEqual({ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', wider: true });
+}
+
+/** The window keeps to the screen: nothing in it reaches past its own edge, and it is no wider than the viewport. */
+async function doesNotScrollSideways(page: Page, dialog: Locator): Promise<void> {
+  const { scrolls, width } = await dialog.evaluate((el) => ({ scrolls: el.scrollWidth - el.clientWidth, width: el.getBoundingClientRect().width }));
+  expect(scrolls).toBeLessThanOrEqual(0);
+  expect(width).toBeLessThanOrEqual(page.viewportSize()!.width);
+}
+
+test.describe('Triage', () => {
+  test.describe('Combine keeps its width whatever the titles are', () => {
+    test('a long title under an existing parent, among the Items combined, in the Combine with list and in the window\'s own title is one line ending in an ellipsis, and the window never scrolls sideways', async ({ page, isMobile }) => {
+      const [first, second, parent] = [longTitle('Storm scene'), longTitle('Ferry scene'), longTitle('Harbour plans')] as const;
+      await inboxWithRows(page, isMobile, [first, second, parent]);
+
+      // Picked together: the names above the cards and, under an existing parent, the parent picker.
+      await pickRows(page, [first.slice(0, 20), second.slice(0, 20)], isMobile);
+      const dialog = await combineThem(page, isMobile);
+      await dialog.getByRole('radio', { name: /Combine under an existing parent/ }).check();
+      // The list shows eight at most, so search for the one wanted.
+      await dialog.getByRole('textbox', { name: 'Find the parent Item' }).fill(parent.slice(0, 20));
+      const picker = dialog.getByRole('list', { name: 'Items to add them to' });
+      await endsInAnEllipsis(picker.getByRole('button', { name: parent.slice(0, 20) }));
+      for (const title of [first, second]) await endsInAnEllipsis(dialog.getByRole('listitem').filter({ hasText: title.slice(0, 20) }).first());
+      await doesNotScrollSideways(page, dialog);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+
+      // From one row's menu: the window's title and the list of Items to combine it with.
+      await press(inbox(page).getByRole('button', { name: 'Clear' }), isMobile);
+      await press(itemRow(page, first.slice(0, 20)).getByRole('button', { name: 'Item actions' }), isMobile);
+      await press(page.getByRole('menuitem', { name: 'Combine with…' }), isMobile);
+      const fromARow = page.getByRole('dialog');
+      await endsInAnEllipsis(fromARow.getByRole('heading', { name: /^Combine “/ }));
+      await fromARow.getByRole('textbox', { name: 'Find the Items to combine with' }).fill(second.slice(0, 20));
+      await endsInAnEllipsis(fromARow.getByRole('list', { name: 'Items to combine with' }).getByRole('button', { name: second.slice(0, 20) }));
+      await doesNotScrollSideways(page, fromARow);
     });
   });
 });
