@@ -6,6 +6,7 @@ import { SENTENCE_POINTS_SOMEWHERE, onOneLine, sentenceMayBeKept } from '../doma
 import type { AccountDb } from './client.js';
 import { dropPulledWanted, wantPulledOpenStateMirrored } from './pulled-open-state.js';
 import { isBoardCommand, keepNoCardInTheInbox, placeCombinedParent, putBack, restampCards, runBoardCommand } from './board.js';
+import { isLinkCommand, runLinkCommand } from './links.js';
 import {
   ancestorsAmong,
   dismissPanelsItems,
@@ -1382,6 +1383,10 @@ export function runCommand<N extends CommandName>(
   // A whiteboard's own changes ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829).
   if (isBoardCommand(name)) {
     return { ok: true, applied: runBoardCommand(db, tenantId, name, payload as never, commandRow), at: commandRow.receivedAt };
+  }
+  // Links between Items, line kinds and free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831).
+  if (isLinkCommand(name)) {
+    return { ok: true, applied: runLinkCommand(db, tenantId, name, payload as never, commandRow), at: commandRow.receivedAt };
   }
   // Whether a change that leaves an Item with cards in the Inbox takes them off every board too (`keepNoCardInTheInbox`).
   const takeCardsOff = (payload as { takeCardsOff?: boolean }).takeCardsOff === true;

@@ -37,7 +37,7 @@ function aSnapshot(over: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot {
     filings: [],
     children: [],
     panels: [{ id: 'panel', kind: 'items', dashboardId: 'dash' }],
-    whiteboards: { layouts: [], boxes: [people, mentors], cards: [] },
+    whiteboards: { layouts: [], boxes: [people, mentors], cards: [], lineKinds: [], links: [], lines: [] },
     ...over,
   } as unknown as WorkspaceSnapshot;
 }

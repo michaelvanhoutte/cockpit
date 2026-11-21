@@ -1414,6 +1414,130 @@ export const boardCards = sqliteTable(
   ],
 );
 
+/**
+ * A Workspace's line kinds ("Brainstorming: the whiteboard can't show how Items
+ * connect", issue 1831): a name, a style, one of the swatches and an
+ * arrowhead or none, for the links between its Items. *Leads to* and *Related*
+ * carry a `role` and an id made from the Workspace's (`fixedLineKindId`); they
+ * are written the first time the Workspace links or adds a kind, the read
+ * supplying them until then, and are never renamed or deleted. `position` keeps
+ * the added ones in the order they were made.
+ *
+ * - **Tombstoned**: deleting a kind stamps `deleted_at` and leaves its links
+ *   naming it; the read draws them *Related*, and its Undo clears the stamp.
+ * - **`style`, `colour` and `role`** have no CHECK, for the reason
+ *   `board_boxes.colour` has none: the command's schema is the one writer.
+ */
+export const lineKinds = sqliteTable(
+  'line_kinds',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    foldedName: text('folded_name').notNull(),
+    style: text('style').notNull(),
+    colour: text('colour').notNull(),
+    arrow: integer('arrow', { mode: 'boolean' }).notNull(),
+    role: text('role'),
+    position: integer('position').notNull(),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    // No two live kinds of a Workspace share a name, whatever its capitals.
+    uniqueIndex('line_kinds_workspace_live_folded_name')
+      .on(t.tenantId, t.workspaceId, t.foldedName)
+      .where(sql`${t.deletedAt} IS NULL`),
+    // A Workspace's kinds, for its read and the picker.
+    index('line_kinds_tenant_workspace')
+      .on(t.tenantId, t.workspaceId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('line_kinds_arrow_is_a_flag', sql.raw('arrow IN (0, 1)')),
+    check('line_kinds_created_at_is_timestamp', isTimestamp('created_at')),
+    check('line_kinds_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A link from one Item to another of the same Workspace, of one of its line
+ * kinds, with an optional label of its own ("Brainstorming: the whiteboard
+ * can't show how Items connect", issue 1831). It belongs to the two
+ * Items, not to a board: every board holding a card for each draws it. A link
+ * touching a dismissed Item is in no read until that Item is back.
+ *
+ * Tombstoned: *Remove link* stamps `deleted_at`, and its Undo clears it.
+ */
+export const itemLinks = sqliteTable(
+  'item_links',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    fromItemId: text('from_item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    toItemId: text('to_item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'restrict' }),
+    kindId: text('kind_id')
+      .notNull()
+      .references(() => lineKinds.id, { onDelete: 'restrict' }),
+    label: text('label'),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    // The links touching the Items the Workspace's read carries, from each end, and an Item's for Relations.
+    index('item_links_tenant_from')
+      .on(t.tenantId, t.fromItemId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index('item_links_tenant_to')
+      .on(t.tenantId, t.toItemId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('item_links_not_to_itself', sql.raw('from_item_id <> to_item_id')),
+    check('item_links_created_at_is_timestamp', isTimestamp('created_at')),
+    check('item_links_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
+/**
+ * A free line on one Dashboard's whiteboard (*Draw line*, "Brainstorming: the
+ * whiteboard can't show how Items connect", issue 1831): two
+ * points on the board itself and an optional label, empty for none. It belongs
+ * to that board alone and joins nothing. Tombstoned: *Remove line* stamps
+ * `deleted_at`, and its Undo clears it.
+ */
+export const boardLines = sqliteTable(
+  'board_lines',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    dashboardId: text('dashboard_id')
+      .notNull()
+      .references(() => dashboards.id, { onDelete: 'restrict' }),
+    x1: real('x1').notNull(),
+    y1: real('y1').notNull(),
+    x2: real('x2').notNull(),
+    y2: real('y2').notNull(),
+    label: text('label').notNull(),
+    createdAt: text('created_at').notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    // A board's free lines, for the Workspace's read.
+    index('board_lines_tenant_dashboard')
+      .on(t.tenantId, t.dashboardId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    check('board_lines_created_at_is_timestamp', isTimestamp('created_at')),
+    check('board_lines_deleted_at_is_timestamp', isTimestamp('deleted_at')),
+  ],
+);
+
 export const associations = sqliteTable(
   'associations',
   {

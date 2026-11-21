@@ -3,7 +3,8 @@ import { itemLabel, type CommandPayload } from '@cockpit/shared';
 import type { BoardBox, BoardCard, DashboardLayout, ItemOnWhiteboards, Swatch, Whiteboards } from '@cockpit/shared/board';
 import type { AccountDb } from './client.js';
 import { boardBoxes, boardCards, commands, dashboards } from './schema.js';
-import { getDashboard, getItem, withNoLiveParent } from './repo.js';
+import { getDashboard, getItem, withNoLiveParent, type ItemsOfTheRead } from './repo.js';
+import { listLinksKindsAndLines } from './links.js';
 import { DashboardNotFoundError, ItemNotFoundError } from './command-service.js';
 import { inBatchesOf } from '../domain/statements.js';
 
@@ -126,10 +127,11 @@ export function cardsOfTheBoards(db: Db, tenantId: string, workspaceId: string) 
 
 /**
  * Every whiteboard of a Workspace, for its read: what each live Dashboard's
- * board holds and how each Dashboard that chose a layout is laid out. A card
+ * board holds and how each Dashboard that chose a layout is laid out, and the
+ * links touching the Items `of` the read, with the Workspace's line kinds. A card
  * whose box is gone is never live (`delete_box` takes it off with the box).
  */
-export function listWhiteboards(db: AccountDb, tenantId: string, workspaceId: string): Whiteboards {
+export function listWhiteboards(db: AccountDb, tenantId: string, workspaceId: string, of: ItemsOfTheRead): Whiteboards {
   const layouts: DashboardLayout[] = db
     .select({ dashboardId: dashboards.id, view: dashboards.layoutView, splitShare: dashboards.splitShare })
     .from(dashboards)
@@ -147,7 +149,7 @@ export function listWhiteboards(db: AccountDb, tenantId: string, workspaceId: st
     .all()
     .map((row) => ({ ...row, colour: row.colour as Swatch | null }));
   const cards: BoardCard[] = cardsOfTheBoards(db, tenantId, workspaceId).all();
-  return { layouts, boxes, cards };
+  return { layouts, boxes, cards, ...listLinksKindsAndLines(db, tenantId, workspaceId, of) };
 }
 
 /**

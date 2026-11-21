@@ -110,7 +110,7 @@ async function emptyTheStore(name: string): Promise<void> {
       .toArray()
       .map((row) => row.name);
     // Children before parents, the same order a restore drops in.
-    for (const table of ['board_cards', 'board_boxes', 'panel_placements', 'layout_rows', 'panel_items', 'item_children', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'screen_sizes', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
+    for (const table of ['item_links', 'line_kinds', 'board_lines', 'board_cards', 'board_boxes', 'panel_placements', 'layout_rows', 'panel_items', 'item_children', 'associations', 'commands', 'rewrite_history', 'items', 'layouts', 'screen_sizes', 'panels', 'dashboards', 'item_types', 'workspaces', 'account_changes']) {
       if (tables.includes(table)) sql.exec(`DROP TABLE IF EXISTS "${table}"`);
     }
     for (const table of tables) sql.exec(`DROP TABLE IF EXISTS "${table}"`);
@@ -488,10 +488,8 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0114-whiteboards` adds each Dashboard's layout and divider ("Brainstorming: give every Dashboard a whiteboard of its own", issue 1829),
-    // and its two tables, which a backup taken before it carries no rows of;
-    // the guest's demonstration adds rows only, and only to the guest.
-    dashboards: ['layout_view', 'split_share'],
+    // `0115-item-links` adds three tables and no column ("Brainstorming: the whiteboard can't show how Items connect", issue 1831),
+    // and a backup taken before it carries no rows of them; the guest's demonstration adds rows only, and only to the guest.
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

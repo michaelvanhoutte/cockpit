@@ -4,7 +4,8 @@ import { BoardToolbar } from '../../../src/whiteboard/BoardToolbar';
 
 /**
  * F1: a whiteboard's toolbar ("Brainstorming: give every Dashboard a whiteboard
- * of its own", issue 1829). That it sits in one row at a desk and its icons fit
+ * of its own", issue 1829; *Draw line* and *Show labels* from "Brainstorming:
+ * the whiteboard can't show how Items connect", issue 1831). That it sits in one row at a desk and its icons fit
  * a narrow board is the browser walk's (`tests/e2e/whiteboard.test.ts`), since
  * jsdom measures nothing; what it offers is here.
  */
@@ -29,17 +30,22 @@ function theToolbar(over: { narrow?: boolean; readOnly?: boolean } = {}) {
 }
 
 describe('Whiteboard', () => {
-  describe('the toolbar reads Select · Draw box, as words on a wide board and icons on a narrow one', () => {
+  describe('the toolbar reads Select · Draw box · Draw line, as words on a wide board and icons on a narrow one', () => {
     it.each([
-      { situation: 'a wide board', narrow: false, words: ['Select', 'Draw box'] },
-      { situation: 'a narrow board', narrow: true, words: ['', ''] },
+      { situation: 'a wide board', narrow: false, words: ['Select', 'Draw box', 'Draw line'] },
+      { situation: 'a narrow board', narrow: true, words: ['', '', ''] },
     ])('on $situation', ({ narrow, words }) => {
       theToolbar({ narrow });
       const tools = screen.getByRole('toolbar', { name: 'Whiteboard tools' });
-      const buttons = within(tools).getAllByRole('button').slice(0, 2);
-      expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['Select', 'Draw box']);
+      const buttons = within(tools).getAllByRole('button').slice(0, 3);
+      expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['Select', 'Draw box', 'Draw line']);
       expect(buttons.map((one) => one.textContent)).toEqual(words);
       expect(within(tools).getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('offers Show labels beside the tools, pressed while every link names its kind', () => {
+      theToolbar();
+      expect(within(screen.getByRole('toolbar', { name: 'Whiteboard tools' })).getByRole('button', { name: 'Show labels' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     it('offers no tools on a board only to look at, and keeps Fit and Full screen', () => {

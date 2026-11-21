@@ -229,6 +229,7 @@ import {
 } from '../domain/text-corrections.js';
 import { finishedKeptAfter } from '../domain/workspace-read.js';
 import { BoxInsideItselfError, BoxNotFoundError, CardNotFoundError, NotPlaceableError, OnWhiteboardsError, listWhiteboards } from './board.js';
+import { FixedLineKindError, LineKindNameTakenError, LineKindNotFoundError, LineNotFoundError, LinkNotFoundError } from './links.js';
 import { bringUpToDate, type Change } from './up-to-date.js';
 import { retireAgents, whyItFailed } from './retire-agents.js';
 
@@ -349,7 +350,7 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
           : null,
         duplicates: listDuplicatesInWorkspace(db, accountName, workspaceId),
         agentRuns: listOpenAgentRuns(db, accountName, workspaceId),
-        whiteboards: listWhiteboards(db, accountName, workspaceId),
+        whiteboards: listWhiteboards(db, accountName, workspaceId, ofTheRead),
       };
     });
   }
@@ -2078,7 +2079,10 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof LayoutNotFoundError ||
         error instanceof SourceAccountNotFoundError ||
         error instanceof BoxNotFoundError ||
-        error instanceof CardNotFoundError
+        error instanceof CardNotFoundError ||
+        error instanceof LinkNotFoundError ||
+        error instanceof LineKindNotFoundError ||
+        error instanceof LineNotFoundError
       ) {
         return { status: 'missing', what: error.message };
       }
@@ -2103,7 +2107,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         error instanceof DashboardOrderStaleError ||
         // Same kind of collision one level down: a whole order sent against a
         // panel whose items have moved on.
-        error instanceof PanelOrderStaleError
+        error instanceof PanelOrderStaleError ||
+        // A kind named as one the Workspace has, as a Panel's name can be taken.
+        error instanceof LineKindNameTakenError
       ) {
         return { status: 'conflict', what: error.message };
       }
@@ -2131,7 +2137,9 @@ export abstract class AccountStoreBase extends DurableObject<Env> implements Acc
         // A 400 as well: the Item is there, and in the Inbox, so not on any whiteboard.
         error instanceof NotPlaceableError ||
         // Same again: every box is there, and a box cannot be inside itself.
-        error instanceof BoxInsideItselfError
+        error instanceof BoxInsideItselfError ||
+        // Same again: the kind is there, and Leads to and Related are every Workspace's.
+        error instanceof FixedLineKindError
       ) {
         return { status: 'refused', what: error.message };
       }

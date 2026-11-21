@@ -785,7 +785,7 @@ function notAPanelsOwnItem() {
   return sql`NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = ${items.id})`;
 }
 
-function itemsOfTheRead(of: ItemsOfTheRead) {
+export function itemsOfTheRead(of: ItemsOfTheRead) {
   if (of === 'every') return undefined;
   if (of === 'finished') return and(isNotNull(items.completedAt), isNull(items.deletedAt));
   return or(isNull(items.completedAt), gt(items.completedAt, of.finishedAfter), onAWhiteboard());

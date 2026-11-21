@@ -245,7 +245,7 @@ function boardLayoutChosen(
   change: Extract<Drawn, { name: 'set_dashboard_view' | 'set_dashboard_split' }>,
 ): WorkspaceSnapshot {
   if (change.payload.workspaceId !== snapshot.workspace.id) return snapshot;
-  const boards = snapshot.whiteboards ?? { layouts: [], boxes: [], cards: [] };
+  const boards = snapshot.whiteboards ?? { layouts: [], boxes: [], cards: [], lineKinds: [], links: [], lines: [] };
   const { dashboardId } = change.payload;
   const was = boards.layouts.find((one) => one.dashboardId === dashboardId) ?? { dashboardId, view: null, splitShare: null };
   const now = change.name === 'set_dashboard_view' ? { ...was, view: change.payload.view } : { ...was, splitShare: change.payload.splitShare };
@@ -700,6 +700,17 @@ export const DRAWN_AHEAD: ReadonlySet<Drawn['name']> = new Set([
   'set_box_colour',
   'set_box_collapsed',
   'delete_box',
+  // Links, line kinds and free lines ("Brainstorming: the whiteboard can't show how Items connect", issue 1831).
+  'link_items',
+  'set_link_kind',
+  'set_link_label',
+  'unlink_items',
+  'add_line_kind',
+  'edit_line_kind',
+  'delete_line_kind',
+  'draw_line',
+  'set_line_label',
+  'delete_line',
 ]);
 
 /** The changes in the order they were made, each drawn over the one before. */

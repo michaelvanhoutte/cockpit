@@ -5,14 +5,18 @@ import { ADA, dashboardBar, expect, expectNoSidewaysScroll, openDashboard, signI
 
 /**
  * F3: a Dashboard's whiteboard ("Brainstorming: give every Dashboard a
- * whiteboard of its own", issue 1829). What each change stores, the Inbox rule
+ * whiteboard of its own", issue 1829), with links and free lines
+ * ("Brainstorming: the whiteboard can't show how Items connect", issue 1831,
+ * whose stored rules are apps/api/tests/integration/http/item-links.test.ts and
+ * whose drawing is apps/web/tests/unit/whiteboard/links.test.ts). What each change stores, the Inbox rule
  * and what Undo restores are proved against a real store
  * (apps/api/tests/integration/http/board.test.ts); what a card draws, the
  * toolbar's words and the question "Take it off there too?" are F1
  * (apps/web/tests/unit/whiteboard/, apps/web/tests/unit/whiteboardQuestion.test.tsx).
  * **What is only true in a browser** is that a row really drags onto the board,
- * that a box is drawn by dragging, that the pointer gestures select, toggle and
- * open as agreed, and how the board fits a desk and a phone.
+ * that a box and a line are drawn by dragging, that a card's dot drags into a
+ * link, that the pointer gestures select, toggle and open as agreed, and how
+ * the board fits a desk and a phone.
  *
  * **Every walk arranges its rows through the API** and drives only the board.
  */
@@ -46,11 +50,11 @@ async function dragCardTo(page: Page, title: string, to: { x: number; y: number 
 const centre = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
 test.describe('Whiteboard', () => {
-  test.describe('a row dragged onto the board becomes a card, a box is drawn and named, and both stay', () => {
-    test('places the row as a card and draws a named box at a desk; on a phone the board opens to look at and a tap opens the card', async ({ page, isMobile }) => {
+  test.describe('a row dragged onto the board becomes a card, a box and a line are drawn, a card’s dot links it to another, and all of it stays', () => {
+    test('places the row as a card, draws a named box, links two cards from a hover dot and draws a line at a desk; on a phone the board opens to look at and a tap opens the card', async ({ page, isMobile }) => {
       await signIn(page, ADA, isMobile);
-      const [ferry] = [uniqueTitle('Ferry scene')];
-      const board = await aDashboardWith(page, [ferry]);
+      const [ferry, storm] = [uniqueTitle('Ferry scene'), uniqueTitle('Storm scene')];
+      const board = await aDashboardWith(page, [ferry, storm]);
 
       if (isMobile) {
         await arrange(page, 'place_card', { cardId: randomUUID(), dashboardId: board.id, itemId: board.panels[0]!.itemIds[0], boxId: null, x: 40, y: 40 });
@@ -66,6 +70,7 @@ test.describe('Whiteboard', () => {
         return;
       }
 
+      await arrange(page, 'place_card', { cardId: randomUUID(), dashboardId: board.id, itemId: board.panels[0]!.itemIds[1], boxId: null, x: 0, y: 0 });
       await page.reload();
       await openDashboard(page, board.name, isMobile);
       const switched = answerTo(page, 'set_dashboard_view');
@@ -76,9 +81,11 @@ test.describe('Whiteboard', () => {
       // The toolbar is one row, at a desk.
       expect((await page.getByRole('toolbar', { name: 'Whiteboard tools' }).boundingBox())!.height).toBeLessThan(48);
 
+      await expect(topCard(page, storm)).toBeVisible();
       const placed = answerTo(page, 'place_card');
       const area = (await whiteboard.boundingBox())!;
-      await page.locator('[data-panel-cell] li[data-item-row]').filter({ hasText: ferry }).dragTo(whiteboard, { targetPosition: { x: area.width / 2, y: area.height / 2 } });
+      // Below Storm scene, which the board opened centred on.
+      await page.locator('[data-panel-cell] li[data-item-row]').filter({ hasText: ferry }).dragTo(whiteboard, { targetPosition: { x: area.width / 2, y: area.height - 60 } });
       expect((await placed).status()).toBe(200);
       await expect(card(page, ferry)).toBeVisible();
 
@@ -92,9 +99,35 @@ test.describe('Whiteboard', () => {
       await page.keyboard.press('Enter');
       expect((await drawn).status()).toBe(200);
 
+      // A dot on the side of a card, shown on hover, dragged to another card links the two ("Brainstorming: the whiteboard can't show how Items connect", issue 1831).
+      await topCard(page, ferry).hover();
+      const dot = (await card(page, ferry).locator('.board-dot.react-flow__handle-top').boundingBox())!;
+      await page.mouse.move(dot.x + dot.width / 2, dot.y + dot.height / 2);
+      await page.mouse.down();
+      const onStorm = centre((await topCard(page, storm).boundingBox())!);
+      await page.mouse.move(onStorm.x, onStorm.y, { steps: 10 });
+      const linked = answerTo(page, 'link_items');
+      await page.mouse.up();
+      expect((await linked).status()).toBe(200);
+      await expect(whiteboard.locator('.react-flow__edge')).toHaveCount(1);
+
+      const line = answerTo(page, 'draw_line');
+      await page.getByRole('button', { name: 'Draw line' }).click();
+      await page.mouse.move(area.x + 300, area.y + 80);
+      await page.mouse.down();
+      await page.mouse.move(area.x + area.width - 40, area.y + 120, { steps: 6 });
+      await page.mouse.up();
+      expect((await line).status()).toBe(200);
+      const labelled = answerTo(page, 'set_line_label');
+      await page.getByRole('textbox', { name: 'Label this line' }).fill('Act two');
+      await page.keyboard.press('Enter');
+      expect((await labelled).status()).toBe(200);
+
       await page.reload();
       await expect(card(page, ferry)).toBeVisible();
       await expect(page.locator('[data-box="Places"]')).toBeVisible();
+      await expect(whiteboard.locator('.react-flow__edge')).toHaveCount(1);
+      await expect(whiteboard.locator('[data-line-label="Act two"]')).toBeVisible();
       await expect(dashboardBar(page).getByRole('radio', { name: 'Side by side' })).toHaveAttribute('aria-checked', 'true');
     });
   });

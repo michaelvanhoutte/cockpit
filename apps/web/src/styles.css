@@ -30,11 +30,17 @@
   /* An Item row under the pointer: the ink at 8%, the same in every Workspace. */
   --color-row-hover: rgb(22 24 29 / 0.08);
 
-  /*
-   * The Conselit category colours, each with a -tint for hover and selected
-   * fills and a -light for use on the chrome. The status dots below map onto
-   * them rather than keeping near-duplicates.
-   */
+}
+
+/*
+ * The Conselit category colours, each with a -tint for hover and selected
+ * fills and a -light for use on the chrome. The status dots below map onto
+ * them rather than keeping near-duplicates. **Static**, so every one is
+ * emitted whether a class names it or not: a whiteboard's box and line kind
+ * name theirs at runtime (`var(--color-cat-<swatch>)`), which Tailwind cannot
+ * see, and a swatch no class used was dropped.
+ */
+@theme static {
   --color-cat-slate: #2f4f7a;
   --color-cat-slate-tint: #e9eef5;
   --color-cat-slate-light: #93a6c2;
@@ -53,13 +59,16 @@
   --color-cat-grey: #475569;
   --color-cat-grey-tint: #eceff3;
   --color-cat-grey-light: #a7b0be;
-  /* The two a whiteboard's box takes beyond the six (`SWATCHES`, @cockpit/shared/board). */
+  /* The two a whiteboard's boxes and line kinds take beyond the six (`SWATCHES`, @cockpit/shared/board). */
   --color-cat-rose: #a83f5c;
   --color-cat-rose-tint: #fbe8ee;
   --color-cat-rose-light: #f08aa6;
   --color-cat-sky: #1b65a6;
   --color-cat-sky-tint: #e3effa;
   --color-cat-sky-light: #7cb8ee;
+}
+
+@theme {
 
   /* The chrome's graphite, top to bottom; the bottom is the brand ink. */
   --color-graphite-top: #2d2e35;
