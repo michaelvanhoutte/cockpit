@@ -65,6 +65,11 @@ function PanelColourQuestion({
               None
             </button>
           </div>
+          <div className="flex justify-end pt-4">
+            <button type="button" onClick={onCancel} className="rounded px-3 py-1 text-sm text-ink-soft hover:bg-accent-tint">
+              Cancel
+            </button>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

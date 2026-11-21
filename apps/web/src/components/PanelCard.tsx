@@ -221,7 +221,6 @@ export function PanelCard({
       data-panel-cell={panel.id}
       // The border in the Panel's colour, solid and a little heavier than the
       // dotted hairline it replaces, so it reads at a glance down a list.
-      data-panel-colour={colour ?? undefined}
       style={colour ? { borderColor: swatchInk(colour), borderStyle: 'solid', borderWidth: 2 } : undefined}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",

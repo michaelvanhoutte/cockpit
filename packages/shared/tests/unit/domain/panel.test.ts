@@ -77,6 +77,25 @@ describe('Panels', () => {
     });
   });
 
+  describe('a panel’s colour is one of the eight or none, however it was kept', () => {
+    it.each([
+      { situation: 'a name this release has never heard of', colour: 'chartreuse', reads: null },
+      { situation: 'a swatch in other capitals', colour: 'Rose', reads: null },
+      { situation: 'none', colour: null, reads: null },
+      { situation: 'a swatch', colour: 'rose', reads: 'rose' },
+    ])('reads $situation as $reads', ({ colour, reads }) => {
+      const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items', colour };
+
+      expect(panelSchema.parse(kept).colour).toBe(reads);
+    });
+
+    it('reads a panel with none kept as none', () => {
+      const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items' };
+
+      expect(panelSchema.parse(kept).colour ?? null).toBeNull();
+    });
+  });
+
   describe('a suggested panel is always named "Dashboard ▸ Panel"', () => {
     it.each([
       { situation: 'a panel on a live dashboard', dashboard: 'Day to day', panel: 'Admin & money', reads: 'Day to day ▸ Admin & money' },

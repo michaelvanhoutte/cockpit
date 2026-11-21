@@ -5204,6 +5204,11 @@ describe('Panels', () => {
       expect(mutate.mock.calls.at(-1)![0]).toMatchObject({ name: 'set_panel_colour', payload: { panelId: 'falcon', colour: 'rose' } });
       await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
 
+      mutate.mockClear();
+      await choose(user, 'Project Falcon', 'Colour…');
+      await user.click(await screen.findByRole('radio', { name: 'Teal' }));
+      expect(mutate).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
       await choose(user, 'Project Falcon', 'Colour…');
       await user.click(await screen.findByRole('radio', { name: 'None' }));
 

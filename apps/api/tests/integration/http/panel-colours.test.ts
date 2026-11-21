@@ -9,7 +9,7 @@ import { DASHBOARD_ID, WORKSPACE_ID, asUser, inTheStore, seedRegister, startFrom
  * told apart at a glance" (issue 1832). A Panel's colour is a column of its
  * row, so that it is kept, cleared and read back with the Panel only holds
  * against a real store. How it is drawn is F1
- * (apps/web/tests/unit/components/PanelColours.test.tsx).
+ * (apps/web/tests/unit/components/PanelBoard.test.tsx).
  */
 
 let seq = 0;
@@ -86,6 +86,17 @@ describe('Panels', () => {
       expect((await send('set_panel_colour', { panelId, colour })).status).toBe(400);
 
       expect(await colourOf(panelId)).toBe('rose');
+    });
+
+    it('reads a stored name this release has no swatch for as none, so a later release’s colour never breaks the read', async () => {
+      const panelId = await aPanel('Falcon');
+      await inTheStore((sql) => sql.exec('UPDATE panels SET colour = ? WHERE id = ?', 'chartreuse', panelId));
+
+      const res = await asUser(`http://cockpit.test/v1/workspaces/${WORKSPACE_ID}/snapshot`);
+
+      expect(res.status).toBe(200);
+      const read = (await res.json()) as WorkspaceSnapshot;
+      expect(read.panels.find((panel) => panel.id === panelId)?.colour).toBeNull();
     });
 
     it('refuses an Item, which has no colour, and writes no colour anywhere', async () => {
