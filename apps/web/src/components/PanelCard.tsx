@@ -11,6 +11,7 @@ import {
 } from '@cockpit/shared';
 import type { FilterGroup } from '@cockpit/shared';
 import { ITEM_BEING_DRAGGED } from '../dropAt';
+import { swatchInk, swatchTint } from '../panelColour';
 import { saysWhatItShows } from '../filters';
 import { saysHowItIsSorted } from '../sorting';
 import { ItemList } from './ItemList';
@@ -120,6 +121,12 @@ export interface PanelCardProps {
    */
   onSort: (openedFrom: HTMLElement | null) => void;
   /**
+   * Asked to open the question that picks this Panel's colour ("Brainstorming:
+   * Panels can't be told apart at a glance", issue 1832). Offered on every
+   * Panel, whatever it holds.
+   */
+  onColour: (openedFrom: HTMLElement | null) => void;
+  /**
    * That this is the panel in the air, so it can say so. The board knows
    * which one it is; the card is what draws it.
    */
@@ -168,6 +175,7 @@ export function PanelCard({
   onMoveToAnotherDashboard,
   onFilter,
   onSort,
+  onColour,
   lifted,
   collapsed = false,
   onPickUp,
@@ -199,6 +207,8 @@ export function PanelCard({
   const sortedAs = sort ? saysHowItIsSorted(sort) : null;
   /** Where and when the press on this header that might be a tap began. */
   const pressed = useRef<{ at: number; x: number; y: number } | null>(null);
+  /** The colour it is drawn in on its header and border, and nowhere else; none is the accent as before. */
+  const colour = panel.colour ?? null;
 
   return (
     <section
@@ -209,6 +219,9 @@ export function PanelCard({
       // drawing and there is nothing here to hit. What is still dropped *on* a
       // panel is an item, and that is the list's own target, further in.
       data-panel-cell={panel.id}
+      // The border in the Panel's colour, solid and a little heavier than the
+      // dotted hairline it replaces, so it reads at a glance down a list.
+      style={colour ? { borderColor: swatchInk(colour), borderStyle: 'solid', borderWidth: 2 } : undefined}
       // No fill and no edge of its own: the panel is the sheet, and only the
       // list inside it goes down into it ("Cockpit Shell Explorations",
       // artboard 2c).
@@ -275,6 +288,8 @@ export function PanelCard({
             ...(filter ? [{ label: 'Filter…', onSelect: onFilter }] : []),
             // Not on a Panel of text, which has no rows.
             ...(panelTakesItems(panel) || filter ? [{ label: 'Sort…', onSelect: onSort }] : []),
+            // On every Panel, a text one too: the colour is the Panel's, not its rows'.
+            { label: 'Colour…', onSelect: onColour },
             {
               label: 'Move to another dashboard',
               unavailable: dashboardFiltered
@@ -288,6 +303,10 @@ export function PanelCard({
           ]}
         >
           <header
+            // The header's faint text (its count, `· N later`, read-only) is
+            // drawn as soft over the tint, which the faint ink does not hold
+            // 4.5:1 against in the dark appearance.
+            style={colour ? ({ background: swatchTint(colour), '--color-ink-faint': 'var(--color-ink-soft)' } as React.CSSProperties) : undefined}
             // The handle, and a pointer gesture rather than the browser's own
             // drag-and-drop.
             //
@@ -428,7 +447,10 @@ export function PanelCard({
                     (components/InboxPanel.tsx): small, uppercase and in the accent,
                     because a header on the sheet has no fill or rule to say it is a
                     header and the letterform has to do it alone. */}
-                  <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep">
+                  <h3
+                    className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.11em] text-accent-deep"
+                    style={colour ? { color: swatchInk(colour) } : undefined}
+                  >
                     {panel.name}
                   </h3>
                   {/* That this panel gathers rather than holds, and what it

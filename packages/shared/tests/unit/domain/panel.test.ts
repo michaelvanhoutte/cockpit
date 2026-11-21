@@ -77,6 +77,25 @@ describe('Panels', () => {
     });
   });
 
+  describe('a panel’s colour is one of the eight or none, however it was kept', () => {
+    it.each([
+      { situation: 'a colour this version has no swatch for', colour: 'chartreuse', drawn: 'with no colour', reads: null },
+      { situation: 'a swatch name in other capitals', colour: 'Rose', drawn: 'with no colour', reads: null },
+      { situation: 'none', colour: null, drawn: 'with no colour', reads: null },
+      { situation: 'one of the eight', colour: 'rose', drawn: 'in it', reads: 'rose' },
+    ])('a Panel kept with $situation is drawn $drawn', ({ colour, reads }) => {
+      const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items', colour };
+
+      expect(panelSchema.parse(kept).colour).toBe(reads);
+    });
+
+    it('a Panel kept from before colours existed is drawn with no colour', () => {
+      const kept = { id: 'p1', tenantId: 't', dashboardId: 'd1', name: 'Next up', kind: 'items' };
+
+      expect(panelSchema.parse(kept).colour ?? null).toBeNull();
+    });
+  });
+
   describe('a suggested panel is always named "Dashboard ▸ Panel"', () => {
     it.each([
       { situation: 'a panel on a live dashboard', dashboard: 'Day to day', panel: 'Admin & money', reads: 'Day to day ▸ Admin & money' },

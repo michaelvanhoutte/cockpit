@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { swatchSchema } from './domain/swatches.js';
 import {
   attachmentContentTypeSchema,
   attachmentFilenameSchema,
@@ -261,6 +262,17 @@ export const setPanelNeverProposeSchema = commandEnvelopeSchema.extend({
   neverPropose: z.boolean(),
 });
 export type SetPanelNeverProposeCommand = z.infer<typeof setPanelNeverProposeSchema>;
+
+/**
+ * set_panel_colour — a Panel's colour, one of the eight swatches or null for
+ * *None* ("Brainstorming: Panels can't be told apart at a glance", issue 1832).
+ * Only a Panel has one: no command gives an Item a colour.
+ */
+export const setPanelColourSchema = commandEnvelopeSchema.extend({
+  panelId: z.uuid(),
+  colour: swatchSchema.nullable(),
+});
+export type SetPanelColourCommand = z.infer<typeof setPanelColourSchema>;
 
 /** set_panel_format — how a Panel of text's words are drawn, not what they are (architecture.md §4.4). */
 export const setPanelFormatSchema = commandEnvelopeSchema.extend({
@@ -1395,6 +1407,7 @@ export const commandSchemas = {
   set_panel_text: setPanelTextSchema,
   set_panel_read_only: setPanelReadOnlySchema,
   set_panel_never_propose: setPanelNeverProposeSchema,
+  set_panel_colour: setPanelColourSchema,
   set_panel_format: setPanelFormatSchema,
   set_panel_filter: setPanelFilterSchema,
   set_panel_sort: setPanelSortSchema,

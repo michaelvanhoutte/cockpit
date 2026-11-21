@@ -488,8 +488,9 @@ describe('Backup', () => {
    * Keep it in step when a change is added to the end of `accountChanges`.
    */
   const COLUMNS_THE_LAST_TWO_CHANGES_ADD: Record<string, string[]> = {
-    // `0115-item-links` adds three tables and no column ("Brainstorming: the whiteboard can't show how Items connect", issue 1831),
-    // and a backup taken before it carries no rows of them; the guest's demonstration adds rows only, and only to the guest.
+    // `0116-panel-colours` adds each Panel's colour ("Brainstorming: Panels can't be told apart at a glance", issue 1832);
+    // the guest's demonstration adds rows only, and only to the guest.
+    panels: ['colour'],
   };
 
   /** That backup as it would really have been taken, both halves agreeing. */

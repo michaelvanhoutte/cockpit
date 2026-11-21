@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { swatchSchema } from './swatches.js';
 import { NAME_MAX_LENGTH, isSingleLine, prioritySchema, workspaceNameSchema } from './item.js';
 
 /**
@@ -583,6 +584,14 @@ export const panelSchema = z.object({
    * existed, or a width this release has never heard of, reads as one list.
    */
   columns: panelColumnsSchema.nullable().catch(null).default(null),
+  /**
+   * The Panel's colour, drawn on its header and border in the lists, or null
+   * for *None* ("Brainstorming: Panels can't be told apart at a glance", issue
+   * 1832). Permissive like `columns`: a copy from before this existed, or a
+   * name this release has never heard of, reads as *None*; optional so that a
+   * Panel built without one is one.
+   */
+  colour: swatchSchema.nullable().catch(null).optional(),
 });
 export type Panel = z.infer<typeof panelSchema>;
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { A_DESK, onAScreen } from '../onAScreen';
+import { A_DESK, A_PHONE, onAScreen } from '../onAScreen';
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -591,19 +591,19 @@ describe('Panels', () => {
       {
         situation: 'a panel of items',
         panel: aPanel('falcon', 'Project Falcon'),
-        offers: ['Settings…', 'Sort…'],
+        offers: ['Settings…', 'Sort…', 'Colour…'],
         never: ['Rename', 'Never propose'],
       },
       {
         situation: 'a filter',
         panel: aFilter('due', 'Due soon'),
-        offers: ['Settings…', 'Filter…', 'Sort…'],
+        offers: ['Settings…', 'Filter…', 'Sort…', 'Colour…'],
         never: ['Rename'],
       },
       {
         situation: 'a panel of text',
         panel: aPanelOfText('words', 'What matters'),
-        offers: ['Settings…'],
+        offers: ['Settings…', 'Colour…'],
         never: ['Rename', 'Make read-only', 'Allow editing', 'Use rich text', 'Use plain text'],
       },
     ])('offers Settings… in place of Rename and the toggles on $situation', async ({ panel, offers, never }) => {
@@ -895,8 +895,8 @@ describe('Panels', () => {
 
         expect(screen.queryByRole('menuitem', { name: new RegExp(`^${gone}`) })).toBeNull();
         // And the count, so they cannot come back under other words: select
-        // all, rename, sort, move to another dashboard, delete.
-        expect(screen.getAllByRole('menuitem')).toHaveLength(5);
+        // all, settings, sort, colour, move to another dashboard, delete.
+        expect(screen.getAllByRole('menuitem')).toHaveLength(6);
       },
     );
   });
@@ -5143,6 +5143,87 @@ describe('Panels', () => {
       showBoard({ panels: [aPanelOfText('notes', 'Notes')] });
 
       expect(within(screen.getByRole('region', { name: 'Notes' })).queryByText(/later/)).toBeNull();
+    });
+  });
+});
+
+describe('Panels', () => {
+  describe('the colour shows as a Panel’s header and border in the list, and nowhere else', () => {
+    const header = (panel: string) => handleOf(panel);
+    const region = (panel: string) => screen.getByRole('region', { name: panel });
+    const coloured = { ...aPanel('falcon', 'Project Falcon'), colour: 'teal' as const };
+
+    /** A Panel with one Item filed on it, so there is a row the colour must leave alone. */
+    const withARow = (panels: Panel[]) => ({
+      panels,
+      items: [anItem('one', 'Answer Tom')],
+      filings: [{ panelId: 'falcon', itemId: 'one', position: 0 }],
+    });
+
+    it.each([
+      { situation: 'a desk', width: A_DESK },
+      { situation: 'a phone', width: A_PHONE },
+    ])('paints the header and the border of a coloured Panel on $situation, and no row or other Panel', ({ width }) => {
+      screenIs(width);
+      onAScreen(width);
+      showBoard(withARow([coloured, aPanel('reading', 'To read')]));
+
+      expect(header('Project Falcon').style.background).toBe('var(--color-cat-teal-tint)');
+      // Its faint text is drawn soft, so it holds its contrast on the tint.
+      expect(header('Project Falcon').style.getPropertyValue('--color-ink-faint')).toBe('var(--color-ink-soft)');
+      expect(within(header('Project Falcon')).getByRole('heading', { name: 'Project Falcon' }).style.color).toBe('var(--color-cat-teal)');
+      expect(region('Project Falcon').style.borderColor).toBe('var(--color-cat-teal)');
+      // Nothing inside it is tinted or dotted: the colour is the Panel's, not its Items'.
+      const row = region('Project Falcon').querySelector('[data-item-id]')!;
+      expect(row).not.toBeNull();
+      expect(row.outerHTML).not.toMatch(/--color-cat-/);
+      for (const inside of region('Project Falcon').querySelectorAll('[data-item-id], [data-item-id] *')) {
+        expect((inside as HTMLElement).style.background).toBe('');
+        expect((inside as HTMLElement).style.borderColor).toBe('');
+      }
+      // A Panel with none is drawn as it always was.
+      expect(header('To read').style.background).toBe('');
+      expect(region('To read').style.borderColor).toBe('');
+      expect(region('To read').outerHTML).not.toMatch(/--color-cat-/);
+    });
+
+    it('sends nothing when the question is cancelled or escaped', async () => {
+      const { user, mutate } = showBoard({ panels: [coloured] });
+
+      await choose(user, 'Project Falcon', 'Colour…');
+      await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
+      await choose(user, 'Project Falcon', 'Colour…');
+      await screen.findByRole('radiogroup', { name: 'Colour' });
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('draws a Panel set to None as one never coloured', () => {
+      showBoard({ panels: [{ ...aPanel('falcon', 'Project Falcon'), colour: null }, aPanel('reading', 'To read')] });
+
+      expect(region('Project Falcon').outerHTML).not.toMatch(/--color-cat-/);
+      expect(region('To read').outerHTML).not.toMatch(/--color-cat-/);
+    });
+
+    it('sends the colour chosen from the Panel’s menu, marks the one it has, and None sends null', async () => {
+      const { user, mutate } = showBoard({ panels: [coloured] });
+
+      await choose(user, 'Project Falcon', 'Colour…');
+      const swatches = within(await screen.findByRole('radiogroup', { name: 'Colour' }));
+      expect(swatches.getAllByRole('radio')).toHaveLength(9);
+      expect(swatches.getByRole('radio', { name: 'Teal' })).toBeChecked();
+      await user.click(swatches.getByRole('radio', { name: 'Rose' }));
+
+      expect(mutate.mock.calls.at(-1)![0]).toMatchObject({ name: 'set_panel_colour', payload: { panelId: 'falcon', colour: 'rose' } });
+      await waitFor(() => expect(screen.queryByRole('radiogroup', { name: 'Colour' })).toBeNull());
+
+      await choose(user, 'Project Falcon', 'Colour…');
+      await user.click(await screen.findByRole('radio', { name: 'None' }));
+
+      expect(mutate.mock.calls.at(-1)![0]).toMatchObject({ name: 'set_panel_colour', payload: { panelId: 'falcon', colour: null } });
     });
   });
 });

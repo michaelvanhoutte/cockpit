@@ -2064,4 +2064,53 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, panel)).toEqual([soon, later]);
     });
   });
+
+  test.describe('a Panel’s colour is chosen from its menu and shows as its header and border, and nowhere else', () => {
+    test('paints that Panel’s header and border, leaves its rows and the other Panel as they were, keeps it through a reload, and None takes it away', async ({ page, isMobile }) => {
+      const [coloured, plain] = [uniqueTitle('Falcon'), uniqueTitle('Reading')];
+      const [onColoured, onPlain] = [uniqueTitle('Answer Tom'), uniqueTitle('Book the dentist')];
+      const name = await ownDashboard(page, isMobile, [coloured, plain], async (board) => {
+        await giveToAPanel(page, board.panels[0]!, [onColoured]);
+        await giveToAPanel(page, board.panels[1]!, [onPlain]);
+      });
+      const look = (panel: string, title: string) =>
+        page.evaluate(
+          ([region, rowTitle]) => {
+            const found = document.querySelector(`section[aria-label="${region}"]`)!;
+            const row = [...found.querySelectorAll('[data-item-row]')].find((one) => one.textContent?.includes(rowTitle!))!;
+            const of = (element: Element) => getComputedStyle(element);
+            return {
+              header: of(found.querySelector('header')!).backgroundColor,
+              border: of(found).borderTopColor,
+              borderWidth: of(found).borderTopWidth,
+              row: of(row).backgroundColor,
+            };
+          },
+          [panel, title] as const,
+        );
+      await expect.poll(() => itemsOn(page, coloured)).toEqual([onColoured]);
+      const before = await look(coloured, onColoured);
+      const untouched = await look(plain, onPlain);
+
+      await choosePanelAction(page, coloured, 'Colour…', isMobile);
+      await press(page.getByRole('radio', { name: 'Rose' }), isMobile);
+      await expect.poll(async () => (await look(coloured, onColoured)).header).not.toBe(before.header);
+
+      const painted = await look(coloured, onColoured);
+      expect(painted.border).not.toBe(before.border);
+      expect(painted.borderWidth).toBe('2px');
+      expect(painted.row).toBe(before.row);
+      expect(await look(plain, onPlain)).toEqual(untouched);
+      await expectNoSidewaysScroll(page);
+
+      await page.reload();
+      await openDashboard(page, name, isMobile);
+      await expect.poll(() => look(coloured, onColoured)).toEqual(painted);
+
+      await choosePanelAction(page, coloured, 'Colour…', isMobile);
+      await expect(page.getByRole('radio', { name: 'Rose' })).toBeChecked();
+      await press(page.getByRole('radio', { name: 'None' }), isMobile);
+      await expect.poll(() => look(coloured, onColoured)).toEqual(before);
+    });
+  });
 });

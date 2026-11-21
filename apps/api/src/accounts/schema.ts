@@ -557,6 +557,15 @@ export const panels = sqliteTable(
      * restore.ts). The unique index `panels_item` holds one Panel to an Item.
      */
     itemId: text('item_id'),
+    /**
+     * The Panel's colour ("Brainstorming: Panels can't be told apart at a
+     * glance", issue 1832): one of the eight swatches by name, and NULL for
+     * *None*. Drawn on its header and border in the lists and nowhere else; an
+     * Item has no colour. **No CHECK**, for the reason `dashboards.layout_view`
+     * has none: added to a table that cannot be rebuilt, and `set_panel_colour`'s
+     * schema is the one writer.
+     */
+    colour: text('colour'),
     createdAt: text('created_at').notNull(),
     deletedAt: text('deleted_at'),
   },
