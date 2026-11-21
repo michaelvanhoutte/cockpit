@@ -1,6 +1,5 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import type { AccountDb } from './client.js';
-import { DEAD_STATUS_VALUE, items, panelItems, panels } from './schema.js';
 
 type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
 
@@ -10,109 +9,13 @@ type InATransaction = Parameters<Parameters<AccountDb['transaction']>[0]>[0];
  * walk and lookups below read Items as parents only.
  *
  * **A Panel is never a parent** ("Brainstorming: a Panel is an Item nobody can
- * open", issue 1846), and what is filed on it is read from `panel_items`. The
- * release before reads filings from the rows under a Panel's own Item
- * ("Brainstorming: give every Panel an Item and store filings as Item-in-Item
- * relations", issue 1824), so the writes here still make, rename and dismiss
- * that Item and keep its rows and counts equal to `panel_items`, inside the
- * transaction of every change that moves them, for a rollback to lose nothing.
+ * open", issue 1846), and what is filed on it is read and written in
+ * `panel_items` alone ("Brainstorming: Panels still carry a hidden Item each",
+ * issue 1833). The Items older Panels were given ("Brainstorming: give every
+ * Panel an Item and store filings as Item-in-Item relations", issue 1824) are
+ * dismissed, and the rows under them tombstoned (`0117-panels-items-dismissed`);
+ * the walk and lookups below still pass over them by `panels.item_id`.
  */
-
-/**
- * The Item a new Panel is, in the transaction that makes the Panel: the
- * Panel's id, title and Workspace, its texts settled. A replay that finds it
- * changes nothing.
- */
-export function insertPanelsItem(
-  tx: InATransaction,
-  tenantId: string,
-  panel: { id: string; name: string },
-  workspaceId: string,
-  at: string,
-): void {
-  tx.insert(items)
-    .values({
-      id: panel.id,
-      tenantId,
-      workspaceId,
-      workspaceDecided: true,
-      source: 'internal',
-      title: panel.name,
-      textsSettledAt: at,
-      status: DEAD_STATUS_VALUE,
-      createdAt: at,
-      updatedAt: at,
-    })
-    .onConflictDoNothing({ target: items.id })
-    .run();
-}
-
-/** A Panel's new title, written to its Item as well. */
-export function renamePanelsItem(tx: InATransaction, tenantId: string, panelId: string, name: string, at: string): void {
-  tx.run(sql`UPDATE items SET title = ${name}, updated_at = ${at}
-              WHERE tenant_id = ${tenantId}
-                AND id = (SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND id = ${panelId})`);
-}
-
-/**
- * The Items of Panels just deleted, dismissed with them - one Panel, or every
- * Panel of a deleted Dashboard - so a live Item never stands for a Panel that
- * is gone, as the backfill gives a deleted one none.
- */
-export function dismissPanelsItems(
-  tx: InATransaction,
-  tenantId: string,
-  of: { panelId: string } | { dashboardId: string },
-  at: string,
-): void {
-  const which =
-    'panelId' in of
-      ? sql`SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND id = ${of.panelId}`
-      : sql`SELECT item_id FROM panels WHERE tenant_id = ${tenantId} AND dashboard_id = ${of.dashboardId}`;
-  tx.run(sql`UPDATE items SET deleted_at = ${at}, updated_at = ${at}
-              WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND id IN (${which})`);
-}
-
-/** The Panels an Item is filed on now, read before a move takes it off them. */
-export function panelsHolding(tx: InATransaction, tenantId: string, itemId: string): string[] {
-  return tx
-    .select({ panelId: panelItems.panelId })
-    .from(panelItems)
-    .where(and(eq(panelItems.tenantId, tenantId), eq(panelItems.itemId, itemId)))
-    .all()
-    .map((row) => row.panelId);
-}
-
-/**
- * Each Panel's Item made to hold exactly what is filed on the Panel, in its
- * order: what left is tombstoned, what arrived or came back is put in with
- * its place, and the Item's counts are counted again. Copied in SQL from the
- * Panel's own rows, so a Panel of any size is two statements and no batch.
- */
-export function mirrorFilingsOf(tx: InATransaction, tenantId: string, panelIds: Iterable<string>, at: string): void {
-  for (const panelId of new Set(panelIds)) {
-    const holder = tx
-      .select({ itemId: panels.itemId })
-      .from(panels)
-      .where(and(eq(panels.tenantId, tenantId), eq(panels.id, panelId)))
-      .get()?.itemId;
-    if (!holder) continue;
-    tx.run(sql`UPDATE item_children SET deleted_at = ${at}
-                WHERE tenant_id = ${tenantId} AND parent_id = ${holder} AND deleted_at IS NULL
-                  AND NOT EXISTS (SELECT 1 FROM panel_items f
-                                   WHERE f.tenant_id = ${tenantId} AND f.panel_id = ${panelId}
-                                     AND f.item_id = item_children.child_id)`);
-    tx.run(sql`INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
-                SELECT f.tenant_id, ${holder}, f.item_id, f.position, ${at} FROM panel_items f
-                 WHERE f.tenant_id = ${tenantId} AND f.panel_id = ${panelId}
-                ON CONFLICT (parent_id, child_id) DO UPDATE SET
-                  position = excluded.position,
-                  created_at = CASE WHEN item_children.deleted_at IS NULL THEN item_children.created_at
-                                    ELSE excluded.created_at END,
-                  deleted_at = NULL`);
-    tx.run(sql`UPDATE items SET ${COUNTS} WHERE tenant_id = ${tenantId} AND id = ${holder}`);
-  }
-}
 
 /**
  * The counts of every Item holding this one, counted again after it was

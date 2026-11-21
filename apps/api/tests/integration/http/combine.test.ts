@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, inject, it } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
 import { ACCOUNT_WIDE, filingsThatFile, itemsInTheInbox, type WorkspaceSnapshot } from '@cockpit/shared';
-import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, alsoWorkspaces, asUser, inTheStore, seedRegister, startFromEmpty, storeNamed, withoutTheGuide } from '../seed.js';
+import { ACCOUNT_NAME, DASHBOARD_ID, WORKSPACE_ID, alsoWorkspaces, asUser, givePanelItsItemFromBefore, inTheStore, seedRegister, startFromEmpty, storeNamed, withoutTheGuide } from '../seed.js';
 
 /**
  * Integration level, through the real Worker: "Brainstorming: related loose
@@ -104,7 +104,7 @@ describe('Triage', () => {
 
     /**
      * Where an original was filed is read from the Panels' filings ("Brainstorming: a Panel is an Item nobody can
-     * open", issue 1846): written here as a filing alone, or alone under the Panel, as only one release reads each.
+     * open", issue 1846): written here as a filing alone, or alone under the Item an older release gave the Panel.
      */
     it.each([
       { situation: 'filed on it, never recorded under it', table: 'panel_items (tenant_id, panel_id, item_id', filed: true },
@@ -112,9 +112,10 @@ describe('Triage', () => {
     ])('files the new Item where an original is filed, read from the filings alone: an original $situation', async ({ table, filed }) => {
       const [a, b] = [await aNote('Storm over the ferry'), await aNote('Captain asleep')];
       const people = await aPanel('People');
-      await inTheStore((sql) =>
-        sql.exec(`INSERT INTO ${table}, position, created_at) VALUES (?, ?, ?, 0, ?)`, ACCOUNT_NAME, people, a, '2026-11-19T09:00:00.000Z'),
-      );
+      await inTheStore((sql) => {
+        givePanelItsItemFromBefore(sql, people);
+        sql.exec(`INSERT INTO ${table}, position, created_at) VALUES (?, ?, ?, 0, ?)`, ACCOUNT_NAME, people, a, '2026-11-19T09:00:00.000Z');
+      });
       const merged = nextId();
 
       expect((await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'The crossing', description: 'Both' })).status).toBe(200);
@@ -188,8 +189,7 @@ describe('Triage', () => {
       expect(read.filings).toContainEqual(expect.objectContaining({ panelId: people, itemId: a }));
       expect(read.children).toEqual(expect.arrayContaining([expect.objectContaining({ parentId: parent, childId: b })]));
       expect(read.items.find((item) => item.id === parent)).toMatchObject({ title: 'Chapter 3', childrenCount: 3, childrenDone: 0 });
-      // The row under the Panel's own Item is the filing, kept for the release before.
-      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM panels WHERE panels.item_id = item_children.parent_id)', parent)).toEqual([]);
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', parent)).toEqual([]);
       expect(await rows('SELECT keeps_story FROM items WHERE id = ?', parent)).toEqual([{ keeps_story: 1 }]);
     });
 
@@ -496,7 +496,7 @@ describe('Panels', () => {
 
       expect(await onPanel(people)).toEqual([a, parent, d]);
       expect(await holding(parent)).toEqual([c, b]);
-      // The Panel's own Item mirrors it, and a Panel the leaves did not name keeps what it held.
+      // A Panel the leaves did not name keeps what it held.
       expect((await onPanel(elsewhere)).sort()).toEqual([a, b].sort());
     });
 

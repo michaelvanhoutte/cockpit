@@ -202,6 +202,7 @@ export function accountChanges(accountId: string): readonly Change[] {
     WHITEBOARDS,
     ITEM_LINKS,
     PANEL_COLOURS,
+    PANELS_ITEMS_DISMISSED,
     // Always last, so the demonstration is written into every column the
     // changes above leave - a Filter's conditions and an Item's start among
     // them. Append new changes above this line. The one exception to never
@@ -2279,6 +2280,74 @@ const ITEM_LINKS: Change = {
 const PANEL_COLOURS: Change = {
   name: '0116-panel-colours',
   statements: [{ sql: 'ALTER TABLE `panels` ADD COLUMN `colour` text' }],
+};
+
+/**
+ * The contract of the Panels' own Items ("Brainstorming: Panels still carry a
+ * hidden Item each", issue 1833, release C): every Item a Panel is
+ * (`panels.item_id`) is dismissed and the `item_children` rows under it are
+ * tombstoned, in one transaction per account, and from this release no change
+ * writes either - filings are `panel_items` alone. Reads already come from
+ * `panel_items` ("Brainstorming: a Panel is an Item nobody can open", issue
+ * 1846). `panels.item_id`, its index and the dismissed Items stay until a
+ * later release drops them.
+ *
+ * - **Nothing is deleted, re-seeded, wiped or restored**: rows are dismissed or
+ *   tombstoned, and their counts set to the nothing they now hold. An Item is
+ *   dismissed as of its last write, and a row under it no earlier than that or
+ *   its own arrival, rather than at the clock: the same store comes out the
+ *   same wherever it runs, which the guest's nightly reset compares.
+ * - **Stopping halfway:** one change is one transaction (store.ts), so an
+ *   interruption leaves the account exactly as it was, the ledger records
+ *   nothing, and the next request runs it whole.
+ * - **Running a second time:** each statement touches only a Panel's Item not
+ *   yet dismissed, a live row under one, or a count not yet nothing, so a
+ *   second run changes nothing.
+ * - **Rows that break the rule:**
+ *   - a live row under the Item of a live Panel on a live Dashboard whose Item
+ *     is not filed on that Panel in `panel_items` cannot exist, since every
+ *     filing wrote both tables (`0110-filings-copied-again` made them equal);
+ *     one that does fails the change loudly - its holder is null, which
+ *     `parent_id NOT NULL` refuses - rather than being tombstoned unread;
+ *   - a row under the Item of a deleted Panel, or of a Panel on a deleted
+ *     Dashboard, is tombstoned without that check: `0110` dismissed such an
+ *     Item and left its rows as they were on purpose, so they need not match.
+ * - **What each environment holds:** staging and production hold real Panels
+ *   and filings, and staging holds Panels' Items. `pnpm backup:export` runs
+ *   before the release.
+ * - **The rollback floor:** release S ("Brainstorming: a Panel is an Item
+ *   nobody can open", issue 1846) reads filings from `panel_items`, so it is
+ *   the floor; a release before it would read filings from tombstoned rows.
+ *   Promoted back to S, a Panel made then gets a live Item again, which every
+ *   read still leaves out (`notAPanelsOwnItem`, repo.ts) and this does not
+ *   revisit, as a recorded change never runs twice.
+ */
+const PANELS_ITEMS_DISMISSED: Change = {
+  name: '0117-panels-items-dismissed',
+  statements: [
+    {
+      sql: `INSERT INTO item_children (tenant_id, parent_id, child_id, position, created_at)
+              SELECT c.tenant_id, NULL, c.child_id, c.position, c.created_at
+                FROM item_children c
+                JOIN panels p ON p.item_id = c.parent_id
+                JOIN dashboards d ON d.id = p.dashboard_id
+               WHERE c.deleted_at IS NULL AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM panel_items f WHERE f.panel_id = p.id AND f.item_id = c.child_id)`,
+    },
+    {
+      sql: `UPDATE items SET deleted_at = updated_at
+             WHERE deleted_at IS NULL AND id IN (SELECT item_id FROM panels WHERE item_id IS NOT NULL)`,
+    },
+    {
+      sql: `UPDATE item_children SET deleted_at = max(created_at, (SELECT i.updated_at FROM items i WHERE i.id = item_children.parent_id))
+             WHERE deleted_at IS NULL AND parent_id IN (SELECT item_id FROM panels WHERE item_id IS NOT NULL)`,
+    },
+    {
+      sql: `UPDATE items SET children_count = 0, children_done = 0
+             WHERE (children_count <> 0 OR children_done <> 0)
+               AND id IN (SELECT item_id FROM panels WHERE item_id IS NOT NULL)`,
+    },
+  ],
 };
 
 /** What a Gmail connection made in the core says until it is reconnected (`0066-gmail-connections-reconnect`). */
@@ -6412,9 +6481,9 @@ function guestDemoSeed(accountId: string): Change {
   const name = '0026-guest-demo-seed';
   if (accountId !== GUEST_ACCOUNT_NAME) return { name, statements: [] };
   const day = new Date().toISOString().slice(0, 10);
-  // Its Panels and filings arrive after `0109-panels-become-items` has run,
-  // so they become Items here, by the same statements (issue 1824).
-  if (seeded?.day !== day) seeded = { day, statements: [...guestDemoStatements(GUEST_ACCOUNT_NAME, day), ...panelsBecomeItems()] };
+  // Its Panels arrive after `0117-panels-items-dismissed`, so, as a Panel made
+  // today, none of them is an Item (issue 1833).
+  if (seeded?.day !== day) seeded = { day, statements: guestDemoStatements(GUEST_ACCOUNT_NAME, day) };
   return { name, statements: seeded.statements };
 }
 
