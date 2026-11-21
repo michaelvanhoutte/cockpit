@@ -4219,6 +4219,27 @@ describe('Panels', () => {
       expect(pickedNow(dashboardScope(TODAY.id)).size).toBe(0);
     });
 
+    it('in columns, reads the parent, its children, then the next cell, the children inside the parent’s own cell', async () => {
+      const NEXT = anItem('11111111-1111-7111-8111-000000000023', 'Next cell');
+      held.items = [CHAPTER, STORM, FERRY, NEXT];
+      held.filings = [
+        { panelId: 'p-falcon', itemId: CHAPTER.id, position: 0 },
+        { panelId: 'p-falcon', itemId: NEXT.id, position: 1 },
+      ];
+      const user = await showList({ items: [CHAPTER, NEXT], openDashboardId: TODAY.id, panelId: 'p-falcon', columns: 'medium' });
+
+      await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));
+      await screen.findByText('Storm scene');
+
+      // The reading order J and K and a shift-click span walk is the order the rows are drawn in.
+      const drawn = [...document.querySelectorAll<HTMLElement>('li[data-item-row]')].map((row) => row.dataset.itemId);
+      expect(drawn).toEqual([CHAPTER.id, STORM.id, FERRY.id, NEXT.id]);
+      // In the parent's cell, so no band spans the grid.
+      const cell = document.querySelector(`[data-column-cell="${CHAPTER.id}"]`)!;
+      expect(cell.contains(childRows())).toBe(true);
+      expect(cell.contains(document.querySelector(`[data-item-id="${NEXT.id}"]`))).toBe(false);
+    });
+
     it('acts on the child from a child row’s menu', async () => {
       const user = await onAPanel();
       await user.click(screen.getByRole('button', { name: 'Unfold Chapter 3' }));

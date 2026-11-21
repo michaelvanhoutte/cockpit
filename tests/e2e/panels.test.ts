@@ -7,6 +7,7 @@ import {
   giveAnArrangement,
   giveAnEmptyDashboard,
   giveToAPanel,
+  giveToTheInbox,
   type ArrangedDashboard,
   type ArrangedPanel,
   type PanelToGive,
@@ -737,8 +738,11 @@ test.describe('Panels', () => {
       await page.setViewportSize({ width: 2000, height: 1000 });
       const panel = uniqueTitle('Falcon');
       const titles = ['one', 'two', 'three', 'four', 'five', 'six'].map(uniqueTitle);
+      const child = uniqueTitle('under');
       await ownDashboard(page, isMobile, [panel], async (board) => {
         await giveToAPanel(page, board.panels[0]!, titles);
+        const [childId] = await giveToTheInbox(page, [child]);
+        await arrange(page, 'add_children', { parentId: board.panels[0]!.itemIds[1]!, childIds: [childId!] });
       });
       const [first, second, third, fourth, fifth, sixth] = titles as [
         string, string, string, string, string, string,
@@ -789,6 +793,25 @@ test.describe('Panels', () => {
       await expect.poll(() => itemsOn(page, panel)).toEqual([fourth, first, second, sixth, third, fifth]);
       const [x, y] = await Promise.all([fourth, first].map(async (title) => itemRow(page, title).boundingBox()));
       expect(x!.y).toBe(y!.y);
+
+      // An unfolded parent's children stay in its column, not a full-width band (issue 1878):
+      // the second, in the right column of the first line (after the drag above), unfolds its child under it, in that column.
+      const box = async (title: string) => (await itemRow(page, title).boundingBox())!;
+      const nextLine = (await box(sixth)).y;
+      await press(page.getByRole('button', { name: `Unfold ${second}` }), isMobile);
+      const under = page.locator('[data-child-rows] [data-item-row]').filter({ hasText: child });
+      await expect(under).toBeVisible();
+      const [parentBox, childBox, fourthBox, sixthBox] = await Promise.all([box(second), under.boundingBox().then((found) => found!), box(fourth), box(sixth)]);
+      expect(childBox.y).toBeGreaterThanOrEqual(parentBox.y + parentBox.height - 1);
+      expect(childBox.x).toBeGreaterThanOrEqual(parentBox.x);
+      expect(childBox.x + childBox.width).toBeLessThanOrEqual(parentBox.x + parentBox.width + 1);
+      // The left cell of that line keeps its row's height, and the next line starts below the child.
+      expect(fourthBox.y).toBe(parentBox.y);
+      expect(sixthBox.y).toBeGreaterThanOrEqual(childBox.y + childBox.height);
+      // Folded again, the line is one row tall.
+      await press(page.getByRole('button', { name: `Fold ${second}` }), isMobile);
+      await expect(under).toHaveCount(0);
+      expect((await box(sixth)).y).toBe(nextLine);
 
       // Sorted, a row is dragged to no new place in it.
       const sorted = answerTo(page, 'set_panel_sort');

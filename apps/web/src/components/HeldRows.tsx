@@ -63,8 +63,8 @@ export default function HeldRows({
   };
   if (!unfolded || held.length === 0) return null;
   return (
-    // The whole width in columns, under the parent's line, rather than a cell of its own.
-    <li className="col-span-full border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
+    // In columns the parent's own cell holds them (`rowFor` in `ItemList`), so they sit in its column.
+    <li className="border-l-2 border-accent/25 pl-5" data-child-rows={parent.id}>
       <ItemList
         workspaceId={workspaceId}
         items={held}
