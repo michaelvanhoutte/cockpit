@@ -121,6 +121,8 @@ describe('Triage', () => {
       expect((await send('merge_items', { itemId: merged, originalIds: [a, b], title: 'The crossing', description: 'Both' })).status).toBe(200);
 
       expect((await snapshot()).filings.some((filing) => filing.itemId === merged && filing.panelId === people)).toBe(filed);
+      // Never inside the Panel's own Item, which is no parent.
+      expect(await rows('SELECT parent_id FROM item_children WHERE child_id = ? AND deleted_at IS NULL', merged)).toEqual([]);
     });
 
     it('refuses an Item from a source, naming it, and changes nothing', async () => {

@@ -1828,9 +1828,7 @@ const ITEM_CHILDREN: Change = {
  * Every live Panel becomes an Item, and every filing on one is also held by
  * that Item (issue 1824), in one transaction per account, after
  * `0108-item-children` as the Agents' retirement runs after its columns.
- * Reads still come from `panel_items`. The guest's demonstration carried the
- * same statements at its end until its Panels stopped being Items
- * ("Brainstorming: Panels still carry a hidden Item each", issue 1833).
+ * Reads still come from `panel_items`.
  *
  * - **Every live Panel's Item** - filter and text Panels included - is
  *   `internal`, carries the Panel's title and Workspace, has its texts settled

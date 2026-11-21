@@ -541,8 +541,10 @@ export const panels = sqliteTable(
      * rows under it, and no change writes either any more: a Panel a change
      * makes since has none. A new account's first and guide Panels are made by
      * changes before `0109`, so they are given one there and dismissed by
-     * `0117` on the same opening. A later release deletes those Items and drops
-     * the column. Until
+     * `0117` on the same opening. A Panel made while a release before it is
+     * promoted back gets a live Item, written as that release writes it, which
+     * stays live once this one returns. A later release deletes every such
+     * Item, live or dismissed, and drops the column. Until
      * then it is read only to leave that Item out: of every list, search and
      * Item read (`notAPanelsOwnItem`), and as a parent from every
      * Item-inside-Item read and the Inbox rule (`noPanelsItem`, `noLiveParent`,
