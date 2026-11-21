@@ -119,6 +119,7 @@ export function BoardCard({
           {children.map((child) => (
             <li
               key={child.id}
+              data-nested-item={child.id}
               onDoubleClick={(event) => {
                 if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
                 event.stopPropagation();

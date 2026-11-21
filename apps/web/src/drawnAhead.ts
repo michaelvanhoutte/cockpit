@@ -245,7 +245,7 @@ function boardLayoutChosen(
   change: Extract<Drawn, { name: 'set_dashboard_view' | 'set_dashboard_split' }>,
 ): WorkspaceSnapshot {
   if (change.payload.workspaceId !== snapshot.workspace.id) return snapshot;
-  const boards = snapshot.whiteboards ?? { layouts: [], boxes: [], cards: [] };
+  const boards = snapshot.whiteboards ?? { layouts: [], boxes: [], cards: [], lineKinds: [], links: [], lines: [] };
   const { dashboardId } = change.payload;
   const was = boards.layouts.find((one) => one.dashboardId === dashboardId) ?? { dashboardId, view: null, splitShare: null };
   const now = change.name === 'set_dashboard_view' ? { ...was, view: change.payload.view } : { ...was, splitShare: change.payload.splitShare };

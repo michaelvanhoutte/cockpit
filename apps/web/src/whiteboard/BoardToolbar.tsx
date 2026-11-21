@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type Tool = 'select' | 'box';
+export type Tool = 'select' | 'box' | 'line';
 
 const chip = 'flex items-center gap-1 rounded-md border border-shade/10 bg-surface p-1 shadow-md';
 const small = 'flex items-center rounded px-2 py-1 text-xs text-ink hover:bg-accent-tint';
@@ -24,18 +24,32 @@ const TOOLS: { value: Tool; label: string; icon: ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    value: 'line',
+    label: 'Draw line',
+    icon: (
+      <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="3 2" aria-hidden="true">
+        <path d="M2 13 14 3" />
+      </svg>
+    ),
+  },
 ];
 
 /**
  * A whiteboard's two toolbars ("Brainstorming: give every Dashboard a
- * whiteboard of its own", issue 1829): *Select · Draw box* and the grid's
- * snapping on the left, the zoom, *Fit* and *Full screen* on the right. A narrow
+ * whiteboard of its own", issue 1829): *Select · Draw box · Draw line*, the
+ * kind the next link is drawn as, *Show labels* and the grid's snapping on the
+ * left ("Brainstorming: the whiteboard can't show how Items connect", issue
+ * 1831), the zoom, *Fit* and *Full screen* on the right. A narrow
  * board (under 700px) draws each as its icon, named on hover. A board only to
  * look at, on a phone, has the right-hand one alone.
  */
 export function BoardToolbar({
   tool,
   onTool,
+  kindPicker = null,
+  showLabels = false,
+  onShowLabels = () => {},
   grid,
   onGrid,
   zoom,
@@ -49,6 +63,10 @@ export function BoardToolbar({
 }: {
   tool: Tool;
   onTool: (tool: Tool) => void;
+  /** The picker of the kind the next link is drawn as (`KindPicker`). */
+  kindPicker?: ReactNode;
+  showLabels?: boolean;
+  onShowLabels?: () => void;
   grid: boolean;
   onGrid: () => void;
   zoom: number;
@@ -80,6 +98,17 @@ export function BoardToolbar({
             </button>
           ))}
           <span className="mx-1 h-4 w-px bg-shade/15" />
+          {kindPicker}
+          <button
+            type="button"
+            aria-label="Show labels"
+            title="Show labels"
+            aria-pressed={showLabels}
+            onClick={onShowLabels}
+            className={`${small} ${showLabels ? 'bg-accent-tint text-accent-deep' : ''}`}
+          >
+            {said('Show labels', <span className="text-[11px] font-semibold">Aa</span>)}
+          </button>
           <button
             type="button"
             aria-label="Snap to grid"

@@ -7,22 +7,26 @@ import { showTheCard } from '../boardFocus';
 import { useOpenItem } from '../itemForm';
 import { useRoomForTheInbox } from '../roomForTheInbox';
 import { useRelations } from './ItemRelations';
+import { kindsOrFixed, linksByKind } from '../whiteboard/links';
 
 /**
  * The POC's Relations tab ("Brainstorming: an Item can't hold other Items",
- * issue 1825): Parents, then Children, each one opening that Item. Fetched
- * when the tab opens, so it costs the initial bundle nothing.
+ * issue 1825): Parents, then Children, then its links by kind and direction
+ * (*Leads to*, *Comes from*; issue 1831), each one opening that Item, then the
+ * whiteboards it is on. Fetched when the tab opens, so it costs the initial
+ * bundle nothing.
  */
 export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: string; item: Item }) {
-  const { data, parents, children, notListed, places } = useRelations(workspaceId, item);
+  const { data, parents, children, notListed, places, links } = useRelations(workspaceId, item);
   const openItem = useOpenItem();
   const navigate = useNavigate();
   const send = useSendCommand();
   const atADesk = useRoomForTheInbox();
   if (!data) return null;
-  if (parents.length === 0 && children.length === 0 && notListed === 0 && places.length === 0) {
-    return <p className="text-sm text-ink-faint">No parents, children or whiteboards yet.</p>;
+  if (parents.length === 0 && children.length === 0 && notListed === 0 && links.length === 0 && places.length === 0) {
+    return <p className="text-sm text-ink-faint">No parents, children, links or whiteboards yet.</p>;
   }
+  const linked = linksByKind(item.id, links, kindsOrFixed(workspaceId, data.whiteboards?.lineKinds));
   /** Goes to the card: its Dashboard, with the whiteboard beside its Panels where only they were shown, the card selected and in view. */
   const goToCard = (place: (typeof places)[number]) => {
     const { view, splitShare } = boardLayoutOf(data, place.dashboardId);
@@ -65,6 +69,9 @@ export default function ItemRelationsTab({ workspaceId, item }: { workspaceId: s
     <section aria-label="Relations" className="flex flex-col gap-4">
       {row('Parents', parents)}
       {row('Children', children, notListed)}
+      {linked.map((group) => (
+        <div key={group.heading}>{row(group.heading, group.itemIds)}</div>
+      ))}
       {places.length > 0 && (
         <div className="flex flex-col gap-1">
           <h3 className="text-xs font-semibold tracking-[0.12em] text-ink-soft uppercase">On whiteboards</h3>

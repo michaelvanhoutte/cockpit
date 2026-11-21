@@ -31,13 +31,15 @@ export function useRelations(workspaceId: string, item: Item) {
       const box = card.boxId ? boards?.boxes.find((one) => one.id === card.boxId) : undefined;
       return [{ cardId: card.id, dashboardId: dashboard.id, dashboardName: dashboard.name, boxLabel: box ? box.label || 'Box' : null }];
     });
-  return { data, parents, children, notListed, places };
+  /** Its links, either way, between it and an Item not dismissed ("Brainstorming: the whiteboard can't show how Items connect", issue 1831). */
+  const links = (boards?.links ?? []).filter((link) => link.fromItemId === item.id || link.toItemId === item.id);
+  return { data, parents, children, notListed, places, links };
 }
 
-/** *Relations · N*: every parent and every child, listed or not, and every whiteboard it is on. */
+/** *Relations · N*: every parent and every child, listed or not, every link, and every whiteboard it is on. */
 export function useRelationCount(workspaceId: string, item: Item | null | undefined): number {
-  const { parents, children, notListed, places } = useRelations(workspaceId, item ?? EMPTY);
-  return item ? parents.length + children.length + notListed + places.length : 0;
+  const { parents, children, notListed, places, links } = useRelations(workspaceId, item ?? EMPTY);
+  return item ? parents.length + children.length + notListed + links.length + places.length : 0;
 }
 
 const EMPTY = { id: '', childrenCount: 0 } as Item;

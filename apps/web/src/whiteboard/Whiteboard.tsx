@@ -2,6 +2,8 @@ import '@xyflow/react/dist/style.css';
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
+  MarkerType,
   NodeResizer,
   ReactFlow,
   ReactFlowProvider,
@@ -11,6 +13,7 @@ import {
   useNodesInitialized,
   useReactFlow,
   useViewport,
+  type FinalConnectionState,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -18,7 +21,7 @@ import {
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { childIdsOf, itemLabel, uuidv7, type ChildRow, type Item } from '@cockpit/shared';
-import { SWATCHES, type BoardBox, type BoardCard as PlacedCard, type Swatch } from '@cockpit/shared/board';
+import { SWATCHES, type BoardBox, type BoardCard as PlacedCard, type BoardLine, type LineKind, type Swatch } from '@cockpit/shared/board';
 import { useLatestSnapshot, useSendCommand, whyNotDone, type CommandArgs } from '../api/queries';
 import { useSnapshot } from '../api/useSnapshot';
 import { cardWanted, selectedOnTheBoard, takeUnfolds, useCardWanted } from '../boardFocus';
@@ -32,6 +35,9 @@ import { panelLiftedFrom, parentLiftedFrom, selectionCarried } from '../itemInTh
 import { dashboardScope, useSelection } from '../selection';
 import { useUndo } from '../undo';
 import { BoardCard } from './BoardCard';
+import { Dots, FreeLines, LineBeingDrawn, edgeTypes, type LinkEdge } from './BoardLinks';
+import { KindPicker, KindSample, type KindFields } from './LineKinds';
+import { DASHES, kindsOrFixed, lineInk, linksOnTheBoard } from './links';
 import { BoardToolbar, type Tool } from './BoardToolbar';
 import { cardUnder, clickRenames, dropAnswers, f2Renames, offeredWithItsCard, pickedOnTheBoard, renameStillWanted } from './gestures';
 import { BOX_HEAD, CARD_W, GRID, MIN_BOX, boardOf, boxAt, boxesWithin, hiddenByCollapse, originOf, relativeTo, whyNotPlaceable, type Board } from './layout';
@@ -57,6 +63,13 @@ import './boardDrawn';
  * else moves between boxes and open space and files nothing; *Take off the
  * whiteboard* is in a card's menu; and a selected card's title or a box's name
  * renames in place from a click on it or F2.
+ *
+ * "Brainstorming: the whiteboard can't show how Items connect" (issue 1831):
+ * **a card shows a dot on each side on hover**, and a dot dragged to another
+ * card links their Items with the kind the toolbar's picker holds. Every link
+ * between two Items drawn here is drawn, under the cards; a click on one
+ * changes its kind or label or removes it. **Draw line** draws a free line,
+ * which belongs to this board alone.
  */
 
 type CardData = { itemId: string };
@@ -110,6 +123,7 @@ function CardView({ id, data, selected }: NodeProps<CardNode>) {
       data-card-id={id}
       className={`rounded-md ${ctx.flashId === id ? 'ring-4 ring-accent animate-pulse' : ctx.dropTargetId === id ? 'ring-4 ring-accent/60' : selected ? 'ring-2 ring-accent' : ''}`}
     >
+      <Dots readOnly={ctx.readOnly} />
       <BoardCard
         item={item}
         sourceNames={ctx.sourceNames}
@@ -322,6 +336,126 @@ function Floating({ at, label, onClose, children }: { at: { x: number; y: number
 
 const entryClass = 'block w-full rounded px-3 py-1.5 text-left text-sm text-ink hover:bg-accent-tint hover:text-accent-deep';
 
+/**
+ * A label typed for a link or a free line: kept on Enter, on leaving it, or
+ * when its menu closes, if changed; Escape leaves it as it was. Enter and
+ * Escape close the menu.
+ */
+function LabelField({ initial, label, onDone, onEnd }: { initial: string; label: string; onDone: (label: string) => void; onEnd: () => void }) {
+  const [text, setText] = useState(initial);
+  const kept = useRef<{ text: string; done: boolean }>({ text: initial, done: false });
+  kept.current.text = text;
+  const finish = (keep: boolean) => {
+    if (kept.current.done) return;
+    kept.current.done = true;
+    const typed = kept.current.text.trim();
+    if (keep && typed !== initial) onDone(typed);
+  };
+  // Closed by a press elsewhere, which takes the field away before it can lose the focus.
+  useEffect(() => {
+    // Mounted again in development's double run: the field is open once more.
+    kept.current.done = false;
+    return () => finish(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <input
+      autoFocus
+      value={text}
+      maxLength={200}
+      placeholder="Label (optional)"
+      aria-label={label}
+      onChange={(event) => setText(event.target.value)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter' || event.key === 'Escape') {
+          finish(event.key === 'Enter');
+          onEnd();
+        }
+      }}
+      onBlur={() => finish(true)}
+      className="w-full rounded-md border border-shade/10 bg-field px-2 py-1 text-sm outline-none focus:border-accent"
+    />
+  );
+}
+
+/** A link clicked (the POC's): its kind, its own label, and *Remove link*. */
+function LinkMenu({
+  at,
+  link,
+  kinds,
+  onKind,
+  onLabel,
+  onRemove,
+  onClose,
+}: {
+  at: { x: number; y: number };
+  link: { id: string; kindId: string; label: string | null } | undefined;
+  kinds: readonly LineKind[];
+  onKind: (linkId: string, kindId: string) => void;
+  onLabel: (linkId: string, label: string) => void;
+  onRemove: (linkId: string) => void;
+  onClose: () => void;
+}) {
+  if (!link) return null;
+  return (
+    <Floating at={{ x: at.x + 6, y: at.y + 6 }} label="Link" onClose={onClose}>
+      <div className="w-56 p-1">
+        <p className="px-1 pb-1 text-xs font-semibold tracking-[0.12em] text-accent-deep uppercase">Kind</p>
+        {kinds.map((one) => (
+          <button
+            key={one.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={one.id === link.kindId}
+            onClick={() => {
+              if (one.id !== link.kindId) onKind(link.id, one.id);
+              onClose();
+            }}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent-tint ${one.id === link.kindId ? 'font-medium text-accent-deep' : 'text-ink'}`}
+          >
+            <KindSample kind={one} />
+            {one.name}
+          </button>
+        ))}
+        <div className="mt-2">
+          <LabelField initial={link.label ?? ''} label="Label of this link" onDone={(label) => onLabel(link.id, label)} onEnd={onClose} />
+        </div>
+        <button type="button" role="menuitem" onClick={() => onRemove(link.id)} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
+          Remove link
+        </button>
+      </div>
+    </Floating>
+  );
+}
+
+/** A free line clicked, or just drawn: its label, and *Remove line*. */
+function LineMenu({
+  at,
+  line,
+  onLabel,
+  onRemove,
+  onClose,
+}: {
+  at: { x: number; y: number };
+  line: BoardLine | undefined;
+  onLabel: (lineId: string, label: string) => void;
+  onRemove: (line: BoardLine) => void;
+  onClose: () => void;
+}) {
+  if (!line) return null;
+  return (
+    <Floating at={{ x: at.x + 6, y: at.y + 6 }} label="Line" onClose={onClose}>
+      <div className="w-56 p-1">
+        <LabelField initial={line.label} label="Label this line" onDone={(label) => onLabel(line.id, label)} onEnd={onClose} />
+        <button type="button" role="menuitem" onClick={() => onRemove(line)} className="mt-1 w-full rounded px-2 py-1 text-left text-sm text-over-ink hover:bg-accent-tint">
+          Remove line
+        </button>
+      </div>
+    </Floating>
+  );
+}
+
 /** Snap to grid, remembered per board on this device. */
 function useGrid(dashboardId: string): [boolean, () => void] {
   const key = `cockpit-board-grid:${dashboardId}`;
@@ -363,7 +497,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const send = useSendCommand();
   const latest = useLatestSnapshot();
   const offerToUndo = useUndo();
-  const flow = useReactFlow<FlowNode>();
+  const flow = useReactFlow<FlowNode, LinkEdge>();
   const initialised = useNodesInitialized();
   const { zoom } = useViewport();
   const [tool, setTool] = useState<Tool>('select');
@@ -375,6 +509,12 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
   const [flashId, setFlashId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // Links and free lines (issue 1831): the kind the next link is drawn as, whether every link names its kind, the link under the pointer, and a link's or line's menu.
+  const [kindId, setKindId] = useState<string | null>(null);
+  const [showLabels, setShowLabels] = useState(false);
+  const [hoveredLink, setHoveredLink] = useState<string | null>(null);
+  const [linkMenu, setLinkMenu] = useState<{ linkId: string; at: { x: number; y: number } } | null>(null);
+  const [lineMenu, setLineMenu] = useState<{ lineId: string; at: { x: number; y: number } } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [line, setLine] = useState<string | null>(null);
   const [boxMenu, setBoxMenu] = useState<{ boxId: string; at: { x: number; y: number } } | null>(null);
@@ -413,6 +553,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     [data?.children, items],
   );
   const cardOf = useCallback((id: string) => board.cards.find((card) => card.id === id), [board.cards]);
+  const kinds = useMemo(() => kindsOrFixed(workspaceId, data?.whiteboards?.lineKinds), [workspaceId, data?.whiteboards?.lineKinds]);
+  const kind = kinds.find((one) => one.id === kindId) ?? kinds[0]!;
+  const allLinks = data?.whiteboards?.links;
   const boxOf = useCallback((id: string) => board.boxes.find((box) => box.id === id), [board.boxes]);
 
   const envelope = () => ({ commandId: uuidv7(), issuedAt: new Date().toISOString(), workspaceId });
@@ -458,6 +601,22 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const now = takeUnfolds(new Set(board.cards.map((card) => card.itemId)));
     if (now.length > 0) setUnfolded((was) => new Set([...was, ...now]));
   }, [board.cards]);
+
+  // ---- Links: every one with both Items drawn here, as a card or inside an unfolded card ----
+  const edges = useMemo(
+    () =>
+      linksOnTheBoard(allLinks ?? [], kinds, board, (itemId) => (unfolded.has(itemId) ? childIdsOf(data?.children ?? [], itemId).filter((id) => items.has(id)) : [])).map(
+        (drawn): LinkEdge => ({
+          id: drawn.link.id,
+          source: drawn.from.cardId,
+          target: drawn.to.cardId,
+          type: 'link',
+          ...(drawn.kind.arrow ? { markerEnd: { type: MarkerType.ArrowClosed, color: lineInk(drawn.kind), width: 16, height: 16 } } : {}),
+          data: { drawn, hovered: hoveredLink === drawn.link.id, showLabels },
+        }),
+      ),
+    [allLinks, kinds, board, unfolded, data?.children, items, hoveredLink, showLabels],
+  );
 
   // ---- Selection, followed to and from the rows in the Panels pane ----
   const selectedCards = nodes.filter((node) => node.selected && node.type === 'card') as CardNode[];
@@ -549,6 +708,48 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
       unlessRefused: answer,
       undo: () => send({ name: 'restore_box', payload: { ...envelope(), boxId: box.id } }),
     });
+  };
+
+  // ---- Links, their kinds, and free lines ----
+  /** A dot dragged from a card and let go on another card, or on an Item inside an unfolded one, links their Items. */
+  const onConnectEnd = (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    const fromCard = state.fromNode ? cardOf(state.fromNode.id) : undefined;
+    const pointer = pointerOf(event);
+    if (readOnly || !fromCard || !pointer) return;
+    const under = typeof document === 'undefined' ? null : document.elementFromPoint(pointer.x, pointer.y);
+    const nested = under?.closest('[data-nested-item]')?.getAttribute('data-nested-item') ?? null;
+    const onCard = cardAt(flow.screenToFlowPosition(pointer), new Set([fromCard.id])) ?? (state.toNode ? cardOf(state.toNode.id) : undefined);
+    const toItemId = nested ?? onCard?.itemId ?? null;
+    if (!toItemId || toItemId === fromCard.itemId) return;
+    void run({ name: 'link_items', payload: { ...envelope(), linkId: uuidv7(), fromItemId: fromCard.itemId, toItemId, kindId: kind.id } }, 'The link was not made.');
+  };
+  const removeLink = (linkId: string) => {
+    setLinkMenu(null);
+    const answer = send({ name: 'unlink_items', payload: { ...envelope(), linkId } });
+    answer.catch(() => {});
+    offerToUndo({ what: 'Link removed', unlessRefused: answer, undo: () => send({ name: 'restore_link', payload: { ...envelope(), linkId } }) });
+  };
+  const addKind = (made: KindFields) => {
+    const id = uuidv7();
+    setKindId(id);
+    void run({ name: 'add_line_kind', payload: { ...envelope(), kindId: id, ...made } }, 'The line kind was not added.');
+  };
+  const editKind = (was: LineKind, to: KindFields) => void run({ name: 'edit_line_kind', payload: { ...envelope(), kindId: was.id, ...to } }, 'The line kind was not changed.');
+  const deleteKind = (gone: LineKind) => {
+    if (kindId === gone.id) setKindId(null);
+    const answer = send({ name: 'delete_line_kind', payload: { ...envelope(), kindId: gone.id } });
+    answer.catch(() => {});
+    offerToUndo({
+      what: `“${gone.name}” deleted; its links are Related now`,
+      unlessRefused: answer,
+      undo: () => send({ name: 'restore_line_kind', payload: { ...envelope(), kindId: gone.id } }),
+    });
+  };
+  const removeLine = (line: BoardLine) => {
+    setLineMenu(null);
+    const answer = send({ name: 'delete_line', payload: { ...envelope(), lineId: line.id } });
+    answer.catch(() => {});
+    offerToUndo({ what: 'Line removed', unlessRefused: answer, undo: () => send({ name: 'restore_line', payload: { ...envelope(), lineId: line.id } }) });
   };
 
   // ---- Rename in place: a click on the title of what is selected, or F2 ----
@@ -747,6 +948,17 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
     const a = flow.screenToFlowPosition({ x: drawing.x0 + rect.left, y: drawing.y0 + rect.top });
     const b = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     const snap = (v: number) => (grid ? Math.round(v / GRID) * GRID : Math.round(v));
+    if (tool === 'line') {
+      // A press with no drag draws nothing; a line drawn asks for its label at once, which may be left empty.
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 12) return;
+      const lineId = uuidv7();
+      void run(
+        { name: 'draw_line', payload: { ...envelope(), lineId, dashboardId, x1: snap(a.x), y1: snap(a.y), x2: snap(b.x), y2: snap(b.y), label: '' } },
+        'The line was not drawn.',
+      );
+      setLineMenu({ lineId, at: { x: event.clientX, y: event.clientY } });
+      return;
+    }
     const topLeft = { x: snap(Math.min(a.x, b.x)), y: snap(Math.min(a.y, b.y)) };
     const parent = boxAt(board.boxes, topLeft);
     const place = relativeTo(board.boxes, parent, topLeft);
@@ -843,6 +1055,8 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
       if (full) setFull(false);
       setTool('select');
       setDrawing(null);
+      setLinkMenu(null);
+      setLineMenu(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -896,6 +1110,12 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
 
   return (
     <BoardContext.Provider value={ctx}>
+      <style>{`
+        [data-whiteboard] .board-dot { width: 10px; height: 10px; background: var(--color-surface); border: 2px solid var(--color-accent); opacity: 0; transition: opacity .12s; }
+        [data-whiteboard] .react-flow__node-card:hover .board-dot, [data-whiteboard] .react-flow__node-card.selected .board-dot, [data-whiteboard] .react-flow__node-card .board-dot.connectingfrom { opacity: 1; }
+        [data-whiteboard] .board-dot:hover { background: var(--color-accent); }
+        [data-whiteboard] .board-dot.board-dot-unseen { visibility: hidden; }
+      `}</style>
       <div
         ref={wrapper}
         data-whiteboard={dashboardId}
@@ -904,10 +1124,21 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         onDrop={onDrop}
         className={`${full ? 'fixed inset-0 z-floating' : 'relative h-full w-full'} overflow-hidden rounded-md border border-shade/10 bg-surface`}
       >
-        <ReactFlow<FlowNode>
+        <ReactFlow<FlowNode, LinkEdge>
           nodes={nodes}
+          edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          onConnectEnd={onConnectEnd}
+          connectionMode={ConnectionMode.Loose}
+          connectionLineStyle={{ stroke: lineInk(kind), strokeWidth: 2, ...(DASHES[kind.style] ? { strokeDasharray: DASHES[kind.style] } : {}) }}
+          onEdgeClick={(event, edge) => {
+            if (readOnly) return;
+            setLinkMenu({ linkId: edge.id, at: { x: event.clientX, y: event.clientY } });
+          }}
+          onEdgeMouseEnter={(_, edge) => setHoveredLink(edge.id)}
+          onEdgeMouseLeave={() => setHoveredLink(null)}
           onNodeDragStart={stopRenameLater}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
@@ -926,7 +1157,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           snapToGrid={grid}
           snapGrid={[GRID, GRID]}
           nodesDraggable={!readOnly}
-          nodesConnectable={false}
+          nodesConnectable={!readOnly}
           elementsSelectable={!readOnly}
           panOnDrag={[0, 1]}
           panOnScroll
@@ -939,6 +1170,7 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         >
           {grid && <Background variant={BackgroundVariant.Dots} gap={GRID} size={1.4} color="var(--color-shade)" style={{ opacity: 0.25 }} />}
           <ViewportPortal>
+            <FreeLines lines={board.lines} readOnly={readOnly} onPress={(one, at) => setLineMenu({ lineId: one.id, at })} />
             {pending && pendingAt && (
               // A box being drawn, named in its header before it is made.
               <div
@@ -953,9 +1185,20 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
           </ViewportPortal>
         </ReactFlow>
 
-        {!readOnly && tool === 'box' && (
-          <div className="absolute inset-0 z-10 cursor-crosshair" data-drawing-box onPointerDown={overlayDown} onPointerMove={overlayMove} onPointerUp={overlayUp}>
-            {drawing && (
+        {!readOnly && tool !== 'select' && (
+          <div
+            className="absolute inset-0 z-10 cursor-crosshair"
+            {...(tool === 'box' ? { 'data-drawing-box': '' } : { 'data-drawing-line': '' })}
+            onPointerDown={overlayDown}
+            onPointerMove={overlayMove}
+            onPointerUp={overlayUp}
+          >
+            {drawing && tool === 'line' && (
+              <svg className="pointer-events-none absolute inset-0 h-full w-full">
+                <LineBeingDrawn {...drawing} />
+              </svg>
+            )}
+            {drawing && tool === 'box' && (
               <svg className="pointer-events-none absolute inset-0 h-full w-full">
                 <rect
                   x={Math.min(drawing.x0, drawing.x1)}
@@ -975,6 +1218,9 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         <BoardToolbar
           tool={tool}
           onTool={setTool}
+          kindPicker={<KindPicker kinds={kinds} kind={kind} compact={narrow} onPick={setKindId} onAdd={addKind} onEdit={editKind} onDelete={deleteKind} />}
+          showLabels={showLabels}
+          onShowLabels={() => setShowLabels((was) => !was)}
           grid={grid}
           onGrid={toggleGrid}
           zoom={zoom}
@@ -1094,6 +1340,26 @@ function BoardInner({ workspaceId, dashboardId, readOnly }: { workspaceId: strin
         </Floating>
       )}
 
+      {linkMenu && (
+        <LinkMenu
+          at={linkMenu.at}
+          link={(allLinks ?? []).find((one) => one.id === linkMenu.linkId)}
+          kinds={kinds}
+          onKind={(linkId, to) => void run({ name: 'set_link_kind', payload: { ...envelope(), linkId, kindId: to } }, 'The link was not changed.')}
+          onLabel={(linkId, label) => void run({ name: 'set_link_label', payload: { ...envelope(), linkId, label } }, 'The label was not changed.')}
+          onRemove={removeLink}
+          onClose={() => setLinkMenu(null)}
+        />
+      )}
+      {lineMenu && (
+        <LineMenu
+          at={lineMenu.at}
+          line={board.lines.find((one) => one.id === lineMenu.lineId)}
+          onLabel={(lineId, label) => void run({ name: 'set_line_label', payload: { ...envelope(), lineId, label } }, 'The label was not changed.')}
+          onRemove={removeLine}
+          onClose={() => setLineMenu(null)}
+        />
+      )}
       {dropAsk && <DropQuestion ask={dropAsk} board={board} items={items} children={data?.children ?? []} onAnswer={answerDrop} />}
       {addingAsChild.dialog}
 

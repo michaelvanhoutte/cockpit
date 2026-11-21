@@ -1,5 +1,5 @@
 import { itemLabel, type WorkspaceSnapshot } from '@cockpit/shared';
-import type { BoardBox, BoardCard } from '@cockpit/shared/board';
+import type { BoardBox, BoardCard, BoardLine } from '@cockpit/shared/board';
 
 /**
  * Where a Dashboard's whiteboard draws its boxes and cards ("Brainstorming:
@@ -17,9 +17,11 @@ export const MIN_BOX = { w: 160, h: 100 };
 export interface Board {
   boxes: BoardBox[];
   cards: BoardCard[];
+  /** Its free lines (issue 1831). */
+  lines: BoardLine[];
 }
 
-/** One Dashboard's boxes, parents before what they hold, and its cards. A box naming a parent not on the board sits on open space. */
+/** One Dashboard's boxes, parents before what they hold, its cards and its free lines. A box naming a parent not on the board sits on open space. */
 export function boardOf(snapshot: WorkspaceSnapshot | undefined, dashboardId: string): Board {
   const all = snapshot?.whiteboards;
   const boxes = (all?.boxes ?? []).filter((box) => box.dashboardId === dashboardId);
@@ -33,7 +35,8 @@ export function boardOf(snapshot: WorkspaceSnapshot | undefined, dashboardId: st
   const cards = (all?.cards ?? [])
     .filter((card) => card.dashboardId === dashboardId)
     .map((card) => (card.boxId && !ids.has(card.boxId) ? { ...card, boxId: null } : card));
-  return { boxes: [...placed].sort((a, b) => depth(a) - depth(b)), cards };
+  const lines = (all?.lines ?? []).filter((line) => line.dashboardId === dashboardId);
+  return { boxes: [...placed].sort((a, b) => depth(a) - depth(b)), cards, lines };
 }
 
 /** A box's top left corner on the board itself, adding up the boxes it sits in. */

@@ -5048,7 +5048,7 @@ describe('Item editing', () => {
 
       await user.click(screen.getByRole('tab', { name: 'Relations' }));
 
-      expect(await screen.findByText('No parents, children or whiteboards yet.')).toBeVisible();
+      expect(await screen.findByText('No parents, children, links or whiteboards yet.')).toBeVisible();
     });
   });
 
@@ -5066,13 +5066,13 @@ describe('Item editing', () => {
         { id: 'dash-novel', name: 'Novel' },
         { id: 'dash-plan', name: 'Plan' },
       ];
-      held.whiteboards = { layouts: [], boxes: [box], cards };
+      held.whiteboards = { layouts: [], boxes: [box], cards, lineKinds: [], links: [], lines: [] };
       const user = await theForm();
 
       await user.click(screen.getByRole('tab', { name: /^Relations/ }));
 
       if (reads.length === 0) {
-        expect(await screen.findByText('No parents, children or whiteboards yet.')).toBeVisible();
+        expect(await screen.findByText('No parents, children, links or whiteboards yet.')).toBeVisible();
         return;
       }
       const relations = await screen.findByRole('region', { name: 'Relations' });
@@ -5082,7 +5082,7 @@ describe('Item editing', () => {
 
     it('goes to the card: its Dashboard opened, with that card asked to be shown', async () => {
       held.dashboards = [{ id: 'dash-novel', name: 'Novel' }];
-      held.whiteboards = { layouts: [{ dashboardId: 'dash-novel', view: 'side', splitShare: null }], boxes: [box], cards: [card('card-1', 'dash-novel', 'box-people')] };
+      held.whiteboards = { layouts: [{ dashboardId: 'dash-novel', view: 'side', splitShare: null }], boxes: [box], cards: [card('card-1', 'dash-novel', 'box-people')], lineKinds: [], links: [], lines: [] };
       const user = await theForm();
       await user.click(screen.getByRole('tab', { name: /^Relations/ }));
 
@@ -5090,6 +5090,60 @@ describe('Item editing', () => {
 
       expect(held.navigate).toHaveBeenCalledWith(expect.objectContaining({ params: { workspaceId: 'ws-work', dashboardId: 'dash-novel' } }));
       expect(cardWanted('dash-novel')).toBe('card-1');
+    });
+  });
+
+  /** Links by kind ("Brainstorming: the whiteboard can't show how Items connect", issue 1831); which links the read carries is the API's. */
+  describe('Relations groups links by kind and direction, and each opens', () => {
+    const PEOPLE = anItem({ id: 'item-people', title: 'People' });
+    const MENTOR = anItem({ id: 'item-mentor', title: 'Mentor' });
+    const kind = (id: string, name: string, arrow: boolean, role: 'leads_to' | 'related' | null) => ({ id, name, style: 'solid' as const, colour: 'slate' as const, arrow, role });
+    const link = (id: string, fromItemId: string, toItemId: string, kindId: string) => ({ id, fromItemId, toItemId, kindId, label: null });
+
+    beforeEach(() => {
+      held.children = [];
+      held.open = vi.fn();
+      held.whiteboards = {
+        layouts: [],
+        boxes: [],
+        cards: [],
+        lineKinds: [kind('k-leads', 'Leads to', true, 'leads_to'), kind('k-related', 'Related', false, 'related'), kind('k-blocks', 'Blocks', true, null)],
+        links: [
+          link('l1', 'item-1', PEOPLE.id, 'k-leads'),
+          link('l2', MENTOR.id, 'item-1', 'k-leads'),
+          link('l3', PEOPLE.id, 'item-1', 'k-related'),
+          link('l4', MENTOR.id, 'item-1', 'k-blocks'),
+          link('l5', PEOPLE.id, MENTOR.id, 'k-leads'),
+        ],
+        lines: [],
+      };
+    });
+
+    it('lists where it leads, where it comes from, what it is related to, and an added kind each way, the count with them', async () => {
+      const user = await theForm(anItem(), [PEOPLE, MENTOR]);
+
+      await user.click(screen.getByRole('tab', { name: 'Relations · 4' }));
+
+      const relations = await screen.findByRole('region', { name: 'Relations' });
+      const groups = within(relations)
+        .getAllByRole('heading')
+        .map((heading) => [heading.textContent, within(heading.nextElementSibling as HTMLElement).getAllByRole('button').map((one) => one.textContent)]);
+      expect(groups).toEqual([
+        ['Leads to', ['People']],
+        ['Comes from', ['Mentor']],
+        ['Related', ['People']],
+        ['Blocks (from)', ['Mentor']],
+      ]);
+    });
+
+    it('opens the Item a link names', async () => {
+      const user = await theForm(anItem(), [PEOPLE, MENTOR]);
+      await user.click(screen.getByRole('tab', { name: /^Relations/ }));
+
+      const relations = await screen.findByRole('region', { name: 'Relations' });
+      await user.click(within(within(relations).getByRole('heading', { name: 'Comes from' }).nextElementSibling as HTMLElement).getByRole('button', { name: 'Mentor' }));
+
+      expect(held.open).toHaveBeenCalledWith(MENTOR.id);
     });
   });
 });
